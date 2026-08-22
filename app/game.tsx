@@ -40,6 +40,79 @@ type SpawnKind = "hostile" | "friendly" | "transmit";
 type SpawnFx = { x: number; y: number; type: PickupId; kind: SpawnKind; age: number; life: number; count: number };
 
 type QualityMode = "auto" | "high" | "performance";
+type LayoutPref = "auto" | "game" | "desktop";
+type SticksMode = "docked" | "overlay" | "gutter";
+
+/**
+ * Layout is derived from the device alone — never from whether a match is
+ * running — so the interface never rearranges itself mid-session.
+ */
+type DeviceLayout = {
+  touch: boolean;
+  /** No precise pointer: a real handheld rather than a touchscreen laptop. */
+  coarse: boolean;
+  handheld: boolean;
+  orientation: "portrait" | "landscape";
+  form: "phone" | "tablet" | "desktop";
+  /** Too narrow for an inline control row; the MENU panel takes over. */
+  narrow: boolean;
+  /** Square arena edge in CSS pixels, measured rather than guessed. */
+  arena: number;
+  stick: number;
+  sticks: SticksMode;
+};
+
+/** Immersive chrome heights, kept in step with the values in globals.css. */
+const TOP_H = 48;
+const HUD_H = 44;
+const DOCK_H = 62;
+const GAP = 6;
+
+const DESKTOP_LAYOUT: DeviceLayout = {
+  touch: false, coarse: false, handheld: false, orientation: "landscape",
+  form: "desktop", narrow: false, arena: 0, stick: 0, sticks: "docked",
+};
+
+function readDeviceLayout(): DeviceLayout {
+  const coarse = window.matchMedia("(pointer: coarse)").matches;
+  const touch = navigator.maxTouchPoints > 0 || coarse || "ontouchstart" in window;
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  const shortEdge = Math.min(w, h);
+  // A touchscreen laptop reports touch points but has a fine pointer and a big
+  // screen; it should keep the desktop cockpit.
+  const handheld = touch && (coarse || shortEdge < 950);
+  const orientation = w >= h ? "landscape" : "portrait";
+  const form: DeviceLayout["form"] = !touch ? "desktop" : shortEdge < 600 ? "phone" : "tablet";
+  const narrow = w < 900;
+
+  if (orientation === "landscape") {
+    const stick = Math.round(cap(Math.min(w * 0.16, h * 0.34), 96, 150));
+    // Side gutters keep the arena completely clear, but on a short, wide screen
+    // they cost more arena than floating the sticks over its lower corners.
+    const gutterArena = Math.min(h - TOP_H - GAP * 2, w - 2 * (stick + 20) - GAP * 2);
+    const overlayArena = Math.min(w - GAP * 2, h - TOP_H - DOCK_H - GAP * 4);
+    const useOverlay = overlayArena > gutterArena * 1.15;
+    return {
+      touch, coarse, handheld, orientation, form, narrow,
+      arena: Math.round(Math.max(220, useOverlay ? overlayArena : gutterArena)),
+      stick,
+      sticks: useOverlay ? "overlay" : "gutter",
+    };
+  }
+
+  const stick = Math.round(cap(Math.min(w * 0.3, h * 0.24), 100, 150));
+  const full = w - GAP * 2;
+  // Prefer the layout where nothing overlaps the arena, but only while the
+  // arena still gets most of the width. Otherwise let the arena fill the width
+  // and float the controls over its lower corners.
+  const dockedArena = Math.min(full, h - TOP_H - HUD_H - DOCK_H - stick - GAP * 4);
+  if (dockedArena >= full * 0.82) {
+    return { touch, coarse, handheld, orientation, form, narrow, arena: Math.round(Math.max(220, dockedArena)), stick, sticks: "docked" };
+  }
+  const arena = Math.round(Math.max(220, Math.min(full, h - TOP_H - DOCK_H - GAP * 4)));
+  return { touch, coarse, handheld, orientation, form, narrow, arena, stick, sticks: "overlay" };
+}
 
 type Enemy = {
   x: number;
@@ -543,6 +616,7 @@ export default function WormholeGame() {
   const shellRef = useRef<HTMLElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const canvasWrapRef = useRef<HTMLDivElement>(null);
+  const topActionsRef = useRef<HTMLDivElement>(null);
   const moveStickRef = useRef<HTMLDivElement>(null);
   const aimStickRef = useRef<HTMLDivElement>(null);
   const moveStickPointer = useRef<number | null>(null);
@@ -557,7 +631,9 @@ export default function WormholeGame() {
   const [hud, setHud] = useState<Hud>(() => hudFrom(createGame(selectedShip("wing"))));
   const [sound, setSound] = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
-  const [touchCapable, setTouchCapable] = useState(false);
+  const [device, setDevice] = useState<DeviceLayout>(DESKTOP_LAYOUT);
+  const [layoutPref, setLayoutPref] = useState<LayoutPref>("auto");
+  const [menuOpen, setMenuOpen] = useState(false);
   const [cameraLocked, setCameraLocked] = useState(true);
   const [viewSize, setViewSize] = useState<"compact" | "standard" | "wide">("standard");
   const [quality, setQuality] = useState<QualityMode>("auto");
@@ -572,6 +648,8 @@ export default function WormholeGame() {
   const cameraRef = useRef(true);
   const qualityRef = useRef<QualityMode>("auto");
   const reducedMotionRef = useRef(false);
+  /** CSS pixels of arena covered by the HTML HUD strip, for the canvas to skip. */
+  const hudInsetRef = useRef(0);
   const audioPool = useRef<Map<string, HTMLAudioElement[]>>(new Map());
 
   useEffect(() => { soundRef.current = sound; }, [sound]);
@@ -580,20 +658,55 @@ export default function WormholeGame() {
   useEffect(() => { reducedMotionRef.current = reducedMotion; }, [reducedMotion]);
 
   const gameActive = hud.running && !hud.result;
+  const touchCapable = device.touch;
+  // Immersive is a property of the hardware, not of the match in progress.
+  const immersive = layoutPref === "game" || (layoutPref === "auto" && device.handheld);
 
   useEffect(() => {
     // Touch capability, never viewport width: Fire OS Silk and some Android
     // tablet browsers report a fine pointer while still being touch-only.
     const coarsePointer = window.matchMedia("(pointer: coarse)");
-    const detectTouch = () => setTouchCapable(navigator.maxTouchPoints > 0 || coarsePointer.matches || "ontouchstart" in window);
-    detectTouch();
-    coarsePointer.addEventListener?.("change", detectTouch);
-    window.addEventListener("touchstart", detectTouch, { passive: true, once: true });
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      setDevice((previous) => {
+        const next = readDeviceLayout();
+        return previous.arena === next.arena
+          && previous.stick === next.stick
+          && previous.sticks === next.sticks
+          && previous.orientation === next.orientation
+          && previous.form === next.form
+          && previous.narrow === next.narrow
+          && previous.touch === next.touch
+          && previous.coarse === next.coarse
+          && previous.handheld === next.handheld
+          ? previous
+          : next;
+      });
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(measure); };
+    measure();
+    coarsePointer.addEventListener?.("change", schedule);
+    window.addEventListener("resize", schedule, { passive: true });
+    window.addEventListener("orientationchange", schedule, { passive: true });
+    window.addEventListener("touchstart", schedule, { passive: true, once: true });
     return () => {
-      coarsePointer.removeEventListener?.("change", detectTouch);
-      window.removeEventListener("touchstart", detectTouch);
+      if (frame) cancelAnimationFrame(frame);
+      coarsePointer.removeEventListener?.("change", schedule);
+      window.removeEventListener("resize", schedule);
+      window.removeEventListener("orientationchange", schedule);
+      window.removeEventListener("touchstart", schedule);
     };
   }, []);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointer = (event: PointerEvent) => {
+      if (!topActionsRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    window.addEventListener("pointerdown", onPointer);
+    return () => window.removeEventListener("pointerdown", onPointer);
+  }, [menuOpen]);
 
   useEffect(() => {
     const updateFullscreen = () => setFullscreen(Boolean(document.fullscreenElement));
@@ -604,11 +717,14 @@ export default function WormholeGame() {
   // Page-level gesture suppression is scoped to active touch gameplay so normal
   // scrolling, zooming, and selection stay available everywhere else.
   useEffect(() => {
+    hudInsetRef.current = immersive && device.sticks === "overlay" ? 44 : 0;
+  }, [immersive, device.sticks]);
+
+  useEffect(() => {
     const root = document.documentElement;
-    const engaged = gameActive && touchCapable;
-    root.classList.toggle("wh-playing", engaged);
+    root.classList.toggle("wh-playing", immersive);
     return () => root.classList.remove("wh-playing");
-  }, [gameActive, touchCapable]);
+  }, [immersive]);
 
   useEffect(() => {
     const pool = audioPool.current;
@@ -749,7 +865,7 @@ export default function WormholeGame() {
       // button or link so it can still be activated from the keyboard.
       const editing = Boolean(target?.closest("input, textarea, select, [contenteditable='true']"));
       const activating = (code === "Space" || code === "Enter") && Boolean(target?.closest("button, a[href]"));
-      if (code === "Escape") { setInspect(null); setCodexOpen(false); }
+      if (code === "Escape") { setInspect(null); setCodexOpen(false); setMenuOpen(false); }
       if (editing || activating) return;
       if (gameKeys.includes(code)) event.preventDefault();
       if (code === "Enter" && (!gameRef.current.running || gameRef.current.result)) start();
@@ -1658,6 +1774,7 @@ export default function WormholeGame() {
       const fs = (size: number) => Math.max(11.5, Math.round(size * base * 10) / 10);
       const mono = (weight: number, size: number) => `${weight} ${fs(size)}px ui-monospace, SFMono-Regular, Menlo, monospace`;
       const pad = Math.round(fs(12));
+      const top = pad + hudInsetRef.current;
       const compactUi = W < 540;
 
       const fit = (text: string, maxWidth: number) => {
@@ -1678,16 +1795,18 @@ export default function WormholeGame() {
       const chargeW = cap(W * 0.34, 158, 216);
       const chargeH = Math.round(fs(12) * (compactUi ? 2.6 : 3.9));
       const noticeH = Math.round(fs(12) * 2.5);
-      const noticeW = compactUi ? W - pad * 2 : W - pad * 2 - chargeW - 8;
-      const chargeY = compactUi ? pad + noticeH + 6 : pad;
+      const noticeRoom = compactUi ? W - pad * 2 : W - pad * 2 - chargeW - 8;
+      const chargeY = compactUi ? top + noticeH + 6 : top;
 
       // Mission notice, falling back to the next thing the player has to do.
-      panel(pad, pad, noticeW, noticeH, "rgba(102,225,255,.24)");
       const live = game.noticeLife > 0;
-      ctx.fillStyle = live ? "#eafcff" : "#a7c8d1";
+      const noticeText = live ? game.notice : coachLine(game);
       ctx.font = mono(live ? 800 : 700, live ? 12.5 : 12);
+      const noticeW = Math.min(noticeRoom, ctx.measureText(noticeText).width + pad * 1.8);
+      panel(pad, top, noticeW, noticeH, "rgba(102,225,255,.24)");
+      ctx.fillStyle = live ? "#eafcff" : "#a7c8d1";
       ctx.textAlign = "left";
-      ctx.fillText(fit(live ? game.notice : coachLine(game), noticeW - pad * 1.6), pad + pad * 0.8, pad + noticeH / 2);
+      ctx.fillText(fit(noticeText, noticeW - pad * 1.6), pad + pad * 0.8, top + noticeH / 2);
 
       // Wormhole charge.
       const chargeX = W - pad - chargeW;
@@ -1732,6 +1851,7 @@ export default function WormholeGame() {
       }
 
       // Spawn nameplates, projected from the portal into HUD space.
+      let plateRow = 0;
       for (const spawn of game.spawns) {
         const p = cap(spawn.age / spawn.life, 0, 1);
         const meta = WEAPONS[spawn.type];
@@ -1758,7 +1878,9 @@ export default function WormholeGame() {
         const plateX = cap(sx - plateW / 2, 4, Math.max(4, W - plateW - 4));
         // Keep nameplates clear of the fixed HUD band at the top of the arena.
         const plateTop = chargeY + chargeH + 8;
-        const plateY = cap(sy - plateH - 74 * camera.camScale * (W / BOARD), plateTop, Math.max(plateTop, W - plateH - 4));
+        const stacked = plateRow * (plateH + 6);
+        plateRow += 1;
+        const plateY = cap(sy - plateH - 74 * camera.camScale * (W / BOARD) - stacked, plateTop + stacked, Math.max(plateTop + stacked, W - plateH - 4));
         const accent = spawn.kind === "hostile" ? "#ff6a80" : spawn.kind === "friendly" ? "#8dffd0" : meta.color;
         panel(plateX, plateY, plateW, plateH, `${accent}88`);
         ctx.fillStyle = spawn.kind === "hostile" ? "#ffd7dd" : "#eafcff";
@@ -1772,7 +1894,7 @@ export default function WormholeGame() {
       // Rival wormhole label follows the portal.
       const portalX = (game.portalX * camera.camScale + camera.camX) * (W / BOARD);
       const portalY = (game.portalY * camera.camScale + camera.camY) * (W / BOARD);
-      if (portalX > -60 && portalX < W + 60 && portalY > -60 && portalY < W + 60) {
+      if (game.spawns.length === 0 && portalX > -60 && portalX < W + 60 && portalY > -60 && portalY < W + 60) {
         ctx.font = mono(700, 11.5);
         ctx.textAlign = "center";
         ctx.fillStyle = "rgba(244,226,255,.9)";
@@ -1886,13 +2008,20 @@ export default function WormholeGame() {
     setInspect((current) => (current && !current.pinned ? null : current));
   }, []);
 
+  const layoutLabel = layoutPref === "auto" ? (immersive ? "AUTO · GAME" : "AUTO · DESK") : layoutPref === "game" ? "GAME" : "DESKTOP";
+  const cycleLayout = () => setLayoutPref((value) => (value === "auto" ? "game" : value === "game" ? "desktop" : "auto"));
   const cycleQuality = () => setQuality((value) => (value === "auto" ? "high" : value === "high" ? "performance" : "auto"));
   const cycleView = () => setViewSize((value) => (value === "compact" ? "standard" : value === "standard" ? "wide" : "compact"));
 
   return (
     <main
       ref={shellRef}
-      className={`app-shell view-${viewSize} ${touchCapable ? "touch-capable" : ""} ${gameActive ? "game-active" : ""}`}
+      className={`app-shell view-${viewSize} ${touchCapable ? "touch-capable" : ""} ${immersive || device.narrow ? "compact-menu" : ""}`}
+      data-immersive={immersive ? "true" : "false"}
+      data-orientation={device.orientation}
+      data-form={device.form}
+      data-sticks={device.sticks}
+      style={immersive ? ({ "--arena-size": `${device.arena}px`, "--stick": `${device.stick}px` } as React.CSSProperties) : undefined}
     >
       <p className="sr-only" aria-live="polite">{guidance}</p>
 
@@ -1901,20 +2030,48 @@ export default function WormholeGame() {
           <span className="brand-mark" aria-hidden="true">W/02</span>
           <div><h1>WORMHOLE <em>ARCADE</em></h1><p>NEW GROUND // COMBAT NETWORK</p></div>
         </div>
-        <div className="top-actions">
+        <div className="top-actions" ref={topActionsRef}>
           <span className="link-status"><i aria-hidden="true" /> SOLO LINK</span>
-          <button type="button" onClick={() => setCodexOpen(true)} aria-haspopup="dialog">WEAPONS</button>
-          <button type="button" onClick={cycleView} aria-label={`Arena width: ${viewSize}. Activate to change.`}>VIEW {viewSize.toUpperCase()}</button>
-          <button type="button" aria-pressed={cameraLocked} onClick={() => setCameraLocked((value) => !value)} aria-label={cameraLocked ? "Camera follows your ship. Activate for the whole arena." : "Camera shows the whole arena. Activate to follow your ship."}>
-            {cameraLocked ? "CAMERA SHIP" : "CAMERA ARENA"}
+          {/* Secondary controls lay out inline on wide screens and collapse into
+              the MENU panel on handhelds, so the row never needs scrolling. */}
+          <div className="top-secondary" id="top-secondary" data-open={menuOpen ? "true" : "false"}>
+            <label className="menu-ship">
+              <span>SHIP FRAME</span>
+              <select
+                aria-label="Select ship frame"
+                value={shipId}
+                disabled={gameActive}
+                onChange={(event) => setShipId(event.target.value as ShipId)}
+              >
+                {SHIPS.map((ship) => <option value={ship.id} key={ship.id}>{ship.name} — {ship.role}</option>)}
+              </select>
+            </label>
+            <button type="button" onClick={() => { setCodexOpen(true); setMenuOpen(false); }} aria-haspopup="dialog">WEAPONS</button>
+            <button type="button" onClick={cycleView} aria-label={`Arena width: ${viewSize}. Activate to change.`}>VIEW {viewSize.toUpperCase()}</button>
+            <button type="button" aria-pressed={cameraLocked} onClick={() => setCameraLocked((value) => !value)} aria-label={cameraLocked ? "Camera follows your ship. Activate for the whole arena." : "Camera shows the whole arena. Activate to follow your ship."}>
+              {cameraLocked ? "CAMERA SHIP" : "CAMERA ARENA"}
+            </button>
+            <button type="button" onClick={cycleQuality} aria-label={`Render quality: ${quality}${quality === "auto" ? `, currently ${autoLabel}` : ""}. Activate to change.`}>
+              QUALITY {qualityName}
+              {quality === "auto" ? <span className="q-detail"> · {autoLabel}</span> : null}
+            </button>
+            <button type="button" onClick={cycleLayout} aria-label={`Layout: ${layoutLabel}. Activate to change.`}>LAYOUT {layoutLabel}</button>
+            <button type="button" aria-pressed={sound} onClick={() => setSound((value) => !value)}>{sound ? "SOUND ON" : "SOUND OFF"}</button>
+            <button className="fullscreen-trigger" type="button" aria-pressed={fullscreen} onClick={toggleFullscreen}>{fullscreen ? "EXIT FULL" : "FULLSCREEN"}</button>
+          </div>
+          <button
+            className="top-menu-toggle"
+            type="button"
+            aria-expanded={menuOpen}
+            aria-controls="top-secondary"
+            onClick={() => setMenuOpen((value) => !value)}
+          >
+            {menuOpen ? "CLOSE" : "MENU"}
           </button>
-          <button type="button" onClick={cycleQuality} aria-label={`Render quality: ${quality}${quality === "auto" ? `, currently ${autoLabel}` : ""}. Activate to change.`}>
-            QUALITY {qualityName}
-            {quality === "auto" ? <span className="q-detail"> · {autoLabel}</span> : null}
+          <button className="top-start" type="button" onClick={start}>
+            {gameActive ? "RESTART" : hud.result ? "RUN AGAIN" : "START"}
           </button>
-          <button type="button" aria-pressed={sound} onClick={() => setSound((value) => !value)}>{sound ? "SOUND ON" : "SOUND OFF"}</button>
-          <button className="fullscreen-trigger" type="button" aria-pressed={fullscreen} onClick={toggleFullscreen}>{fullscreen ? "EXIT FULL" : "FULLSCREEN"}</button>
-          <button type="button" onClick={togglePause} aria-pressed={hud.paused} aria-label="Pause or resume, keyboard P">P / PAUSE</button>
+          <button className="top-pause" type="button" onClick={togglePause} aria-pressed={hud.paused} aria-label="Pause or resume, keyboard P">P / PAUSE</button>
         </div>
       </header>
 
@@ -1975,6 +2132,7 @@ export default function WormholeGame() {
           <div className="match-bar">
             <div><span>MISSION</span><b>FIRST CONTACT</b></div>
             <div className="score"><span>SCORE</span><b>{hud.score.toLocaleString().padStart(6, "0")}</b></div>
+            <div className="match-hull"><span>HULL</span><div className="meter hull"><i style={{ width: `${healthPct}%` }} /></div><b>{hud.health}</b></div>
             <div className="rival"><span>RIVAL INTEGRITY</span><div className="meter"><i style={{ width: `${hud.rivalHealth}%` }} /></div><b>{hud.rivalHealth}%</b></div>
           </div>
           <p className={`coach-strip ${hud.notice ? "alert" : ""}`}>

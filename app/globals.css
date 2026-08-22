@@ -77,6 +77,22 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 .top-actions button:hover { color: white; border-color: var(--line-strong); }
 .top-actions button[aria-pressed="true"] { color: #041018; border-color: var(--cyan); background: rgba(100, 234, 255, .82); }
 .q-detail { font-size: inherit; }
+.top-secondary { display: contents; }
+.top-menu-toggle { display: none; min-width: 74px; justify-content: center; }
+/* Only the immersive shell needs a top-bar start control; the desktop cockpit
+   already has one in the status dock. Fixed width so START / RESTART / RUN
+   AGAIN never reflow the control row. */
+.top-start { display: none; }
+[data-immersive="true"] .top-start { display: inline-flex; }
+.top-start { min-width: 96px; justify-content: center; color: #0a1805; border-color: var(--lime) !important; background: var(--lime) !important; text-align: center; font-weight: 900 !important; }
+.top-start:hover { background: #c4ff88 !important; }
+.menu-ship { display: none; }
+.menu-ship > span { display: block; margin-bottom: 5px; color: #86b0bb; font: 800 var(--fs-nano)/1 var(--mono); letter-spacing: .13em; }
+.menu-ship select { width: 100%; min-height: var(--touch-target); padding: 0 10px; color: #eafaff; border: 1px solid rgba(100, 234, 255, .32); border-radius: 3px; background: #07121b; font: 700 var(--fs-xs)/1 var(--mono); }
+.menu-ship select:disabled { opacity: .55; }
+.match-hull { display: none; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 7px; align-items: center; }
+.match-hull span { grid-column: 1/-1; }
+.match-hull > b { margin: 0; color: #d7f5fa; font-size: var(--fs-nano); }
 .link-status { margin-right: 4px; color: var(--muted); font: 700 var(--fs-nano)/1 var(--mono); letter-spacing: .13em; white-space: nowrap; }
 .link-status i { display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; background: var(--lime); box-shadow: 0 0 9px var(--lime); }
 
@@ -338,12 +354,9 @@ footer { display: flex; justify-content: space-between; gap: 18px; padding: 8px 
   .view-wide .cockpit { display: block; width: 100%; padding: 8px max(8px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); }
   .ship-panel, .pilot-transmission { display: none; }
   .mobile-preflight { display: grid; position: sticky; top: 0; z-index: 8; box-shadow: 0 8px 22px rgba(0, 0, 0, .34); }
-  /* Pre-flight is unusable mid-mission and its sticky panel would cover the
-     score, so the live match bar takes the pinned slot instead. */
-  .game-active .mobile-preflight { display: none; }
   .match-bar { grid-template-columns: auto 1fr; }
   .match-bar > div:first-child { display: none; }
-  .game-active .match-bar { position: sticky; top: 0; z-index: 8; box-shadow: 0 8px 22px rgba(0, 0, 0, .34); }
+  .match-bar { position: sticky; top: 0; z-index: 7; }
   .score { min-width: 0; padding: 0 14px 0 0; text-align: left; border-left: 0; }
   .arena-stage { width: min(100%, max(300px, calc(100dvh - 330px))); }
   .status-dock { grid-template-columns: minmax(0, 1fr); gap: 10px; }
@@ -361,9 +374,6 @@ footer { display: flex; justify-content: space-between; gap: 18px; padding: 8px 
 
 @media (max-width: 900px) {
   .topbar { flex-wrap: nowrap; }
-  .top-actions { flex: 1 1 auto; min-width: 0; justify-content: flex-start; flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
-  .q-detail { display: none; }
-  .top-actions::-webkit-scrollbar { display: none; }
 }
 
 @media (max-width: 620px) {
@@ -402,91 +412,106 @@ footer { display: flex; justify-content: space-between; gap: 18px; padding: 8px 
   .mobile-preflight > button { min-width: 76px; }
 }
 
-/* Near-square foldable inner displays, including the 2504×2256 Fold 8 Ultra. */
-@media (pointer: coarse) and (min-width: 700px) and (max-width: 1400px) and (min-aspect-ratio: 4/5) and (max-aspect-ratio: 5/4) {
-  .cockpit { height: calc(100dvh - 66px); overflow-y: auto; }
-  .arena-stage { width: min(100%, calc(100dvh - 360px)); }
-  .bin-slots { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-}
 
 @media (horizontal-viewport-segments: 2) {
   .cockpit { padding-left: max(10px, env(viewport-segment-left 0 0)); padding-right: max(10px, env(viewport-segment-right 1 0)); }
 }
 
 /* =========================================================================
-   Active touch play. The sticks are pinned to the lower outer thirds and the
-   page reserves room beneath the HUD so they never cover it. Keyed on real
-   touch capability, because Fire OS Silk misreports its pointer type.
+   Immersive game shell.
+
+   Turned on by the device profile measured in game.tsx, never by whether a
+   match is running, so the interface never rearranges itself on start, pause,
+   or game over. The arena edge and thumbstick size arrive as --arena-size and
+   --stick; data-sticks says whether the controls sit below the arena, float
+   over its lower corners, or live in the landscape side gutters.
    ========================================================================= */
 .touch-capable .touch-controls { display: flex; }
 
-.touch-capable.game-active .touch-controls { pointer-events: none; position: fixed; inset: auto 0 max(14px, env(safe-area-inset-bottom)); z-index: 12; width: 100%; height: var(--stick); display: block; padding: 0; }
-.touch-capable.game-active .touch-flight,
-.touch-capable.game-active .touch-action { position: absolute; top: auto; right: auto; bottom: 0; display: block !important; width: var(--stick); transform: translateX(-50%); pointer-events: none; }
-.touch-capable.game-active .touch-flight { left: 20%; }
-.touch-capable.game-active .touch-action { left: 80%; }
-.touch-capable.game-active .virtual-stick { width: var(--stick); background-color: rgba(3, 12, 19, .74); pointer-events: auto; }
-.touch-capable.game-active .stick-knob { width: calc(var(--stick) * .44); height: calc(var(--stick) * .44); }
-.touch-capable.game-active .touch-utility { position: absolute; top: auto; bottom: calc(100% + 8px); left: 50%; display: flex; flex-direction: row; gap: 7px; transform: translateX(-50%); pointer-events: none; }
-.touch-capable.game-active .touch-utility button { pointer-events: auto; }
+[data-immersive="true"] { position: fixed; inset: 0; overflow: hidden; overscroll-behavior: none; }
+[data-immersive="true"] .topbar { height: 48px; min-height: 0; flex-wrap: nowrap; gap: 8px; padding: 0 max(8px, env(safe-area-inset-right)) 0 max(8px, env(safe-area-inset-left)); }
+[data-immersive="true"] .brand p, [data-immersive="true"] .link-status { display: none; }
+[data-immersive="true"] .brand h1 { font-size: var(--fs-sm); }
+[data-immersive="true"] .cockpit { width: 100%; height: calc(100dvh - 48px); display: block; padding: 0; overflow: hidden; }
+[data-immersive="true"] .ship-panel,
+[data-immersive="true"] .intel-panel,
+[data-immersive="true"] .pilot-transmission,
+[data-immersive="true"] .mobile-preflight,
+[data-immersive="true"] .coach-strip,
+[data-immersive="true"] .pilot-health,
+[data-immersive="true"] .vitals,
+[data-immersive="true"] footer { display: none; }
+[data-immersive="true"] .play-column { position: relative; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 6px 6px max(6px, env(safe-area-inset-bottom)); }
+[data-immersive="true"] .arena-stage { flex: 0 0 auto; width: var(--arena-size); margin: 0; }
+[data-immersive="true"] .match-bar { flex: 0 0 auto; width: var(--arena-size); min-height: 0; height: 40px; margin: 0; padding: 4px 10px; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+[data-immersive="true"] .match-bar > div:first-child { display: none; }
+[data-immersive="true"] .match-hull { display: grid; }
+[data-immersive="true"] .score { min-width: 0; padding: 0 10px 0 0; text-align: left; border-left: 0; }
+[data-immersive="true"] .score b { margin-top: 2px; font-size: var(--fs-sm); }
+[data-immersive="true"] .match-bar span { font-size: var(--fs-nano); }
+[data-immersive="true"] .rival { width: auto; justify-self: stretch; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 7px; }
+[data-immersive="true"] .rival > b { font-size: var(--fs-nano); }
+[data-immersive="true"] .status-dock { flex: 0 0 auto; width: var(--arena-size); min-height: 0; margin: 0; padding: 5px 7px; grid-template-columns: minmax(0, 1fr); gap: 0; }
+[data-immersive="true"] .bin-label, [data-immersive="true"] .start-button { display: none; }
+[data-immersive="true"] .power-bin { grid-template-columns: minmax(0, 1fr); }
+[data-immersive="true"] .slot.empty, [data-immersive="true"] .slot > button { min-height: 46px; }
+[data-immersive="true"] .weapon-card-layer { position: fixed; z-index: 40; inset: auto; left: 50%; top: 50%; width: min(380px, calc(100vw - 20px)); max-height: 78dvh; overflow: auto; transform: translate(-50%, -50%); }
 
-/* Reserve space so the sticks and the utility row never sit on top of the HUD. */
-@media (max-width: 1400px) {
-  .touch-capable .cockpit { height: calc(100dvh - 66px); display: block; padding: 8px max(8px, env(safe-area-inset-right)) 12px max(8px, env(safe-area-inset-left)); overflow-y: auto; }
-  .touch-capable.game-active .cockpit { padding-bottom: calc(var(--stick) + var(--touch-target) + 42px); }
-  .touch-capable .play-column { width: 100%; }
-  .touch-capable .ship-panel,
-  .touch-capable .intel-panel,
-  .touch-capable .pilot-transmission { display: none; }
-  .touch-capable .mobile-preflight { display: grid; position: sticky; top: 0; z-index: 8; box-shadow: 0 8px 22px rgba(0, 0, 0, .34); }
-  .touch-capable.game-active .mobile-preflight { display: none; }
-  .touch-capable .match-bar { grid-template-columns: auto 1fr; }
-  .touch-capable .match-bar > div:first-child { display: none; }
-  .touch-capable.game-active .match-bar { position: sticky; top: 0; z-index: 8; box-shadow: 0 8px 22px rgba(0, 0, 0, .34); }
-  .touch-capable .score { min-width: 0; padding: 0 14px 0 0; text-align: left; border-left: 0; }
-  .touch-capable .arena-stage { width: min(100%, max(300px, calc(100dvh - 340px))); }
-  .touch-capable .status-dock { grid-template-columns: minmax(0, 1fr); gap: 10px; }
-  .touch-capable .vitals { display: none; }
-  .touch-capable .power-bin { grid-template-columns: minmax(0, 1fr); gap: 8px; }
-  .touch-capable .bin-label { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-  .touch-capable .bin-label small { margin-top: 0; }
-  .touch-capable .start-button { justify-self: end; min-width: 150px; }
-  .touch-capable footer { display: none; }
-  .touch-capable .weapon-card-layer { position: fixed; z-index: 40; inset: auto; left: 50%; top: 50%; width: min(380px, calc(100vw - 20px)); max-height: 78dvh; overflow: auto; transform: translate(-50%, -50%); }
+/* Thumbsticks. The overlay container is the arena, so gutter placement in
+   landscape anchors outside it and portrait placement anchors inside it. */
+[data-immersive="true"] .touch-controls { position: absolute; inset: 0; width: auto; height: auto; display: block; padding: 0; pointer-events: none; }
+[data-immersive="true"] .touch-controls > div,
+[data-immersive="true"] .touch-controls button,
+[data-immersive="true"] .virtual-stick { pointer-events: auto; }
+[data-immersive="true"] .touch-flight,
+[data-immersive="true"] .touch-action { position: absolute; display: block !important; width: var(--stick); }
+[data-immersive="true"] .virtual-stick { width: var(--stick); background-color: rgba(3, 12, 19, .72); }
+[data-immersive="true"] .stick-knob { width: calc(var(--stick) * .44); height: calc(var(--stick) * .44); }
+[data-immersive="true"] .touch-utility { position: absolute; left: 50%; bottom: calc(100% + 8px); display: flex; flex-direction: row; gap: 7px; transform: translateX(-50%); pointer-events: none; }
+[data-immersive="true"] .touch-utility button { pointer-events: auto; }
+
+/* Portrait, docked: the arena sits under the HUD and the controls pin to the
+   bottom of the screen, so tall phones put the sticks under the thumbs rather
+   than leaving dead space below them. */
+[data-immersive="true"][data-sticks="docked"] .play-column { justify-content: flex-start; padding-bottom: calc(var(--stick) + var(--touch-target) + 92px + max(8px, env(safe-area-inset-bottom))); }
+/* The arena is width-limited on tall phones, so centre it in the space left
+   between the HUD strip and the pinned controls instead of hugging the HUD. */
+[data-immersive="true"][data-sticks="docked"] .arena-stage { margin-block: auto; }
+[data-immersive="true"][data-sticks="docked"] .touch-controls { position: fixed; inset: auto 0 max(8px, env(safe-area-inset-bottom)); z-index: 12; width: 100%; height: var(--stick); }
+[data-immersive="true"][data-sticks="docked"] .touch-flight { left: 22%; bottom: 0; transform: translateX(-50%); }
+[data-immersive="true"][data-sticks="docked"] .touch-action { left: 78%; bottom: 0; transform: translateX(-50%); }
+[data-immersive="true"][data-sticks="docked"] .status-dock { position: fixed; z-index: 11; left: 6px; right: 6px; bottom: calc(var(--stick) + var(--touch-target) + 26px + max(8px, env(safe-area-inset-bottom))); width: auto; }
+
+/* Portrait, overlay: the arena takes the full width and the sticks float over
+   its lower corners, clear of the bin strip below. */
+[data-immersive="true"][data-sticks="overlay"] .play-column { justify-content: flex-start; }
+[data-immersive="true"][data-sticks="overlay"] .match-bar { position: absolute; top: 12px; left: 50%; z-index: 5; width: calc(var(--arena-size) - 12px); transform: translateX(-50%); background: rgba(4, 13, 21, .88); pointer-events: none; }
+[data-immersive="true"][data-sticks="overlay"] .touch-flight { left: 8px; bottom: 8px; }
+[data-immersive="true"][data-sticks="overlay"] .touch-action { right: 8px; left: auto; bottom: 8px; }
+[data-immersive="true"][data-sticks="overlay"] .virtual-stick { opacity: .92; }
+
+/* Landscape: sticks live in the gutters either side of the arena. */
+[data-immersive="true"][data-sticks="gutter"] .play-column { justify-content: center; }
+[data-immersive="true"][data-sticks="gutter"] .match-bar { position: absolute; top: 4px; left: 4px; z-index: 4; width: max(150px, calc((100% - var(--arena-size)) / 2 - 12px)); grid-template-columns: minmax(0, 1fr); gap: 6px; background: rgba(4, 13, 21, .86); pointer-events: none; }
+[data-immersive="true"][data-sticks="gutter"] .status-dock { position: absolute; bottom: 4px; left: 50%; z-index: 4; width: var(--arena-size); transform: translateX(-50%); background: rgba(4, 13, 21, .86); }
+[data-immersive="true"][data-sticks="gutter"] .touch-flight { top: 50%; right: calc(100% + 12px); left: auto; transform: translateY(-50%); }
+[data-immersive="true"][data-sticks="gutter"] .touch-action { top: 50%; left: calc(100% + 12px); right: auto; transform: translateY(-50%); }
+[data-immersive="true"][data-sticks="gutter"] .touch-utility { top: calc(100% + 8px); bottom: auto; }
+
+
+/* The control row never scrolls sideways: on handhelds and narrow windows the
+   secondary controls collapse into a MENU panel instead. */
+.compact-menu .top-actions { position: relative; flex: 0 0 auto; min-width: 0; flex-wrap: nowrap; overflow: visible; }
+.compact-menu .top-menu-toggle { display: inline-flex; align-items: center; }
+.compact-menu .top-secondary { position: absolute; z-index: 30; top: calc(100% + 6px); right: 0; width: min(300px, calc(100vw - 24px)); display: none; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 12px; border: 1px solid var(--line-strong); border-radius: 4px; background: linear-gradient(180deg, rgba(8, 20, 30, .99), rgba(3, 9, 15, .99)); box-shadow: 0 20px 48px rgba(0, 0, 0, .6); }
+.compact-menu .top-secondary[data-open="true"] { display: grid; }
+.compact-menu .top-secondary button { width: 100%; min-height: var(--touch-target); justify-content: flex-start; text-align: left; }
+.compact-menu .menu-ship { display: block; }
+.compact-menu .q-detail { display: inline; }
+
+@media (max-width: 520px) {
+  [data-immersive="true"] .brand h1 { display: none; }
 }
-
-/* Immersive landscape for folded cover screens and conventional phones.
-   Keyed on the touch-capable class so browsers that misreport their pointer
-   type still get the playable layout. */
-@media (orientation: landscape) and (max-height: 620px) {
-  .app-shell.touch-capable.game-active { position: fixed; inset: 0; min-height: 100dvh; overflow: hidden; }
-  .touch-capable.game-active .topbar { position: absolute; inset: 0 0 auto; z-index: 6; min-height: 0; height: 38px; flex-wrap: nowrap; padding: max(3px, env(safe-area-inset-top)) max(7px, env(safe-area-inset-right)) 0 max(7px, env(safe-area-inset-left)); border-bottom: 0; background: linear-gradient(180deg, rgba(2, 7, 12, .9), transparent); pointer-events: none; }
-  .touch-capable.game-active .brand, .touch-capable.game-active .link-status { display: none; }
-  .touch-capable.game-active .top-actions { flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; pointer-events: auto; }
-  .touch-capable.game-active .top-actions button { min-height: 28px; padding: 5px 7px; }
-  .touch-capable.game-active .cockpit { width: 100%; height: 100dvh; display: block; padding: 4px max(4px, env(safe-area-inset-right)) 4px max(4px, env(safe-area-inset-left)); overflow: hidden; }
-  .touch-capable.game-active .ship-panel, .touch-capable.game-active .intel-panel, .touch-capable.game-active .pilot-transmission, .touch-capable.game-active .mobile-preflight, .touch-capable.game-active .coach-strip { display: none; }
-  .touch-capable.game-active .play-column { --arena: min(calc(100dvh - 46px), calc(100vw - 2 * (var(--stick) + 34px))); position: relative; width: 100%; height: 100%; display: grid; place-items: center; }
-  /* Sit the arena below the control strip so the canvas notice stays clear. */
-  .touch-capable.game-active .arena-stage { width: var(--arena); margin: 0 0 4px; align-self: end; }
-  .touch-capable.game-active .match-bar { position: absolute; top: 42px; left: 4px; z-index: 4; width: max(150px, calc((100% - var(--arena)) / 2 - 14px)); margin: 0; padding: 6px 9px; grid-template-columns: minmax(0, 1fr); gap: 7px; transform: none; background: rgba(4, 13, 21, .86); pointer-events: none; }
-  .touch-capable.game-active .status-dock { position: absolute; bottom: 4px; left: 50%; z-index: 4; width: var(--arena); margin: 0; padding: 5px 7px; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; transform: translateX(-50%); background: rgba(4, 13, 21, .82); }
-  .touch-capable.game-active .bin-label { display: none; }
-  .touch-capable.game-active .rival { width: auto; justify-self: stretch; }
-  .touch-capable.game-active .pilot-health { top: auto; bottom: 70px; left: 8px; width: min(210px, 48%); padding: 7px 9px; }
-  .touch-capable.game-active .pilot-health .meter { height: 7px; }
-  .touch-capable.game-active .start-button { min-width: 0; }
-  .touch-capable.game-active .slot.empty, .touch-capable.game-active .slot > button { min-height: 44px; }
-  .touch-capable.game-active .start-button { width: auto; padding: 0 10px; }
-  .touch-capable.game-active .touch-controls { position: absolute; inset: 0; width: auto; height: auto; display: block; padding: 0; pointer-events: none; }
-  .touch-capable.game-active .touch-controls > div, .touch-capable.game-active .touch-controls button, .touch-capable.game-active .virtual-stick { pointer-events: auto; }
-  .touch-capable.game-active .touch-flight { position: absolute; top: 50%; bottom: auto; left: auto; right: calc(100% + 14px); width: var(--stick); display: block; transform: translateY(-50%); }
-  .touch-capable.game-active .touch-action { position: absolute; top: 50%; bottom: auto; right: auto; left: calc(100% + 14px); width: var(--stick); display: block !important; transform: translateY(-50%); }
-  .touch-capable.game-active .touch-utility { position: absolute; top: calc(100% + 7px); left: 50%; display: grid; grid-template-columns: repeat(3, var(--touch-target)); gap: 6px; transform: translateX(-50%); }
-  .touch-capable.game-active .virtual-stick { width: var(--stick); background-color: rgba(3, 12, 19, .74); }
-  .touch-capable.game-active .stick-knob { width: calc(var(--stick) * .44); height: calc(var(--stick) * .44); }
-}
-
 
 /* ------------------------------------------------------------ a11y modes -- */
 @media (prefers-contrast: more) {
