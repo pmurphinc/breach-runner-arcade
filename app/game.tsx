@@ -17,6 +17,8 @@ const BOARD = 655;
 const TICK_MS = 15;
 const PORTAL_THRESHOLD = 150;
 const DEG = Math.PI / 180;
+const THRUST_ACCEL_BONUS = 0.035;
+const THRUST_SPEED_BONUS = 0.25;
 
 type Bullet = { x: number; y: number; vx: number; vy: number; damage: number; life: number; enemy: boolean; color: string };
 type Pickup = { x: number; y: number; vx: number; vy: number; type: PickupId; life: number; phase: number };
@@ -275,6 +277,7 @@ export default function WormholeGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stickRef = useRef<HTMLDivElement>(null);
   const stickPointer = useRef<number | null>(null);
+  const stickHeading = useRef<number | null>(null);
   const [shipId, setShipId] = useState<ShipId>("wing");
   const gameRef = useRef<Game>(createGame(selectedShip("wing")));
   const keys = useRef<Record<string, boolean>>({});
@@ -308,6 +311,7 @@ export default function WormholeGame() {
     gameRef.current = game;
     keys.current = {};
     stickPointer.current = null;
+    stickHeading.current = null;
     setStickPosition({ active: false, x: 0, y: 0 });
     sync();
     play("magic", 0.28);
@@ -338,6 +342,7 @@ export default function WormholeGame() {
   const releaseStick = useCallback((pointerId?: number) => {
     if (pointerId !== undefined && stickPointer.current !== pointerId) return;
     stickPointer.current = null;
+    stickHeading.current = null;
     setControl("ArrowLeft", false);
     setControl("ArrowRight", false);
     setControl("ArrowUp", false);
@@ -358,12 +363,10 @@ export default function WormholeGame() {
       y *= clamp;
     }
 
-    const normalizedX = x / maxTravel;
-    const normalizedY = y / maxTravel;
-    const deadZone = 0.2;
-    setControl("ArrowLeft", normalizedX < -deadZone);
-    setControl("ArrowRight", normalizedX > deadZone);
-    setControl("ArrowUp", normalizedY < -deadZone);
+    if (distance > maxTravel * 0.08) stickHeading.current = Math.atan2(y, x) / DEG;
+    setControl("ArrowLeft", false);
+    setControl("ArrowRight", false);
+    setControl("ArrowUp", true);
     setStickPosition({ active: true, x, y });
   }, [setControl]);
 
@@ -371,10 +374,12 @@ export default function WormholeGame() {
     event.preventDefault();
     if (stickPointer.current !== null) return;
     stickPointer.current = event.pointerId;
+    stickHeading.current = gameRef.current.player.angle;
+    setControl("ArrowUp", true);
     event.currentTarget.setPointerCapture(event.pointerId);
     if (typeof navigator !== "undefined" && "vibrate" in navigator) navigator.vibrate(8);
     updateStick(event.clientX, event.clientY);
-  }, [updateStick]);
+  }, [setControl, updateStick]);
 
   const moveStick = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (stickPointer.current !== event.pointerId) return;
@@ -394,6 +399,7 @@ export default function WormholeGame() {
     const blur = () => {
       keys.current = {};
       stickPointer.current = null;
+      stickHeading.current = null;
       setStickPosition({ active: false, x: 0, y: 0 });
     };
     window.addEventListener("keydown", down, { passive: false });
@@ -643,6 +649,7 @@ export default function WormholeGame() {
       game.portalX = BOARD / 2 + Math.cos(game.portalAngle * DEG) * 150;
       game.portalY = BOARD / 2 + Math.sin(game.portalAngle * DEG) * 150;
 
+      const touchHeading = stickHeading.current;
       let left = keys.current.ArrowLeft || keys.current.KeyA;
       let right = keys.current.ArrowRight || keys.current.KeyD;
       let thrust = keys.current.ArrowUp || keys.current.KeyW;
@@ -655,18 +662,27 @@ export default function WormholeGame() {
 
       let handling = game.ship;
       if (game.ship.id === "flash") handling = player.flashMode === "tank" ? SHIPS[0] : SHIPS[2];
-      if (left) player.angle -= handling.turn;
-      if (right) player.angle += handling.turn;
-      if (thrust) {
-        const acceleration = handling.acceleration + player.thrust * 0.1;
+      const maxSpeed = handling.maxSpeed + player.thrust * THRUST_SPEED_BONUS;
+      const acceleration = handling.acceleration + player.thrust * THRUST_ACCEL_BONUS;
+      if (touchHeading !== null) {
+        player.angle = player.emp > 0 ? touchHeading + 180 : touchHeading;
+        const angle = player.angle * DEG;
+        const directedSpeed = Math.min(maxSpeed, Math.hypot(player.vx, player.vy) + acceleration);
+        player.vx = Math.cos(angle) * directedSpeed;
+        player.vy = Math.sin(angle) * directedSpeed;
+        if (game.cycles % 3 === 0) spawnParticles(game, player.x - Math.cos(angle) * 14, player.y - Math.sin(angle) * 14, "#63efff", 2, 2.5);
+      } else {
+        if (left) player.angle -= handling.turn;
+        if (right) player.angle += handling.turn;
+      }
+      if (touchHeading === null && thrust) {
         player.vx += Math.cos(player.angle * DEG) * acceleration;
         player.vy += Math.sin(player.angle * DEG) * acceleration;
         if (game.cycles % 3 === 0) spawnParticles(game, player.x - Math.cos(player.angle * DEG) * 14, player.y - Math.sin(player.angle * DEG) * 14, "#63efff", 2, 2.5);
-      } else if (player.retros) {
+      } else if (touchHeading === null && player.retros) {
         player.vx *= 0.995;
         player.vy *= 0.995;
       }
-      const maxSpeed = handling.maxSpeed + player.thrust * 0.8;
       const playerSpeed = Math.hypot(player.vx, player.vy);
       if (playerSpeed > maxSpeed) { player.vx = (player.vx / playerSpeed) * maxSpeed; player.vy = (player.vy / playerSpeed) * maxSpeed; }
       player.x += player.vx;
@@ -1017,7 +1033,7 @@ export default function WormholeGame() {
                   ref={stickRef}
                   className={`virtual-stick ${stickPosition.active ? "active" : ""}`}
                   role="application"
-                  aria-label="Flight thumbstick. Drag left or right to rotate and upward to thrust. Release to coast."
+                  aria-label="Flight thumbstick. Press to thrust and aim in any direction to fly that way. Release to coast."
                   onPointerDown={engageStick}
                   onPointerMove={moveStick}
                   onPointerUp={(event) => releaseStick(event.pointerId)}
@@ -1026,8 +1042,8 @@ export default function WormholeGame() {
                 >
                   <span className="stick-axis stick-axis-x" aria-hidden="true" />
                   <span className="stick-axis stick-axis-y" aria-hidden="true" />
-                  <span className="stick-label stick-label-up" aria-hidden="true">THRUST</span>
-                  <span className="stick-label stick-label-side" aria-hidden="true">TURN</span>
+                  <span className="stick-label stick-label-up" aria-hidden="true">GO</span>
+                  <span className="stick-label stick-label-side" aria-hidden="true">AIM</span>
                   <span className="stick-knob" style={{ transform: `translate(calc(-50% + ${stickPosition.x}px), calc(-50% + ${stickPosition.y}px))` }} aria-hidden="true"><i /></span>
                 </div>
               </div>

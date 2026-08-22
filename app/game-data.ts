@@ -14,16 +14,17 @@ export type ShipSpec = {
   unlock: string;
 };
 
-// Values are translated directly from the Redux client fighter table.
+// The original Redux fighter ratios are preserved, with movement tuned down for
+// the smaller browser arena and more precise touch play.
 export const SHIPS: ShipSpec[] = [
-  { id: "tank", name: "The Tank", role: "Heavy brawler", turn: 5, maxSpeed: 6, acceleration: 0.1, health: 280, gun: 2, thrust: 0, special: "Heavy armor and advanced starting cannons.", unlock: "OPEN" },
-  { id: "wing", name: "The Wing", role: "Balanced interceptor", turn: 7, maxSpeed: 7, acceleration: 0.25, health: 240, gun: 1, thrust: 1, special: "A balanced mix of speed, armor, and firepower.", unlock: "OPEN" },
-  { id: "squid", name: "The Squid", role: "High-speed scout", turn: 10, maxSpeed: 10, acceleration: 0.48, health: 200, gun: 0, thrust: 3, special: "Maximum speed and acceleration; light armor.", unlock: "OPEN" },
-  { id: "rabbit", name: "The Rabbit", role: "Tracking corvette", turn: 12, maxSpeed: 11, acceleration: 0.35, health: 180, gun: 0, thrust: 2, special: "Automatic tracking cannon for hit-and-run combat.", unlock: "RANK 12" },
-  { id: "turtle", name: "The Turtle", role: "Defensive bruiser", turn: 4.5, maxSpeed: 5.2, acceleration: 0.15, health: 250, gun: 1, thrust: 1, special: "R: Turtle Cannon clears threats at a health cost.", unlock: "RANK 12" },
+  { id: "tank", name: "The Tank", role: "Heavy brawler", turn: 5, maxSpeed: 2.7, acceleration: 0.04, health: 280, gun: 2, thrust: 0, special: "Heavy armor and advanced starting cannons.", unlock: "OPEN" },
+  { id: "wing", name: "The Wing", role: "Balanced interceptor", turn: 7, maxSpeed: 3.2, acceleration: 0.1, health: 240, gun: 1, thrust: 1, special: "A balanced mix of speed, armor, and firepower.", unlock: "OPEN" },
+  { id: "squid", name: "The Squid", role: "High-speed scout", turn: 10, maxSpeed: 4.5, acceleration: 0.19, health: 200, gun: 0, thrust: 3, special: "Maximum speed and acceleration; light armor.", unlock: "OPEN" },
+  { id: "rabbit", name: "The Rabbit", role: "Tracking corvette", turn: 12, maxSpeed: 5, acceleration: 0.14, health: 180, gun: 0, thrust: 2, special: "Automatic tracking cannon for hit-and-run combat.", unlock: "RANK 12" },
+  { id: "turtle", name: "The Turtle", role: "Defensive bruiser", turn: 4.5, maxSpeed: 2.4, acceleration: 0.06, health: 250, gun: 1, thrust: 1, special: "R: Turtle Cannon clears threats at a health cost.", unlock: "RANK 12" },
   { id: "flash", name: "The Flash", role: "Shape-shifter", turn: 1, maxSpeed: 1, acceleration: 0.1, health: 190, gun: 3, thrust: 3, special: "R: Transform between Tank and Squid handling.", unlock: "RANK 14" },
-  { id: "hunter", name: "The Hunter", role: "Missile corvette", turn: 4.8, maxSpeed: 7, acceleration: 0.3, health: 220, gun: 0, thrust: 1, special: "R: Launch a 17-missile Piranha spread.", unlock: "RANK 12" },
-  { id: "flagship", name: "The Flagship", role: "Command vessel", turn: 2, maxSpeed: 3.9, acceleration: 0.11, health: 300, gun: 0, thrust: 2, special: "R: Attract power-ups and repel nearby enemies.", unlock: "RANK 14" },
+  { id: "hunter", name: "The Hunter", role: "Missile corvette", turn: 4.8, maxSpeed: 3.2, acceleration: 0.12, health: 220, gun: 0, thrust: 1, special: "R: Launch a 17-missile Piranha spread.", unlock: "RANK 12" },
+  { id: "flagship", name: "The Flagship", role: "Command vessel", turn: 2, maxSpeed: 1.8, acceleration: 0.04, health: 300, gun: 0, thrust: 2, special: "R: Attract power-ups and repel nearby enemies.", unlock: "RANK 14" },
 ];
 
 export type PowerId = "heatseeker" | "turret" | "mines" | "ufo" | "inflator" | "minelayer" | "gunship" | "scarab" | "nuke" | "wallcrawler" | "beam" | "emp" | "ghost" | "artillery";
