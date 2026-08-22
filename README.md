@@ -14,12 +14,27 @@ https://wormhole-arcade.pmurphinc.chatgpt.site
 | --- | --- |
 | Turn | Arrow keys or `A` / `D` |
 | Thrust | Up arrow or `W` |
-| Fire | Space |
-| Use power-up | `F` |
-| Special weapon | `R` |
+| Pulse cannon | Space |
+| Fire collected power-up | `E` |
+| Ship special | `Q` |
 | Pause | `P` |
 
-Touch controls use a twin-stick layout: the left stick moves the ship while the right stick independently aims and fires the pulse cannon. Fullscreen play, high-density canvas rendering, safe-area support, and dedicated layouts for phone and foldable displays are included. Installable PWA mode is planned.
+Touch controls use a twin-stick layout: the left stick moves the ship while the right stick independently aims and fires the pulse cannon. The **PUP** button is the touch equivalent of `E`, and **SPEC** is the touch equivalent of `Q`. Fullscreen play, high-density canvas rendering, safe-area support, and dedicated layouts for desktop, ultrawide, tablet, phone, and foldable displays are included. Installable PWA mode is planned.
+
+## Loop
+
+1. Shoot the rival wormhole with the pulse cannon. Damage fills its charge ring.
+2. At 150 damage the wormhole generates a power-up.
+3. Fly over the power-up to collect it into the bin (five slots, last in first out).
+4. Aim at the wormhole and press `E` (touch: **PUP**) to send an attack power-up back through it.
+
+## Weapons
+
+Every power-up has its own canvas silhouette, projectile, and spawn animation, and each one is identifiable without colour. Hover or focus an inventory slot on desktop — or tap it on a touch screen — to open its information card, or open the **Weapon Codex** from the top bar to read about all of them before you fly.
+
+## Rendering quality
+
+The top bar cycles between **Auto**, **High**, and **Performance**. Auto starts from device pixel ratio, touch capability, and viewport size, then adapts to measured frame cost, capping canvas resolution and particle counts on lower-powered tablets and phones.
 
 ## Run locally
 
