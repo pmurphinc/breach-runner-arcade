@@ -19,7 +19,7 @@ https://wormhole-arcade.pmurphinc.chatgpt.site
 | Special weapon | `R` |
 | Pause | `P` |
 
-Touch controls use point-to-fly steering: press the thumbstick to thrust, aim it in any direction to set the ship's heading, and release to coast. Fullscreen play, high-density canvas rendering, safe-area support, and dedicated layouts for phone and foldable displays are included. Installable PWA mode is planned.
+Touch controls use a twin-stick layout: the left stick moves the ship while the right stick independently aims and fires the pulse cannon. Fullscreen play, high-density canvas rendering, safe-area support, and dedicated layouts for phone and foldable displays are included. Installable PWA mode is planned.
 
 ## Run locally
 

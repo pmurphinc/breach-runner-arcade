@@ -137,11 +137,11 @@ button,select { font: inherit; }
 .touch-controls > div { display: flex; gap: 7px; }
 .touch-controls button { width: 52px; height: 52px; padding: 0; color: #d8f9ff; border: 1px solid rgba(100,234,255,.32); border-radius: 9px; background: rgba(9,27,38,.94); box-shadow: inset 0 1px 0 rgba(255,255,255,.04),0 6px 18px rgba(0,0,0,.22); touch-action: none; font: 900 10px/1 ui-monospace, monospace; }
 .touch-controls button:active { border-color: var(--cyan); background: rgba(100,234,255,.24); transform: translateY(1px); }
-.touch-controls .touch-fire { width: 66px; color: #071204; border-color: var(--lime); background: var(--lime); }
 .touch-controls .touch-pup { width: 54px; color: #200615; border-color: var(--pink); background: var(--pink); }
 .touch-controls .touch-special { width: 54px; color: #1f1202; border-color: var(--amber); background: var(--amber); }
 .touch-controls .touch-pause { width: 48px; color: #9fc4cd; }
-.touch-flight { align-items: center; }
+.touch-flight,.touch-action { align-items: center; }
+.touch-utility { display: flex; flex-direction: column; gap: 7px; }
 .virtual-stick { position: relative; width: 126px; aspect-ratio: 1; flex: 0 0 auto; overflow: hidden; border: 1px solid rgba(100,234,255,.36); border-radius: 50%; background: radial-gradient(circle at 50% 50%,rgba(100,234,255,.08) 0 19%,transparent 20%),radial-gradient(circle at 50% 50%,rgba(3,12,19,.9) 0 56%,rgba(10,32,43,.82) 57% 69%,rgba(4,15,23,.94) 70%); box-shadow: inset 0 0 0 6px rgba(100,234,255,.025),inset 0 0 24px rgba(100,234,255,.08),0 8px 24px rgba(0,0,0,.3); touch-action: none; cursor: grab; }
 .virtual-stick.active { border-color: rgba(100,234,255,.72); box-shadow: inset 0 0 0 6px rgba(100,234,255,.04),inset 0 0 30px rgba(100,234,255,.14),0 0 20px rgba(100,234,255,.11),0 8px 24px rgba(0,0,0,.34); cursor: grabbing; }
 .stick-axis { position: absolute; top: 50%; left: 50%; z-index: 0; background: rgba(100,234,255,.16); transform: translate(-50%,-50%); pointer-events: none; }
@@ -153,6 +153,12 @@ button,select { font: inherit; }
 .stick-knob { position: absolute; top: 50%; left: 50%; z-index: 2; width: 56px; height: 56px; display: grid; place-items: center; border: 1px solid rgba(212,250,255,.65); border-radius: 50%; background: radial-gradient(circle at 38% 32%,#285160,#102b37 52%,#07151e 70%); box-shadow: inset 0 1px 3px rgba(255,255,255,.16),inset 0 -7px 14px rgba(0,0,0,.3),0 5px 10px rgba(0,0,0,.45),0 0 0 3px rgba(100,234,255,.08); pointer-events: none; will-change: transform; }
 .stick-knob i { width: 15px; height: 15px; border: 1px solid rgba(100,234,255,.42); border-radius: 50%; box-shadow: inset 0 0 8px rgba(100,234,255,.18); }
 .virtual-stick.active .stick-knob { border-color: var(--cyan); box-shadow: inset 0 1px 3px rgba(255,255,255,.2),inset 0 -7px 14px rgba(0,0,0,.3),0 5px 12px rgba(0,0,0,.5),0 0 0 4px rgba(100,234,255,.12),0 0 18px rgba(100,234,255,.22); }
+.aim-stick { border-color: rgba(168,255,82,.38); background: radial-gradient(circle at 50% 50%,rgba(168,255,82,.08) 0 19%,transparent 20%),radial-gradient(circle at 50% 50%,rgba(3,12,19,.9) 0 56%,rgba(30,46,25,.82) 57% 69%,rgba(4,15,23,.94) 70%); box-shadow: inset 0 0 0 6px rgba(168,255,82,.025),inset 0 0 24px rgba(168,255,82,.08),0 8px 24px rgba(0,0,0,.3); }
+.aim-stick.active { border-color: rgba(168,255,82,.78); box-shadow: inset 0 0 0 6px rgba(168,255,82,.04),inset 0 0 30px rgba(168,255,82,.14),0 0 20px rgba(168,255,82,.13),0 8px 24px rgba(0,0,0,.34); }
+.aim-stick .stick-axis { background: rgba(168,255,82,.17); }
+.aim-stick .stick-label { color: rgba(195,242,145,.58); }
+.aim-stick .stick-knob { border-color: rgba(211,255,167,.68); background: radial-gradient(circle at 38% 32%,#41622b,#213819 52%,#0b1908 70%); box-shadow: inset 0 1px 3px rgba(255,255,255,.16),inset 0 -7px 14px rgba(0,0,0,.3),0 5px 10px rgba(0,0,0,.45),0 0 0 3px rgba(168,255,82,.09); }
+.aim-stick.active .stick-knob { border-color: var(--lime); box-shadow: inset 0 1px 3px rgba(255,255,255,.2),inset 0 -7px 14px rgba(0,0,0,.3),0 5px 12px rgba(0,0,0,.5),0 0 0 4px rgba(168,255,82,.13),0 0 18px rgba(168,255,82,.24); }
 footer { display: flex; justify-content: space-between; gap: 18px; padding: 5px clamp(14px,2vw,28px) 11px; color: #42626a; font: 600 6px/1 ui-monospace, monospace; letter-spacing: .1em; }
 
 @keyframes threat-pulse { to { box-shadow: inset 0 0 18px rgba(255,90,114,.08),0 0 12px rgba(255,90,114,.05); } }
@@ -185,7 +191,7 @@ footer { display: flex; justify-content: space-between; gap: 18px; padding: 5px 
   .bin-label { display: none; }
   .start-button { grid-column: 2; }
   .touch-controls { display: flex; }
-  .touch-action { display: grid !important; grid-template-columns: repeat(2,auto); }
+  .touch-action { display: flex !important; }
   footer { display: none; }
 }
 
@@ -208,8 +214,8 @@ footer { display: flex; justify-content: space-between; gap: 18px; padding: 5px 
   .virtual-stick { width: 116px; }
   .stick-knob { width: 52px; height: 52px; }
   .touch-controls button { width: 48px; height: 48px; font-size: 9px; }
-  .touch-controls .touch-fire { width: 58px; }
   .touch-controls .touch-pup,.touch-controls .touch-special,.touch-controls .touch-pause { width: 48px; }
+  .touch-utility { gap: 5px; }
 }
 
 @media (pointer: coarse) and (max-width: 1160px) {
@@ -245,10 +251,9 @@ footer { display: flex; justify-content: space-between; gap: 18px; padding: 5px 
   .virtual-stick { width: 136px; background-color: rgba(3,12,19,.72); backdrop-filter: blur(8px); }
   .stick-knob { width: 60px; height: 60px; }
   .touch-controls button { width: 48px; height: 48px; border-color: rgba(100,234,255,.42); background: rgba(5,18,28,.78); backdrop-filter: blur(8px); }
-  .touch-controls .touch-fire { width: 62px; }
   .touch-controls .touch-pup,.touch-controls .touch-special { width: 50px; }
   .touch-controls .touch-pause { width: 42px; }
-  .touch-action { display: grid !important; grid-template-columns: repeat(2,auto); }
+  .touch-action { display: flex !important; }
 }
 
 /* Immersive landscape mode for folded cover screens and conventional phones. */
@@ -280,12 +285,12 @@ footer { display: flex; justify-content: space-between; gap: 18px; padding: 5px 
   .game-active .touch-controls { position: absolute; inset: 0; display: block; padding: 0; pointer-events: none; }
   .game-active .touch-controls > div,.game-active .touch-controls button,.game-active .virtual-stick { pointer-events: auto; }
   .game-active .touch-flight { position: absolute; top: 50%; right: calc(100% + 16px); display: block; transform: translateY(-50%); }
-  .game-active .virtual-stick { width: clamp(112px,32dvh,142px); background-color: rgba(3,12,19,.72); backdrop-filter: blur(8px); }
+  .game-active .virtual-stick { width: clamp(108px,29dvh,132px); background-color: rgba(3,12,19,.72); backdrop-filter: blur(8px); }
   .game-active .stick-knob { width: clamp(50px,14dvh,62px); height: clamp(50px,14dvh,62px); }
-  .game-active .touch-action { position: absolute; top: 50%; left: calc(100% + 10px); display: grid !important; grid-template-columns: repeat(2,var(--landscape-touch)); gap: 6px; transform: translateY(-50%); }
+  .game-active .touch-action { position: absolute; top: 50%; left: calc(100% + 16px); display: block !important; transform: translateY(-50%); }
+  .game-active .touch-utility { position: absolute; top: calc(100% + 6px); left: 50%; display: grid; grid-template-columns: repeat(3,var(--landscape-touch)); gap: 5px; transform: translateX(-50%); }
   .game-active .touch-controls { --landscape-touch: clamp(44px,12dvh,56px); }
-  .game-active .touch-controls button,.game-active .touch-controls .touch-fire,.game-active .touch-controls .touch-pup,.game-active .touch-controls .touch-special,.game-active .touch-controls .touch-pause { width: var(--landscape-touch); height: var(--landscape-touch); border-color: rgba(100,234,255,.45); background: rgba(6,20,30,.88); backdrop-filter: blur(8px); }
-  .game-active .touch-controls .touch-fire { color: #071204; border-color: var(--lime); background: rgba(168,255,82,.92); }
+  .game-active .touch-controls button,.game-active .touch-controls .touch-pup,.game-active .touch-controls .touch-special,.game-active .touch-controls .touch-pause { width: var(--landscape-touch); height: var(--landscape-touch); border-color: rgba(100,234,255,.45); background: rgba(6,20,30,.88); backdrop-filter: blur(8px); }
   .game-active .touch-controls .touch-pup { color: #200615; border-color: var(--pink); background: rgba(255,89,199,.92); }
   .game-active .touch-controls .touch-special { color: #211300; border-color: var(--amber); background: rgba(255,179,77,.92); }
 }
