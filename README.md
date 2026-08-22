@@ -32,6 +32,30 @@ Touch controls use a twin-stick layout: the left stick moves the ship while the 
 
 Every power-up has its own canvas silhouette, projectile, and spawn animation, and each one is identifiable without colour. Hover or focus an inventory slot on desktop — or tap it on a touch screen — to open its information card, or open the **Weapon Codex** from the top bar to read about all of them before you fly.
 
+## Scores
+
+Nothing here asks for an account. Play starts the moment the page loads, and it
+stays that way whether or not Murph Tournaments is reachable.
+
+- **Guests.** Your best run is kept in this browser's `localStorage`, under
+  `wormhole-arcade:best`. It is never uploaded and never leaves the device.
+- **Signed in.** When a run ends you can sign in with Discord to save that score
+  to Murph Tournaments, which is what puts you on the global board. The run is
+  parked in local storage across the sign-in redirect, so nothing is lost on the
+  way there and back. Once signed in, later runs save automatically.
+- **The board.** `BOARD` in the top bar shows the top saved runs plus your own
+  device best. It lists one row per player — their best run — so a long session
+  cannot crowd anyone out.
+
+Scores are reported by the browser and are therefore trusted. That is the
+deliberate trade for a board that costs a player nothing to join; the server
+applies plausibility bounds and a per-player rate limit, not anti-cheat.
+
+The API lives in the `murphtournaments-website` repository under
+`/api/arcade/*`, and is opened cross-origin to this arcade's origin only. Point
+the game at a different host by setting `NEXT_PUBLIC_MURPH_API_BASE` at build
+time; it defaults to `https://murphtournaments.com`.
+
 ## Rendering quality
 
 The top bar cycles between **Auto**, **High**, and **Performance**. Auto starts from device pixel ratio, touch capability, and viewport size, then adapts to measured frame cost, capping canvas resolution and particle counts on lower-powered tablets and phones.
@@ -64,7 +88,6 @@ npm run build
 - Refine desktop combat, progression, ships, weapons, and power-ups
 - Refine device-specific touch control placement from player feedback
 - Add install-to-home-screen support
-- Integrate the game into Murph Tournaments as a native `/wormhole` route
 - Preserve the standalone build so it can also be deployed independently
 
 ## Technology

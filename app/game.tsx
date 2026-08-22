@@ -19,6 +19,21 @@ import {
   type WeaponMeta,
 } from "./game-data";
 import { DIRECTIONAL, drawPowerProjectile, drawWeaponGlyph } from "./weapon-art";
+import {
+  MURPH_SITE_URL,
+  discordSignInUrl,
+  fetchArcadeSession,
+  fetchLeaderboard,
+  loadLocalBest,
+  saveLocalRun,
+  saveScoreToMurph,
+  stashPendingRun,
+  takePendingRun,
+  type ArcadePlayer,
+  type LeaderboardEntry,
+  type LocalBest,
+  type RunResult,
+} from "./arcade-scores";
 
 const BOARD = 655;
 const WORLD_SIZE = 940;
@@ -614,6 +629,97 @@ function WeaponCodex({ onClose, reducedMotion }: { onClose: () => void; reducedM
   );
 }
 
+type RunSummary = {
+  run: RunResult;
+  /** This device's best after the run — may be the run itself. */
+  best: LocalBest | null;
+  isBest: boolean;
+  /** Runs played in this browser, including the one just finished. */
+  runs: number;
+  /** True when the card is reporting a run saved across a sign-in redirect. */
+  restored: boolean;
+};
+
+type SaveState =
+  | { status: "idle" }
+  | { status: "saving" }
+  | { status: "saved"; rank: number | null; bestScore: number }
+  | { status: "error"; message: string };
+
+/**
+ * Global board, read on open so it is never fetched for players who never
+ * ask for it. A failed read is reported in place — the leaderboard is a bonus,
+ * never a dependency of the game.
+ */
+function Leaderboard({ onClose }: { onClose: () => void }) {
+  const [entries, setEntries] = useState<LeaderboardEntry[] | null>(null);
+  const [best, setBest] = useState<LocalBest | null>(null);
+  const [failed, setFailed] = useState(false);
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => { closeRef.current?.focus(); }, []);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const localBest = loadLocalBest();
+    void fetchLeaderboard(10).then((rows) => {
+      if (cancelled) return;
+      setBest(localBest);
+      if (rows) setEntries(rows); else setFailed(true);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  return (
+    <div className="codex-backdrop" role="presentation" onClick={onClose}>
+      <div
+        className="codex board"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="board-heading"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="codex-head">
+          <h2 id="board-heading">GLOBAL BOARD</h2>
+          <p>Best run per signed-in pilot. Guest scores stay on your own device.</p>
+          <button ref={closeRef} type="button" className="codex-close" onClick={onClose} aria-label="Close leaderboard">✕</button>
+        </div>
+        <div className="board-body">
+          {failed ? <p className="board-note">Murph Tournaments could not be reached. Your scores are safe on this device.</p> : null}
+          {!failed && entries === null ? <p className="board-note">Loading the board…</p> : null}
+          {entries !== null && entries.length === 0 ? <p className="board-note">No saved runs yet. Sign in after a run to put the first score up.</p> : null}
+          {entries !== null && entries.length > 0 ? (
+            <ol className="board-list">
+              {entries.map((entry) => (
+                <li key={`${entry.rank}-${entry.displayName}`}>
+                  <span className="board-rank">{entry.rank}</span>
+                  <span className="board-name">{entry.displayName}</span>
+                  <span className="board-runs">{entry.runs} {entry.runs === 1 ? "RUN" : "RUNS"}</span>
+                  <b>{entry.bestScore.toLocaleString()}</b>
+                </li>
+              ))}
+            </ol>
+          ) : null}
+          {best ? (
+            <p className="board-you">
+              <span>YOUR BEST ON THIS DEVICE</span>
+              <b>{best.score.toLocaleString()}</b>
+            </p>
+          ) : null}
+          <a className="board-link" href={`${MURPH_SITE_URL}/arcade`} target="_blank" rel="noopener noreferrer">
+            FULL BOARD ON MURPH TOURNAMENTS →
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function WormholeGame() {
   const shellRef = useRef<HTMLElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -644,6 +750,11 @@ export default function WormholeGame() {
   const [aimStickPosition, setAimStickPosition] = useState<StickPosition>({ active: false, x: 0, y: 0 });
   const [inspect, setInspect] = useState<{ id: PickupId; pinned: boolean } | null>(null);
   const [codexOpen, setCodexOpen] = useState(false);
+  const [boardOpen, setBoardOpen] = useState(false);
+  /** Who Murph Tournaments says is playing. Null until the first check answers. */
+  const [player, setPlayer] = useState<ArcadePlayer | null>(null);
+  const [summary, setSummary] = useState<RunSummary | null>(null);
+  const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });
   const reducedMotion = useReducedMotion();
 
   const soundRef = useRef(true);
@@ -653,6 +764,12 @@ export default function WormholeGame() {
   /** CSS pixels of arena covered by the HTML HUD strip, for the canvas to skip. */
   const hudInsetRef = useRef(0);
   const audioPool = useRef<Map<string, HTMLAudioElement[]>>(new Map());
+  /** Epoch ms the current run began, so a finished run can report its length. */
+  const runStartedAt = useRef(0);
+  /** The outcome already turned into a summary, so each run is recorded once. */
+  const recordedResult = useRef<Game["result"]>(null);
+  /** Ship the current run is being flown in, fixed at launch. */
+  const runShipName = useRef("");
 
   useEffect(() => { soundRef.current = sound; }, [sound]);
   useEffect(() => { cameraRef.current = cameraLocked; }, [cameraLocked]);
@@ -759,6 +876,87 @@ export default function WormholeGame() {
     setHud((previous) => (hudEqual(previous, next) ? previous : next));
   }, []);
 
+  /**
+   * Sends a finished run to Murph Tournaments. Only ever called for a player
+   * who is already signed in, or who has just signed in for this purpose.
+   */
+  const saveRun = useCallback(async (run: RunResult) => {
+    setSaveState({ status: "saving" });
+    const result = await saveScoreToMurph(run);
+
+    if (result.status === "saved") {
+      setSaveState({ status: "saved", rank: result.rank, bestScore: result.bestScore });
+      setPlayer((current) =>
+        current ? { ...current, bestScore: result.bestScore, runs: result.runs, rank: result.rank } : current
+      );
+      return;
+    }
+
+    if (result.status === "signed-out") {
+      // The session lapsed between the run and the save. Fall back to the
+      // guest path rather than pretending the score went anywhere.
+      setPlayer(null);
+      setSaveState({ status: "idle" });
+      return;
+    }
+
+    setSaveState({ status: "error", message: result.message });
+  }, []);
+
+  /**
+   * Parks the run, sends the player to Discord, and returns them to this exact
+   * page. Nothing is lost if they abandon the sign-in — the run is already in
+   * this device's local best.
+   */
+  const signInToSave = useCallback((run: RunResult) => {
+    stashPendingRun(run);
+    window.location.href = discordSignInUrl(window.location.href);
+  }, []);
+
+  // Ask once, on load, who is playing — and finish saving a run that was
+  // waiting on a sign-in redirect. Never blocks or delays the game.
+  useEffect(() => {
+    let cancelled = false;
+    const pending = takePendingRun();
+
+    const best = loadLocalBest();
+
+    void fetchArcadeSession().then((session) => {
+      if (cancelled) return;
+      setPlayer(session?.signedIn ? session.player : null);
+      if (!pending || !session?.signedIn) return;
+      setSummary({ run: pending, best, isBest: false, runs: 0, restored: true });
+      void saveRun(pending);
+    });
+
+    return () => { cancelled = true; };
+  }, [saveRun]);
+
+  // A run just ended: record it on this device, then offer or perform the save.
+  useEffect(() => {
+    if (!hud.result) {
+      recordedResult.current = null;
+      return;
+    }
+    if (recordedResult.current === hud.result) return;
+    recordedResult.current = hud.result;
+
+    const run: RunResult = {
+      score: hud.score,
+      outcome: hud.result,
+      ship: runShipName.current,
+      rivalHealth: hud.rivalHealth,
+      durationSeconds: runStartedAt.current
+        ? Math.max(0, Math.round((Date.now() - runStartedAt.current) / 1000))
+        : 0,
+    };
+
+    const local = saveLocalRun(run);
+    setSummary({ run, best: local.best, isBest: local.isBest, runs: local.runs, restored: false });
+    setSaveState({ status: "idle" });
+    if (player) void saveRun(run);
+  }, [hud.result, hud.score, hud.rivalHealth, player, saveRun]);
+
   const start = useCallback(() => {
     const game = createGame(selectedShip(shipId));
     game.running = true;
@@ -773,6 +971,11 @@ export default function WormholeGame() {
     setAimStickPosition({ active: false, x: 0, y: 0 });
     setInspect(null);
     setCodexOpen(false);
+    setBoardOpen(false);
+    setSummary(null);
+    setSaveState({ status: "idle" });
+    runStartedAt.current = Date.now();
+    runShipName.current = game.ship.name;
     sync();
     canvasWrapRef.current?.focus({ preventScroll: true });
     play("magic", 0.28);
@@ -2024,7 +2227,12 @@ export default function WormholeGame() {
       <header className="topbar">
         <div className="brand">
           <span className="brand-mark" aria-hidden="true">W/02</span>
-          <div><h1>WORMHOLE <em>ARCADE</em></h1><p>NEW GROUND // COMBAT NETWORK</p></div>
+          <div>
+            <h1>WORMHOLE <em>ARCADE</em></h1>
+            <a className="brand-home" href={MURPH_SITE_URL} target="_blank" rel="noopener noreferrer">
+              ← MURPH TOURNAMENTS
+            </a>
+          </div>
         </div>
         <div className="top-actions" ref={topActionsRef}>
           <span className="link-status"><i aria-hidden="true" /> SOLO LINK</span>
@@ -2043,6 +2251,8 @@ export default function WormholeGame() {
               </select>
             </label>
             <button type="button" onClick={() => { setCodexOpen(true); setMenuOpen(false); }} aria-haspopup="dialog">WEAPONS</button>
+            <button type="button" onClick={() => { setBoardOpen(true); setMenuOpen(false); }} aria-haspopup="dialog">BOARD</button>
+            <a className="menu-home" href={MURPH_SITE_URL} target="_blank" rel="noopener noreferrer">MURPH TOURNAMENTS ↗</a>
             <button type="button" onClick={cycleView} aria-label={`Arena width: ${viewSize}. Activate to change.`}>VIEW {viewSize.toUpperCase()}</button>
             <button type="button" aria-pressed={cameraLocked} onClick={() => setCameraLocked((value) => !value)} aria-label={cameraLocked ? "Camera follows your ship. Activate for the whole arena." : "Camera shows the whole arena. Activate to follow your ship."}>
               {cameraLocked ? "CAMERA SHIP" : "CAMERA ARENA"}
@@ -2149,6 +2359,50 @@ export default function WormholeGame() {
               </div>
               <i className="reticle tl" aria-hidden="true" /><i className="reticle tr" aria-hidden="true" />
               <i className="reticle bl" aria-hidden="true" /><i className="reticle br" aria-hidden="true" />
+              {summary ? (
+                <div className="run-summary-layer">
+                  <section className="run-summary" aria-live="polite" aria-label="Run result">
+                    <button className="run-close" type="button" onClick={() => setSummary(null)} aria-label="Dismiss run summary">✕</button>
+                    <p className="run-outcome" data-outcome={summary.run.outcome}>
+                      {summary.restored ? "LAST RUN" : summary.run.outcome === "victory" ? "RIVAL ELIMINATED" : "SHIP DESTROYED"}
+                    </p>
+                    <p className="run-score"><span>SCORE</span><b>{summary.run.score.toLocaleString()}</b></p>
+                    <p className="run-meta">
+                      {summary.isBest ? "NEW DEVICE BEST" : summary.best ? `DEVICE BEST ${summary.best.score.toLocaleString()}` : "FIRST RUN ON THIS DEVICE"}
+                    </p>
+
+                    {player ? (
+                      <div className="run-save">
+                        {saveState.status === "saving" ? <p className="run-status">SAVING TO MURPH TOURNAMENTS…</p> : null}
+                        {saveState.status === "saved" ? (
+                          <p className="run-status ok">
+                            SAVED AS {player.displayName.toUpperCase()}
+                            {saveState.rank ? ` · GLOBAL #${saveState.rank}` : ""}
+                          </p>
+                        ) : null}
+                        {saveState.status === "error" ? (
+                          <>
+                            <p className="run-status warn">{saveState.message}</p>
+                            <button type="button" className="run-action" onClick={() => void saveRun(summary.run)}>TRY SAVING AGAIN</button>
+                          </>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div className="run-save">
+                        <p className="run-status">Saved on this device only. Sign in to put it on the global board.</p>
+                        <button type="button" className="run-action primary" onClick={() => signInToSave(summary.run)}>
+                          SAVE WITH DISCORD
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="run-links">
+                      <button type="button" onClick={start}>RUN AGAIN</button>
+                      <button type="button" onClick={() => setBoardOpen(true)}>GLOBAL BOARD</button>
+                    </div>
+                  </section>
+                </div>
+              ) : null}
             </div>
             <div className="touch-controls" aria-label="Twin-stick touch controls">
               <div className="touch-flight">
@@ -2301,6 +2555,7 @@ export default function WormholeGame() {
       </footer>
 
       {codexOpen ? <WeaponCodex onClose={() => setCodexOpen(false)} reducedMotion={reducedMotion} /> : null}
+      {boardOpen ? <Leaderboard onClose={() => setBoardOpen(false)} /> : null}
     </main>
   );
 }
