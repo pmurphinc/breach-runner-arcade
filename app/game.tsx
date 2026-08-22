@@ -288,11 +288,24 @@ export default function WormholeGame() {
   const [hud, setHud] = useState<Hud>(() => hudFrom(createGame(selectedShip("wing"))));
   const [sound, setSound] = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
+  const [touchCapable, setTouchCapable] = useState(false);
   const [moveStickPosition, setMoveStickPosition] = useState<StickPosition>({ active: false, x: 0, y: 0 });
   const [aimStickPosition, setAimStickPosition] = useState<StickPosition>({ active: false, x: 0, y: 0 });
   const soundRef = useRef(true);
 
   useEffect(() => { soundRef.current = sound; }, [sound]);
+
+  useEffect(() => {
+    const coarsePointer = window.matchMedia("(pointer: coarse)");
+    const detectTouch = () => setTouchCapable(navigator.maxTouchPoints > 0 || coarsePointer.matches || "ontouchstart" in window);
+    detectTouch();
+    coarsePointer.addEventListener?.("change", detectTouch);
+    window.addEventListener("touchstart", detectTouch, { passive: true, once: true });
+    return () => {
+      coarsePointer.removeEventListener?.("change", detectTouch);
+      window.removeEventListener("touchstart", detectTouch);
+    };
+  }, []);
 
   useEffect(() => {
     const updateFullscreen = () => setFullscreen(Boolean(document.fullscreenElement));
@@ -1015,7 +1028,7 @@ export default function WormholeGame() {
   });
 
   return (
-    <main ref={shellRef} className={`app-shell ${hud.running && !hud.result ? "game-active" : ""}`}>
+    <main ref={shellRef} className={`app-shell ${touchCapable ? "touch-capable" : ""} ${hud.running && !hud.result ? "game-active" : ""}`}>
       <header className="topbar">
         <div className="brand"><span className="brand-mark">W/02</span><div><h1>WORMHOLE <em>ARCADE</em></h1><p>NEW GROUND // COMBAT NETWORK</p></div></div>
         <div className="top-actions"><span className="link-status"><i /> SOLO LINK</span><button type="button" aria-pressed={sound} onClick={() => setSound((value) => !value)}>{sound ? "SOUND ON" : "SOUND OFF"}</button><button className="fullscreen-trigger" type="button" aria-pressed={fullscreen} onClick={toggleFullscreen}>{fullscreen ? "EXIT FULL" : "FULLSCREEN"}</button><button type="button" onClick={togglePause}>P / PAUSE</button></div>

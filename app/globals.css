@@ -311,6 +311,32 @@ footer { display: flex; justify-content: space-between; gap: 18px; padding: 5px 
   .game-active .cockpit { padding-bottom: 220px; }
 }
 
+/* Some tablet browsers, including Fire OS Silk, report a desktop pointer. */
+.touch-capable .touch-controls { display: flex; }
+.touch-capable.game-active .touch-controls { --game-stick-size: clamp(108px,min(30vw,31dvh),136px); position: fixed; inset: auto 0 max(18px,env(safe-area-inset-bottom)); z-index: 12; width: 100%; height: var(--game-stick-size); display: block; padding: 0; pointer-events: none; }
+.touch-capable.game-active .touch-flight,.touch-capable.game-active .touch-action { position: absolute; top: auto; right: auto; bottom: 0; display: block !important; width: var(--game-stick-size); transform: translateX(-50%); pointer-events: none; }
+.touch-capable.game-active .touch-flight { left: 20%; }
+.touch-capable.game-active .touch-action { left: 80%; }
+.touch-capable.game-active .virtual-stick { width: var(--game-stick-size); background-color: rgba(3,12,19,.72); backdrop-filter: blur(8px); pointer-events: auto; }
+.touch-capable.game-active .stick-knob { width: clamp(50px,min(13vw,14dvh),60px); height: clamp(50px,min(13vw,14dvh),60px); }
+.touch-capable.game-active .touch-utility { position: absolute; top: auto; bottom: calc(100% + 7px); left: 50%; display: flex; flex-direction: row; gap: 5px; transform: translateX(-50%); pointer-events: none; }
+.touch-capable.game-active .touch-utility button { width: 48px; height: 48px; pointer-events: auto; }
+
+@media (max-width: 1400px) {
+  .touch-capable .topbar { height: 54px; }
+  .touch-capable .cockpit { height: calc(100dvh - 54px); display: block; padding: 6px max(6px,env(safe-area-inset-right)) 220px max(6px,env(safe-area-inset-left)); overflow-y: auto; }
+  .touch-capable .play-column { width: 100%; }
+  .touch-capable .ship-panel,.touch-capable .intel-panel,.touch-capable .pilot-transmission,.touch-capable .controls,.touch-capable footer { display: none; }
+  .touch-capable .mobile-preflight { display: grid; position: sticky; top: 0; z-index: 8; box-shadow: 0 8px 22px rgba(0,0,0,.3); }
+  .touch-capable .match-bar { min-height: 40px; margin-bottom: 4px; padding: 5px 9px; }
+  .touch-capable .match-bar > div:first-child { display: none; }
+  .touch-capable .score { min-width: 100px; padding-left: 0; text-align: left; border-left: 0; }
+  .touch-capable .arena-stage { width: min(100%,calc(100dvh - 220px)); }
+  .touch-capable .status-dock { min-height: 52px; margin-top: 4px; padding: 5px 7px; grid-template-columns: 1fr auto; }
+  .touch-capable .vitals,.touch-capable .bin-label { display: none; }
+  .touch-capable .power-bin { grid-template-columns: repeat(5,minmax(32px,1fr)); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,*::before,*::after { animation: none !important; transition: none !important; }
 }
