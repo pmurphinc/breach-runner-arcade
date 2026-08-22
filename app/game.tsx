@@ -28,6 +28,8 @@ const DEG = Math.PI / 180;
 const THRUST_ACCEL_BONUS = 0.035;
 const THRUST_SPEED_BONUS = 0.25;
 const STOCK_LIMIT = 5;
+/** More than two nameplates at once is noise, not information. */
+const MAX_NAMEPLATES = 2;
 
 type Bullet = { x: number; y: number; vx: number; vy: number; damage: number; life: number; enemy: boolean; color: string };
 type Pickup = { x: number; y: number; vx: number; vy: number; type: PickupId; life: number; phase: number };
@@ -961,7 +963,7 @@ export default function WormholeGame() {
     };
 
     const pushSpawn = (game: Game, kind: SpawnKind, type: PickupId, x: number, y: number, count: number) => {
-      game.spawns.push({ x, y, type, kind, age: 0, life: kind === "hostile" ? 110 : 80, count });
+      game.spawns.push({ x, y, type, kind, age: 0, life: kind === "hostile" ? 145 : 115, count });
       game.portalPulse = 1;
     };
 
@@ -985,7 +987,7 @@ export default function WormholeGame() {
       const count = ENEMY_COUNTS[power];
       for (let i = 0; i < count; i += 1) game.enemies.push(makeEnemy(power, game.portalX, game.portalY, i, count));
       game.incoming = power;
-      game.notice = `INCOMING // ${POWER_LABELS[power]}`;
+      game.notice = `INCOMING // ${WEAPONS[power].short}`;
       game.noticeLife = 140;
       pushSpawn(game, "hostile", power, game.portalX, game.portalY, count);
       burst(game, game.portalX, game.portalY, POWER_COLORS[power], 26, 9);
@@ -1245,7 +1247,7 @@ export default function WormholeGame() {
         const type = game.stock.pop()!;
         const angle = player.angle * DEG;
         game.powers.push({ x: player.x + Math.cos(angle) * 12, y: player.y + Math.sin(angle) * 12, vx: Math.cos(angle) * 10 + player.vx, vy: Math.sin(angle) * 10 + player.vy, type, life: 160 });
-        game.notice = `${POWER_LABELS[type]} ARMED`;
+        game.notice = `${WEAPONS[type].short} ARMED`;
         game.noticeLife = 75;
         burst(game, player.x, player.y, POWER_COLORS[type], 10, 4);
         play("fire", 0.2);
@@ -1270,7 +1272,7 @@ export default function WormholeGame() {
             game.portalCharge = 0;
             const type = randomPower();
             game.pickups.push({ x: game.portalX + range(-28, 28), y: game.portalY + range(-28, 28), vx: range(-1.2, 1.2), vy: range(-1.2, 1.2), type, life: 900, phase: range(0, 6) });
-            game.notice = `${POWER_LABELS[type]} GENERATED`;
+            game.notice = `${WEAPONS[type].short} READY TO COLLECT`;
             game.noticeLife = 100;
             pushSpawn(game, "friendly", type, game.portalX, game.portalY, 1);
             play("magic", 0.22);
@@ -1296,7 +1298,7 @@ export default function WormholeGame() {
           const damage = rivalDamageFor(power.type);
           game.rivalHealth -= damage;
           game.score += 750 + damage * 10;
-          game.notice = `${POWER_LABELS[power.type]} TRANSMITTED`;
+          game.notice = `${WEAPONS[power.type].short} SENT // RIVAL −${damage}`;
           game.noticeLife = 115;
           pushSpawn(game, "transmit", power.type, game.portalX, game.portalY, damage);
           burst(game, game.portalX, game.portalY, POWER_COLORS[power.type], 38, 11);
@@ -1334,7 +1336,7 @@ export default function WormholeGame() {
           else if (type === "health") player.health = Math.min(player.maxHealth, player.health + 30);
           else if (game.stock.length < STOCK_LIMIT) game.stock.push(type);
           else { game.notice = "POWERUP BIN FULL"; game.noticeLife = 75; return; }
-          game.notice = `${POWER_LABELS[type]} ACQUIRED`;
+          game.notice = `${WEAPONS[type].short} COLLECTED`;
           game.noticeLife = 100;
           burst(game, pickup.x, pickup.y, POWER_COLORS[type], 16, 5);
           play("magic", 0.25);
@@ -1850,44 +1852,38 @@ export default function WormholeGame() {
         ctx.fillText(fit(meta.name, chipW - chipH - pad), chipX + chipH, chipY + fs(12) * 2.15);
       }
 
-      // Spawn nameplates, projected from the portal into HUD space.
-      let plateRow = 0;
-      for (const spawn of game.spawns) {
-        const p = cap(spawn.age / spawn.life, 0, 1);
+      // Spawn nameplates. One short line each, glyph first, in a fixed stack
+      // under the HUD band: a plate that always appears in the same place is
+      // far quicker to read than one that chases the portal around the arena.
+      const plateH = Math.round(fs(13) * 2.2);
+      const firstPlate = Math.max(0, game.spawns.length - MAX_NAMEPLATES);
+      for (let i = firstPlate; i < game.spawns.length; i += 1) {
+        const spawn = game.spawns[i];
         const meta = WEAPONS[spawn.type];
-        const sx = (spawn.x * camera.camScale + camera.camX) * (W / BOARD);
-        const sy = (spawn.y * camera.camScale + camera.camY) * (W / BOARD);
-        if (sx < -80 || sx > W + 80 || sy < -80 || sy > W + 80) continue;
-        const alpha = p < 0.15 ? p / 0.15 : cap((1 - p) / 0.35, 0, 1);
-        const heading = spawn.kind === "hostile"
-          ? `⚠ INCOMING  ${meta.name}${spawn.count > 1 ? `  ×${spawn.count}` : ""}`
+        const p = cap(spawn.age / spawn.life, 0, 1);
+        // Hold at full strength for most of the life, then fade quickly.
+        const alpha = p < 0.08 ? p / 0.08 : cap((1 - p) / 0.22, 0, 1);
+        const label = spawn.kind === "hostile"
+          ? `${meta.short}${spawn.count > 1 ? ` ×${spawn.count}` : ""}  ${threatBadge(meta)}`
           : spawn.kind === "friendly"
-            ? `+ ${meta.name}  READY TO COLLECT`
-            : `${meta.name}  SENT  ·  RIVAL −${spawn.count}`;
-        const sub = spawn.kind === "hostile"
-          ? `THREAT ${threatBadge(meta)}  ·  ${CATEGORY_LABELS[meta.category]}`
-          : spawn.kind === "friendly"
-            ? "FLY OVER IT TO COLLECT"
-            : "TRANSMITTED THROUGH THE WORMHOLE";
+            ? `${meta.short}  READY`
+            : `${meta.short}  SENT  −${spawn.count}`;
+        const accent = spawn.kind === "hostile" ? "#ff6a80" : spawn.kind === "friendly" ? "#8dffd0" : meta.color;
         ctx.save();
         ctx.globalAlpha = alpha;
-        ctx.font = mono(800, 12.5);
-        ctx.textAlign = "center";
-        const plateW = Math.max(ctx.measureText(heading).width, ctx.measureText(sub).width) + pad * 2;
-        const plateH = Math.round(fs(12) * 3.2);
-        const plateX = cap(sx - plateW / 2, 4, Math.max(4, W - plateW - 4));
-        // Keep nameplates clear of the fixed HUD band at the top of the arena.
-        const plateTop = chargeY + chargeH + 8;
-        const stacked = plateRow * (plateH + 6);
-        plateRow += 1;
-        const plateY = cap(sy - plateH - 74 * camera.camScale * (W / BOARD) - stacked, plateTop + stacked, Math.max(plateTop + stacked, W - plateH - 4));
-        const accent = spawn.kind === "hostile" ? "#ff6a80" : spawn.kind === "friendly" ? "#8dffd0" : meta.color;
-        panel(plateX, plateY, plateW, plateH, `${accent}88`);
-        ctx.fillStyle = spawn.kind === "hostile" ? "#ffd7dd" : "#eafcff";
-        ctx.fillText(heading, plateX + plateW / 2, plateY + fs(12) * 1.05);
-        ctx.fillStyle = accent;
-        ctx.font = mono(700, 11.5);
-        ctx.fillText(sub, plateX + plateW / 2, plateY + fs(12) * 2.25);
+        ctx.font = mono(800, 13);
+        const iconW = plateH;
+        const plateW = Math.round(ctx.measureText(label).width + iconW + pad * 1.4);
+        const plateX = Math.round((W - plateW) / 2);
+        const plateY = Math.round(chargeY + chargeH + 10 + (i - firstPlate) * (plateH + 6));
+        panel(plateX, plateY, plateW, plateH, `${accent}aa`);
+        ctx.save();
+        ctx.translate(plateX + iconW * 0.5, plateY + plateH * 0.5);
+        drawWeaponGlyph(ctx, spawn.type, plateH * 0.3, time, { detail: profile.detail });
+        ctx.restore();
+        ctx.textAlign = "left";
+        ctx.fillStyle = spawn.kind === "hostile" ? "#ffd9de" : "#eafcff";
+        ctx.fillText(label, plateX + iconW, plateY + plateH / 2);
         ctx.restore();
       }
 
