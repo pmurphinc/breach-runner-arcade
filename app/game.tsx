@@ -14,6 +14,7 @@ import {
 } from "./game-data";
 
 const BOARD = 655;
+const WORLD_SIZE = 940;
 const TICK_MS = 15;
 const PORTAL_THRESHOLD = 150;
 const DEG = Math.PI / 180;
@@ -62,6 +63,7 @@ type Player = {
 };
 
 type Game = {
+  worldSize: number;
   ship: ShipSpec;
   player: Player;
   portalAngle: number;
@@ -156,10 +158,11 @@ function selectedShip(id: ShipId) {
 
 function createGame(ship: ShipSpec): Game {
   return {
+    worldSize: WORLD_SIZE,
     ship,
     player: {
-      x: BOARD / 2,
-      y: BOARD / 2,
+      x: WORLD_SIZE / 2,
+      y: WORLD_SIZE / 2,
       vx: 0,
       vy: 0,
       angle: -90,
@@ -176,8 +179,8 @@ function createGame(ship: ShipSpec): Game {
     },
     portalAngle: 0,
     portalCharge: 0,
-    portalX: BOARD / 2 + 150,
-    portalY: BOARD / 2,
+    portalX: WORLD_SIZE / 2 + 210,
+    portalY: WORLD_SIZE / 2,
     bullets: [],
     pickups: [],
     enemies: [],
@@ -289,6 +292,8 @@ export default function WormholeGame() {
   const [sound, setSound] = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
   const [touchCapable, setTouchCapable] = useState(false);
+  const [cameraLocked, setCameraLocked] = useState(true);
+  const [viewSize, setViewSize] = useState<"compact" | "standard" | "wide">("standard");
   const [moveStickPosition, setMoveStickPosition] = useState<StickPosition>({ active: false, x: 0, y: 0 });
   const [aimStickPosition, setAimStickPosition] = useState<StickPosition>({ active: false, x: 0, y: 0 });
   const soundRef = useRef(true);
@@ -421,7 +426,7 @@ export default function WormholeGame() {
   useEffect(() => {
     const down = (event: KeyboardEvent) => {
       const code = event.code;
-      if (["ArrowUp", "ArrowLeft", "ArrowRight", "Space", "KeyF", "KeyR", "KeyP"].includes(code)) event.preventDefault();
+      if (["ArrowUp", "ArrowLeft", "ArrowRight", "Space", "KeyE", "KeyQ", "KeyP"].includes(code)) event.preventDefault();
       if (code === "Enter" && (!gameRef.current.running || gameRef.current.result)) start();
       if (code === "KeyP" && !event.repeat) togglePause();
       keys.current[code] = true;
@@ -512,7 +517,7 @@ export default function WormholeGame() {
 
     const activateSpecial = (game: Game) => {
       const player = game.player;
-      if (player.specialCooldown > 0 || !keys.current.KeyR) return;
+      if (player.specialCooldown > 0 || !keys.current.KeyQ) return;
       const ship = game.ship.id;
       if (ship === "turtle") {
         game.enemies.forEach((enemy) => {
@@ -617,8 +622,8 @@ export default function WormholeGame() {
         }
       } else if (enemy.kind === "wallcrawler") {
         if (enemy.x <= 12) { enemy.x = 12; enemy.vx = 0; enemy.vy = 4; }
-        if (enemy.y >= BOARD - 12) { enemy.y = BOARD - 12; enemy.vx = 4; enemy.vy = 0; }
-        if (enemy.x >= BOARD - 12) { enemy.x = BOARD - 12; enemy.vx = 0; enemy.vy = -4; }
+        if (enemy.y >= game.worldSize - 12) { enemy.y = game.worldSize - 12; enemy.vx = 4; enemy.vy = 0; }
+        if (enemy.x >= game.worldSize - 12) { enemy.x = game.worldSize - 12; enemy.vx = 0; enemy.vy = -4; }
         if (enemy.y <= 12) { enemy.y = 12; enemy.vx = -4; enemy.vy = 0; }
         if (enemy.age % 35 === 0) spawnEnemyBullet(game, enemy, 6, 10);
       } else if (enemy.kind === "ghost") {
@@ -653,10 +658,10 @@ export default function WormholeGame() {
         enemy.x += enemy.vx;
         enemy.y += enemy.vy;
       }
-      if (enemy.x < 4 || enemy.x > BOARD - 4) enemy.vx *= -1;
-      if (enemy.y < 4 || enemy.y > BOARD - 4) enemy.vy *= -1;
-      enemy.x = cap(enemy.x, 4, BOARD - 4);
-      enemy.y = cap(enemy.y, 4, BOARD - 4);
+      if (enemy.x < 4 || enemy.x > game.worldSize - 4) enemy.vx *= -1;
+      if (enemy.y < 4 || enemy.y > game.worldSize - 4) enemy.vy *= -1;
+      enemy.x = cap(enemy.x, 4, game.worldSize - 4);
+      enemy.y = cap(enemy.y, 4, game.worldSize - 4);
 
       const collisionRadius = enemy.kind === "nuke" && (enemy.countdown ?? 0) <= 0 ? 0 : enemy.radius;
       if (collisionRadius > 0 && d < collisionRadius + 12) {
@@ -680,8 +685,8 @@ export default function WormholeGame() {
       player.specialCooldown = Math.max(0, player.specialCooldown - 1);
       player.emp = Math.max(0, player.emp - 1);
       game.portalAngle = (game.portalAngle + 0.5) % 360;
-      game.portalX = BOARD / 2 + Math.cos(game.portalAngle * DEG) * 150;
-      game.portalY = BOARD / 2 + Math.sin(game.portalAngle * DEG) * 150;
+      game.portalX = game.worldSize / 2 + Math.cos(game.portalAngle * DEG) * 210;
+      game.portalY = game.worldSize / 2 + Math.sin(game.portalAngle * DEG) * 210;
 
       const movementHeading = moveHeading.current;
       const firingHeading = aimHeading.current;
@@ -689,7 +694,7 @@ export default function WormholeGame() {
       let right = keys.current.ArrowRight || keys.current.KeyD;
       let thrust = keys.current.ArrowUp || keys.current.KeyW;
       let fire = keys.current.Space;
-      const launch = keys.current.KeyF;
+      const launch = keys.current.KeyE;
       if (player.emp > 0) {
         [left, right] = [right, left];
         if (game.cycles % 3 === 0) [thrust, fire] = [fire, thrust];
@@ -723,8 +728,8 @@ export default function WormholeGame() {
       if (playerSpeed > maxSpeed) { player.vx = (player.vx / playerSpeed) * maxSpeed; player.vy = (player.vy / playerSpeed) * maxSpeed; }
       player.x += player.vx;
       player.y += player.vy;
-      if (player.x < 12 || player.x > BOARD - 12) { player.x = cap(player.x, 12, BOARD - 12); player.vx *= -0.55; damagePlayer(game, 2); }
-      if (player.y < 12 || player.y > BOARD - 12) { player.y = cap(player.y, 12, BOARD - 12); player.vy *= -0.55; damagePlayer(game, 2); }
+      if (player.x < 12 || player.x > game.worldSize - 12) { player.x = cap(player.x, 12, game.worldSize - 12); player.vx *= -0.55; damagePlayer(game, 2); }
+      if (player.y < 12 || player.y > game.worldSize - 12) { player.y = cap(player.y, 12, game.worldSize - 12); player.vy *= -0.55; damagePlayer(game, 2); }
 
       if (fire && game.shotCycle <= 0 && game.bullets.filter((bullet) => !bullet.enemy).length < SHOT_LEVELS[player.gun].maxShots) {
         const shot = SHOT_LEVELS[player.gun];
@@ -850,9 +855,9 @@ export default function WormholeGame() {
         particle.life -= 1;
       });
 
-      game.bullets = game.bullets.filter((item) => item.life > 0 && item.x > -30 && item.x < BOARD + 30 && item.y > -30 && item.y < BOARD + 30);
+      game.bullets = game.bullets.filter((item) => item.life > 0 && item.x > -30 && item.x < game.worldSize + 30 && item.y > -30 && item.y < game.worldSize + 30);
       game.pickups = game.pickups.filter((item) => item.life > 0);
-      game.powers = game.powers.filter((item) => item.life > 0 && item.x > -30 && item.x < BOARD + 30 && item.y > -30 && item.y < BOARD + 30);
+      game.powers = game.powers.filter((item) => item.life > 0 && item.x > -30 && item.x < game.worldSize + 30 && item.y > -30 && item.y < game.worldSize + 30);
       game.enemies = game.enemies.filter((item) => item.hp > 0);
       game.particles = game.particles.filter((item) => item.life > 0);
       if (game.incoming && game.noticeLife <= 0) game.incoming = null;
@@ -962,6 +967,15 @@ export default function WormholeGame() {
       ctx.lineWidth = 1;
       for (let p = 30; p < BOARD; p += 30) { ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p, BOARD); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0, p); ctx.lineTo(BOARD, p); ctx.stroke(); }
 
+      ctx.save();
+      if (cameraLocked) {
+        const cameraX = cap(BOARD / 2 - player.x, BOARD - game.worldSize, 0);
+        const cameraY = cap(BOARD / 2 - player.y, BOARD - game.worldSize, 0);
+        ctx.translate(cameraX, cameraY);
+      } else {
+        const overviewScale = BOARD / game.worldSize;
+        ctx.scale(overviewScale, overviewScale);
+      }
       drawPortal(game, time);
       game.pickups.forEach((pickup) => {
         const color = POWER_COLORS[pickup.type];
@@ -984,10 +998,11 @@ export default function WormholeGame() {
         if (player.shield > 0 || player.invuln > 0) { ctx.strokeStyle = player.invuln > 0 ? "#ffffff" : "#76a7ff"; ctx.globalAlpha = .7; ctx.beginPath(); ctx.arc(0, 0, game.ship.id === "flagship" ? 30 : 22, 0, Math.PI * 2); ctx.stroke(); }
         ctx.restore();
       }
+      ctx.restore();
 
       ctx.fillStyle = "rgba(2,7,12,.76)"; ctx.fillRect(10, 10, 248, 28); ctx.strokeStyle = "rgba(102,225,255,.18)"; ctx.strokeRect(10.5, 10.5, 247, 27);
-      ctx.fillStyle = game.noticeLife > 0 ? "#e9fcff" : "#6f939e"; ctx.font = "700 9px ui-monospace, monospace"; ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.fillText(game.noticeLife > 0 ? game.notice : "SHOOT WORMHOLE // COLLECT // RETURN FIRE", 20, 24);
-      ctx.fillStyle = "rgba(2,7,12,.76)"; ctx.fillRect(BOARD - 115, 10, 105, 28); ctx.strokeStyle = "rgba(255,86,194,.18)"; ctx.strokeRect(BOARD - 114.5, 10.5, 104, 27); ctx.fillStyle = "#ff70cc"; ctx.textAlign = "center"; ctx.fillText(`CHARGE ${Math.round(game.portalCharge / PORTAL_THRESHOLD * 100)}%`, BOARD - 62, 24);
+      ctx.fillStyle = game.noticeLife > 0 ? "#e9fcff" : "#6f939e"; ctx.font = "700 11px ui-monospace, monospace"; ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.fillText(game.noticeLife > 0 ? game.notice : "SHOOT WORMHOLE // COLLECT // RETURN FIRE", 20, 24);
+      ctx.fillStyle = "rgba(2,7,12,.84)"; ctx.fillRect(BOARD - 170, 10, 160, 42); ctx.strokeStyle = "rgba(255,86,194,.28)"; ctx.strokeRect(BOARD - 169.5, 10.5, 159, 41); ctx.fillStyle = "#ff70cc"; ctx.textAlign = "center"; ctx.font = "800 11px ui-monospace, monospace"; ctx.fillText(`WORMHOLE CHARGE ${Math.round(game.portalCharge / PORTAL_THRESHOLD * 100)}%`, BOARD - 90, 24); ctx.fillStyle = "#8eaab2"; ctx.font = "700 8px ui-monospace, monospace"; ctx.fillText("150 DAMAGE → POWERUP", BOARD - 90, 41);
 
       if (!game.running || game.paused || game.result) {
         ctx.fillStyle = "rgba(1,4,8,.78)"; ctx.fillRect(0, 0, BOARD, BOARD);
@@ -1011,7 +1026,7 @@ export default function WormholeGame() {
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", syncCanvasResolution);
     };
-  }, [play, sync]);
+  }, [cameraLocked, play, sync]);
 
   const currentShip = selectedShip(shipId);
   const healthPct = hud.maxHealth ? hud.health / hud.maxHealth * 100 : 0;
@@ -1028,10 +1043,10 @@ export default function WormholeGame() {
   });
 
   return (
-    <main ref={shellRef} className={`app-shell ${touchCapable ? "touch-capable" : ""} ${hud.running && !hud.result ? "game-active" : ""}`}>
+    <main ref={shellRef} className={`app-shell view-${viewSize} ${touchCapable ? "touch-capable" : ""} ${hud.running && !hud.result ? "game-active" : ""}`}>
       <header className="topbar">
         <div className="brand"><span className="brand-mark">W/02</span><div><h1>WORMHOLE <em>ARCADE</em></h1><p>NEW GROUND // COMBAT NETWORK</p></div></div>
-        <div className="top-actions"><span className="link-status"><i /> SOLO LINK</span><button type="button" aria-pressed={sound} onClick={() => setSound((value) => !value)}>{sound ? "SOUND ON" : "SOUND OFF"}</button><button className="fullscreen-trigger" type="button" aria-pressed={fullscreen} onClick={toggleFullscreen}>{fullscreen ? "EXIT FULL" : "FULLSCREEN"}</button><button type="button" onClick={togglePause}>P / PAUSE</button></div>
+        <div className="top-actions"><span className="link-status"><i /> SOLO LINK</span><button type="button" onClick={() => setViewSize((value) => value === "compact" ? "standard" : value === "standard" ? "wide" : "compact")}>VIEW {viewSize.toUpperCase()}</button><button type="button" aria-pressed={cameraLocked} onClick={() => setCameraLocked((value) => !value)}>{cameraLocked ? "CAMERA SHIP" : "CAMERA ARENA"}</button><button type="button" aria-pressed={sound} onClick={() => setSound((value) => !value)}>{sound ? "SOUND ON" : "SOUND OFF"}</button><button className="fullscreen-trigger" type="button" aria-pressed={fullscreen} onClick={toggleFullscreen}>{fullscreen ? "EXIT FULL" : "FULLSCREEN"}</button><button type="button" onClick={togglePause}>P / PAUSE</button></div>
       </header>
 
       <section className="cockpit">
@@ -1046,7 +1061,7 @@ export default function WormholeGame() {
           </div>
           <p className="ship-description">{currentShip.special}</p>
           <div className="data-grid"><div><span>HULL</span><b>{currentShip.health}</b></div><div><span>TURN</span><b>{currentShip.turn}°</b></div><div><span>MAX V</span><b>{currentShip.maxSpeed}</b></div><div><span>ACCEL</span><b>{currentShip.acceleration}</b></div></div>
-          <div className="controls"><div className="eyebrow">FLIGHT CONTROL</div><dl><div><dt>ROTATE</dt><dd>← → / A D</dd></div><div><dt>THRUST</dt><dd>↑ / W</dd></div><div><dt>PULSE CANNON</dt><dd>SPACE</dd></div><div><dt>FIRE POWERUP</dt><dd>F</dd></div><div><dt>SPECIAL</dt><dd>R</dd></div></dl></div>
+          <div className="controls"><div className="eyebrow">FLIGHT CONTROL</div><dl><div><dt>ROTATE</dt><dd>← → / A D</dd></div><div><dt>THRUST</dt><dd>↑ / W</dd></div><div><dt>PULSE CANNON</dt><dd>SPACE</dd></div><div><dt>FIRE POWERUP</dt><dd>E</dd></div><div><dt>SPECIAL</dt><dd>Q</dd></div></dl></div>
         </aside>
 
         <section className="play-column">
@@ -1062,7 +1077,7 @@ export default function WormholeGame() {
             <div className="rival"><span>RIVAL INTEGRITY</span><div className="meter"><i style={{ width: `${hud.rivalHealth}%` }} /></div><b>{hud.rivalHealth}%</b></div>
           </div>
           <div className="arena-stage">
-            <div className="canvas-wrap"><canvas ref={canvasRef} width={BOARD} height={BOARD} aria-label="Playable Wormhole space-combat arena" /><i className="reticle tl" /><i className="reticle tr" /><i className="reticle bl" /><i className="reticle br" /></div>
+            <div className="canvas-wrap"><canvas ref={canvasRef} width={BOARD} height={BOARD} aria-label="Playable Wormhole space-combat arena" /><div className="pilot-health"><span>PILOT HULL <b>{hud.health}/{hud.maxHealth}</b></span><div className="meter hull"><i style={{ width: `${healthPct}%` }} /></div></div><i className="reticle tl" /><i className="reticle tr" /><i className="reticle bl" /><i className="reticle br" /></div>
             <div className="touch-controls" aria-label="Twin-stick touch controls">
               <div className="touch-flight">
                 <div
@@ -1101,7 +1116,7 @@ export default function WormholeGame() {
                   <span className="stick-label stick-label-side" aria-hidden="true">AIM</span>
                   <span className="stick-knob" style={{ transform: `translate(calc(-50% + ${aimStickPosition.x}px), calc(-50% + ${aimStickPosition.y}px))` }} aria-hidden="true"><i /></span>
                 </div>
-                <div className="touch-utility"><button className="touch-pup" type="button" aria-label="Fire power-up" {...controlProps("KeyF")}>PUP</button><button className="touch-special" type="button" aria-label="Activate ship special" {...controlProps("KeyR")}>SPEC</button><button className="touch-pause" type="button" aria-label="Pause game" onClick={togglePause}>Ⅱ</button></div>
+                <div className="touch-utility"><button className="touch-pup" type="button" aria-label="Fire power-up" {...controlProps("KeyE")}>PUP</button><button className="touch-special" type="button" aria-label="Activate ship special" {...controlProps("KeyQ")}>SPEC</button><button className="touch-pause" type="button" aria-label="Pause game" onClick={togglePause}>Ⅱ</button></div>
               </div>
             </div>
           </div>
@@ -1114,13 +1129,13 @@ export default function WormholeGame() {
 
         <aside className="panel intel-panel">
           <div className="eyebrow">MISSION INTEL</div><h2>SURVIVE<br />THE VOID</h2><p>Every rival has a wormhole orbiting your arena. Shoot it with pulse cannons to generate power-ups, collect them, then send attack power-ups back through it.</p>
-          <ol><li><span>01</span><div><b>CHARGE</b><small>Deal 150 cannon damage to the portal</small></div></li><li><span>02</span><div><b>COLLECT</b><small>Fly over the generated power-up</small></div></li><li><span>03</span><div><b>TRANSMIT</b><small>Aim at the portal and press F</small></div></li></ol>
-          <div className="intel-card"><div><span>GUN</span><b>MK {hud.gun + 1}/4</b></div><div><span>THRUST</span><b>MK {hud.thrust}/3</b></div><div><span>RETROS</span><b>{hud.retros ? "ONLINE" : "OFFLINE"}</b></div><div><span>PORTAL</span><b>{hud.portalCharge}%</b></div></div>
+          <ol><li><span>01</span><div><b>CHARGE</b><small>Deal 150 cannon damage to the wormhole</small></div></li><li><span>02</span><div><b>COLLECT</b><small>Fly over the generated power-up</small></div></li><li><span>03</span><div><b>TRANSMIT</b><small>Aim at the wormhole and press E</small></div></li></ol>
+          <div className="intel-card"><div><span>GUN</span><b>MK {hud.gun + 1}/4</b></div><div><span>THRUST</span><b>MK {hud.thrust}/3</b></div><div><span>RETROS</span><b>{hud.retros ? "ONLINE" : "OFFLINE"}</b></div><div><span>WORMHOLE</span><b>{hud.portalCharge}%</b></div></div>
           <div className={`incoming-card ${hud.incoming ? "hot" : ""}`}><span>THREAT MONITOR</span><b>{hud.incoming ? POWER_LABELS[hud.incoming] : "SECTOR CLEAR"}</b><small>{hud.incoming ? "HOSTILE SIGNATURE DETECTED" : "SCANNING RIVAL WORMHOLE"}</small></div>
           <div className="source-note"><span>CLIENT-VERIFIED PROTOTYPE</span><p>Flight values, game tick, cannon levels, portal charge, power-up capacity, enemy counts, and sound effects were recovered from the supplied Redux client.</p></div>
         </aside>
       </section>
-      <footer><span>WORMHOLE ARCADE // PLAYABLE PROTOTYPE 0.2</span><span>655×655 BOARD // 15 MS SIMULATION TICK</span></footer>
+      <footer><span>WORMHOLE ARCADE // PLAYABLE PROTOTYPE 0.3</span><span>940×940 FIELD // SHIP-LOCK + ARENA CAMERAS</span></footer>
     </main>
   );
 }
