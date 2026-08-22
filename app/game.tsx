@@ -22,6 +22,7 @@ type Bullet = { x: number; y: number; vx: number; vy: number; damage: number; li
 type Pickup = { x: number; y: number; vx: number; vy: number; type: PickupId; life: number; phase: number };
 type PowerShot = { x: number; y: number; vx: number; vy: number; type: PowerId; life: number };
 type Particle = { x: number; y: number; vx: number; vy: number; color: string; size: number; life: number };
+type StickPosition = { active: boolean; x: number; y: number };
 type Enemy = {
   x: number;
   y: number;
@@ -272,12 +273,15 @@ function drawShipShape(ctx: CanvasRenderingContext2D, ship: ShipId, scale = 1) {
 export default function WormholeGame() {
   const shellRef = useRef<HTMLElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const stickRef = useRef<HTMLDivElement>(null);
+  const stickPointer = useRef<number | null>(null);
   const [shipId, setShipId] = useState<ShipId>("wing");
   const gameRef = useRef<Game>(createGame(selectedShip("wing")));
   const keys = useRef<Record<string, boolean>>({});
-  const [hud, setHud] = useState<Hud>(() => hudFrom(gameRef.current));
+  const [hud, setHud] = useState<Hud>(() => hudFrom(createGame(selectedShip("wing"))));
   const [sound, setSound] = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
+  const [stickPosition, setStickPosition] = useState<StickPosition>({ active: false, x: 0, y: 0 });
   const soundRef = useRef(true);
 
   useEffect(() => { soundRef.current = sound; }, [sound]);
@@ -303,6 +307,8 @@ export default function WormholeGame() {
     game.notice = "ENTERING NEW GROUND";
     gameRef.current = game;
     keys.current = {};
+    stickPointer.current = null;
+    setStickPosition({ active: false, x: 0, y: 0 });
     sync();
     play("magic", 0.28);
   }, [play, shipId, sync]);
@@ -329,6 +335,53 @@ export default function WormholeGame() {
     keys.current[code] = active;
   }, []);
 
+  const releaseStick = useCallback((pointerId?: number) => {
+    if (pointerId !== undefined && stickPointer.current !== pointerId) return;
+    stickPointer.current = null;
+    setControl("ArrowLeft", false);
+    setControl("ArrowRight", false);
+    setControl("ArrowUp", false);
+    setStickPosition({ active: false, x: 0, y: 0 });
+  }, [setControl]);
+
+  const updateStick = useCallback((clientX: number, clientY: number) => {
+    const stick = stickRef.current;
+    if (!stick) return;
+    const rect = stick.getBoundingClientRect();
+    const maxTravel = Math.max(28, rect.width * 0.29);
+    let x = clientX - (rect.left + rect.width / 2);
+    let y = clientY - (rect.top + rect.height / 2);
+    const distance = Math.hypot(x, y);
+    if (distance > maxTravel) {
+      const clamp = maxTravel / distance;
+      x *= clamp;
+      y *= clamp;
+    }
+
+    const normalizedX = x / maxTravel;
+    const normalizedY = y / maxTravel;
+    const deadZone = 0.2;
+    setControl("ArrowLeft", normalizedX < -deadZone);
+    setControl("ArrowRight", normalizedX > deadZone);
+    setControl("ArrowUp", normalizedY < -deadZone);
+    setStickPosition({ active: true, x, y });
+  }, [setControl]);
+
+  const engageStick = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    if (stickPointer.current !== null) return;
+    stickPointer.current = event.pointerId;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    if (typeof navigator !== "undefined" && "vibrate" in navigator) navigator.vibrate(8);
+    updateStick(event.clientX, event.clientY);
+  }, [updateStick]);
+
+  const moveStick = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (stickPointer.current !== event.pointerId) return;
+    event.preventDefault();
+    updateStick(event.clientX, event.clientY);
+  }, [updateStick]);
+
   useEffect(() => {
     const down = (event: KeyboardEvent) => {
       const code = event.code;
@@ -338,7 +391,11 @@ export default function WormholeGame() {
       keys.current[code] = true;
     };
     const up = (event: KeyboardEvent) => { keys.current[event.code] = false; };
-    const blur = () => { keys.current = {}; };
+    const blur = () => {
+      keys.current = {};
+      stickPointer.current = null;
+      setStickPosition({ active: false, x: 0, y: 0 });
+    };
     window.addEventListener("keydown", down, { passive: false });
     window.addEventListener("keyup", up);
     window.addEventListener("blur", blur);
@@ -590,7 +647,7 @@ export default function WormholeGame() {
       let right = keys.current.ArrowRight || keys.current.KeyD;
       let thrust = keys.current.ArrowUp || keys.current.KeyW;
       let fire = keys.current.Space;
-      let launch = keys.current.KeyF;
+      const launch = keys.current.KeyF;
       if (player.emp > 0) {
         [left, right] = [right, left];
         if (game.cycles % 3 === 0) [thrust, fire] = [fire, thrust];
@@ -907,7 +964,11 @@ export default function WormholeGame() {
   const currentShip = selectedShip(shipId);
   const healthPct = hud.maxHealth ? hud.health / hud.maxHealth * 100 : 0;
   const controlProps = (code: string) => ({
-    onPointerDown: (event: React.PointerEvent<HTMLButtonElement>) => { event.currentTarget.setPointerCapture(event.pointerId); setControl(code, true); },
+    onPointerDown: (event: React.PointerEvent<HTMLButtonElement>) => {
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setControl(code, true);
+      if (typeof navigator !== "undefined" && "vibrate" in navigator) navigator.vibrate(8);
+    },
     onPointerUp: () => setControl(code, false),
     onPointerCancel: () => setControl(code, false),
     onPointerLeave: () => setControl(code, false),
@@ -950,7 +1011,28 @@ export default function WormholeGame() {
           </div>
           <div className="arena-stage">
             <div className="canvas-wrap"><canvas ref={canvasRef} width={BOARD} height={BOARD} aria-label="Playable Wormhole space-combat arena" /><i className="reticle tl" /><i className="reticle tr" /><i className="reticle bl" /><i className="reticle br" /></div>
-            <div className="touch-controls" aria-label="Touch flight controls"><div className="touch-flight"><button type="button" aria-label="Rotate left" {...controlProps("ArrowLeft")}>↶</button><button type="button" aria-label="Thrust" {...controlProps("ArrowUp")}>▲</button><button type="button" aria-label="Rotate right" {...controlProps("ArrowRight")}>↷</button></div><div className="touch-action"><button className="touch-fire" type="button" aria-label="Fire pulse cannon" {...controlProps("Space")}>FIRE</button><button className="touch-pup" type="button" aria-label="Fire power-up" {...controlProps("KeyF")}>PUP</button><button className="touch-special" type="button" aria-label="Activate ship special" {...controlProps("KeyR")}>SPEC</button><button className="touch-pause" type="button" aria-label="Pause game" onClick={togglePause}>Ⅱ</button></div></div>
+            <div className="touch-controls" aria-label="Touch flight controls">
+              <div className="touch-flight">
+                <div
+                  ref={stickRef}
+                  className={`virtual-stick ${stickPosition.active ? "active" : ""}`}
+                  role="application"
+                  aria-label="Flight thumbstick. Drag left or right to rotate and upward to thrust. Release to coast."
+                  onPointerDown={engageStick}
+                  onPointerMove={moveStick}
+                  onPointerUp={(event) => releaseStick(event.pointerId)}
+                  onPointerCancel={(event) => releaseStick(event.pointerId)}
+                  onLostPointerCapture={(event) => releaseStick(event.pointerId)}
+                >
+                  <span className="stick-axis stick-axis-x" aria-hidden="true" />
+                  <span className="stick-axis stick-axis-y" aria-hidden="true" />
+                  <span className="stick-label stick-label-up" aria-hidden="true">THRUST</span>
+                  <span className="stick-label stick-label-side" aria-hidden="true">TURN</span>
+                  <span className="stick-knob" style={{ transform: `translate(calc(-50% + ${stickPosition.x}px), calc(-50% + ${stickPosition.y}px))` }} aria-hidden="true"><i /></span>
+                </div>
+              </div>
+              <div className="touch-action"><button className="touch-fire" type="button" aria-label="Fire pulse cannon" {...controlProps("Space")}>FIRE</button><button className="touch-pup" type="button" aria-label="Fire power-up" {...controlProps("KeyF")}>PUP</button><button className="touch-special" type="button" aria-label="Activate ship special" {...controlProps("KeyR")}>SPEC</button><button className="touch-pause" type="button" aria-label="Pause game" onClick={togglePause}>Ⅱ</button></div>
+            </div>
           </div>
           <div className="status-dock">
             <div className="vitals"><span>HULL <b>{hud.health}/{hud.maxHealth}</b></span><div className="meter hull"><i style={{ width: `${healthPct}%` }} /></div><span>SHIELD <b>{hud.shield}%</b></span><div className="meter shield"><i style={{ width: `${hud.shield}%` }} /></div></div>

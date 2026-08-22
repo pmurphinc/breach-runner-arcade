@@ -133,14 +133,26 @@ button,select { font: inherit; }
 .source-note { margin-top: 15px; padding: 10px; border-left: 2px solid var(--amber); background: rgba(255,179,77,.045); }
 .source-note span { color: var(--amber); font: 700 6px/1 ui-monospace, monospace; letter-spacing: .1em; }
 .source-note p { margin: 6px 0 0; color: #7f989d; font: 500 7px/1.45 ui-monospace, monospace; }
-.touch-controls { display: none; justify-content: space-between; align-items: center; gap: 10px; padding: 11px 4px max(4px,env(safe-area-inset-bottom)); user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.touch-controls { display: none; justify-content: space-between; align-items: center; gap: 12px; padding: 11px 4px max(4px,env(safe-area-inset-bottom)); user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .touch-controls > div { display: flex; gap: 7px; }
-.touch-controls button { width: 50px; height: 46px; padding: 0; color: #d8f9ff; border: 1px solid rgba(100,234,255,.32); border-radius: 7px; background: rgba(9,27,38,.94); box-shadow: inset 0 1px 0 rgba(255,255,255,.04),0 6px 18px rgba(0,0,0,.22); touch-action: none; font: 900 10px/1 ui-monospace, monospace; }
+.touch-controls button { width: 52px; height: 52px; padding: 0; color: #d8f9ff; border: 1px solid rgba(100,234,255,.32); border-radius: 9px; background: rgba(9,27,38,.94); box-shadow: inset 0 1px 0 rgba(255,255,255,.04),0 6px 18px rgba(0,0,0,.22); touch-action: none; font: 900 10px/1 ui-monospace, monospace; }
 .touch-controls button:active { border-color: var(--cyan); background: rgba(100,234,255,.24); transform: translateY(1px); }
 .touch-controls .touch-fire { width: 66px; color: #071204; border-color: var(--lime); background: var(--lime); }
 .touch-controls .touch-pup { width: 54px; color: #200615; border-color: var(--pink); background: var(--pink); }
 .touch-controls .touch-special { width: 54px; color: #1f1202; border-color: var(--amber); background: var(--amber); }
-.touch-controls .touch-pause { width: 42px; color: #9fc4cd; }
+.touch-controls .touch-pause { width: 48px; color: #9fc4cd; }
+.touch-flight { align-items: center; }
+.virtual-stick { position: relative; width: 126px; aspect-ratio: 1; flex: 0 0 auto; overflow: hidden; border: 1px solid rgba(100,234,255,.36); border-radius: 50%; background: radial-gradient(circle at 50% 50%,rgba(100,234,255,.08) 0 19%,transparent 20%),radial-gradient(circle at 50% 50%,rgba(3,12,19,.9) 0 56%,rgba(10,32,43,.82) 57% 69%,rgba(4,15,23,.94) 70%); box-shadow: inset 0 0 0 6px rgba(100,234,255,.025),inset 0 0 24px rgba(100,234,255,.08),0 8px 24px rgba(0,0,0,.3); touch-action: none; cursor: grab; }
+.virtual-stick.active { border-color: rgba(100,234,255,.72); box-shadow: inset 0 0 0 6px rgba(100,234,255,.04),inset 0 0 30px rgba(100,234,255,.14),0 0 20px rgba(100,234,255,.11),0 8px 24px rgba(0,0,0,.34); cursor: grabbing; }
+.stick-axis { position: absolute; top: 50%; left: 50%; z-index: 0; background: rgba(100,234,255,.16); transform: translate(-50%,-50%); pointer-events: none; }
+.stick-axis-x { width: 72%; height: 1px; }
+.stick-axis-y { width: 1px; height: 72%; }
+.stick-label { position: absolute; z-index: 1; color: rgba(166,222,233,.48); font: 800 6px/1 ui-monospace,monospace; letter-spacing: .12em; pointer-events: none; }
+.stick-label-up { top: 10px; left: 50%; transform: translateX(-50%); }
+.stick-label-side { right: 7px; top: 50%; transform: translateY(-50%) rotate(90deg); }
+.stick-knob { position: absolute; top: 50%; left: 50%; z-index: 2; width: 56px; height: 56px; display: grid; place-items: center; border: 1px solid rgba(212,250,255,.65); border-radius: 50%; background: radial-gradient(circle at 38% 32%,#285160,#102b37 52%,#07151e 70%); box-shadow: inset 0 1px 3px rgba(255,255,255,.16),inset 0 -7px 14px rgba(0,0,0,.3),0 5px 10px rgba(0,0,0,.45),0 0 0 3px rgba(100,234,255,.08); pointer-events: none; will-change: transform; }
+.stick-knob i { width: 15px; height: 15px; border: 1px solid rgba(100,234,255,.42); border-radius: 50%; box-shadow: inset 0 0 8px rgba(100,234,255,.18); }
+.virtual-stick.active .stick-knob { border-color: var(--cyan); box-shadow: inset 0 1px 3px rgba(255,255,255,.2),inset 0 -7px 14px rgba(0,0,0,.3),0 5px 12px rgba(0,0,0,.5),0 0 0 4px rgba(100,234,255,.12),0 0 18px rgba(100,234,255,.22); }
 footer { display: flex; justify-content: space-between; gap: 18px; padding: 5px clamp(14px,2vw,28px) 11px; color: #42626a; font: 600 6px/1 ui-monospace, monospace; letter-spacing: .1em; }
 
 @keyframes threat-pulse { to { box-shadow: inset 0 0 18px rgba(255,90,114,.08),0 0 12px rgba(255,90,114,.05); } }
@@ -193,10 +205,11 @@ footer { display: flex; justify-content: space-between; gap: 18px; padding: 5px 
   .start-button { width: 68px; padding: 0 5px; font-size: 6px; }
   .touch-controls { gap: 6px; padding-inline: 0; }
   .touch-controls > div { gap: 5px; }
-  .touch-controls button { width: 45px; height: 44px; font-size: 9px; }
-  .touch-controls .touch-fire { width: 57px; }
-  .touch-controls .touch-pup,.touch-controls .touch-special { width: 48px; }
-  .touch-controls .touch-pause { width: 38px; }
+  .virtual-stick { width: 116px; }
+  .stick-knob { width: 52px; height: 52px; }
+  .touch-controls button { width: 48px; height: 48px; font-size: 9px; }
+  .touch-controls .touch-fire { width: 58px; }
+  .touch-controls .touch-pup,.touch-controls .touch-special,.touch-controls .touch-pause { width: 48px; }
 }
 
 @media (pointer: coarse) and (max-width: 1160px) {
@@ -228,7 +241,9 @@ footer { display: flex; justify-content: space-between; gap: 18px; padding: 5px 
   .slot small { display: none; }
   .start-button { height: 34px; }
   .touch-controls { position: absolute; inset: 0; z-index: 3; align-items: flex-end; padding: 10px; pointer-events: none; }
-  .touch-controls > div,.touch-controls button { pointer-events: auto; }
+  .touch-controls > div,.touch-controls button,.virtual-stick { pointer-events: auto; }
+  .virtual-stick { width: 136px; background-color: rgba(3,12,19,.72); backdrop-filter: blur(8px); }
+  .stick-knob { width: 60px; height: 60px; }
   .touch-controls button { width: 48px; height: 48px; border-color: rgba(100,234,255,.42); background: rgba(5,18,28,.78); backdrop-filter: blur(8px); }
   .touch-controls .touch-fire { width: 62px; }
   .touch-controls .touch-pup,.touch-controls .touch-special { width: 50px; }
@@ -263,8 +278,10 @@ footer { display: flex; justify-content: space-between; gap: 18px; padding: 5px 
   .game-active .slot small { display: none; }
   .game-active .start-button { width: 58px; height: 27px; padding: 0 3px; font-size: 5px; }
   .game-active .touch-controls { position: absolute; inset: 0; display: block; padding: 0; pointer-events: none; }
-  .game-active .touch-controls > div,.game-active .touch-controls button { pointer-events: auto; }
-  .game-active .touch-flight { position: absolute; top: 50%; right: calc(100% + 10px); display: grid; grid-template-columns: repeat(3,var(--landscape-touch)); gap: 5px; transform: translateY(-50%); }
+  .game-active .touch-controls > div,.game-active .touch-controls button,.game-active .virtual-stick { pointer-events: auto; }
+  .game-active .touch-flight { position: absolute; top: 50%; right: calc(100% + 16px); display: block; transform: translateY(-50%); }
+  .game-active .virtual-stick { width: clamp(112px,32dvh,142px); background-color: rgba(3,12,19,.72); backdrop-filter: blur(8px); }
+  .game-active .stick-knob { width: clamp(50px,14dvh,62px); height: clamp(50px,14dvh,62px); }
   .game-active .touch-action { position: absolute; top: 50%; left: calc(100% + 10px); display: grid !important; grid-template-columns: repeat(2,var(--landscape-touch)); gap: 6px; transform: translateY(-50%); }
   .game-active .touch-controls { --landscape-touch: clamp(44px,12dvh,56px); }
   .game-active .touch-controls button,.game-active .touch-controls .touch-fire,.game-active .touch-controls .touch-pup,.game-active .touch-controls .touch-special,.game-active .touch-controls .touch-pause { width: var(--landscape-touch); height: var(--landscape-touch); border-color: rgba(100,234,255,.45); background: rgba(6,20,30,.88); backdrop-filter: blur(8px); }
