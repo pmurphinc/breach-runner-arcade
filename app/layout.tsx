@@ -1,5 +1,13 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  colorScheme: "dark",
+  themeColor: "#02050a",
+};
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://wormhole-arcade.pmurphinc.chatgpt.site"),

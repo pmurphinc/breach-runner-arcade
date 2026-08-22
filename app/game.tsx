@@ -270,15 +270,23 @@ function drawShipShape(ctx: CanvasRenderingContext2D, ship: ShipId, scale = 1) {
 }
 
 export default function WormholeGame() {
+  const shellRef = useRef<HTMLElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [shipId, setShipId] = useState<ShipId>("wing");
   const gameRef = useRef<Game>(createGame(selectedShip("wing")));
   const keys = useRef<Record<string, boolean>>({});
   const [hud, setHud] = useState<Hud>(() => hudFrom(gameRef.current));
   const [sound, setSound] = useState(true);
+  const [fullscreen, setFullscreen] = useState(false);
   const soundRef = useRef(true);
 
   useEffect(() => { soundRef.current = sound; }, [sound]);
+
+  useEffect(() => {
+    const updateFullscreen = () => setFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", updateFullscreen);
+    return () => document.removeEventListener("fullscreenchange", updateFullscreen);
+  }, []);
 
   const play = useCallback((name: "fire" | "explosion" | "magic" | "thrust", volume = 0.22) => {
     if (!soundRef.current) return;
@@ -307,6 +315,15 @@ export default function WormholeGame() {
     game.noticeLife = 90;
     sync();
   }, [sync]);
+
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await shellRef.current?.requestFullscreen({ navigationUI: "hide" });
+    } catch {
+      // Fullscreen is a progressive enhancement and may be blocked by the browser.
+    }
+  }, []);
 
   const setControl = useCallback((code: string, active: boolean) => {
     keys.current[code] = active;
@@ -337,10 +354,22 @@ export default function WormholeGame() {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    let renderScale = 1;
     let raf = 0;
     let previous = performance.now();
     let accumulator = 0;
     let hudDelay = 0;
+
+    const syncCanvasResolution = () => {
+      renderScale = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
+      const width = Math.round(BOARD * renderScale);
+      if (canvas.width !== width || canvas.height !== width) {
+        canvas.width = width;
+        canvas.height = width;
+      }
+    };
+    syncCanvasResolution();
+    window.addEventListener("resize", syncCanvasResolution, { passive: true });
 
     const damagePlayer = (game: Game, amount: number) => {
       const player = game.player;
@@ -806,6 +835,7 @@ export default function WormholeGame() {
     const draw = (time: number) => {
       const game = gameRef.current;
       const player = game.player;
+      ctx.setTransform(renderScale, 0, 0, renderScale, 0, 0);
       const gradient = ctx.createRadialGradient(BOARD / 2, BOARD / 2, 10, BOARD / 2, BOARD / 2, BOARD * .72);
       gradient.addColorStop(0, "#0b1520");
       gradient.addColorStop(.58, "#050b12");
@@ -868,7 +898,10 @@ export default function WormholeGame() {
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", syncCanvasResolution);
+    };
   }, [play, sync]);
 
   const currentShip = selectedShip(shipId);
@@ -878,13 +911,14 @@ export default function WormholeGame() {
     onPointerUp: () => setControl(code, false),
     onPointerCancel: () => setControl(code, false),
     onPointerLeave: () => setControl(code, false),
+    onLostPointerCapture: () => setControl(code, false),
   });
 
   return (
-    <main className="app-shell">
+    <main ref={shellRef} className={`app-shell ${hud.running && !hud.result ? "game-active" : ""}`}>
       <header className="topbar">
         <div className="brand"><span className="brand-mark">W/02</span><div><h1>WORMHOLE <em>ARCADE</em></h1><p>NEW GROUND // COMBAT NETWORK</p></div></div>
-        <div className="top-actions"><span className="link-status"><i /> SOLO LINK</span><button type="button" onClick={() => setSound((value) => !value)}>{sound ? "SOUND ON" : "SOUND OFF"}</button><button type="button" onClick={togglePause}>P / PAUSE</button></div>
+        <div className="top-actions"><span className="link-status"><i /> SOLO LINK</span><button type="button" aria-pressed={sound} onClick={() => setSound((value) => !value)}>{sound ? "SOUND ON" : "SOUND OFF"}</button><button className="fullscreen-trigger" type="button" aria-pressed={fullscreen} onClick={toggleFullscreen}>{fullscreen ? "EXIT FULL" : "FULLSCREEN"}</button><button type="button" onClick={togglePause}>P / PAUSE</button></div>
       </header>
 
       <section className="cockpit">
@@ -904,18 +938,25 @@ export default function WormholeGame() {
 
         <section className="play-column">
           <div className="pilot-transmission"><span>PILOT TRANSMISSION</span><strong>this is really cool!</strong></div>
+          <div className="mobile-preflight">
+            <label><span>SHIP FRAME</span><select aria-label="Select ship frame" value={shipId} disabled={hud.running && !hud.result} onChange={(event) => setShipId(event.target.value as ShipId)}>{SHIPS.map((ship) => <option value={ship.id} key={ship.id}>{ship.name} — {ship.role}</option>)}</select></label>
+            <div className="mobile-ship-stats"><span>HULL <b>{currentShip.health}</b></span><span>THRUST <b>MK {currentShip.thrust}</b></span></div>
+            <button type="button" aria-pressed={fullscreen} onClick={toggleFullscreen}>{fullscreen ? "EXIT FULL" : "FULLSCREEN"}</button>
+          </div>
           <div className="match-bar">
             <div><span>MISSION</span><b>FIRST CONTACT</b></div>
             <div className="score"><span>SCORE</span><b>{hud.score.toLocaleString().padStart(6, "0")}</b></div>
             <div className="rival"><span>RIVAL INTEGRITY</span><div className="meter"><i style={{ width: `${hud.rivalHealth}%` }} /></div><b>{hud.rivalHealth}%</b></div>
           </div>
-          <div className="canvas-wrap"><canvas ref={canvasRef} width={BOARD} height={BOARD} aria-label="Playable Wormhole space-combat arena" /><i className="reticle tl" /><i className="reticle tr" /><i className="reticle bl" /><i className="reticle br" /></div>
+          <div className="arena-stage">
+            <div className="canvas-wrap"><canvas ref={canvasRef} width={BOARD} height={BOARD} aria-label="Playable Wormhole space-combat arena" /><i className="reticle tl" /><i className="reticle tr" /><i className="reticle bl" /><i className="reticle br" /></div>
+            <div className="touch-controls" aria-label="Touch flight controls"><div className="touch-flight"><button type="button" aria-label="Rotate left" {...controlProps("ArrowLeft")}>↶</button><button type="button" aria-label="Thrust" {...controlProps("ArrowUp")}>▲</button><button type="button" aria-label="Rotate right" {...controlProps("ArrowRight")}>↷</button></div><div className="touch-action"><button className="touch-fire" type="button" aria-label="Fire pulse cannon" {...controlProps("Space")}>FIRE</button><button className="touch-pup" type="button" aria-label="Fire power-up" {...controlProps("KeyF")}>PUP</button><button className="touch-special" type="button" aria-label="Activate ship special" {...controlProps("KeyR")}>SPEC</button><button className="touch-pause" type="button" aria-label="Pause game" onClick={togglePause}>Ⅱ</button></div></div>
+          </div>
           <div className="status-dock">
             <div className="vitals"><span>HULL <b>{hud.health}/{hud.maxHealth}</b></span><div className="meter hull"><i style={{ width: `${healthPct}%` }} /></div><span>SHIELD <b>{hud.shield}%</b></span><div className="meter shield"><i style={{ width: `${hud.shield}%` }} /></div></div>
             <div className="power-bin"><div className="bin-label"><span>POWERUP BIN</span><small>LIFO // MAX 5</small></div>{Array.from({ length: 5 }, (_, index) => { const item = hud.stock[index]; return <div className={`slot ${item ? "loaded" : ""}`} style={item ? { "--pup": POWER_COLORS[item] } as React.CSSProperties : undefined} key={index}><b>{item ? POWER_LABELS[item].slice(0, 2) : index + 1}</b><small>{item ? POWER_LABELS[item].replace("SEND ", "") : "EMPTY"}</small></div>; })}</div>
             <button className="start-button" type="button" onClick={start}>{hud.running && !hud.result ? "RESTART" : hud.result ? "RUN AGAIN" : "START MISSION"}</button>
           </div>
-          <div className="touch-controls"><div><button type="button" aria-label="Rotate left" {...controlProps("ArrowLeft")}>↶</button><button type="button" aria-label="Thrust" {...controlProps("ArrowUp")}>▲</button><button type="button" aria-label="Rotate right" {...controlProps("ArrowRight")}>↷</button></div><div><button className="touch-fire" type="button" {...controlProps("Space")}>FIRE</button><button className="touch-pup" type="button" {...controlProps("KeyF")}>PUP</button></div></div>
         </section>
 
         <aside className="panel intel-panel">

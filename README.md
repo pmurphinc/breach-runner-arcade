@@ -19,7 +19,7 @@ https://wormhole-arcade.pmurphinc.chatgpt.site
 | Special weapon | `R` |
 | Pause | `P` |
 
-Touch controls are included for phones and tablets. A fuller mobile-first control layout and installable PWA mode are planned.
+Touch controls, fullscreen play, high-density canvas rendering, safe-area support, and dedicated layouts for phone and foldable displays are included. Installable PWA mode is planned.
 
 ## Run locally
 
@@ -47,7 +47,7 @@ npm run build
 ## Project direction
 
 - Refine desktop combat, progression, ships, weapons, and power-ups
-- Add landscape fullscreen play and thumb-friendly mobile controls
+- Refine device-specific touch control placement from player feedback
 - Add install-to-home-screen support
 - Integrate the game into Murph Tournaments as a native `/wormhole` route
 - Preserve the standalone build so it can also be deployed independently
