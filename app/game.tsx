@@ -1666,7 +1666,6 @@ export default function WormholeGame() {
    * on the right. Measured from the real elements rather than hard-coded, so
    * it stays right when their contents or the type scale change.
    */
-  const overlayInsetRef = useRef({ left: 0, right: 0 });
   const audioPool = useRef<Map<string, HTMLAudioElement[]>>(new Map());
   /** Epoch ms the current run began, so a finished run can report its length. */
   const runStartedAt = useRef(0);
@@ -1756,63 +1755,52 @@ export default function WormholeGame() {
     hudInsetRef.current = immersive && layout.sticks === "overlay" ? 44 : 0;
   }, [immersive, layout.sticks]);
 
-  // Keep the canvas HUD clear of the panels floating over the arena. Without
-  // this the mission notice is drawn underneath the rules badge and only its
-  // right-hand end is readable.
+  // Touch/Hybrid reserves a real header lane above the square playfield.
+  // Measuring the rendered HUD keeps wrapped rules and shield text out of the
+  // playable canvas on phones, tablets, and foldables.
   useEffect(() => {
     const wrap = canvasWrapRef.current;
     if (!wrap) return;
 
     const measure = () => {
-      const wrapTop = wrap.getBoundingClientRect().top;
-      const clearanceBelow = (selector: string) => {
+      if (!viewProfile.verticalRails) {
+        wrap.style.removeProperty("--arena-playfield-top");
+        wrap.style.removeProperty("--arena-canvas-size");
+        return;
+      }
+
+      const wrapRect = wrap.getBoundingClientRect();
+      const bottomOf = (selector: string) => {
         const element = wrap.querySelector<HTMLElement>(selector);
         if (!element) return 0;
         const rect = element.getBoundingClientRect();
-        if (rect.height === 0) return 0;
-        // Eight pixels of breathing room below the panel.
-        return Math.max(0, Math.round(rect.bottom - wrapTop) + 8);
+        return rect.height > 0 ? Math.max(0, rect.bottom - wrapRect.top) : 0;
       };
-      const badgeClearance = clearanceBelow(".difficulty-badge");
-      wrap.style.setProperty("--rules-bottom", `${Math.max(0, badgeClearance - 8)}px`);
-      // Touch/Hybrid fighter bars own separate canvas HUD columns. Measure the
-      // visible labels too because shield status overflows below its bar.
-      const pilotClearance = Math.max(
-        badgeClearance,
-        clearanceBelow(".pilot-rail"),
-        clearanceBelow(".pilot-rail small")
+      const hudBottom = Math.max(
+        bottomOf(".difficulty-badge"),
+        bottomOf(".pilot-rail"),
+        bottomOf(".pilot-rail small"),
+        bottomOf(".rival-rail")
       );
-      const rivalClearance = Math.max(
-        badgeClearance,
-        clearanceBelow(".rival-rail")
+      const playfieldTop = Math.ceil(hudBottom) + 2;
+      const canvasSize = Math.max(
+        1,
+        Math.floor(Math.min(wrapRect.width, wrapRect.height - playfieldTop))
       );
-      const next = {
-        left: pilotClearance,
-        right: Math.max(rivalClearance, clearanceBelow(".pvp-hud")),
-      };
-      const current = overlayInsetRef.current;
-      if (current.left !== next.left || current.right !== next.right) {
-        overlayInsetRef.current = next;
-      }
+      wrap.style.setProperty("--rules-bottom", `${Math.max(0, bottomOf(".difficulty-badge"))}px`);
+      wrap.style.setProperty("--arena-playfield-top", `${playfieldTop}px`);
+      wrap.style.setProperty("--arena-canvas-size", `${canvasSize}px`);
     };
 
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(wrap);
-    for (const selector of [
-      ".difficulty-badge",
-      ".pilot-rail",
-      ".pilot-rail small",
-      ".rival-rail",
-      ".pvp-hud",
-    ]) {
+    for (const selector of [".difficulty-badge", ".pilot-rail", ".pilot-rail small", ".rival-rail"]) {
       const element = wrap.querySelector(selector);
       if (element) observer.observe(element);
     }
     return () => observer.disconnect();
-    // The ResizeObserver covers shape changes; these deps cover a panel
-    // appearing or disappearing entirely.
-  }, [layout.arena, layout.preset, mode, net?.phase]);
+  }, [layout.arena, layout.preset, mode, net?.phase, viewProfile.verticalRails]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -3442,7 +3430,6 @@ export default function WormholeGame() {
       const mono = (weight: number, size: number) => `${weight} ${fs(size)}px ui-monospace, SFMono-Regular, Menlo, monospace`;
       const pad = Math.round(fs(12));
       const top = pad + hudInsetRef.current;
-      const compactUi = W < 540;
 
       const fit = (text: string, maxWidth: number) => {
         if (ctx.measureText(text).width <= maxWidth) return text;
@@ -3459,54 +3446,6 @@ export default function WormholeGame() {
         ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
       };
 
-      const chargeW = cap(W * 0.34, 158, 216);
-      const chargeH = Math.round(fs(12) * (compactUi ? 2.6 : 3.9));
-      const noticeH = Math.round(fs(12) * 2.5);
-      const splitTouchHud = viewProfileRef.current.touch;
-      const noticeRoom = splitTouchHud
-        ? Math.max(120, W - pad * 2 - chargeW - 8)
-        : compactUi
-          ? W - pad * 2
-          : W - pad * 2 - chargeW - 8;
-      // Each column starts below its matching DOM health panel. Narrow PC
-      // layouts retain the established stacked HUD; Touch/Hybrid stays split.
-      const noticeTop = top + overlayInsetRef.current.left;
-      const chargeTop = top + overlayInsetRef.current.right;
-      const chargeY = splitTouchHud
-        ? chargeTop
-        : compactUi
-          ? noticeTop + noticeH + 6
-          : chargeTop;
-
-      // Mission notice, falling back to the next thing the player has to do.
-      const live = game.noticeLife > 0;
-      const noticeText = live ? game.notice : coachLine(game);
-      ctx.font = mono(live ? 800 : 700, live ? 12.5 : 12);
-      const noticeW = Math.min(noticeRoom, ctx.measureText(noticeText).width + pad * 1.8);
-      panel(pad, noticeTop, noticeW, noticeH, "rgba(102,225,255,.24)");
-      ctx.fillStyle = live ? "#eafcff" : "#a7c8d1";
-      ctx.textAlign = "left";
-      ctx.fillText(fit(noticeText, noticeW - pad * 1.6), pad + pad * 0.8, noticeTop + noticeH / 2);
-
-      // Wormhole charge.
-      const chargeX = W - pad - chargeW;
-      const chargePct = Math.round((game.portalCharge / PORTAL_THRESHOLD) * 100);
-      panel(chargeX, chargeY, chargeW, chargeH, "rgba(255,86,194,.32)");
-      ctx.textAlign = "center";
-      ctx.fillStyle = "#ff8ad6";
-      ctx.font = mono(800, 12.5);
-      ctx.fillText(`WORMHOLE CHARGE ${chargePct}%`, chargeX + chargeW / 2, chargeY + fs(12) * 1.05);
-      const barY = chargeY + fs(12) * 1.75;
-      const barW = chargeW - pad * 1.6;
-      ctx.fillStyle = "rgba(255,255,255,.12)";
-      ctx.fillRect(chargeX + pad * 0.8, barY, barW, 5);
-      ctx.fillStyle = chargePct > 75 ? "#b2ff62" : "#ff70cc";
-      ctx.fillRect(chargeX + pad * 0.8, barY, barW * cap(chargePct / 100, 0, 1), 5);
-      if (!compactUi) {
-        ctx.fillStyle = "#a4c2ca";
-        ctx.font = mono(700, 11.5);
-        ctx.fillText(fit("150 DAMAGE → POWER-UP", chargeW - pad), chargeX + chargeW / 2, chargeY + chargeH - fs(12) * 0.75);
-      }
 
       // Next weapon in the bin, mirrored by the HTML inventory below the arena.
       const queued = nextWeapon(game.stock);
@@ -3553,7 +3492,7 @@ export default function WormholeGame() {
         const iconW = plateH;
         const plateW = Math.round(ctx.measureText(label).width + iconW + pad * 1.4);
         const plateX = Math.round((W - plateW) / 2);
-        const plateY = Math.round(chargeY + chargeH + 10 + (i - firstPlate) * (plateH + 6));
+        const plateY = Math.round(top + (i - firstPlate) * (plateH + 6));
         panel(plateX, plateY, plateW, plateH, `${accent}aa`);
         ctx.save();
         ctx.translate(plateX + iconW * 0.5, plateY + plateH * 0.5);

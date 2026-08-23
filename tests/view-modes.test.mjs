@@ -74,10 +74,10 @@ test('touch score shares the rules rail and utilities orbit the fire stick', () 
 
 
 test('touch frame reaches the viewport and health bars use fighting-game geometry', () => {
-  assert.match(game, /clearanceBelow\("\.pilot-rail small"\)/,
-    'spawn notices must attach below the visible shield-status label');
-  assert.match(game, /clearanceBelow\("\.rival-rail"\)/,
-    'wormhole charge must attach below Rival or Opponent health');
+  assert.match(game, /bottomOf\("\.pilot-rail small"\)/,
+    'the playfield must clear the visible shield-status label');
+  assert.match(game, /bottomOf\("\.rival-rail"\)/,
+    'the playfield must clear Rival or Opponent health');
   assert.match(game, /className="rail-fill hull-fill" style=\{\{ width:/);
   assert.match(game, /className="rail-fill rival-fill" style=\{\{ width:/);
   const frame = css.slice(css.indexOf('complete remaining viewport as one framed'));
@@ -96,10 +96,14 @@ test('special remains radially between PUP and Pause', () => {
 });
 
 
-test('touch canvas HUD keeps separate health-bar anchors', () => {
-  assert.match(game, /const splitTouchHud = viewProfileRef\.current\.touch/);
-  assert.match(game, /const chargeY = splitTouchHud\s*\? chargeTop/s,
-    'Touch and Hybrid charge panels must use the Rival-side anchor');
-  assert.match(game, /W - pad \* 2 - chargeW - 8/,
-    'the left notice must reserve the right charge column on touch');
+
+
+test('touch playfield starts below the complete HUD and removes canvas text panels', () => {
+  assert.match(game, /const playfieldTop = Math\.ceil\(hudBottom\) \+ 2/);
+  assert.match(game, /--arena-canvas-size/);
+  const overlay = game.slice(game.indexOf('const drawOverlay'), game.indexOf('// Next weapon in the bin'));
+  assert.doesNotMatch(overlay, /WORMHOLE CHARGE|Mission notice|coachLine\(game\)/);
+  const reserved = css.slice(css.indexOf('The Touch\/Hybrid HUD occupies a real header lane'));
+  assert.match(reserved, /margin:\s*var\(--arena-playfield-top/);
+  assert.match(reserved, /border-top:\s*2px/);
 });
