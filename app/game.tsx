@@ -112,7 +112,11 @@ const DESKTOP_LAYOUT: DeviceLayout = {
 
 function readDeviceLayout(): DeviceLayout {
   const coarse = window.matchMedia("(pointer: coarse)").matches;
-  const touch = navigator.maxTouchPoints > 0 || coarse || "ontouchstart" in window;
+  // Fire OS Silk can expose a fine pointer and zero touch points despite being
+  // a touch-only tablet. Treat its user agent as touch hardware so essential
+  // controls never disappear behind desktop-only layout assumptions.
+  const fireTablet = /\bSilk\/|Kindle|KF[A-Z]{2,}/i.test(navigator.userAgent);
+  const touch = fireTablet || navigator.maxTouchPoints > 0 || coarse || "ontouchstart" in window;
   const w = window.innerWidth;
   const h = window.innerHeight;
   const shortEdge = Math.min(w, h);
@@ -3112,7 +3116,7 @@ export default function WormholeGame() {
   return (
     <main
       ref={shellRef}
-      className={`app-shell view-${viewSize} ${touchCapable ? "touch-capable" : ""} ${immersive || device.narrow ? "compact-menu" : ""}`}
+      className={`app-shell view-${viewSize} ${touchCapable ? "touch-capable" : ""} ${touchCapable || immersive || device.narrow ? "compact-menu" : ""}`}
       data-immersive={immersive ? "true" : "false"}
       data-orientation={device.orientation}
       data-form={device.form}
