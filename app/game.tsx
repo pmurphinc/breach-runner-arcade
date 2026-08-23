@@ -4007,9 +4007,8 @@ export default function WormholeGame() {
                 </div>
               </div>
             </div>
-          </div>
 
-          <div className="status-dock">
+            <div className="status-dock">
             <div className="vitals">
               <span>HULL <b>{hud.health}/{hud.maxHealth}</b></span>
               <div className="meter hull"><i style={{ width: `${healthPct}%` }} /></div>
@@ -4060,14 +4059,12 @@ export default function WormholeGame() {
                 })}
               </ul>
             </div>
-            <button className={`start-button ${gameActive ? "restart" : ""}`} type="button" onClick={start}>
-              {gameActive ? "RESTART" : hud.result ? "RUN AGAIN" : "START MISSION"}
-            </button>
             {inspect ? (
               <div className="weapon-card-layer">
                 <WeaponCard id={inspect.id} reducedMotion={reducedMotion} onClose={() => setInspect(null)} />
               </div>
             ) : null}
+            </div>
           </div>
         </section>
 
