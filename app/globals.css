@@ -1239,3 +1239,59 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
 .touch-capable[data-sticks="overlay"][data-touch-controls="off"] .health-rails {
   bottom: calc(var(--touch-target) + 22px + max(8px, env(safe-area-inset-bottom)));
 }
+
+
+/* Touch/Hybrid score belongs to the compact arena rules rail, not a second
+   card above it. PC keeps its existing match bar and score presentation. */
+.rule-score {
+  display: none !important;
+}
+.touch-capable .match-bar {
+  display: none;
+}
+.touch-capable .difficulty-badge .rule-score {
+  display: inline-flex !important;
+  color: var(--lime);
+  font-weight: 900;
+}
+
+/* Three independent circular utility buttons orbit the Fire stick. Their
+   geometry derives from --stick and --touch-target, so the 9/10/11 o'clock
+   arrangement follows Small, Medium, and Large control sizes. */
+.touch-capable[data-touch-controls="on"] .touch-action {
+  --satellite: clamp(44px, 28%, 58px);
+}
+.touch-capable[data-touch-controls="on"] .touch-action .touch-utility {
+  position: absolute;
+  inset: 0;
+  width: var(--stick);
+  height: var(--stick);
+  display: block;
+  transform: none;
+  pointer-events: none;
+}
+.touch-capable[data-touch-controls="on"] .touch-action .touch-utility button {
+  position: absolute;
+  width: var(--satellite);
+  height: var(--satellite);
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 50%;
+  padding: 3px;
+  pointer-events: auto;
+  box-shadow: 0 5px 16px rgba(0, 0, 0, .5);
+}
+.touch-capable[data-touch-controls="on"] .touch-action .touch-pup {
+  right: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+}
+.touch-capable[data-touch-controls="on"] .touch-action .touch-special {
+  right: 85%;
+  top: 2%;
+  transform: translate(50%, -50%);
+}
+.touch-capable[data-touch-controls="on"] .touch-action .touch-pause {
+  left: 38%;
+  top: calc(0px - var(--satellite) - 6px);
+}

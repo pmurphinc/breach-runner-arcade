@@ -980,7 +980,8 @@ function DifficultyBadge({
   const status = `${gameMode} · ${difficulty} | WORMHOLE ${wormhole} | ${shieldText} | CONTACT ${contact}${live && hud.enrageActive ? " | ENRAGED" : ""}`;
 
   return (
-    <div className={`difficulty-badge ${contactActive ? "hazard" : ""}`} role="status" aria-live="polite" aria-label={`Active rules: ${status}`}>
+    <div className={`difficulty-badge ${contactActive ? "hazard" : ""}`} role="status" aria-live="polite" aria-label={`Score ${hud.score}. Active rules: ${status}`}>
+      <span className="rule-score">SCORE {hud.score.toLocaleString().padStart(6, "0")}</span>
       <span className="rule-mode">{gameMode} · {difficulty}</span>
       <span>WORMHOLE {wormhole}</span>
       <span className={charge !== null && charge <= 0 ? "warn" : ""}>{shieldText}</span>
