@@ -2170,11 +2170,15 @@ export default function WormholeGame() {
   }, [updateMouseAim]);
 
   const handleArenaPointerUp = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
-    if (event.pointerType === "touch" || (event.button !== 0 && event.button !== 2)) return;
+    if (event.pointerType === "touch") return;
+    const cancelled = event.type === "pointercancel";
+    if (!cancelled && event.button !== 0 && event.button !== 2) return;
     event.preventDefault();
     // Defer release until the fixed game tick has observed even a very quick
-    // click, matching the keyboard tap handling.
-    pendingRelease.current.push(event.button === 0 ? "MousePrimary" : "MouseSecondary");
+    // click, matching the keyboard tap handling. A cancelled pointer releases
+    // both triggers so a lost capture can never leave a weapon firing.
+    if (cancelled) pendingRelease.current.push("MousePrimary", "MouseSecondary");
+    else pendingRelease.current.push(event.button === 0 ? "MousePrimary" : "MouseSecondary");
     if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
       event.currentTarget.releasePointerCapture?.(event.pointerId);
     }
@@ -2692,9 +2696,8 @@ export default function WormholeGame() {
       const launch = keys.current.KeyE || keys.current.MouseSecondary;
 
       // Keyboard and touch resolve to the same movement intent. WASD and the
-      // arrow cluster both request a world-space direction directly; diagonals
-      // are normalized so up-right is not faster than right, and opposing keys
-      // cancel their axis.
+      // arrow cluster apply normalized world-space thrust; the shared flight
+      // model preserves existing momentum so turns arc instead of snapping.
       let intent = resolveIntent(
         intentFromStick(moveHeading.current),
         intentFromKeys(keysFrom(keys.current))
