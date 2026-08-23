@@ -1473,8 +1473,8 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
   border-color: color-mix(in srgb, var(--mission-choice), transparent 48%);
   background: color-mix(in srgb, var(--mission-choice), transparent 90%);
 }
-.mission-setup .segmented-options button[data-choice]:hover:not(:disabled),
-.mission-setup .segmented-options button[data-choice]:focus-visible {
+.mission-setup .segmented-options button[data-choice]:not([aria-checked="true"]):hover:not(:disabled),
+.mission-setup .segmented-options button[data-choice]:not([aria-checked="true"]):focus-visible {
   border-color: var(--mission-choice);
   background: color-mix(in srgb, var(--mission-choice), transparent 80%);
 }
@@ -1513,15 +1513,19 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
   position: relative;
 }
 .mission-setup .choice-selected {
+  position: absolute;
+  top: 7px;
+  right: 8px;
+  width: auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-top: 4px;
-  padding: 2px 6px;
+  margin: 0;
+  padding: 3px 7px;
   color: #041018;
   border: 1px solid currentColor;
   border-radius: 999px;
-  background: rgba(255,255,255,.42);
+  background: rgba(255,255,255,.5);
   font: 900 10px/1 var(--mono);
   letter-spacing: .06em;
 }
@@ -1543,4 +1547,20 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
   border-radius: 999px;
   background: var(--lime);
   font: 900 10px/1 var(--mono);
+}
+
+
+/* Mobile browsers can retain :hover after a tap. Selected state must outrank
+   that synthetic hover/focus state immediately, without requiring a blur. */
+.mission-setup .segmented-options button[data-choice][aria-checked="true"],
+.mission-setup .segmented-options button[data-choice][aria-checked="true"]:hover,
+.mission-setup .segmented-options button[data-choice][aria-checked="true"]:focus,
+.mission-setup .segmented-options button[data-choice][aria-checked="true"]:focus-visible,
+.mission-setup .segmented-options button[data-choice][aria-checked="true"]:active {
+  color: #031017;
+  border-color: var(--mission-choice);
+  background: var(--mission-choice);
+}
+.mission-setup .segmented-options button[data-choice][aria-checked="true"] small {
+  color: #09202a;
 }
