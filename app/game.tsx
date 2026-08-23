@@ -88,7 +88,7 @@ const PORTAL_THRESHOLD = 150;
 const DEG = Math.PI / 180;
 const THRUST_ACCEL_BONUS = 0.035;
 const THRUST_SPEED_BONUS = 0.25;
-const STOCK_LIMIT = 5;
+const STOCK_LIMIT = 10;
 const ticksForSeconds = (seconds: number) => Math.round(seconds * 1000 / TICK_MS);
 const wholeSecondsForTicks = (ticks: number) => Math.max(0, Math.ceil(ticks * TICK_MS / 1000));
 /** More than two nameplates at once is noise, not information. */
@@ -928,6 +928,7 @@ function SegmentedChoice<T extends string>({
             >
               <b>{option.label}</b>
               {option.hint ? <small>{option.hint}</small> : null}
+              {active ? <span className="choice-selected" aria-hidden="true">✓ SELECTED</span> : null}
             </button>
           );
         })}
@@ -3928,6 +3929,7 @@ export default function WormholeGame() {
                   ? `Equipped power-up: ${WEAPONS[queued].name}.${queuedBehind ? ` Next: ${WEAPONS[queuedBehind].name}.` : ""}`
                   : "No power-up equipped."}
               >
+                <span className="touch-powerup-count" aria-hidden="true">{hud.stock.length}/{STOCK_LIMIT}</span>
                 {queuedBehind ? (
                   <span
                     className="touch-powerup-queued"
@@ -3994,7 +3996,7 @@ export default function WormholeGame() {
             </div>
             <div className="power-bin">
               <div className="bin-label">
-                <span>POWER-UP BIN</span>
+                <span>POWER-UP BIN <b className="bin-count">{hud.stock.length}/{STOCK_LIMIT}</b></span>
                 <small>FIRE WITH <b>E</b> / <b>PUP</b></small>
               </div>
               <ul className="bin-slots" aria-label="Power-up bin. The last collected power-up fires first.">
