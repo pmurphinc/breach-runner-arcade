@@ -19,6 +19,7 @@ import {
   MAX_TRANSMITS_PER_WINDOW,
   QUEUE_TIMEOUT_MS,
   RECONNECT_GRACE_MS,
+  REMATCH_TIMEOUT_MS,
   ROOM_IDLE_TIMEOUT_MS,
   createRateWindow,
   guestName,
@@ -182,6 +183,8 @@ export class MatchServer {
       touchedAt: now,
       countdownEndsAt: 0,
       transmitSeq: 0,
+      rematchVotes: new Set(),
+      rematchExpiresAt: 0,
     };
     this.rooms.set(code, room);
     player.room = room;
@@ -217,6 +220,8 @@ export class MatchServer {
       touchedAt: now,
       countdownEndsAt: 0,
       transmitSeq: 0,
+      rematchVotes: new Set(),
+      rematchExpiresAt: 0,
     };
     this.rooms.set(code, room);
     a.room = room;
@@ -227,6 +232,8 @@ export class MatchServer {
 
   beginSelect(room, now = Date.now()) {
     room.phase = PHASES.SELECT;
+    room.rematchVotes?.clear();
+    room.rematchExpiresAt = 0;
     room.touchedAt = now;
     for (const player of room.players) player.ready = false;
     this.sendMatch(room);
@@ -366,6 +373,53 @@ export class MatchServer {
     }
   }
 
+  /** A rematch starts only after both players explicitly accept. */
+  requestRematch(player, now = Date.now()) {
+    const room = player.room;
+    if (!room || room.phase !== PHASES.FINISHED) return { ok: false, code: ERRORS.WRONG_PHASE };
+    if (room.rematchExpiresAt && now > room.rematchExpiresAt) room.rematchVotes.clear();
+    if (room.rematchVotes.size === 0) room.rematchExpiresAt = now + REMATCH_TIMEOUT_MS;
+    room.rematchVotes.add(player.id);
+    room.touchedAt = now;
+
+    const accepted = room.players.map((entry) => room.rematchVotes.has(entry.id));
+    if (accepted.every(Boolean)) {
+      for (const entry of room.players) {
+        this.sendTo(entry, { type: "rematch", you: true, opponent: true, status: "starting", expiresAt: room.rematchExpiresAt });
+      }
+      this.beginSelect(room, now);
+      return { ok: true, starting: true };
+    }
+
+    for (const entry of room.players) {
+      const opponent = this.opponentOf(room, entry);
+      this.sendTo(entry, {
+        type: "rematch",
+        you: room.rematchVotes.has(entry.id),
+        opponent: opponent ? room.rematchVotes.has(opponent.id) : false,
+        status: "waiting",
+        expiresAt: room.rematchExpiresAt,
+      });
+    }
+    return { ok: true, starting: false };
+  }
+
+  /** Leave a finished match and return both pilots to a clean lobby state. */
+  leaveMatch(player) {
+    const room = player.room;
+    if (!room || room.phase !== PHASES.FINISHED) return { ok: false, code: ERRORS.WRONG_PHASE };
+    const opponent = this.opponentOf(room, player);
+    this.removeRoom(room);
+    player.ready = false;
+    player.combat = null;
+    if (opponent) {
+      opponent.ready = false;
+      opponent.combat = null;
+      this.sendTo(opponent, { type: "lobby", state: "idle", reason: "opponent_left" });
+    }
+    return { ok: true };
+  }
+
   /** Message rate guard applied to every inbound frame. */
   allowMessage(player, now = Date.now()) {
     rollWindow(player.window, now);
@@ -385,6 +439,12 @@ export class MatchServer {
       if (room.phase === PHASES.COUNTDOWN && now >= room.countdownEndsAt) {
         this.activate(room, now);
         continue;
+      }
+
+      if (room.phase === PHASES.FINISHED && room.rematchExpiresAt && now > room.rematchExpiresAt) {
+        room.rematchVotes.clear();
+        room.rematchExpiresAt = 0;
+        this.broadcast(room, { type: "rematch", you: false, opponent: false, status: "waiting", expiresAt: 0 });
       }
 
       if (room.phase === PHASES.ACTIVE) {
