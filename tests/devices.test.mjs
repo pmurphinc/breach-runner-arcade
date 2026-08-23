@@ -165,6 +165,36 @@ for (const device of DEVICES) {
       });
       assert.ok(reachable, "the mode selector must be reachable");
 
+      await page.locator(".top-menu-toggle").click();
+      for (const tab of ["play", "display", "controls", "info"]) {
+        await page.locator(`#menu-tab-${tab}`).click();
+        const fit = await page.evaluate((id) => {
+          const drawer = document.querySelector(".settings-drawer");
+          const body = document.querySelector(".drawer-body");
+          const panel = document.querySelector(`#menu-panel-${id}`);
+          const close = document.querySelector(".drawer-close");
+          const back = document.querySelector(".drawer-primary");
+          const inside = (el) => {
+            const r = el.getBoundingClientRect();
+            return r.left >= -1 && r.top >= -1 && r.right <= innerWidth + 1 && r.bottom <= innerHeight + 1;
+          };
+          return {
+            drawer: inside(drawer), panel: inside(panel), close: inside(close), back: inside(back),
+            overflow: body.scrollHeight - body.clientHeight,
+            horizontal: drawer.scrollWidth - drawer.clientWidth,
+          };
+        }, tab);
+        assert.ok(fit.drawer && fit.panel && fit.close && fit.back, `${tab} menu controls leave viewport: ${JSON.stringify(fit)}`);
+        assert.ok(fit.overflow <= 0, `${tab} menu has ${fit.overflow}px scrollable overflow`);
+        assert.ok(fit.horizontal <= 0, `${tab} menu has horizontal overflow`);
+      }
+      const controlsFit = await page.evaluate(() => [...document.querySelectorAll(".top-menu-toggle,.top-start,.top-fullscreen,.top-pause")].map((el) => {
+        const r = el.getBoundingClientRect();
+        return { visible: r.width > 0 && r.height >= 44, inside: r.left >= -1 && r.right <= innerWidth + 1 };
+      }));
+      assert.ok(controlsFit.every((control) => control.visible && control.inside), `top controls do not fit: ${JSON.stringify(controlsFit)}`);
+      await page.locator(".drawer-close").click();
+
       assert.deepEqual(errors, [], "console errors");
       await context.close();
     } finally {

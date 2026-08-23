@@ -973,3 +973,58 @@ footer { display: flex; justify-content: space-between; gap: 18px; padding: 8px 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* Compact, viewport-bound menu: one tab panel is visible at a time, so neither
+   the page nor the drawer needs a scrolling escape hatch. */
+html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 100dvh; overflow: hidden; }
+.drawer-backdrop { padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left); overflow: hidden; }
+.settings-drawer { width: min(560px, 100%); min-width: 0; height: 100%; max-height: 100dvh; overflow: hidden; }
+.drawer-head, .drawer-foot { position: relative; flex: 0 0 auto; }
+.drawer-tabs { flex: 0 0 auto; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+.drawer-tabs button { min-width: 0; min-height: 44px; padding: 4px; color: var(--muted); border: 1px solid var(--line); border-radius: 3px; background: rgba(8,20,30,.8); cursor: pointer; font: 800 var(--fs-nano)/1.15 var(--mono); }
+.drawer-tabs button[aria-selected="true"] { color: #041018; border-color: var(--cyan); background: var(--cyan); }
+.drawer-body { overflow: hidden; align-content: start; }
+.drawer-body section[hidden] { display: none; }
+.drawer-body section:not([hidden]) { display: grid; max-height: 100%; overflow: hidden; }
+
+/* The arena rules read as a single HUD rail. It wraps only once on narrow
+   phones, and its measured height continues to budget the canvas HUD below. */
+.difficulty-badge { top: 8px; left: 8px; right: 8px; width: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 0; padding: 7px 9px; }
+.difficulty-badge span { display: inline-flex; align-items: center; justify-content: flex-start; color: #eafcff; white-space: nowrap; }
+.difficulty-badge span + span::before { content: "|"; margin: 0 8px; color: var(--muted); }
+.difficulty-badge .rule-mode { color: var(--cyan); font-weight: 900; }
+.difficulty-badge .warn { color: var(--amber); }
+.difficulty-badge.hazard .warn { color: #ff8fa2; }
+.full-short { display: none; }
+
+@media (max-width: 620px) {
+  .brand-mark { width: 34px; height: 34px; }
+  .top-actions button { min-width: 44px; min-height: 44px; padding: 5px 6px; letter-spacing: .02em; }
+  .top-actions .top-start { min-width: 64px; }
+  .full-label { display: none; }
+  .full-short { display: inline; }
+  .difficulty-badge { padding: 5px 7px; }
+  .difficulty-badge span { flex: 0 0 auto; }
+}
+@media (max-width: 380px) {
+  .brand { display: none; }
+  .topbar { justify-content: center; }
+  .drawer-tabs button { font-size: 11px; }
+}
+@media (max-height: 500px) and (orientation: landscape) {
+  .drawer-head { padding-block: 3px; }
+  .drawer-tabs { padding-block: 3px; }
+  .drawer-tabs button, .drawer-close { min-height: 44px; height: 44px; }
+  .drawer-body { padding-block: 5px; }
+  .drawer-foot { padding-block: 4px; }
+  .segmented { gap: 3px; }
+  .drawer-keys { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.compact-menu .top-start { display: inline-flex; }
+.touch-capable .top-actions button { min-height: 44px; }
+@media (max-height: 500px) and (orientation: landscape) {
+  .settings-drawer { width: min(760px, 100%); }
+  #menu-panel-display, #menu-panel-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 8px; }
+  #menu-panel-display h3, #menu-panel-controls h3 { grid-column: 1 / -1; }
+  #menu-panel-controls .drawer-keys { grid-column: 1 / -1; }
+}
