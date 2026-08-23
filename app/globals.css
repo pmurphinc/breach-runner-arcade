@@ -194,6 +194,9 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 .canvas-wrap:focus { outline: none; }
 .canvas-wrap:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 .canvas-wrap canvas { display: block; width: 100%; height: auto; aspect-ratio: 1/1; touch-action: none; }
+@media (hover: hover) and (pointer: fine) {
+  .canvas-wrap canvas { cursor: crosshair; }
+}
 .pilot-health { position: absolute; z-index: 2; left: 14px; bottom: 14px; width: min(250px, 46%); padding: 10px 12px; border: 1px solid rgba(100, 234, 255, .32); background: rgba(2, 8, 13, .88); box-shadow: 0 8px 20px rgba(0, 0, 0, .3); pointer-events: none; }
 .pilot-health span { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; margin-bottom: 7px; color: #d7eff4; font: 800 var(--fs-xs)/1 var(--mono); letter-spacing: .06em; }
 .pilot-health span em, .pilot-health span b { white-space: nowrap; font-style: normal; }
