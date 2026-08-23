@@ -3430,7 +3430,6 @@ export default function WormholeGame() {
       const mono = (weight: number, size: number) => `${weight} ${fs(size)}px ui-monospace, SFMono-Regular, Menlo, monospace`;
       const pad = Math.round(fs(12));
       const top = pad + hudInsetRef.current;
-      const compactUi = W < 540;
 
       const fit = (text: string, maxWidth: number) => {
         if (ctx.measureText(text).width <= maxWidth) return text;
