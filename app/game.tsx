@@ -42,18 +42,16 @@ import {
 } from "./difficulty";
 import ShipSelect from "./ship-select";
 import { SHIP_PROFILES } from "./ship-data";
+import { settingsStore, VIEW_PROFILES, type ViewMode } from "./view-settings";
 import { PvpClient, type PvpSnapshot } from "./pvp-client";
 import {
   DEFAULT_PRESET,
-  PRESET_BLURBS,
-  PRESET_LABELS,
   SCREEN_PRESETS,
   budgetFor,
   budgetsEqual,
   readViewport,
   type LayoutBudget,
   type ScreenPreset,
-  type TouchControlMode,
 } from "./layout-budget";
 import {
   MOVEMENT_CODES,
@@ -105,7 +103,6 @@ type SpawnKind = "hostile" | "friendly" | "transmit";
 type SpawnFx = { x: number; y: number; type: PickupId; kind: SpawnKind; age: number; life: number; count: number };
 
 type QualityMode = "auto" | "high" | "performance";
-type LayoutPref = "auto" | "game" | "desktop";
 
 /**
  * Used for the very first render, before anything has been measured. Values
@@ -846,16 +843,6 @@ const presetPreference = createPreference<ScreenPreset>(
   SCREEN_PRESETS,
   DEFAULT_PRESET
 );
-const touchControlPreference = createPreference<TouchControlMode>(
-  "wormhole-arcade:touch-controls",
-  ["auto", "show", "hide"],
-  "auto"
-);
-const stickSizePreference = createPreference<StickSizeName>(
-  "wormhole-arcade:stick-size",
-  ["small", "medium", "large"],
-  "medium"
-);
 /** The ship the player last confirmed, pre-highlighted on the next visit. */
 const shipPreference = createPreference<ShipId>(
   "wormhole-arcade:ship",
@@ -941,6 +928,10 @@ function SegmentedChoice<T extends string>({
       </div>
     </div>
   );
+}
+
+function SettingToggle({ label, value, onChange, disabled, explanation }: { label: string; value: boolean; onChange: (value: boolean) => void; disabled?: boolean; explanation?: string }) {
+  return <div className="setting-toggle"><span>{label}</span><button type="button" role="switch" aria-checked={value} disabled={disabled} onClick={() => onChange(!value)}>{value ? "ON" : "OFF"}</button>{explanation ? <small>{explanation}</small> : null}</div>;
 }
 
 
@@ -1380,9 +1371,8 @@ function MissionSetup({
  */
 function SettingsDrawer({
   open, onClose, ship, mode, difficulty, gameActive, stage,
-  preset, onPreset, cameraLocked, onCamera, quality, autoLabel, onQuality,
-  layoutPref, onLayoutPref, sound, onSound,
-  touchControls, onTouchControls, stickSize, onStickSize,
+  viewMode, onViewMode, cameraLocked, onCamera, sound, onSound,
+  thumbsticks, onThumbsticks, stickSize, onStickSize,
   onChangeShip, onChangeMode, onRunAgain, onCodex, onBoard, onLobby,
 }: {
   open: boolean;
@@ -1392,19 +1382,14 @@ function SettingsDrawer({
   difficulty: DifficultyId;
   gameActive: boolean;
   stage: "select" | "setup" | "arena";
-  preset: ScreenPreset;
-  onPreset: (next: ScreenPreset) => void;
+  viewMode: ViewMode;
+  onViewMode: (next: ViewMode) => void;
   cameraLocked: boolean;
   onCamera: (next: boolean) => void;
-  quality: QualityMode;
-  autoLabel: string;
-  onQuality: (next: QualityMode) => void;
-  layoutPref: LayoutPref;
-  onLayoutPref: (next: LayoutPref) => void;
   sound: boolean;
   onSound: (next: boolean) => void;
-  touchControls: TouchControlMode;
-  onTouchControls: (next: TouchControlMode) => void;
+  thumbsticks: boolean;
+  onThumbsticks: (next: boolean) => void;
   stickSize: StickSizeName;
   onStickSize: (next: StickSizeName) => void;
   onChangeShip: () => void;
@@ -1521,58 +1506,18 @@ function SettingsDrawer({
           <section role="tabpanel" id="menu-panel-display" aria-labelledby="menu-tab-display" hidden={activeTab !== "display"}>
             <h3>Display</h3>
             <SegmentedChoice
-              label="SCREEN FIT"
-              className="stacked"
-              value={preset}
-              options={SCREEN_PRESETS.map((id) => ({ id, label: PRESET_LABELS[id].toUpperCase(), hint: PRESET_BLURBS[id] }))}
-              onChange={onPreset}
+              label="VIEW MODE"
+              value={viewMode}
+              options={[{ id: "touch", label: "TOUCH" }, { id: "pc", label: "PC" }, { id: "hybrid", label: "HYBRID" }] as const}
+              onChange={onViewMode}
             />
-            <SegmentedChoice
-              label="CAMERA"
-              value={cameraLocked ? "ship" : "arena"}
-              options={[{ id: "ship", label: "SHIP LOCK" }, { id: "arena", label: "ARENA" }] as const}
-              onChange={(next) => onCamera(next === "ship")}
-            />
-            <SegmentedChoice
-              label="RENDER QUALITY"
-              value={quality}
-              options={[
-                { id: "auto", label: "AUTO", hint: autoLabel },
-                { id: "high", label: "HIGH" },
-                { id: "performance", label: "PERF" },
-              ] as const}
-              onChange={onQuality}
-            />
-            <SegmentedChoice
-              label="SHELL"
-              value={layoutPref}
-              options={[
-                { id: "auto", label: "AUTO" },
-                { id: "game", label: "GAME" },
-                { id: "desktop", label: "DESKTOP" },
-              ] as const}
-              onChange={onLayoutPref}
-            />
+            <SettingToggle label="CAMERA LOCK" value={cameraLocked} onChange={onCamera} />
           </section>
 
           <section role="tabpanel" id="menu-panel-controls" aria-labelledby="menu-tab-controls" hidden={activeTab !== "controls"}>
             <h3>Controls &amp; Audio</h3>
-            <SegmentedChoice
-              label="SOUND"
-              value={sound ? "on" : "off"}
-              options={[{ id: "on", label: "ON" }, { id: "off", label: "OFF" }] as const}
-              onChange={(next) => onSound(next === "on")}
-            />
-            <SegmentedChoice
-              label="TOUCH CONTROLS"
-              value={touchControls}
-              options={[
-                { id: "auto", label: "AUTO" },
-                { id: "show", label: "SHOW" },
-                { id: "hide", label: "HIDE" },
-              ] as const}
-              onChange={onTouchControls}
-            />
+            <SettingToggle label="SOUND" value={sound} onChange={onSound} />
+            <SettingToggle label="THUMBSTICKS" value={thumbsticks} onChange={onThumbsticks} disabled={viewMode === "pc"} explanation={viewMode === "pc" ? "Available in Touch or Hybrid view" : undefined} />
             <SegmentedChoice
               label="TOUCH CONTROL SIZE"
               value={stickSize}
@@ -1615,6 +1560,24 @@ function SettingsDrawer({
   );
 }
 
+function ViewChooser({ onChoose }: { onChoose: (mode: ViewMode) => void }) {
+  const [recommendation, setRecommendation] = useState<ViewMode | null>(null);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      const touch = navigator.maxTouchPoints > 0 || matchMedia("(pointer: coarse)").matches;
+      const mouse = matchMedia("(pointer: fine)").matches;
+      setRecommendation(touch && mouse ? "hybrid" : touch ? "touch" : "pc");
+    });
+    return () => cancelAnimationFrame(frame);
+  }, []);
+  const cards = [
+    { id: "touch", details: ["Twin thumbsticks", "Touch utility buttons", "Compact touch power-up HUD", "Touch-oriented arena HUD"] },
+    { id: "pc", details: ["Mouse aiming", "Mouse firing", "Keyboard movement", "No thumbsticks", "Existing PC power-up inventory and HUD"] },
+    { id: "hybrid", details: ["Mouse and keyboard remain active", "Touch controls remain available", "Compact touch power-up HUD", "Touch/Hybrid arena HUD"] },
+  ] as const;
+  return <section className="view-chooser" aria-labelledby="choose-view-title"><p className="eyebrow">FIRST LAUNCH</p><h1 id="choose-view-title">Choose Your View</h1><p>Choose how this device should present the arena. You can change it later in Menu → Display.</p><div className="view-cards">{cards.map((card) => <button type="button" key={card.id} onClick={() => onChoose(card.id)}><strong>{card.id.toUpperCase()}</strong>{recommendation === card.id ? <em>RECOMMENDED FOR THIS DEVICE</em> : null}<ul>{card.details.map(detail => <li key={detail}>{detail}</li>)}</ul></button>)}</div></section>;
+}
+
 export default function WormholeGame() {
   const shellRef = useRef<HTMLElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -1637,29 +1600,23 @@ export default function WormholeGame() {
   /** Keys released since the last tick; cleared only after a tick reads them. */
   const pendingRelease = useRef<string[]>([]);
   const [hud, setHud] = useState<Hud>(() => hudFrom(createGame(selectedShip("wing"))));
-  const [sound, setSound] = useState(true);
+  const settings = useSyncExternalStore(settingsStore.subscribe, settingsStore.getSnapshot, settingsStore.getServerSnapshot);
+  const viewMode = settings.viewMode;
+  const viewProfile = VIEW_PROFILES[viewMode ?? "pc"];
+  const setSetting = useCallback(<K extends keyof typeof settings>(key: K, value: (typeof settings)[K]) => settingsStore.update({ [key]: value }), []);
   const [fullscreen, setFullscreen] = useState(false);
-  const [layoutPref, setLayoutPref] = useState<LayoutPref>("auto");
   const [menuOpen, setMenuOpen] = useState(false);
-  const [cameraLocked, setCameraLocked] = useState(true);
+  const sound = settings.sound;
+  const cameraLocked = settings.cameraLock;
   const screenPreset = useSyncExternalStore(
     presetPreference.subscribe,
     presetPreference.get,
     presetPreference.getServer
   );
-  const touchControlMode = useSyncExternalStore(
-    touchControlPreference.subscribe,
-    touchControlPreference.get,
-    touchControlPreference.getServer
-  );
-  const stickSizeName = useSyncExternalStore(
-    stickSizePreference.subscribe,
-    stickSizePreference.get,
-    stickSizePreference.getServer
-  );
+  const touchControlMode = viewProfile.thumbsticks && settings.thumbsticks ? "show" : "hide";
+  const stickSizeName = settings.touchControlSize;
   const [budget, setBudget] = useState<LayoutBudget | null>(null);
-  const [quality, setQuality] = useState<QualityMode>("auto");
-  const [autoLabel, setAutoLabel] = useState("HIGH");
+  const [quality] = useState<QualityMode>("auto");
   const [moveStickPosition, setMoveStickPosition] = useState<StickPosition>({ active: false, x: 0, y: 0 });
   const [aimStickPosition, setAimStickPosition] = useState<StickPosition>({ active: false, x: 0, y: 0 });
   const [inspect, setInspect] = useState<{ id: PickupId; pinned: boolean } | null>(null);
@@ -1699,6 +1656,7 @@ export default function WormholeGame() {
   const cameraRef = useRef(true);
   const qualityRef = useRef<QualityMode>("auto");
   const reducedMotionRef = useRef(false);
+  const viewProfileRef = useRef(viewProfile);
   /** CSS pixels of arena covered by the HTML HUD strip, for the canvas to skip. */
   const hudInsetRef = useRef(0);
   /**
@@ -1727,14 +1685,14 @@ export default function WormholeGame() {
   useEffect(() => { cameraRef.current = cameraLocked; }, [cameraLocked]);
   useEffect(() => { qualityRef.current = quality; }, [quality]);
   useEffect(() => { reducedMotionRef.current = reducedMotion; }, [reducedMotion]);
+  useEffect(() => { viewProfileRef.current = viewProfile; }, [viewProfile]);
 
   const gameActive = hud.running && !hud.result;
   // Until the first measurement lands, assume the safest shape rather than a
   // desktop one, so a handheld never flashes a layout it cannot use.
   const layout: LayoutBudget = budget ?? FALLBACK_BUDGET;
-  const touchCapable = layout.showTouchControls;
-  // Immersive is a property of the hardware, not of the match in progress.
-  const immersive = layoutPref === "game" || (layoutPref === "auto" && layout.handheld);
+  const touchCapable = viewProfile.touch;
+  const immersive = viewProfile.touch;
 
   // One measurement drives the whole interface. It is recomputed on every
   // event that can change the answer — resize, visualViewport changes from
@@ -1747,7 +1705,10 @@ export default function WormholeGame() {
     let frame = 0;
     const measure = () => {
       frame = 0;
-      const next = budgetFor(readViewport(touchControlMode, STICK_SIZES[stickSizeName]), screenPreset);
+      const viewport = readViewport(touchControlMode, STICK_SIZES[stickSizeName]);
+      viewport.touch = viewProfile.touch;
+      viewport.coarse = viewProfile.touch;
+      const next = budgetFor(viewport, screenPreset);
       setBudget((previous) => (previous && budgetsEqual(previous, next) ? previous : next));
     };
     const schedule = () => { if (!frame) frame = requestAnimationFrame(measure); };
@@ -1756,7 +1717,6 @@ export default function WormholeGame() {
     coarsePointer.addEventListener?.("change", schedule);
     window.addEventListener("resize", schedule, { passive: true });
     window.addEventListener("orientationchange", schedule, { passive: true });
-    window.addEventListener("touchstart", schedule, { passive: true, once: true });
     document.addEventListener("fullscreenchange", schedule);
     // visualViewport is the one that notices browser chrome appearing, the
     // on-screen keyboard, and pinch zoom.
@@ -1768,12 +1728,11 @@ export default function WormholeGame() {
       coarsePointer.removeEventListener?.("change", schedule);
       window.removeEventListener("resize", schedule);
       window.removeEventListener("orientationchange", schedule);
-      window.removeEventListener("touchstart", schedule);
       document.removeEventListener("fullscreenchange", schedule);
       window.visualViewport?.removeEventListener("resize", schedule);
       window.visualViewport?.removeEventListener("scroll", schedule);
     };
-  }, [screenPreset, stickSizeName, touchControlMode]);
+  }, [screenPreset, stickSizeName, touchControlMode, viewProfile.touch]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -2278,7 +2237,6 @@ export default function WormholeGame() {
       appliedQ = q;
       profile = profileFor(q);
       needsResize = true;
-      setAutoLabel(q >= 0.85 ? "HIGH" : q >= 0.5 ? "BALANCED" : "PERF");
     };
     applyProfile();
 
@@ -3525,7 +3483,7 @@ export default function WormholeGame() {
 
       // Next weapon in the bin, mirrored by the HTML inventory below the arena.
       const queued = nextWeapon(game.stock);
-      if (queued && game.running && !game.result && !layout.showTouchControls) {
+      if (queued && game.running && !game.result && viewProfileRef.current.canvasQueue) {
         const meta = WEAPONS[queued];
         const chipH = Math.round(fs(12) * 3);
         const chipW = cap(W * 0.4, 176, 250);
@@ -3714,11 +3672,16 @@ export default function WormholeGame() {
   }, []);
 
 
+  if (!viewMode) {
+    return <main className="app-shell choose-shell" data-view-mode="unselected"><ViewChooser onChoose={(mode) => settingsStore.update({ viewMode: mode })} /></main>;
+  }
+
 
   return (
     <main
       ref={shellRef}
       className={`app-shell ${touchCapable ? "touch-capable" : ""} compact-menu`}
+      data-view-mode={viewMode}
       data-immersive={immersive ? "true" : "false"}
       data-orientation={layout.orientation}
       data-form={layout.form}
@@ -3758,21 +3721,16 @@ export default function WormholeGame() {
             difficulty={difficulty}
             gameActive={gameActive}
             stage={stage}
-            preset={layout.preset}
-            onPreset={(next) => presetPreference.set(next)}
+            viewMode={viewMode}
+            onViewMode={(next) => setSetting("viewMode", next)}
             cameraLocked={cameraLocked}
-            onCamera={setCameraLocked}
-            quality={quality}
-            autoLabel={autoLabel}
-            onQuality={setQuality}
-            layoutPref={layoutPref}
-            onLayoutPref={setLayoutPref}
+            onCamera={(next) => setSetting("cameraLock", next)}
             sound={sound}
-            onSound={setSound}
-            touchControls={touchControlMode}
-            onTouchControls={(next) => touchControlPreference.set(next)}
+            onSound={(next) => setSetting("sound", next)}
+            thumbsticks={settings.thumbsticks}
+            onThumbsticks={(next) => setSetting("thumbsticks", next)}
             stickSize={stickSizeName}
-            onStickSize={(next) => stickSizePreference.set(next)}
+            onStickSize={(next) => setSetting("touchControlSize", next)}
             onChangeShip={() => { setMenuOpen(false); setStage("select"); }}
             onChangeMode={() => { setMenuOpen(false); setStage("setup"); }}
             onRunAgain={() => { setMenuOpen(false); start(); }}
@@ -3890,6 +3848,10 @@ export default function WormholeGame() {
                 role="img"
                 aria-label={`Wormhole combat arena. Hull ${hud.health} of ${hud.maxHealth}. Wormhole charge ${hud.portalCharge} percent. Rival integrity ${hud.rivalHealth} percent. ${hud.enrageActive ? "Wormhole enraged. " : ""}${queued ? `Next power-up ${WEAPONS[queued].name}.` : "Power-up bin empty."}`}
               />
+              {viewProfile.verticalRails ? <div className="health-rails" aria-label={`Pilot hull ${hud.health} of ${hud.maxHealth}. Shield ${hud.shield ? `${hud.shield} percent${hud.shield < 100 ? ", recharging" : ", ready"}` : "disabled"}. ${mode === "pvp" ? `Opponent hull ${net?.opponentCombat ? Math.round(net.opponentCombat.hull) : "unavailable"}` : `Rival integrity ${hud.rivalCurrentHealth} of ${hud.rivalMaxHealth}`}.`}>
+                <div className="health-rail pilot-rail"><span>HULL {hud.health}/{hud.maxHealth}</span><i className="rail-fill hull-fill" style={{ height: `${healthPct}%` }} /><i className="rail-fill shield-fill" style={{ height: `${hud.shield}%` }} /><small>{hud.shield ? `SHIELD ${hud.shield}% ${hud.shield < 100 ? "RECHARGING" : "READY"}` : "SHIELD DISABLED"}</small></div>
+                <div className={`health-rail rival-rail ${hud.enrageActive ? "enraged" : ""}`}><span>{mode === "pvp" ? "OPPONENT" : "RIVAL"} {mode === "pvp" ? (net?.opponentCombat ? Math.round(net.opponentCombat.hull) : "—") : `${hud.rivalCurrentHealth}/${hud.rivalMaxHealth}`}</span><i className="rail-fill rival-fill" style={{ height: `${mode === "pvp" ? opponentHullPct : hud.rivalHealth}%` }} /></div>
+              </div> : null}
               <div className="pilot-health">
                 <span><em>PILOT HULL</em><b>{hud.health}/{hud.maxHealth}</b></span>
                 <div className="meter hull"><i style={{ width: `${healthPct}%` }} /></div>
