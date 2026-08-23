@@ -72,9 +72,9 @@ export type Velocity = { vx: number; vy: number };
 /**
  * Applies one tick of movement intent to a velocity.
  *
- * Applies the ship's acceleration as thrust while preserving existing momentum,
- * what keeps the frames feeling different: a Squid reaches speed almost at
- * once, a Flagship takes its time, and neither is changed by this refactor.
+ * Applies the ship's acceleration as thrust while preserving existing momentum.
+ * That keeps the frames feeling different: a Squid changes velocity quickly,
+ * while a Flagship takes its time.
  * Returns a new velocity rather than mutating, so it is trivially testable.
  */
 export function applyIntent(
