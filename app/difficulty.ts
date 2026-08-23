@@ -206,7 +206,7 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyRules> = {
   },
 };
 
-/** Order the selector presents the three PvE difficulties in. */
+/** Order the selector presents the four PvE choices in. */
 export const DIFFICULTY_ORDER: DifficultyId[] = ["practice", "easy", "difficult", "hard"];
 
 /**
