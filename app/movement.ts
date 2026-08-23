@@ -72,7 +72,7 @@ export type Velocity = { vx: number; vy: number };
 /**
  * Applies one tick of movement intent to a velocity.
  *
- * Ramps toward the ship's top speed at the ship's own acceleration, which is
+ * Applies the ship's acceleration as thrust while preserving existing momentum,
  * what keeps the frames feeling different: a Squid reaches speed almost at
  * once, a Flagship takes its time, and neither is changed by this refactor.
  * Returns a new velocity rather than mutating, so it is trivially testable.
@@ -91,9 +91,18 @@ export function applyIntent(
   }
 
   const radians = (intent.heading * Math.PI) / 180;
-  const current = Math.hypot(velocity.vx, velocity.vy);
-  const speed = Math.min(ship.maxSpeed, current + ship.acceleration) * intent.magnitude;
-  return { vx: Math.cos(radians) * speed, vy: Math.sin(radians) * speed };
+  // Thrusters add force to the ship's existing momentum instead of replacing
+  // its velocity with the requested keyboard direction. That makes a WASD turn
+  // describe a smooth flight arc rather than a grid-like snap.
+  let vx = velocity.vx + Math.cos(radians) * ship.acceleration * intent.magnitude;
+  let vy = velocity.vy + Math.sin(radians) * ship.acceleration * intent.magnitude;
+  const speed = Math.hypot(vx, vy);
+  if (speed > ship.maxSpeed) {
+    const scale = ship.maxSpeed / speed;
+    vx *= scale;
+    vy *= scale;
+  }
+  return { vx, vy };
 }
 
 /**
