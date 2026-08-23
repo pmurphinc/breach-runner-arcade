@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from "react";
 import {
   CATEGORY_LABELS,
   ENEMY_COUNTS,
@@ -2135,6 +2135,55 @@ export default function WormholeGame() {
     updateStick(kind, event.clientX, event.clientY);
   }, [updateStick]);
 
+  const updateMouseAim = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (event.pointerType === "touch") return;
+    const canvas = event.currentTarget;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+
+    // Convert the cursor from CSS pixels into arena coordinates, then undo the
+    // active camera transform. This keeps mouse aim exact in both ship-lock and
+    // full-arena camera modes.
+    const screenX = ((event.clientX - rect.left) / rect.width) * BOARD;
+    const screenY = ((event.clientY - rect.top) / rect.height) * BOARD;
+    const game = gameRef.current;
+    const player = game.player;
+    const locked = cameraRef.current;
+    const camScale = locked ? 1 : BOARD / game.worldSize;
+    const camX = locked ? cap(BOARD / 2 - player.x, BOARD - game.worldSize, 0) : 0;
+    const camY = locked ? cap(BOARD / 2 - player.y, BOARD - game.worldSize, 0) : 0;
+    const worldX = (screenX - camX) / camScale;
+    const worldY = (screenY - camY) / camScale;
+    aimHeading.current = (Math.atan2(worldY - player.y, worldX - player.x) * 180) / Math.PI;
+  }, []);
+
+  const handleArenaPointerMove = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
+    updateMouseAim(event);
+  }, [updateMouseAim]);
+
+  const handleArenaPointerDown = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (event.pointerType === "touch" || (event.button !== 0 && event.button !== 2)) return;
+    event.preventDefault();
+    updateMouseAim(event);
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    keys.current[event.button === 0 ? "MousePrimary" : "MouseSecondary"] = true;
+  }, [updateMouseAim]);
+
+  const handleArenaPointerUp = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (event.pointerType === "touch") return;
+    const cancelled = event.type === "pointercancel";
+    if (!cancelled && event.button !== 0 && event.button !== 2) return;
+    event.preventDefault();
+    // Defer release until the fixed game tick has observed even a very quick
+    // click, matching the keyboard tap handling. A cancelled pointer releases
+    // both triggers so a lost capture can never leave a weapon firing.
+    if (cancelled) pendingRelease.current.push("MousePrimary", "MouseSecondary");
+    else pendingRelease.current.push(event.button === 0 ? "MousePrimary" : "MouseSecondary");
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
+    }
+  }, []);
+
   useEffect(() => {
     // Every key the game claims, so none of them scrolls the page. Movement
     // comes from the shared list, so WASD and the arrows stay in step.
@@ -2643,13 +2692,12 @@ export default function WormholeGame() {
       if (contact.damage > 0) damageContact(game, contact.damage);
 
       const firingHeading = aimHeading.current;
-      let fire = keys.current.Space;
-      const launch = keys.current.KeyE;
+      let fire = keys.current.Space || keys.current.MousePrimary;
+      const launch = keys.current.KeyE || keys.current.MouseSecondary;
 
       // Keyboard and touch resolve to the same movement intent. WASD and the
-      // arrow cluster both request a world-space direction directly; diagonals
-      // are normalized so up-right is not faster than right, and opposing keys
-      // cancel their axis.
+      // arrow cluster apply normalized world-space thrust; the shared flight
+      // model preserves existing momentum so turns arc instead of snapping.
       let intent = resolveIntent(
         intentFromStick(moveHeading.current),
         intentFromKeys(keysFrom(keys.current))
@@ -3554,7 +3602,7 @@ export default function WormholeGame() {
         ctx.font = mono(700, 12);
         const hint = touchDevice
           ? "LEFT STICK FLY  ·  RIGHT STICK AIM + FIRE  ·  PUP SENDS A POWER-UP"
-          : "WASD / ARROWS MOVE  ·  SPACE CANNON  ·  E POWER-UP  ·  Q SPECIAL  ·  P PAUSE";
+          : "WASD THRUST  ·  MOUSE AIM  ·  LMB CANNON  ·  RMB POWER-UP  ·  Q SPECIAL";
         ctx.fillText(fit(hint, W - 24), W / 2, W / 2 + fs(13.5) * 2.4);
       }
 
@@ -3760,8 +3808,9 @@ export default function WormholeGame() {
               <div><dt>MOVE DOWN</dt><dd>S / ↓</dd></div>
               <div><dt>MOVE LEFT</dt><dd>A / ←</dd></div>
               <div><dt>MOVE RIGHT</dt><dd>D / →</dd></div>
-              <div><dt>PULSE CANNON</dt><dd>SPACE</dd></div>
-              <div><dt>FIRE POWER-UP</dt><dd>E</dd></div>
+              <div><dt>AIM</dt><dd>MOUSE</dd></div>
+              <div><dt>PULSE CANNON</dt><dd>MOUSE 1 / SPACE</dd></div>
+              <div><dt>FIRE POWER-UP</dt><dd>MOUSE 2 / E</dd></div>
               <div><dt>SHIP SPECIAL</dt><dd>Q</dd></div>
               <div><dt>PAUSE</dt><dd>P</dd></div>
             </dl>
@@ -3808,6 +3857,11 @@ export default function WormholeGame() {
                 ref={canvasRef}
                 width={BOARD}
                 height={BOARD}
+                onPointerMove={handleArenaPointerMove}
+                onPointerDown={handleArenaPointerDown}
+                onPointerUp={handleArenaPointerUp}
+                onPointerCancel={handleArenaPointerUp}
+                onContextMenu={(event) => event.preventDefault()}
                 role="img"
                 aria-label={`Wormhole combat arena. Hull ${hud.health} of ${hud.maxHealth}. Wormhole charge ${hud.portalCharge} percent. Rival integrity ${hud.rivalHealth} percent. ${hud.enrageActive ? "Wormhole enraged. " : ""}${queued ? `Next power-up ${WEAPONS[queued].name}.` : "Power-up bin empty."}`}
               />

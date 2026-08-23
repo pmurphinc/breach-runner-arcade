@@ -10,21 +10,22 @@ https://wormhole.murphtournaments.com
 
 ## Controls
 
-| Action | Keyboard |
+| Action | Desktop control |
 | --- | --- |
-| Move up | `W` or Up arrow |
-| Move down | `S` or Down arrow |
-| Move left | `A` or Left arrow |
-| Move right | `D` or Right arrow |
-| Pulse cannon | Space |
-| Fire collected power-up | `E` |
+| Apply upward thrust | `W` or Up arrow |
+| Apply downward thrust | `S` or Down arrow |
+| Apply left thrust | `A` or Left arrow |
+| Apply right thrust | `D` or Right arrow |
+| Aim weapons | Mouse cursor |
+| Pulse cannon | Mouse 1 (Space remains available) |
+| Fire collected power-up | Mouse 2 (`E` remains available) |
 | Ship special | `Q` |
 | Pause | `P` |
 
-Desktop movement is direct and world-space: `W` accelerates upward, `S`
-downward, `A` left, `D` right, and holding two adjacent keys moves diagonally
-at the same speed as a cardinal — diagonals are normalized, so no direction is
-faster than another. Opposing keys cancel that axis rather than one winning.
+Desktop movement uses inertial world-space thrust: WASD adds acceleration to
+the ship's existing velocity, producing curved changes of course instead of
+instant grid-direction snaps. Diagonal thrust is normalized, and every frame
+still uses its own acceleration, top speed, momentum, upgrades, and retros. Opposing keys cancel that axis rather than one winning.
 The hull turns toward its travel direction unless you are aiming, and keeps its
 last heading while drifting. Each ship keeps its own acceleration, top speed,
 momentum and retro behaviour, so the frames still handle differently.
