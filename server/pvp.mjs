@@ -31,11 +31,6 @@ const PRODUCTION_ORIGIN = "https://wormhole.murphtournaments.com";
  */
 export function allowedOrigins(env = process.env) {
   const origins = new Set([PRODUCTION_ORIGIN]);
-  if (env.NODE_ENV !== "production") {
-    origins.add("http://localhost:5173");
-    origins.add("http://localhost:5199");
-    origins.add("http://127.0.0.1:5199");
-  }
   for (const entry of (env.PVP_EXTRA_ORIGINS ?? "").split(",")) {
     const trimmed = entry.trim().replace(/\/+$/, "");
     if (trimmed) origins.add(trimmed);
@@ -43,11 +38,26 @@ export function allowedOrigins(env = process.env) {
   return origins;
 }
 
-export function isOriginAllowed(origin, origins) {
+/** Loopback on any port, for local development only. */
+function isLoopbackOrigin(origin) {
+  try {
+    const { hostname, protocol } = new URL(origin);
+    if (protocol !== "http:" && protocol !== "https:") return false;
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+  } catch {
+    return false;
+  }
+}
+
+export function isOriginAllowed(origin, origins, env = process.env) {
   // Same-origin browsers and non-browser clients may omit Origin entirely;
-  // a *present* origin must be on the list.
+  // a *present* origin must be allowed explicitly.
   if (!origin) return true;
-  return origins.has(origin.replace(/\/+$/, ""));
+  const normalized = origin.replace(/\/+$/, "");
+  if (origins.has(normalized)) return true;
+  // Dev servers pick arbitrary ports, so allow any loopback origin outside
+  // production rather than maintaining a port list. Production never does.
+  return env.NODE_ENV !== "production" && isLoopbackOrigin(normalized);
 }
 
 /**
@@ -86,7 +96,7 @@ export function attachPvpServer(httpServer, { log = console.log, env = process.e
       return;
     }
 
-    if (!isOriginAllowed(request.headers.origin, origins)) {
+    if (!isOriginAllowed(request.headers.origin, origins, env)) {
       log(`[pvp] rejected upgrade from origin ${request.headers.origin}`);
       socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
       socket.destroy();

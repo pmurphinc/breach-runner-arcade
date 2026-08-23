@@ -368,3 +368,27 @@ test("guests join with a generated callsign and no sign-in", () => {
   assert.match(player.name, /^GUEST-\d{4}$/);
   assert.ok(player.resume, "a resume token is issued without any account");
 });
+
+test("origin policy is strict in production and permissive only on loopback", async () => {
+  const { allowedOrigins, isOriginAllowed } = await import("../server/pvp.mjs");
+  const prod = { NODE_ENV: "production" };
+  const dev = { NODE_ENV: "development" };
+  const origins = allowedOrigins(prod);
+
+  assert.equal(isOriginAllowed("https://wormhole.murphtournaments.com", origins, prod), true);
+  assert.equal(isOriginAllowed("https://evil.example", origins, prod), false);
+  assert.equal(isOriginAllowed("http://localhost:5199", origins, prod), false,
+    "production must never accept a localhost origin");
+  assert.equal(isOriginAllowed("http://127.0.0.1:8150", origins, prod), false);
+
+  // Any loopback port is fine in development; nothing else is.
+  assert.equal(isOriginAllowed("http://localhost:5199", origins, dev), true);
+  assert.equal(isOriginAllowed("http://127.0.0.1:8150", origins, dev), true);
+  assert.equal(isOriginAllowed("https://evil.example", origins, dev), false);
+  assert.equal(isOriginAllowed("http://localhost.evil.example", origins, dev), false,
+    "a hostname merely starting with localhost must not pass");
+
+  // An explicit extra origin is honoured without loosening anything else.
+  const staged = allowedOrigins({ ...prod, PVP_EXTRA_ORIGINS: "https://staging.example/" });
+  assert.equal(isOriginAllowed("https://staging.example", staged, prod), true);
+});
