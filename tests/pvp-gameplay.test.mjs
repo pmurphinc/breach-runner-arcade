@@ -76,7 +76,13 @@ test("two guests play a PvP match end to end", { skip, timeout: 240_000 }, async
         r.fulfill({ json: { signedIn: false, player: null } })
       );
       await page.goto(service.base, { waitUntil: "networkidle" });
-      await page.locator(".ship-panel [role=radio]", { hasText: "PVP 1V1" }).first().click();
+      // The launch flow now runs through the ship-selection scene: confirm a
+      // ship, then pick PVP in Mission Setup, which opens the lobby.
+      await page.locator(".detail-select").click();
+      await page.waitForTimeout(800);
+      await page.locator('.mission-setup [role=radio]', { hasText: "PVP 1V1" }).first().click();
+      await page.waitForTimeout(300);
+      await page.locator(".setup-launch").click();
       await page.waitForSelector(".lobby", { timeout: 15_000 });
       // Wait for usability, not for the word OFFLINE to vanish: "CONNECTING"
       // also lacks it while the buttons are still disabled.

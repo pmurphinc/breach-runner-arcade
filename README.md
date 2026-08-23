@@ -186,6 +186,49 @@ The API lives in the `murphtournaments-website` repository under
 the game at a different host by setting `NEXT_PUBLIC_MURPH_API_BASE` at build
 time; it defaults to `https://murphtournaments.com`.
 
+## Ship selection
+
+A new browser session opens on the dedicated selection scene, never straight
+into a match. The remembered ship pre-highlights but still has to be
+confirmed.
+
+```
+ship grid -> confirm -> Mission Setup (mode, then difficulty) -> launch
+```
+
+Keyboard: arrows or WASD walk the grid, Enter confirms, Escape steps back.
+Touch: a tap highlights and inspects; only `SELECT SHIP` commits, so a tile
+can never launch a match by accident. Locked frames stay fully inspectable and
+state the rank they need.
+
+Each frame's detail panel is generated from the shipped statistics in
+`app/game-data.ts` — strengths, weaknesses, suggested experience and playstyle
+are all derived, so a description can never claim something the ship does not
+have. Comparisons against the currently selected ship show bars *and* exact
+values on both sides plus a signed delta, so nothing is communicated by colour
+or bar length alone.
+
+After a match: `RUN AGAIN`, `CHANGE SHIP`, `CHANGE MODE`, `GLOBAL BOARD`.
+Change Ship returns to the scene without reloading the page.
+
+## Menu
+
+`MENU` opens a right-side drawer with a sticky header, an independently
+scrolling body and a sticky primary action. It traps focus, closes on Escape
+and restores focus to whatever opened it.
+
+| Section | Contents |
+| --- | --- |
+| Play | Current ship and mode, Change Ship, Change Mode, Run Again, lobby |
+| Display | Screen fit, camera, render quality, shell, fullscreen |
+| Controls & Audio | Sound, touch controls Auto/Show/Hide, touch size, key reference |
+| Game Information | Weapon Codex, Leaderboard, View All Ships, Murph Tournaments |
+
+The drawer never contains the ship grid or a second copy of the mode and
+difficulty controls: the selection scene owns the ship, Mission Setup owns
+mode and difficulty, and the menu summarises them with a way back. No setting
+exists as two independently interactive copies.
+
 ## Screen presets
 
 `SCREEN FIT` in the menu offers three presets, persisted locally. Anything

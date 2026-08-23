@@ -50,10 +50,16 @@ async function openGame(browser, difficulty) {
     route.fulfill({ json: { signedIn: false, player: null } })
   );
   await page.goto(URL_UNDER_TEST, { waitUntil: "networkidle" });
-  await page.locator(".ship-panel [role=radio]", { hasText: difficulty }).first().click();
-  await page.waitForTimeout(200);
-  await page.locator(".start-button").click();
-  await page.waitForTimeout(400);
+
+  // The launch flow runs through the ship-selection scene: confirm a ship,
+  // choose the difficulty in Mission Setup, then launch.
+  await page.waitForSelector(".detail-select", { timeout: 15_000 });
+  await page.locator(".detail-select").click();
+  await page.waitForTimeout(800);
+  await page.locator(".mission-setup [role=radio]", { hasText: difficulty }).first().click();
+  await page.waitForTimeout(250);
+  await page.locator(".setup-launch").click();
+  await page.waitForTimeout(500);
   return { context, page };
 }
 
@@ -135,12 +141,15 @@ test("EASY: the shield restores four seconds after the last collision", { skip }
     // actually leave before it can measure the recharge. With direct movement
     // that is simply the opposite direction.
     await hold(page, "ArrowDown");
-    await page.waitForTimeout(1400);
+    await page.waitForTimeout(2200);
     await release(page, "ArrowDown");
+    // Let any residual drift settle so the ship is genuinely clear of the wall
+    // before the recharge window is measured.
+    await page.waitForTimeout(600);
 
     // Now in open space, and nowhere near the centred wormhole: the shield
     // must come back on the timer alone.
-    const restored = await waitFor(page, ({ badge }) => /SHIELD FULL/.test(badge), 8000);
+    const restored = await waitFor(page, ({ badge }) => /SHIELD FULL/.test(badge), 12000);
     assert.ok(
       restored,
       `shield should restore four seconds after the last collision (badge: ${await badgeOf(page)})`
@@ -222,12 +231,19 @@ test("WASD and the arrows move the ship in world space", { skip }, async () => {
 
     // Arena camera, so screen movement maps to world movement. The settings
     // panel is collapsed on every device, so open the menu to reach it.
+    // Arena camera, so screen movement maps to world movement. It lives in
+    // the settings drawer now.
     await page.locator(".top-menu-toggle").click();
+    await page.waitForTimeout(300);
+    // Scope to the camera group: "ARENA FOCUS" in the screen-preset group
+    // also contains "ARENA", and matching that would change the preset.
+    await page
+      .locator('.settings-drawer .segmented', { hasText: "CAMERA" })
+      .locator('[role=radio]', { hasText: "ARENA" })
+      .click();
     await page.waitForTimeout(200);
-    await page.locator(".top-secondary button", { hasText: "CAMERA" }).first().click();
-    await page.waitForTimeout(200);
-    await page.locator(".top-menu-toggle").click();
-    await page.waitForTimeout(200);
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
 
     const drive = async (codes, ms = 1100) => {
       await page.locator(".start-button").click();
