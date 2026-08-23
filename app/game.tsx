@@ -161,6 +161,8 @@ type Player = {
   retros: boolean;
   specialCooldown: number;
   emp: number;
+  /** Ticks remaining on the Flagship's continuous attraction/repulsion field. */
+  flagshipField: number;
   flashMode: "tank" | "squid";
 };
 
@@ -318,6 +320,7 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
       retros: ship.thrust > 0,
       specialCooldown: 0,
       emp: 0,
+      flagshipField: 0,
       flashMode: "tank",
     },
     portalAngle: 0,
@@ -2415,20 +2418,8 @@ export default function WormholeGame() {
         game.notice = "PIRANHA ARRAY";
         play("fire", 0.3);
       } else if (ship === "flagship") {
-        game.pickups.forEach((pickup) => {
-          const dx = player.x - pickup.x;
-          const dy = player.y - pickup.y;
-          const d = Math.max(1, Math.hypot(dx, dy));
-          pickup.vx += (dx / d) * 0.8;
-          pickup.vy += (dy / d) * 0.8;
-        });
-        game.enemies.forEach((enemy) => {
-          const dx = enemy.x - player.x;
-          const dy = enemy.y - player.y;
-          const d = Math.max(1, Math.hypot(dx, dy));
-          if (d < 300) { enemy.vx += (dx / d) * 1.2; enemy.vy += (dy / d) * 1.2; }
-        });
-        game.notice = "A/R FIELD PULSE";
+        player.flagshipField = ticksForSeconds(3);
+        game.notice = "A/R FIELD ACTIVE // 3S";
       }
 
       player.specialCooldown = ticksForSeconds(spec.cooldownSeconds);
@@ -2688,6 +2679,34 @@ export default function WormholeGame() {
       }
       if (!launch) keys.current.__launchLatch = false;
       activateSpecial(game);
+
+      // The Flagship field is continuous rather than a one-tick impulse, so
+      // enemy steering and pickup drag cannot erase the special immediately.
+      if (player.flagshipField > 0) {
+        player.flagshipField -= 1;
+        for (const pickup of game.pickups) {
+          const dx = player.x - pickup.x;
+          const dy = player.y - pickup.y;
+          const d = Math.max(1, Math.hypot(dx, dy));
+          if (d > 520) continue;
+          const strength = 0.12 + (1 - d / 520) * 0.28;
+          pickup.vx = cap(pickup.vx + (dx / d) * strength, -7, 7);
+          pickup.vy = cap(pickup.vy + (dy / d) * strength, -7, 7);
+        }
+        for (const enemy of game.enemies) {
+          if (enemy.hp <= 0) continue;
+          const dx = enemy.x - player.x;
+          const dy = enemy.y - player.y;
+          const d = Math.max(1, Math.hypot(dx, dy));
+          if (d > 360) continue;
+          const strength = 0.18 + (1 - d / 360) * 0.42;
+          enemy.vx += (dx / d) * strength;
+          enemy.vy += (dy / d) * strength;
+        }
+        if (player.flagshipField % 12 === 0) {
+          burst(game, player.x, player.y, "#68f2ff", 5, 3);
+        }
+      }
 
       game.bullets.forEach((bullet) => {
         bullet.x += bullet.vx;
@@ -3241,6 +3260,30 @@ export default function WormholeGame() {
           ctx.stroke();
         }
         ctx.restore();
+
+        if (player.flagshipField > 0) {
+          const life = player.flagshipField / ticksForSeconds(3);
+          const phase = 1 - life;
+          ctx.save();
+          ctx.translate(player.x, player.y);
+          ctx.globalAlpha = 0.35 + life * 0.45;
+          ctx.strokeStyle = "#68f2ff";
+          ctx.lineWidth = 2;
+          if (profile.shadows) { ctx.shadowColor = "#68f2ff"; ctx.shadowBlur = 14; }
+          for (let ring = 0; ring < 3; ring += 1) {
+            const radius = 48 + ((phase * 90 + ring * 34) % 110);
+            ctx.globalAlpha = (0.22 + life * 0.34) * (1 - (radius - 48) / 150);
+            ctx.beginPath();
+            ctx.arc(0, 0, radius, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+          ctx.setLineDash([7, 9]);
+          ctx.globalAlpha = 0.32 + life * 0.28;
+          ctx.beginPath();
+          ctx.arc(0, 0, 178, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+        }
 
         // Collision shield: a ring whose weight tracks remaining charge, plus
         // a ripple on absorption and a flash on break. Drawn unrotated so it
