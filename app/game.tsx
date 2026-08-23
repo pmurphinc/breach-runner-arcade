@@ -3118,7 +3118,7 @@ export default function WormholeGame() {
   return (
     <main
       ref={shellRef}
-      className={`app-shell view-${viewSize} ${touchCapable ? "touch-capable" : ""} ${touchCapable || immersive || device.narrow ? "compact-menu" : ""}`}
+      className={`app-shell view-${viewSize} ${touchCapable ? "touch-capable" : ""} compact-menu`}
       data-immersive={immersive ? "true" : "false"}
       data-orientation={device.orientation}
       data-form={device.form}
