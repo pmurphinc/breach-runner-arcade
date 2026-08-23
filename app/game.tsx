@@ -42,6 +42,15 @@ import {
 } from "./difficulty";
 import { PvpClient, type PvpSnapshot } from "./pvp-client";
 import {
+  MOVEMENT_CODES,
+  applyIntent,
+  facingFor,
+  intentFromKeys,
+  intentFromStick,
+  keysFrom,
+  resolveIntent,
+} from "./movement";
+import {
   MURPH_SITE_URL,
   discordSignInUrl,
   fetchArcadeSession,
@@ -1760,7 +1769,9 @@ export default function WormholeGame() {
   }, [updateStick]);
 
   useEffect(() => {
-    const gameKeys = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "KeyE", "KeyQ", "KeyP"];
+    // Every key the game claims, so none of them scrolls the page. Movement
+    // comes from the shared list, so WASD and the arrows stay in step.
+    const gameKeys = [...MOVEMENT_CODES, "Space", "KeyE", "KeyQ", "KeyP"] as string[];
     const down = (event: KeyboardEvent) => {
       const code = event.code;
       const target = event.target as HTMLElement | null;
@@ -2249,42 +2260,58 @@ export default function WormholeGame() {
       }
       if (contact.damage > 0) damageContact(game, contact.damage);
 
-      const movementHeading = moveHeading.current;
       const firingHeading = aimHeading.current;
-      let left = keys.current.ArrowLeft || keys.current.KeyA;
-      let right = keys.current.ArrowRight || keys.current.KeyD;
-      let thrust = keys.current.ArrowUp || keys.current.KeyW;
       let fire = keys.current.Space;
       const launch = keys.current.KeyE;
+
+      // Keyboard and touch resolve to the same movement intent. WASD and the
+      // arrow cluster both request a world-space direction directly; diagonals
+      // are normalized so up-right is not faster than right, and opposing keys
+      // cancel their axis.
+      let intent = resolveIntent(
+        intentFromStick(moveHeading.current),
+        intentFromKeys(keysFrom(keys.current))
+      );
       if (player.emp > 0) {
-        [left, right] = [right, left];
-        if (game.cycles % 3 === 0) [thrust, fire] = [fire, thrust];
+        // EMP still scrambles the pilot: the requested direction is inverted
+        // and the trigger swaps with movement, as it always has.
+        if (intent.active && intent.heading !== null) {
+          intent = { ...intent, heading: intent.heading + 180 };
+        }
+        if (game.cycles % 3 === 0) {
+          const swap = intent.active;
+          fire = swap || fire;
+          if (fire) intent = { active: false, heading: null, magnitude: 0 };
+        }
       }
 
       let handling = game.ship;
       if (game.ship.id === "flash") handling = player.flashMode === "tank" ? SHIPS[0] : SHIPS[2];
       const maxSpeed = handling.maxSpeed + player.thrust * THRUST_SPEED_BONUS;
       const acceleration = handling.acceleration + player.thrust * THRUST_ACCEL_BONUS;
-      if (movementHeading !== null) {
-        const movementAngle = (player.emp > 0 ? movementHeading + 180 : movementHeading) * DEG;
-        if (firingHeading === null) player.angle = movementAngle / DEG;
-        const directedSpeed = Math.min(maxSpeed, Math.hypot(player.vx, player.vy) + acceleration);
-        player.vx = Math.cos(movementAngle) * directedSpeed;
-        player.vy = Math.sin(movementAngle) * directedSpeed;
-        if (game.cycles % 3 === 0) burst(game, player.x - Math.cos(movementAngle) * 14, player.y - Math.sin(movementAngle) * 14, "#63efff", 2, 2.5);
-      } else {
-        if (left) player.angle -= handling.turn;
-        if (right) player.angle += handling.turn;
+
+      const moved = applyIntent(
+        { vx: player.vx, vy: player.vy },
+        intent,
+        { acceleration, maxSpeed },
+        { retros: player.retros }
+      );
+      player.vx = moved.vx;
+      player.vy = moved.vy;
+
+      if (intent.active && intent.heading !== null && game.cycles % 3 === 0) {
+        const exhaust = intent.heading * DEG;
+        burst(game, player.x - Math.cos(exhaust) * 14, player.y - Math.sin(exhaust) * 14, "#63efff", 2, 2.5);
       }
-      if (movementHeading === null && thrust) {
-        player.vx += Math.cos(player.angle * DEG) * acceleration;
-        player.vy += Math.sin(player.angle * DEG) * acceleration;
-        if (game.cycles % 3 === 0) burst(game, player.x - Math.cos(player.angle * DEG) * 14, player.y - Math.sin(player.angle * DEG) * 14, "#63efff", 2, 2.5);
-      } else if (movementHeading === null && player.retros) {
-        player.vx *= 0.995;
-        player.vy *= 0.995;
-      }
-      if (firingHeading !== null) player.angle = player.emp > 0 ? firingHeading + 180 : firingHeading;
+
+      // The hull turns toward travel unless the player is aiming, and keeps its
+      // last heading when nothing is held.
+      player.angle = facingFor(
+        intent,
+        firingHeading === null ? null : player.emp > 0 ? firingHeading + 180 : firingHeading,
+        player.angle
+      );
+
       const playerSpeed = Math.hypot(player.vx, player.vy);
       if (playerSpeed > maxSpeed) { player.vx = (player.vx / playerSpeed) * maxSpeed; player.vy = (player.vy / playerSpeed) * maxSpeed; }
       player.x += player.vx;
@@ -3075,7 +3102,7 @@ export default function WormholeGame() {
         ctx.font = mono(700, 12);
         const hint = touchDevice
           ? "LEFT STICK FLY  ·  RIGHT STICK AIM + FIRE  ·  PUP SENDS A POWER-UP"
-          : "ARROWS / WASD FLY  ·  SPACE CANNON  ·  E POWER-UP  ·  Q SPECIAL  ·  P PAUSE";
+          : "WASD / ARROWS MOVE  ·  SPACE CANNON  ·  E POWER-UP  ·  Q SPECIAL  ·  P PAUSE";
         ctx.fillText(fit(hint, W - 24), W / 2, W / 2 + fs(13.5) * 2.4);
       }
 
@@ -3290,8 +3317,10 @@ export default function WormholeGame() {
           <div className="controls">
             <div className="eyebrow">FLIGHT CONTROL</div>
             <dl>
-              <div><dt>ROTATE</dt><dd>← → / A D</dd></div>
-              <div><dt>THRUST</dt><dd>↑ / W</dd></div>
+              <div><dt>MOVE UP</dt><dd>W / ↑</dd></div>
+              <div><dt>MOVE DOWN</dt><dd>S / ↓</dd></div>
+              <div><dt>MOVE LEFT</dt><dd>A / ←</dd></div>
+              <div><dt>MOVE RIGHT</dt><dd>D / →</dd></div>
               <div><dt>PULSE CANNON</dt><dd>SPACE</dd></div>
               <div><dt>FIRE POWER-UP</dt><dd>E</dd></div>
               <div><dt>SHIP SPECIAL</dt><dd>Q</dd></div>

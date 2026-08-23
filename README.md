@@ -12,12 +12,22 @@ https://wormhole.murphtournaments.com
 
 | Action | Keyboard |
 | --- | --- |
-| Turn | Arrow keys or `A` / `D` |
-| Thrust | Up arrow or `W` |
+| Move up | `W` or Up arrow |
+| Move down | `S` or Down arrow |
+| Move left | `A` or Left arrow |
+| Move right | `D` or Right arrow |
 | Pulse cannon | Space |
 | Fire collected power-up | `E` |
 | Ship special | `Q` |
 | Pause | `P` |
+
+Desktop movement is direct and world-space: `W` accelerates upward, `S`
+downward, `A` left, `D` right, and holding two adjacent keys moves diagonally
+at the same speed as a cardinal — diagonals are normalized, so no direction is
+faster than another. Opposing keys cancel that axis rather than one winning.
+The hull turns toward its travel direction unless you are aiming, and keeps its
+last heading while drifting. Each ship keeps its own acceleration, top speed,
+momentum and retro behaviour, so the frames still handle differently.
 
 Touch controls use a twin-stick layout: the left stick moves the ship while the right stick independently aims and fires the pulse cannon. The **PUP** button is the touch equivalent of `E`, and **SPEC** is the touch equivalent of `Q`. Fullscreen play, high-density canvas rendering, safe-area support, and dedicated layouts for desktop, ultrawide, tablet, phone, and foldable displays are included. Installable PWA mode is planned.
 
