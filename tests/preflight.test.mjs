@@ -203,6 +203,17 @@ test("SELECT SHIP stays visible on wide touch screens", { skip }, async () => {
       await page.waitForTimeout(900);
       assert.ok(await page.locator(".mission-setup").isVisible(),
         `${viewport.name} must advance after tapping SELECT SHIP`);
+
+      await page.locator(".setup-launch").tap();
+      await page.waitForTimeout(700);
+      if (viewport.width >= 900 && viewport.height >= 600) {
+        const arenaWidth = await page.locator(".arena-stage").evaluate(
+          (arena) => arena.getBoundingClientRect().width
+        );
+        const minimumUsefulWidth = Math.min(viewport.height * 0.55, viewport.width * 0.5);
+        assert.ok(arenaWidth >= minimumUsefulWidth,
+          `${viewport.name} arena collapsed to ${arenaWidth}px; expected at least ${minimumUsefulWidth}px`);
+      }
       assert.deepEqual(errors, []);
       await context.close();
     }
