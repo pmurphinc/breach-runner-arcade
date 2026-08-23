@@ -198,14 +198,23 @@ function playstyleFor(spec: ShipSpec, experience: ExperienceTier) {
   const speed = standing(spec, "maxSpeed");
   const response = standing(spec, "turn");
 
-  if (armour >= HIGH && speed <= LOW) {
+  // Lead with whichever axis actually stands out most, so a high-speed scout
+  // is described by its speed rather than by a secondary strength.
+  const dominant = Math.max(armour, speed, response);
+
+  if (armour >= HIGH && armour === dominant && speed <= 0) {
     return "Hold ground and trade hits. Line up the wormhole early, because you will not outrun anything that goes wrong.";
   }
-  if (speed >= HIGH && armour <= LOW) {
-    return "Stay moving and never trade. Cross the arena, take the shot, and leave before anything closes in.";
+  if (speed >= HIGH && speed === dominant) {
+    return armour <= 0
+      ? "Stay moving and never trade. Cross the arena, take the shot, and leave before anything closes in."
+      : "Own the open arena. You can cross it faster than anything chasing you and still take a hit on the way.";
   }
-  if (response >= HIGH) {
+  if (response >= HIGH && response === dominant) {
     return "Weave through waves rather than around them. Sharp turning lets you correct late and keep the wormhole in front of you.";
+  }
+  if (armour >= HIGH) {
+    return "Hold ground and trade hits. Line up the wormhole early, because you will not outrun anything that goes wrong.";
   }
   if (experience === "Expert") {
     return "Momentum decides everything here. Plan a route before you commit to it, because corrections are slow and expensive.";

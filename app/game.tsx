@@ -19,7 +19,7 @@ import {
   type ShipSpec,
   type WeaponMeta,
 } from "./game-data";
-import { DIRECTIONAL, drawPowerProjectile, drawWeaponGlyph } from "./weapon-art";
+import { DIRECTIONAL, drawPowerProjectile, drawShipShape, drawWeaponGlyph } from "./weapon-art";
 import {
   DIFFICULTIES,
   DIFFICULTY_ORDER,
@@ -40,6 +40,8 @@ import {
   type DifficultyRules,
   type GameMode,
 } from "./difficulty";
+import ShipSelect from "./ship-select";
+import { SHIP_PROFILES } from "./ship-data";
 import { PvpClient, type PvpSnapshot } from "./pvp-client";
 import {
   DEFAULT_PRESET,
@@ -461,23 +463,6 @@ function compact<T>(items: T[], keep: (item: T) => boolean) {
   items.length = write;
 }
 
-function drawShipShape(ctx: CanvasRenderingContext2D, ship: ShipId, scale = 1) {
-  const shapes: Record<ShipId, number[][]> = {
-    tank: [[18, 0], [9, -12], [-11, -16], [-8, -5], [-17, -6], [-13, 0], [-17, 6], [-8, 5], [-11, 16], [9, 12]],
-    wing: [[20, 0], [-8, -10], [-3, -3], [-15, 0], [-3, 3], [-8, 10]],
-    squid: [[18, 0], [-15, -7], [-7, 0], [-19, 12], [1, 7], [-6, 0], [-19, -12]],
-    rabbit: [[17, 0], [5, -7], [-14, -9], [-7, 0], [-14, 9], [5, 7]],
-    turtle: [[18, 0], [8, -13], [-8, -12], [-13, -7], [-12, 0], [-13, 7], [-8, 12], [8, 13]],
-    flash: [[19, 0], [-12, -13], [-5, 0], [-12, 13]],
-    hunter: [[20, 0], [-7, -13], [-5, -5], [-15, -6], [-8, 0], [-15, 6], [-5, 5], [-7, 13]],
-    flagship: [[28, 0], [15, -19], [-8, -19], [-9, -10], [-18, -13], [-20, 0], [-18, 13], [-9, 10], [-8, 19], [15, 19]],
-  };
-  const points = shapes[ship];
-  ctx.beginPath();
-  ctx.moveTo(points[0][0] * scale, points[0][1] * scale);
-  for (let i = 1; i < points.length; i += 1) ctx.lineTo(points[i][0] * scale, points[i][1] * scale);
-  ctx.closePath();
-}
 
 function useReducedMotion() {
   const [reduced, setReduced] = useState(false);
@@ -1313,6 +1298,108 @@ function PvpHud({ net }: { net: PvpSnapshot }) {
   );
 }
 
+/**
+ * Mission Setup: the one place PvE/PvP and difficulty are chosen before a
+ * launch. The menu only ever summarises these and offers a way back here, so
+ * the same setting never appears as two independently interactive copies.
+ */
+function MissionSetup({
+  ship,
+  mode,
+  difficulty,
+  onMode,
+  onDifficulty,
+  onChangeShip,
+  onLaunch,
+  onOpenLobby,
+  net,
+}: {
+  ship: ShipId;
+  mode: GameMode;
+  difficulty: DifficultyId;
+  onMode: (next: GameMode) => void;
+  onDifficulty: (next: DifficultyId) => void;
+  onChangeShip: () => void;
+  onLaunch: () => void;
+  onOpenLobby: () => void;
+  net: PvpSnapshot | null;
+}) {
+  const profile = SHIP_PROFILES[ship];
+  const rules = rulesFor(mode, difficulty);
+  const [moreInfo, setMoreInfo] = useState(false);
+
+  return (
+    <section className="mission-setup">
+      <div className="setup-head">
+        <p className="select-pilot">MISSION SETUP</p>
+        <h2>CHOOSE YOUR MISSION</h2>
+      </div>
+
+      <div className="setup-ship">
+        <div>
+          <span>YOUR SHIP</span>
+          <b>{profile.name}</b>
+          <small>{profile.role} · {profile.experience}</small>
+        </div>
+        <button type="button" onClick={onChangeShip}>CHANGE SHIP</button>
+      </div>
+
+      <SegmentedChoice
+        label="GAME MODE"
+        value={mode}
+        options={[
+          { id: "pve", label: "PVE" },
+          { id: "pvp", label: "PVP 1V1" },
+        ] as const}
+        onChange={onMode}
+      />
+
+      {mode === "pve" ? (
+        <>
+          <SegmentedChoice
+            label="DIFFICULTY"
+            className="stacked"
+            value={difficulty}
+            options={DIFFICULTY_ORDER.map((id) => ({
+              id,
+              label: DIFFICULTIES[id].shortName,
+              hint:
+                DIFFICULTIES[id].wormhole.kind === "locked"
+                  ? "WORMHOLE LOCKED"
+                  : DIFFICULTIES[id].contactHazard.enabled
+                    ? "MOVING · CONTACT HAZARD"
+                    : "MOVING WORMHOLE",
+            }))}
+            onChange={onDifficulty}
+          />
+          <p className="setup-summary">
+            {rules.wormhole.kind === "locked" ? "Wormhole locked centre" : "Wormhole moves"}
+            {" · "}
+            {rules.collisionShield.enabled ? "collision shield" : "no collision shield"}
+            {" · "}
+            {rules.contactHazard.enabled ? "contact hazard" : "contact harmless"}
+            <button type="button" className="more-info" onClick={() => setMoreInfo((v) => !v)} aria-expanded={moreInfo}>
+              {moreInfo ? "LESS" : "MORE INFO"}
+            </button>
+          </p>
+          {moreInfo ? <p className="setup-blurb">{rules.blurb}</p> : null}
+          <button type="button" className="setup-launch" onClick={onLaunch}>LAUNCH MISSION</button>
+        </>
+      ) : (
+        <>
+          <p className="setup-summary">
+            Real-time 1v1 under Easy rules. No sign-in — guests get a callsign.
+            {net?.name ? ` You are ${net.name}.` : ""}
+          </p>
+          <button type="button" className="setup-launch" onClick={onOpenLobby}>
+            OPEN MULTIPLAYER LOBBY
+          </button>
+        </>
+      )}
+    </section>
+  );
+}
+
 export default function WormholeGame() {
   const shellRef = useRef<HTMLElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -1373,6 +1460,15 @@ export default function WormholeGame() {
     difficultyPreference.get,
     difficultyPreference.getServer
   );
+  /**
+   * Where the player is before the arena.
+   *
+   * "select" is the dedicated ship scene and is always where a new browser
+   * session starts — the remembered ship pre-highlights, but nothing launches
+   * on its own. "setup" is Mission Setup: mode and difficulty. "arena" means
+   * the shell is showing the game.
+   */
+  const [stage, setStage] = useState<"select" | "setup" | "arena">("select");
   const [lobbyOpen, setLobbyOpen] = useState(false);
   const [net, setNet] = useState<PvpSnapshot | null>(null);
   /** Who Murph Tournaments says is playing. Null until the first check answers. */
@@ -1646,6 +1742,7 @@ export default function WormholeGame() {
     runShipName.current = game.ship.name;
     sync();
     canvasWrapRef.current?.focus({ preventScroll: true });
+    setStage("arena");
     play("magic", 0.28);
   }, [difficulty, mode, play, shipId, sync]);
 
@@ -3303,41 +3400,28 @@ export default function WormholeGame() {
 
       <section className="cockpit">
         <aside className="panel ship-panel">
-          <div className="eyebrow">MISSION SETUP</div>
-          <ModeSelect
-            mode={mode}
-            difficulty={difficulty}
-            onMode={chooseMode}
-            onDifficulty={chooseDifficulty}
-            locked={gameActive}
-            onOpenLobby={() => setLobbyOpen(true)}
-          />
-          <div className="eyebrow">SHIP SELECT // 8 FRAMES</div>
+          <div className="eyebrow">MISSION</div>
+          <div className="mission-summary">
+            <p>
+              <span>MODE</span>
+              <b>{mode === "pvp" ? "PVP 1V1" : DIFFICULTIES[difficulty].shortName}</b>
+            </p>
+            <div>
+              <button type="button" onClick={() => setStage("select")}>CHANGE SHIP</button>
+              <button type="button" onClick={() => setStage("setup")}>CHANGE MODE</button>
+            </div>
+          </div>
+          <div className="eyebrow">CURRENT SHIP</div>
           <div className="selected-ship">
             <div className="ship-icon" aria-hidden="true"><span className={`ship-glyph ${currentShip.id}`} /></div>
             <div><h2>{currentShip.name}</h2><p>{currentShip.role}</p></div>
           </div>
-          <div className="ship-select-grid" role="group" aria-label="Choose a ship frame">
-            {SHIPS.map((ship) => (
-              <button
-                type="button"
-                key={ship.id}
-                className={shipId === ship.id ? "active" : ""}
-                aria-pressed={shipId === ship.id}
-                onClick={() => { if (!hud.running) setShipId(ship.id); }}
-                disabled={hud.running && !hud.result}
-              >
-                <span>{ship.name.replace("The ", "")}</span>
-                <small>{ship.unlock}</small>
-              </button>
-            ))}
-          </div>
           <p className="ship-description">{currentShip.special}</p>
           <div className="data-grid">
             <div><span>HULL</span><b>{currentShip.health}</b></div>
-            <div><span>TURN</span><b>{currentShip.turn}°</b></div>
-            <div><span>MAX V</span><b>{currentShip.maxSpeed}</b></div>
-            <div><span>ACCEL</span><b>{currentShip.acceleration}</b></div>
+            <div><span>RESPONSE</span><b>{currentShip.turn}°</b></div>
+            <div><span>TOP SPEED</span><b>{currentShip.maxSpeed}</b></div>
+            <div><span>ACCELERATION</span><b>{currentShip.acceleration}</b></div>
           </div>
           <div className="controls">
             <div className="eyebrow">FLIGHT CONTROL</div>
@@ -3446,6 +3530,12 @@ export default function WormholeGame() {
 
                     <div className="run-links">
                       <button type="button" onClick={start}>RUN AGAIN</button>
+                      <button type="button" onClick={() => { setSummary(null); setStage("select"); }}>
+                        CHANGE SHIP
+                      </button>
+                      <button type="button" onClick={() => { setSummary(null); setStage("setup"); }}>
+                        CHANGE MODE
+                      </button>
                       <button type="button" onClick={() => setBoardOpen(true)}>GLOBAL BOARD</button>
                     </div>
                   </section>
@@ -3604,6 +3694,30 @@ export default function WormholeGame() {
       </footer>
 
       {codexOpen ? <WeaponCodex onClose={() => setCodexOpen(false)} reducedMotion={reducedMotion} /> : null}
+      {stage !== "arena" ? (
+        <div className="launch-scene" data-stage={stage}>
+          {stage === "select" ? (
+            <ShipSelect
+              selected={shipId}
+              reducedMotion={reducedMotion}
+              locked={mode === "pvp" && net?.phase === "countdown"}
+              onConfirm={(id) => { setShipId(id); netRef.current?.chooseShip(id); setStage("setup"); }}
+            />
+          ) : (
+            <MissionSetup
+              ship={shipId}
+              mode={mode}
+              difficulty={difficulty}
+              onMode={chooseMode}
+              onDifficulty={chooseDifficulty}
+              onChangeShip={() => setStage("select")}
+              onLaunch={start}
+              onOpenLobby={() => setLobbyOpen(true)}
+              net={net}
+            />
+          )}
+        </div>
+      ) : null}
       {boardOpen ? <Leaderboard onClose={() => setBoardOpen(false)} /> : null}
       {lobbyOpen ? (
         <MultiplayerLobby
