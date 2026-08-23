@@ -310,3 +310,123 @@ test("the settings drawer scrolls, traps focus, and restores it", { skip }, asyn
     await browser.close();
   }
 });
+
+test("changing display settings never resets the match", { skip }, async () => {
+  const { chromium } = playwright;
+  const browser = await chromium.launch({ executablePath: CHROME });
+  try {
+    const { context, page, errors } = await openShell(browser, { width: 1440, height: 900 });
+    await enterArena(page);
+
+    // Take real damage first. A running match legitimately keeps changing
+    // hull, so the only way to detect a reset is to be below full and check
+    // that the value is not restored.
+    await page.keyboard.down("ArrowUp");
+    await page.waitForTimeout(4500);
+    await page.keyboard.up("ArrowUp");
+    await page.keyboard.down("Space");
+    await page.waitForTimeout(1500);
+    await page.keyboard.up("Space");
+
+    const readRun = () =>
+      page.evaluate(() => ({
+        score: document.querySelector(".score b")?.textContent?.trim() ?? "",
+        hull: document.querySelector(".pilot-health b")?.textContent?.trim() ?? "",
+        running: !document.querySelector(".launch-scene"),
+      }));
+
+    const before = await readRun();
+    assert.equal(before.running, true, "should be in the arena");
+
+    const openDrawer = async () => {
+      await page.locator(".top-menu-toggle").click();
+      await page.waitForTimeout(300);
+    };
+    const closeDrawer = async () => {
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(300);
+    };
+    const pick = async (group, option) => {
+      await page
+        .locator(".settings-drawer .segmented", { hasText: group })
+        .locator("[role=radio]", { hasText: option })
+        .click();
+      await page.waitForTimeout(400);
+    };
+
+    // Every one of these is a pure presentation change.
+    await openDrawer();
+    await pick("SCREEN FIT", "ARENA FOCUS");
+    await pick("SCREEN FIT", "BALANCED");
+    await pick("CAMERA", "ARENA");
+    await pick("RENDER QUALITY", "PERF");
+    await pick("SOUND", "OFF");
+    await closeDrawer();
+
+    const damaged = Number(before.hull.split("/")[0]);
+    const maxHull = Number(before.hull.split("/")[1]);
+    assert.ok(damaged < maxHull, `the ship should be damaged before the check, was ${before.hull}`);
+
+    const after = await readRun();
+    assert.equal(after.running, true, "the match must still be running");
+
+    // A reset would restore the ship to full hull. The match continuing is
+    // fine — hull may keep falling — so the test is that it never goes back up.
+    const nowHull = Number(after.hull.split("/")[0]);
+    assert.ok(
+      nowHull <= damaged,
+      `hull rose from ${damaged} to ${nowHull}: the match was reset by a display change`
+    );
+
+    // The preset really did change, so this was not a no-op.
+    assert.equal(await page.evaluate(() => document.querySelector(".app-shell")?.dataset.preset), "balanced");
+
+    assert.deepEqual(errors, [], "no console errors and no resize loop");
+    await context.close();
+  } finally {
+    await browser.close();
+  }
+});
+
+test("fullscreen keeps every essential control reachable", { skip }, async () => {
+  const { chromium } = playwright;
+  const browser = await chromium.launch({
+    executablePath: CHROME,
+    args: ["--start-fullscreen"],
+  });
+  try {
+    const { context, page, errors } = await openShell(browser, { width: 1920, height: 1080 });
+    await enterArena(page);
+
+    // Request fullscreen the way the player would, from the drawer.
+    await page.locator(".top-menu-toggle").click();
+    await page.waitForTimeout(300);
+    await page.locator(".drawer-wide").click();
+    await page.waitForTimeout(700);
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(600);
+
+    const report = await page.evaluate((selectors) => {
+      const vw = window.visualViewport?.width ?? innerWidth;
+      const vh = window.visualViewport?.height ?? innerHeight;
+      const offscreen = [];
+      for (const [selector, name] of selectors) {
+        const el = [...document.querySelectorAll(selector)].find((c) => {
+          const b = c.getBoundingClientRect();
+          return b.width > 0 && b.height > 0;
+        });
+        if (!el) { offscreen.push(`${name}: no visible copy`); continue; }
+        const r = el.getBoundingClientRect();
+        if (r.bottom > vh + 1 || r.top < -1 || r.right > vw + 1 || r.left < -1) offscreen.push(name);
+      }
+      return { offscreen, overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+    }, ESSENTIALS);
+
+    assert.deepEqual(report.offscreen, [], "fullscreen must not push a control off screen");
+    assert.ok(report.overflowX <= 0);
+    assert.deepEqual(errors, []);
+    await context.close();
+  } finally {
+    await browser.close();
+  }
+});
