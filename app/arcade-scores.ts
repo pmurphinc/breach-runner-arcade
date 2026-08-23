@@ -287,6 +287,16 @@ export function takePendingRun(): RunResult | null {
 
     return {
       score: Math.max(0, Math.floor(record.score)),
+      baseScore:
+        typeof record.baseScore === "number" && Number.isFinite(record.baseScore)
+          ? Math.max(0, Math.floor(record.baseScore))
+          : undefined,
+      timePenalty:
+        typeof record.timePenalty === "number" && Number.isFinite(record.timePenalty)
+          ? Math.max(0, Math.floor(record.timePenalty))
+          : undefined,
+      initials: typeof record.initials === "string" ? record.initials.slice(0, 3) : undefined,
+      practice: record.practice === true,
       outcome: isOutcome(record.outcome) ? record.outcome : "defeat",
       ship: typeof record.ship === "string" ? record.ship : "Unknown",
       rivalHealth: typeof record.rivalHealth === "number" ? record.rivalHealth : 0,
