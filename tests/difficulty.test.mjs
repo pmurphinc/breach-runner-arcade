@@ -404,3 +404,15 @@ test('rectangular arenas centre wormhole and pilot on both axes', () => {
   assert.deepEqual(pilotSpawn(DIFFICULT, arena), { x: 752, y: 470 });
   assert.deepEqual(wormholePosition(DIFFICULT, arena, 0), { x: 962, y: 470 });
 });
+
+
+test("practice is explicitly unlimited and excluded from combat assists", () => {
+  const practice = DIFFICULTIES.practice;
+  assert.equal(practice.unlimitedHull, true);
+  assert.equal(practice.wormhole.kind, "locked");
+  assert.equal(practice.collisionShield.enabled, false);
+  assert.equal(practice.contactHazard.enabled, false);
+  assert.equal(practice.wormholeEnrage.enabled, false);
+  assert.equal(rulesFor("pve", "practice"), practice);
+  assert.notEqual(PVP_RULES, practice, "PvP must never inherit practice immunity");
+});
