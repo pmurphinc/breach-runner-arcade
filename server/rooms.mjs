@@ -1,0 +1,473 @@
+/**
+ * Authoritative room and match state.
+ *
+ * Deliberately free of any WebSocket knowledge: rooms take player handles with
+ * a `send` function, so the whole state machine can be driven from tests
+ * without opening a socket. `server/pvp.mjs` supplies the transport.
+ *
+ * Each player simulates their own arena locally. The server does not model
+ * positions or movement at all — it owns exactly the things a client must not
+ * be trusted with: who is in a match, hull, collision shield, transmissions,
+ * and the result.
+ */
+import {
+  COUNTDOWN_SECONDS,
+  ERRORS,
+  MAX_DAMAGE_EVENTS_PER_WINDOW,
+  MAX_DAMAGE_TOTAL_PER_WINDOW,
+  MAX_MESSAGES_PER_WINDOW,
+  MAX_TRANSMITS_PER_WINDOW,
+  QUEUE_TIMEOUT_MS,
+  RECONNECT_GRACE_MS,
+  ROOM_IDLE_TIMEOUT_MS,
+  createRateWindow,
+  guestName,
+  randomCode,
+  rollWindow,
+} from "./protocol.mjs";
+import { applyDamage, createCombatState, snapshot } from "./rules.mjs";
+
+/** Hull by ship, mirroring app/game-data.ts. Asserted by the protocol test. */
+export const SHIP_HULL = {
+  tank: 280,
+  wing: 240,
+  squid: 200,
+  rabbit: 180,
+  turtle: 250,
+  flash: 190,
+  hunter: 220,
+  flagship: 300,
+};
+
+const PHASES = {
+  LOBBY: "lobby",
+  SELECT: "select",
+  COUNTDOWN: "countdown",
+  ACTIVE: "active",
+  FINISHED: "finished",
+};
+
+let nextPlayerId = 1;
+
+export function createPlayer(send, { now = Date.now(), random = Math.random } = {}) {
+  return {
+    id: `p${nextPlayerId++}`,
+    resume: `${Math.floor(random() * 1e9).toString(36)}${Date.now().toString(36)}`,
+    name: guestName(random),
+    send,
+    room: null,
+    ship: "wing",
+    ready: false,
+    connected: true,
+    lastSeen: now,
+    disconnectedAt: 0,
+    combat: null,
+    lastDamageSeq: -1,
+    lastTransmitSeq: -1,
+    window: createRateWindow(),
+  };
+}
+
+export class MatchServer {
+  /**
+   * `schedule` fires the countdown at exactly the right moment. Tests leave it
+   * out and drive time through `sweep`, which remains the backstop in
+   * production too, so a dropped timer cannot strand a room.
+   */
+  constructor({ random = Math.random, log = () => {}, schedule = null } = {}) {
+    this.random = random;
+    this.log = log;
+    this.schedule = schedule;
+    this.rooms = new Map();
+    this.queue = [];
+    this.byResume = new Map();
+  }
+
+  // ------------------------------------------------------------- lifecycle --
+
+  register(player) {
+    this.byResume.set(player.resume, player);
+  }
+
+  /**
+   * A socket dropped. Before a match this simply frees the opponent; during
+   * one it starts the reconnection grace period rather than ending the match.
+   */
+  disconnect(player, now = Date.now()) {
+    player.connected = false;
+    player.disconnectedAt = now;
+    this.leaveQueue(player);
+
+    const room = player.room;
+    if (!room) {
+      this.byResume.delete(player.resume);
+      return;
+    }
+
+    if (room.phase === PHASES.ACTIVE || room.phase === PHASES.COUNTDOWN) {
+      this.sendTo(this.opponentOf(room, player), {
+        type: "opponent",
+        state: "disconnected",
+        graceMs: RECONNECT_GRACE_MS,
+      });
+      return;
+    }
+
+    // Still in the lobby or ship select: return the opponent to the lobby.
+    const opponent = this.opponentOf(room, player);
+    this.removeRoom(room);
+    if (opponent) {
+      opponent.room = null;
+      opponent.ready = false;
+      this.sendTo(opponent, { type: "lobby", state: "idle", reason: "opponent_left" });
+    }
+    this.byResume.delete(player.resume);
+  }
+
+  /** Re-attaches a returning player to their match, if the grace has not expired. */
+  reconnect(resume, send, now = Date.now()) {
+    const player = this.byResume.get(resume);
+    if (!player || player.connected) return null;
+    if (now - player.disconnectedAt > RECONNECT_GRACE_MS) return null;
+
+    player.connected = true;
+    player.send = send;
+    player.lastSeen = now;
+    player.disconnectedAt = 0;
+
+    const room = player.room;
+    if (room) {
+      this.sendTo(this.opponentOf(room, player), { type: "opponent", state: "reconnected" });
+      this.sendMatch(room);
+      if (room.phase === PHASES.ACTIVE) this.broadcastState(room, now);
+    }
+    return player;
+  }
+
+  // ----------------------------------------------------------- matchmaking --
+
+  enqueue(player, now = Date.now()) {
+    if (player.room) return;
+    this.leaveQueue(player);
+    const waiting = this.queue.find((entry) => entry.player.connected);
+
+    if (!waiting) {
+      this.queue.push({ player, at: now });
+      this.sendTo(player, { type: "lobby", state: "searching" });
+      return;
+    }
+
+    this.queue = this.queue.filter((entry) => entry !== waiting);
+    this.startRoom(waiting.player, player, { now, isPrivate: false });
+  }
+
+  leaveQueue(player) {
+    this.queue = this.queue.filter((entry) => entry.player !== player);
+  }
+
+  createPrivate(player, now = Date.now()) {
+    if (player.room) return null;
+    this.leaveQueue(player);
+
+    let code = randomCode(this.random);
+    let guard = 0;
+    while (this.rooms.has(code) && guard++ < 50) code = randomCode(this.random);
+
+    const room = {
+      code,
+      isPrivate: true,
+      phase: PHASES.LOBBY,
+      players: [player],
+      createdAt: now,
+      touchedAt: now,
+      countdownEndsAt: 0,
+      transmitSeq: 0,
+    };
+    this.rooms.set(code, room);
+    player.room = room;
+    this.sendTo(player, { type: "lobby", state: "waiting", code });
+    return room;
+  }
+
+  join(player, code, now = Date.now()) {
+    if (player.room) return { ok: false, code: ERRORS.WRONG_PHASE };
+    const room = this.rooms.get(code);
+    if (!room) return { ok: false, code: ERRORS.UNKNOWN_ROOM };
+    if (room.players.length >= 2) return { ok: false, code: ERRORS.ROOM_FULL };
+
+    this.leaveQueue(player);
+    room.players.push(player);
+    player.room = room;
+    room.touchedAt = now;
+    this.beginSelect(room, now);
+    return { ok: true, room };
+  }
+
+  startRoom(a, b, { now, isPrivate }) {
+    let code = randomCode(this.random);
+    let guard = 0;
+    while (this.rooms.has(code) && guard++ < 50) code = randomCode(this.random);
+
+    const room = {
+      code,
+      isPrivate,
+      phase: PHASES.LOBBY,
+      players: [a, b],
+      createdAt: now,
+      touchedAt: now,
+      countdownEndsAt: 0,
+      transmitSeq: 0,
+    };
+    this.rooms.set(code, room);
+    a.room = room;
+    b.room = room;
+    this.beginSelect(room, now);
+    return room;
+  }
+
+  beginSelect(room, now = Date.now()) {
+    room.phase = PHASES.SELECT;
+    room.touchedAt = now;
+    for (const player of room.players) player.ready = false;
+    this.sendMatch(room);
+  }
+
+  // ----------------------------------------------------------- ship + ready --
+
+  setShip(player, ship) {
+    const room = player.room;
+    // Locked once the countdown starts, so nobody swaps frames mid-launch.
+    if (!room || (room.phase !== PHASES.SELECT && room.phase !== PHASES.LOBBY)) {
+      return { ok: false, code: ERRORS.WRONG_PHASE };
+    }
+    player.ship = ship;
+    player.ready = false;
+    this.sendMatch(room);
+    return { ok: true };
+  }
+
+  setReady(player, ready, now = Date.now()) {
+    const room = player.room;
+    if (!room || room.phase !== PHASES.SELECT) return { ok: false, code: ERRORS.WRONG_PHASE };
+
+    player.ready = ready;
+    room.touchedAt = now;
+    this.broadcast(room, {
+      type: "ready",
+      states: room.players.map((entry) => ({ id: entry.id, ready: entry.ready })),
+    });
+
+    if (room.players.length === 2 && room.players.every((entry) => entry.ready)) {
+      this.startCountdown(room, now);
+    }
+    return { ok: true };
+  }
+
+  startCountdown(room, now = Date.now()) {
+    room.phase = PHASES.COUNTDOWN;
+    room.countdownEndsAt = now + COUNTDOWN_SECONDS * 1000;
+    room.touchedAt = now;
+    if (this.schedule) {
+      this.schedule(() => {
+        if (room.phase === PHASES.COUNTDOWN) this.activate(room, Date.now());
+      }, COUNTDOWN_SECONDS * 1000);
+    }
+    this.broadcast(room, {
+      type: "countdown",
+      seconds: COUNTDOWN_SECONDS,
+      // Server timestamps: clients count down against their own clock offset
+      // rather than each starting whenever their message happens to land.
+      serverNow: now,
+      startsAt: room.countdownEndsAt,
+    });
+  }
+
+  /** Called by the sweep once a countdown has elapsed. */
+  activate(room, now = Date.now()) {
+    room.phase = PHASES.ACTIVE;
+    room.touchedAt = now;
+    for (const player of room.players) {
+      player.combat = createCombatState(SHIP_HULL[player.ship] ?? 240);
+      player.lastDamageSeq = -1;
+      player.lastTransmitSeq = -1;
+    }
+    this.broadcast(room, { type: "state", phase: "active", serverNow: now });
+    this.broadcastState(room, now);
+  }
+
+  // ----------------------------------------------------------------- combat --
+
+  /**
+   * A client reporting damage taken in its own arena.
+   *
+   * The client says what hit it; the server decides what that costs. Sequence
+   * numbers make a replayed frame a no-op, and the sliding window caps both
+   * how often and how much a client can claim.
+   */
+  reportDamage(player, { seq, source, amount }, now = Date.now()) {
+    const room = player.room;
+    if (!room || room.phase !== PHASES.ACTIVE || !player.combat) {
+      return { ok: false, code: ERRORS.NOT_IN_MATCH };
+    }
+    if (seq <= player.lastDamageSeq) return { ok: true, duplicate: true };
+
+    rollWindow(player.window, now);
+    if (
+      player.window.damageEvents >= MAX_DAMAGE_EVENTS_PER_WINDOW ||
+      player.window.damageTotal + amount > MAX_DAMAGE_TOTAL_PER_WINDOW
+    ) {
+      return { ok: false, code: ERRORS.RATE_LIMITED };
+    }
+    player.window.damageEvents += 1;
+    player.window.damageTotal += amount;
+    player.lastDamageSeq = seq;
+
+    const outcome = applyDamage(player.combat, source, amount, now);
+    room.touchedAt = now;
+    this.broadcastState(room, now);
+
+    if (outcome.destroyed) this.finish(room, this.opponentOf(room, player), "hull", now);
+    return { ok: true, ...outcome };
+  }
+
+  /** A collected attack power-up sent through the wormhole to the opponent. */
+  transmit(player, { seq, weapon }, now = Date.now()) {
+    const room = player.room;
+    if (!room || room.phase !== PHASES.ACTIVE) return { ok: false, code: ERRORS.NOT_IN_MATCH };
+    if (seq <= player.lastTransmitSeq) return { ok: true, duplicate: true };
+
+    rollWindow(player.window, now);
+    if (player.window.transmits >= MAX_TRANSMITS_PER_WINDOW) {
+      return { ok: false, code: ERRORS.RATE_LIMITED };
+    }
+    player.window.transmits += 1;
+    player.lastTransmitSeq = seq;
+    room.touchedAt = now;
+
+    const opponent = this.opponentOf(room, player);
+    // Server-issued id so the receiver can discard a duplicate delivery.
+    const eventId = `${room.code}:${(room.transmitSeq += 1)}`;
+    this.sendTo(opponent, { type: "incoming", eventId, weapon, from: player.name });
+    this.sendTo(player, { type: "state", sent: weapon, eventId });
+    return { ok: true, eventId };
+  }
+
+  finish(room, winner, reason, now = Date.now()) {
+    if (room.phase === PHASES.FINISHED) return;
+    room.phase = PHASES.FINISHED;
+    room.touchedAt = now;
+    for (const player of room.players) {
+      this.sendTo(player, {
+        type: "result",
+        outcome: player === winner ? "victory" : "defeat",
+        reason,
+        opponent: this.opponentOf(room, player)?.name ?? "OPPONENT",
+      });
+    }
+  }
+
+  /** Message rate guard applied to every inbound frame. */
+  allowMessage(player, now = Date.now()) {
+    rollWindow(player.window, now);
+    player.window.messages += 1;
+    player.lastSeen = now;
+    return player.window.messages <= MAX_MESSAGES_PER_WINDOW;
+  }
+
+  // ------------------------------------------------------------------ upkeep --
+
+  /**
+   * Periodic housekeeping: fires elapsed countdowns, forfeits players who did
+   * not come back, and clears out abandoned rooms and queue entries.
+   */
+  sweep(now = Date.now()) {
+    for (const room of [...this.rooms.values()]) {
+      if (room.phase === PHASES.COUNTDOWN && now >= room.countdownEndsAt) {
+        this.activate(room, now);
+        continue;
+      }
+
+      if (room.phase === PHASES.ACTIVE) {
+        for (const player of room.players) {
+          if (player.connected) continue;
+          if (now - player.disconnectedAt < RECONNECT_GRACE_MS) continue;
+          this.finish(room, this.opponentOf(room, player), "forfeit", now);
+          break;
+        }
+      }
+
+      const idle = now - room.touchedAt > ROOM_IDLE_TIMEOUT_MS;
+      const empty = room.players.every((player) => !player.connected);
+      if (room.phase === PHASES.FINISHED || idle || empty) {
+        if (room.phase === PHASES.FINISHED && !idle && !empty) continue;
+        this.removeRoom(room);
+      }
+    }
+
+    this.queue = this.queue.filter(
+      (entry) => entry.player.connected && now - entry.at < QUEUE_TIMEOUT_MS
+    );
+
+    for (const [resume, player] of [...this.byResume.entries()]) {
+      if (!player.connected && now - player.disconnectedAt > RECONNECT_GRACE_MS && !player.room) {
+        this.byResume.delete(resume);
+      }
+    }
+  }
+
+  removeRoom(room) {
+    this.rooms.delete(room.code);
+    for (const player of room.players) {
+      if (player.room === room) player.room = null;
+    }
+  }
+
+  // ------------------------------------------------------------------ output --
+
+  opponentOf(room, player) {
+    return room.players.find((entry) => entry !== player) ?? null;
+  }
+
+  sendTo(player, message) {
+    if (player && player.connected) player.send(message);
+  }
+
+  broadcast(room, message) {
+    for (const player of room.players) this.sendTo(player, message);
+  }
+
+  sendMatch(room) {
+    for (const player of room.players) {
+      const opponent = this.opponentOf(room, player);
+      this.sendTo(player, {
+        type: "match",
+        code: room.isPrivate ? room.code : null,
+        phase: room.phase,
+        you: { id: player.id, name: player.name, ship: player.ship, ready: player.ready },
+        opponent: opponent
+          ? {
+              id: opponent.id,
+              name: opponent.name,
+              ship: opponent.ship,
+              ready: opponent.ready,
+              connected: opponent.connected,
+            }
+          : null,
+      });
+    }
+  }
+
+  broadcastState(room, now = Date.now()) {
+    for (const player of room.players) {
+      const opponent = this.opponentOf(room, player);
+      this.sendTo(player, {
+        type: "state",
+        serverNow: now,
+        you: player.combat ? snapshot(player.combat, now) : null,
+        opponent: opponent?.combat ? snapshot(opponent.combat, now) : null,
+      });
+    }
+  }
+}
+
+export { PHASES };

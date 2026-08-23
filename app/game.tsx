@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   CATEGORY_LABELS,
   ENEMY_COUNTS,
@@ -19,10 +19,45 @@ import {
   type WeaponMeta,
 } from "./game-data";
 import { DIRECTIONAL, drawPowerProjectile, drawWeaponGlyph } from "./weapon-art";
+import {
+  DIFFICULTIES,
+  DIFFICULTY_ORDER,
+  TICK_MS,
+  absorbCollisionDamage,
+  advanceWormholeAngle,
+  createCollisionShield,
+  createContactHazard,
+  pilotSpawn,
+  rulesFor,
+  secondsForTicks,
+  tickCollisionShield,
+  tickContactHazard,
+  wormholePosition,
+  type CollisionShieldState,
+  type ContactHazardState,
+  type DifficultyId,
+  type DifficultyRules,
+  type GameMode,
+} from "./difficulty";
+import { PvpClient, type PvpSnapshot } from "./pvp-client";
+import {
+  MURPH_SITE_URL,
+  discordSignInUrl,
+  fetchArcadeSession,
+  fetchLeaderboard,
+  loadLocalBest,
+  saveLocalRun,
+  saveScoreToMurph,
+  stashPendingRun,
+  takePendingRun,
+  type ArcadePlayer,
+  type LeaderboardEntry,
+  type LocalBest,
+  type RunResult,
+} from "./arcade-scores";
 
 const BOARD = 655;
 const WORLD_SIZE = 940;
-const TICK_MS = 15;
 const PORTAL_THRESHOLD = 150;
 const DEG = Math.PI / 180;
 const THRUST_ACCEL_BONUS = 0.035;
@@ -154,7 +189,22 @@ type Player = {
 type Game = {
   worldSize: number;
   ship: ShipSpec;
+  /** Rules in force for this run. Read by the loop; never re-derived from an id. */
+  rules: DifficultyRules;
+  mode: GameMode;
   player: Player;
+  /** Easy-mode collision shield. Null whenever the rules do not grant one. */
+  collisionShield: CollisionShieldState | null;
+  /** Wormhole contact episode tracking. Inert unless the hazard is enabled. */
+  contact: ContactHazardState;
+  /** Ticks left on the on-screen WORMHOLE CONTACT warning. */
+  contactWarning: number;
+  /** Decays after the shield absorbs a hit, drives the impact ripple. */
+  shieldRipple: number;
+  /** Decays after the shield breaks, drives the break flash. */
+  shieldBreak: number;
+  /** Ticks left on the SHIELD RESTORED confirmation. */
+  shieldRestored: number;
   portalAngle: number;
   portalCharge: number;
   portalX: number;
@@ -199,6 +249,18 @@ type Hud = {
   incoming: PowerId | null;
   notice: string;
   coach: string;
+  /** Rules badge: what the pilot is flying under right now. */
+  mode: GameMode;
+  difficulty: DifficultyId;
+  difficultyName: string;
+  wormholeState: "LOCKED" | "MOVING";
+  /** Percentage of collision shield left, or null when the rules grant none. */
+  collisionShield: number | null;
+  /** Seconds left on the recharge delay. Zero when full or already restored. */
+  collisionRecharge: number;
+  contactHazard: boolean;
+  /** True while the pilot is inside the wormhole contact radius. */
+  contactActive: boolean;
 };
 
 function cap(value: number, min: number, max: number) {
@@ -235,13 +297,24 @@ function coachLine(game: Game) {
   return `SHOOT THE WORMHOLE // ${Math.ceil(remaining)} MORE DAMAGE GENERATES A POWER-UP`;
 }
 
-function createGame(ship: ShipSpec): Game {
+function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: DifficultyId = "difficult"): Game {
+  const rules = rulesFor(mode, difficulty);
+  const spawn = pilotSpawn(rules, WORLD_SIZE);
+  const wormhole = wormholePosition(rules, WORLD_SIZE, 0);
   return {
     worldSize: WORLD_SIZE,
     ship,
+    rules,
+    mode,
+    collisionShield: createCollisionShield(rules),
+    contact: createContactHazard(),
+    contactWarning: 0,
+    shieldRipple: 0,
+    shieldBreak: 0,
+    shieldRestored: 0,
     player: {
-      x: WORLD_SIZE / 2,
-      y: WORLD_SIZE / 2,
+      x: spawn.x,
+      y: spawn.y,
       vx: 0,
       vy: 0,
       angle: -90,
@@ -258,8 +331,8 @@ function createGame(ship: ShipSpec): Game {
     },
     portalAngle: 0,
     portalCharge: 0,
-    portalX: WORLD_SIZE / 2 + 210,
-    portalY: WORLD_SIZE / 2,
+    portalX: wormhole.x,
+    portalY: wormhole.y,
     portalPulse: 0,
     bullets: [],
     pickups: [],
@@ -301,6 +374,16 @@ function hudFrom(game: Game): Hud {
     incoming: game.incoming,
     notice: game.noticeLife > 0 ? game.notice : "",
     coach: coachLine(game),
+    mode: game.mode,
+    difficulty: game.rules.id,
+    difficultyName: game.rules.shortName,
+    wormholeState: game.rules.wormhole.kind === "locked" ? "LOCKED" : "MOVING",
+    collisionShield: game.collisionShield
+      ? Math.round((game.collisionShield.charge / game.collisionShield.capacity) * 100)
+      : null,
+    collisionRecharge: game.collisionShield ? secondsForTicks(game.collisionShield.rechargeIn) : 0,
+    contactHazard: game.rules.contactHazard.enabled,
+    contactActive: game.contactWarning > 0,
   };
 }
 
@@ -321,6 +404,13 @@ function hudEqual(a: Hud, b: Hud) {
     && a.incoming === b.incoming
     && a.notice === b.notice
     && a.coach === b.coach
+    && a.mode === b.mode
+    && a.difficulty === b.difficulty
+    && a.wormholeState === b.wormholeState
+    && a.collisionShield === b.collisionShield
+    && a.collisionRecharge === b.collisionRecharge
+    && a.contactHazard === b.contactHazard
+    && a.contactActive === b.contactActive
     && a.stock.length === b.stock.length
     && a.stock.every((item, index) => item === b.stock[index]);
 }
@@ -614,6 +704,608 @@ function WeaponCodex({ onClose, reducedMotion }: { onClose: () => void; reducedM
   );
 }
 
+type RunSummary = {
+  run: RunResult;
+  /** This device's best after the run — may be the run itself. */
+  best: LocalBest | null;
+  isBest: boolean;
+  /** Runs played in this browser, including the one just finished. */
+  runs: number;
+  /** True when the card is reporting a run saved across a sign-in redirect. */
+  restored: boolean;
+};
+
+type SaveState =
+  | { status: "idle" }
+  | { status: "saving" }
+  | { status: "saved"; rank: number | null; bestScore: number }
+  | { status: "error"; message: string };
+
+/**
+ * Global board, read on open so it is never fetched for players who never
+ * ask for it. A failed read is reported in place — the leaderboard is a bonus,
+ * never a dependency of the game.
+ */
+function Leaderboard({ onClose }: { onClose: () => void }) {
+  const [entries, setEntries] = useState<LeaderboardEntry[] | null>(null);
+  const [best, setBest] = useState<LocalBest | null>(null);
+  const [failed, setFailed] = useState(false);
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => { closeRef.current?.focus(); }, []);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const localBest = loadLocalBest();
+    void fetchLeaderboard(10).then((rows) => {
+      if (cancelled) return;
+      setBest(localBest);
+      if (rows) setEntries(rows); else setFailed(true);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  return (
+    <div className="codex-backdrop" role="presentation" onClick={onClose}>
+      <div
+        className="codex board"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="board-heading"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="codex-head">
+          <h2 id="board-heading">GLOBAL BOARD</h2>
+          <p>Best run per signed-in pilot. Guest scores stay on your own device.</p>
+          <button ref={closeRef} type="button" className="codex-close" onClick={onClose} aria-label="Close leaderboard">✕</button>
+        </div>
+        <div className="board-body">
+          {failed ? <p className="board-note">Murph Tournaments could not be reached. Your scores are safe on this device.</p> : null}
+          {!failed && entries === null ? <p className="board-note">Loading the board…</p> : null}
+          {entries !== null && entries.length === 0 ? <p className="board-note">No saved runs yet. Sign in after a run to put the first score up.</p> : null}
+          {entries !== null && entries.length > 0 ? (
+            <ol className="board-list">
+              {entries.map((entry) => (
+                <li key={`${entry.rank}-${entry.displayName}`}>
+                  <span className="board-rank">{entry.rank}</span>
+                  <span className="board-name">{entry.displayName}</span>
+                  <span className="board-runs">{entry.runs} {entry.runs === 1 ? "RUN" : "RUNS"}</span>
+                  <b>{entry.bestScore.toLocaleString()}</b>
+                </li>
+              ))}
+            </ol>
+          ) : null}
+          {best ? (
+            <p className="board-you">
+              <span>YOUR BEST ON THIS DEVICE</span>
+              <b>{best.score.toLocaleString()}</b>
+            </p>
+          ) : null}
+          <a className="board-link" href={`${MURPH_SITE_URL}/arcade`} target="_blank" rel="noopener noreferrer">
+            FULL BOARD ON MURPH TOURNAMENTS →
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A remembered choice, backed by localStorage and read through
+ * `useSyncExternalStore`.
+ *
+ * The store shape matters here: the page is server-rendered, so reading
+ * localStorage during render would hydrate with a different value than the
+ * server sent. `getServerSnapshot` hands React the default for the server pass
+ * and `getSnapshot` supplies the stored value on the client, which is exactly
+ * the mismatch this hook exists to resolve. A blocked or empty store is not an
+ * error — the default simply stands.
+ */
+function createPreference<T extends string>(key: string, allowed: readonly T[], fallback: T) {
+  let cached: T | null = null;
+  const listeners = new Set<() => void>();
+
+  return {
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => { listeners.delete(listener); };
+    },
+    /** Cached so repeated reads are referentially stable, as the hook requires. */
+    get(): T {
+      if (cached === null) {
+        try {
+          const stored = window.localStorage.getItem(key) as T | null;
+          cached = stored && allowed.includes(stored) ? stored : fallback;
+        } catch {
+          cached = fallback;
+        }
+      }
+      return cached;
+    },
+    getServer(): T {
+      return fallback;
+    },
+    set(value: T) {
+      cached = value;
+      try {
+        window.localStorage.setItem(key, value);
+      } catch {
+        // Preferences are a convenience; losing them costs the player nothing.
+      }
+      listeners.forEach((listener) => listener());
+    },
+  };
+}
+
+const modePreference = createPreference<GameMode>(
+  "wormhole-arcade:mode",
+  ["pve", "pvp"],
+  "pve"
+);
+/** Only the PvE difficulty is remembered; PvP is always Easy rules. */
+const difficultyPreference = createPreference<DifficultyId>(
+  "wormhole-arcade:difficulty",
+  DIFFICULTY_ORDER,
+  "difficult"
+);
+
+/**
+ * A segmented control that is genuinely operable by keyboard, mouse and touch.
+ *
+ * Implemented as an ARIA radiogroup with roving tabindex: one stop in the tab
+ * order, arrow keys move between options, Home/End jump to the ends. Buttons
+ * carry a real touch target so the same markup serves a phone.
+ */
+function SegmentedChoice<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+  disabled = false,
+  className = "",
+}: {
+  label: string;
+  value: T;
+  options: readonly { id: T; label: string; hint?: string }[];
+  onChange: (next: T) => void;
+  disabled?: boolean;
+  className?: string;
+}) {
+  const move = (delta: number) => {
+    const index = options.findIndex((option) => option.id === value);
+    const next = options[(index + delta + options.length) % options.length];
+    if (next) onChange(next.id);
+  };
+
+  const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (disabled) return;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") { event.preventDefault(); move(1); }
+    else if (event.key === "ArrowLeft" || event.key === "ArrowUp") { event.preventDefault(); move(-1); }
+    else if (event.key === "Home") { event.preventDefault(); onChange(options[0].id); }
+    else if (event.key === "End") { event.preventDefault(); onChange(options[options.length - 1].id); }
+  };
+
+  return (
+    <div className={`segmented ${className}`}>
+      <span className="segmented-label" id={`seg-${label.replace(/\W+/g, "-").toLowerCase()}`}>{label}</span>
+      <div
+        className="segmented-options"
+        role="radiogroup"
+        aria-labelledby={`seg-${label.replace(/\W+/g, "-").toLowerCase()}`}
+        onKeyDown={onKeyDown}
+      >
+        {options.map((option) => {
+          const active = option.id === value;
+          return (
+            <button
+              key={option.id}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              tabIndex={active ? 0 : -1}
+              disabled={disabled}
+              className={active ? "active" : ""}
+              onClick={() => onChange(option.id)}
+            >
+              <b>{option.label}</b>
+              {option.hint ? <small>{option.hint}</small> : null}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Mode and difficulty picker shown before a run. Locked once a run is under
+ * way, and in PvP the difficulty is fixed by the rules rather than chosen.
+ */
+function ModeSelect({
+  mode,
+  difficulty,
+  onMode,
+  onDifficulty,
+  locked,
+  onOpenLobby,
+}: {
+  mode: GameMode;
+  difficulty: DifficultyId;
+  onMode: (next: GameMode) => void;
+  onDifficulty: (next: DifficultyId) => void;
+  locked: boolean;
+  onOpenLobby: () => void;
+}) {
+  return (
+    <div className="mode-select">
+      <SegmentedChoice
+        label="GAME MODE"
+        value={mode}
+        disabled={locked}
+        options={[
+          { id: "pve", label: "PVE" },
+          { id: "pvp", label: "PVP 1V1" },
+        ] as const}
+        onChange={(next) => {
+          onMode(next);
+          if (next === "pvp") onOpenLobby();
+        }}
+      />
+
+      {mode === "pve" ? (
+        <>
+          <SegmentedChoice
+            label="DIFFICULTY"
+            value={difficulty}
+            disabled={locked}
+            className="stacked"
+            options={DIFFICULTY_ORDER.map((id) => ({
+              id,
+              label: DIFFICULTIES[id].shortName,
+              hint:
+                DIFFICULTIES[id].wormhole.kind === "locked"
+                  ? "WORMHOLE LOCKED"
+                  : DIFFICULTIES[id].contactHazard.enabled
+                    ? "MOVING · CONTACT HAZARD"
+                    : "MOVING WORMHOLE",
+            }))}
+            onChange={onDifficulty}
+          />
+          <p className="mode-blurb">{DIFFICULTIES[difficulty].blurb}</p>
+        </>
+      ) : (
+        <div className="mode-pvp">
+          <p className="mode-blurb">
+            Real-time 1v1. You each fly your own arena with a locked centre wormhole and the
+            Easy collision shield, and send collected attack power-ups through to your opponent.
+            No sign-in needed — guests get a temporary callsign.
+          </p>
+          <button type="button" className="mode-lobby" onClick={onOpenLobby}>
+            OPEN MULTIPLAYER LOBBY
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Compact live readout of the rules in force, pinned over the arena.
+ *
+ * While a run is under way it reports the live state from the HUD snapshot.
+ * Before one starts it reports `pending` — the rules START would apply — so
+ * the badge always describes the run the player is about to fly.
+ */
+function DifficultyBadge({
+  hud,
+  pending,
+  pendingMode,
+  live,
+}: {
+  hud: Hud;
+  pending: DifficultyRules;
+  pendingMode: GameMode;
+  live: boolean;
+}) {
+  const pendingShield = pending.collisionShield.enabled;
+  const wormhole = live
+    ? hud.wormholeState
+    : pending.wormhole.kind === "locked"
+      ? "LOCKED"
+      : "MOVING";
+  const hazardArmed = live ? hud.contactHazard : pending.contactHazard.enabled;
+  const charge = live ? hud.collisionShield : pendingShield ? 100 : null;
+  const recharge = live ? hud.collisionRecharge : 0;
+  const contactActive = live && hud.contactActive;
+
+  const shield =
+    charge === null
+      ? "DISABLED"
+      : recharge > 0
+        ? `RECHARGING ${recharge.toFixed(1)}s`
+        : charge >= 100
+          ? "FULL"
+          : `${charge}%`;
+
+  return (
+    <div className={`difficulty-badge ${contactActive ? "hazard" : ""}`}>
+      <b className="badge-mode">
+        {(live ? hud.mode : pendingMode) === "pvp" ? "PVP // EASY RULES" : pending.shortName}
+      </b>
+      <span><em>WORMHOLE</em><i>{wormhole}</i></span>
+      <span className={charge !== null && charge <= 0 ? "warn" : ""}>
+        <em>SHIELD</em><i>{shield}</i>
+      </span>
+      <span className={contactActive ? "warn" : ""}>
+        <em>CONTACT</em><i>{hazardArmed ? (contactActive ? "ACTIVE" : "ARMED") : "OFF"}</i>
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Multiplayer lobby.
+ *
+ * The offline path is built first and on purpose: PvE has to stay playable
+ * when the match service is unreachable, so "cannot connect" is a first-class
+ * state here rather than an afterthought. Phase 6 supplies a live socket; the
+ * shell and its states do not change.
+ */
+type LobbyStatus =
+  | { kind: "offline"; reason: string }
+  | { kind: "connecting" }
+  | { kind: "idle" }
+  | { kind: "searching" }
+  | { kind: "waiting"; code: string };
+
+function MultiplayerLobby({
+  status,
+  net,
+  onQuickMatch,
+  onCreatePrivate,
+  onJoinCode,
+  onCancel,
+  onShip,
+  onReady,
+  onClose,
+}: {
+  status: LobbyStatus;
+  net: PvpSnapshot | null;
+  onQuickMatch: () => void;
+  onCreatePrivate: () => void;
+  onJoinCode: (code: string) => void;
+  onCancel: () => void;
+  onShip: (ship: string) => void;
+  onReady: (ready: boolean) => void;
+  onClose: () => void;
+}) {
+  const [code, setCode] = useState("");
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => { closeRef.current?.focus(); }, []);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const busy = status.kind === "searching" || status.kind === "waiting" || status.kind === "connecting";
+  const offline = status.kind === "offline";
+
+  return (
+    <div className="codex-backdrop" role="presentation" onClick={onClose}>
+      <div
+        className="codex lobby"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="lobby-heading"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="codex-head">
+          <h2 id="lobby-heading">MULTIPLAYER LOBBY</h2>
+          <p>Real-time 1v1 under Easy rules. No sign-in — guests get a callsign.</p>
+          <button ref={closeRef} type="button" className="codex-close" onClick={onClose} aria-label="Close lobby">✕</button>
+        </div>
+
+        <div className="lobby-body">
+          {net?.opponent ? (
+            <div className="lobby-match">
+              <p className="lobby-status" aria-live="polite">
+                {net.phase === "countdown"
+                  ? `LAUNCHING IN ${Math.ceil(net.countdownMs / 1000)}…`
+                  : "OPPONENT FOUND — CHOOSE YOUR SHIP"}
+              </p>
+              <div className="lobby-versus">
+                <div>
+                  <span>YOU</span>
+                  <b>{net.name}</b>
+                  <small>{net.you?.ship?.toUpperCase() ?? "—"}</small>
+                  <i className={net.you?.ready ? "ok" : ""}>{net.you?.ready ? "READY" : "NOT READY"}</i>
+                </div>
+                <em aria-hidden="true">VS</em>
+                <div>
+                  <span>OPPONENT</span>
+                  <b>{net.opponent.name}</b>
+                  <small>{net.opponent.ship.toUpperCase()}</small>
+                  <i className={net.opponent.ready ? "ok" : ""}>
+                    {net.opponent.connected ? (net.opponent.ready ? "READY" : "NOT READY") : "DISCONNECTED"}
+                  </i>
+                </div>
+              </div>
+
+              <label className="lobby-ship">
+                <span>YOUR SHIP</span>
+                <select
+                  value={net.you?.ship ?? "wing"}
+                  disabled={net.phase === "countdown"}
+                  onChange={(event) => onShip(event.target.value)}
+                >
+                  {SHIPS.map((ship) => (
+                    <option key={ship.id} value={ship.id}>{ship.name} — {ship.role}</option>
+                  ))}
+                </select>
+              </label>
+
+              <button
+                type="button"
+                className={`lobby-ready ${net.you?.ready ? "on" : ""}`}
+                disabled={net.phase === "countdown"}
+                onClick={() => onReady(!net.you?.ready)}
+              >
+                {net.phase === "countdown"
+                  ? "LOCKED IN"
+                  : net.you?.ready
+                    ? "CANCEL READY"
+                    : "READY"}
+              </button>
+              {net.error ? <p className="lobby-status warn">{net.error}</p> : null}
+              <div className="lobby-foot">
+                <button type="button" onClick={onCancel}>LEAVE MATCH</button>
+                <button type="button" onClick={onClose}>HIDE</button>
+              </div>
+            </div>
+          ) : (
+          <>
+          <p className={`lobby-status ${offline ? "warn" : ""}`} aria-live="polite">
+            {status.kind === "offline" ? `OFFLINE — ${status.reason}` : null}
+            {status.kind === "connecting" ? "CONNECTING TO MATCH SERVICE…" : null}
+            {status.kind === "idle" ? "CONNECTED — CHOOSE HOW TO PLAY" : null}
+            {status.kind === "searching" ? "SEARCHING FOR AN OPPONENT…" : null}
+            {status.kind === "waiting" ? `WAITING — SHARE CODE ${status.code}` : null}
+          </p>
+
+          {status.kind === "waiting" ? (
+            <p className="lobby-code" aria-label={`Invite code ${status.code.split("").join(" ")}`}>
+              {status.code}
+            </p>
+          ) : null}
+
+          {net?.name ? (
+            <p className="lobby-callsign">
+              PLAYING AS <b>{net.name}</b> — no sign-in needed
+            </p>
+          ) : null}
+
+          <div className="lobby-actions">
+            <button type="button" className="primary" disabled={offline || busy} onClick={onQuickMatch}>
+              QUICK MATCH
+            </button>
+            <button type="button" disabled={offline || busy} onClick={onCreatePrivate}>
+              CREATE PRIVATE MATCH
+            </button>
+          </div>
+
+          <form
+            className="lobby-join"
+            onSubmit={(event) => { event.preventDefault(); if (code.trim()) onJoinCode(code.trim().toUpperCase()); }}
+          >
+            <label htmlFor="lobby-code-input">JOIN WITH CODE</label>
+            <div>
+              <input
+                id="lobby-code-input"
+                value={code}
+                disabled={offline || busy}
+                onChange={(event) => setCode(event.target.value.toUpperCase().slice(0, 6))}
+                placeholder="ABC123"
+                autoComplete="off"
+                spellCheck={false}
+                inputMode="text"
+                maxLength={6}
+              />
+              <button type="submit" disabled={offline || busy || code.trim().length === 0}>JOIN</button>
+            </div>
+          </form>
+
+          <div className="lobby-foot">
+            {busy ? (
+              <button type="button" onClick={onCancel}>CANCEL</button>
+            ) : null}
+            <button type="button" onClick={onClose}>BACK</button>
+          </div>
+
+          {net?.error ? <p className="lobby-status warn">{net.error}</p> : null}
+
+          {offline ? (
+            <p className="lobby-note">
+              Single-player is unaffected — close this and pick a PvE difficulty to keep flying.
+            </p>
+          ) : null}
+          </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * PvP overlay: both pilots' hull and collision shield, the connection state,
+ * and incoming-attack warnings.
+ *
+ * Pilot hull is the victory condition here, so it is the largest thing on the
+ * panel and is labelled as hull — deliberately distinct from the wormhole
+ * charge readout, which is a PvE objective and decides nothing in a match.
+ */
+function PvpHud({ net }: { net: PvpSnapshot }) {
+  const you = net.yourCombat;
+  const them = net.opponentCombat;
+  const fresh = net.incoming;
+
+  const bar = (combat: typeof you) => {
+    const hullPct = combat && combat.maxHull ? (combat.hull / combat.maxHull) * 100 : 0;
+    return (
+      <>
+        <div className="meter hull"><i style={{ width: `${hullPct}%` }} /></div>
+        <div className="meter pvp-shield">
+          <i style={{ width: `${combat?.shieldPct ?? 0}%` }} />
+        </div>
+      </>
+    );
+  };
+
+  return (
+    <div className="pvp-hud">
+      <div className="pvp-rules">
+        <b>PVP // EASY RULES</b>
+        <span className={net.connected ? "ok" : "warn"}>
+          {net.reconnecting ? "RECONNECTING…" : net.connected ? "LINK OK" : "LINK LOST"}
+        </span>
+      </div>
+
+      <div className="pvp-side you">
+        <span><em>{net.name || "YOU"}</em><i>{you ? `${Math.round(you.hull)}/${you.maxHull}` : "—"}</i></span>
+        {bar(you)}
+        <small>
+          SHIELD {you ? (you.rechargeMs > 0 ? `RECHARGING ${(you.rechargeMs / 1000).toFixed(1)}s` : `${you.shieldPct}%`) : "—"}
+        </small>
+      </div>
+
+      <div className="pvp-side them">
+        <span>
+          <em>{net.opponent?.name ?? "OPPONENT"}</em>
+          <i>{them ? `${Math.round(them.hull)}/${them.maxHull}` : "—"}</i>
+        </span>
+        {bar(them)}
+        <small>
+          SHIELD {them ? `${them.shieldPct}%` : "—"}
+          {net.opponent && !net.opponent.connected ? " · DISCONNECTED" : ""}
+        </small>
+      </div>
+
+      {fresh ? (
+        <p className="pvp-incoming" role="status">
+          INCOMING {fresh.weapon.toUpperCase()} FROM {fresh.from}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export default function WormholeGame() {
   const shellRef = useRef<HTMLElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -644,6 +1336,23 @@ export default function WormholeGame() {
   const [aimStickPosition, setAimStickPosition] = useState<StickPosition>({ active: false, x: 0, y: 0 });
   const [inspect, setInspect] = useState<{ id: PickupId; pinned: boolean } | null>(null);
   const [codexOpen, setCodexOpen] = useState(false);
+  const [boardOpen, setBoardOpen] = useState(false);
+  const mode = useSyncExternalStore(
+    modePreference.subscribe,
+    modePreference.get,
+    modePreference.getServer
+  );
+  const difficulty = useSyncExternalStore(
+    difficultyPreference.subscribe,
+    difficultyPreference.get,
+    difficultyPreference.getServer
+  );
+  const [lobbyOpen, setLobbyOpen] = useState(false);
+  const [net, setNet] = useState<PvpSnapshot | null>(null);
+  /** Who Murph Tournaments says is playing. Null until the first check answers. */
+  const [player, setPlayer] = useState<ArcadePlayer | null>(null);
+  const [summary, setSummary] = useState<RunSummary | null>(null);
+  const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });
   const reducedMotion = useReducedMotion();
 
   const soundRef = useRef(true);
@@ -653,6 +1362,17 @@ export default function WormholeGame() {
   /** CSS pixels of arena covered by the HTML HUD strip, for the canvas to skip. */
   const hudInsetRef = useRef(0);
   const audioPool = useRef<Map<string, HTMLAudioElement[]>>(new Map());
+  /** Epoch ms the current run began, so a finished run can report its length. */
+  const runStartedAt = useRef(0);
+  /** The outcome already turned into a summary, so each run is recorded once. */
+  const recordedResult = useRef<Game["result"]>(null);
+  /** Ship the current run is being flown in, fixed at launch. */
+  const runShipName = useRef("");
+  /**
+   * The live match connection. Held in a ref so the fixed-step loop can read
+   * and report without re-subscribing every render.
+   */
+  const netRef = useRef<PvpClient | null>(null);
 
   useEffect(() => { soundRef.current = sound; }, [sound]);
   useEffect(() => { cameraRef.current = cameraLocked; }, [cameraLocked]);
@@ -759,8 +1479,123 @@ export default function WormholeGame() {
     setHud((previous) => (hudEqual(previous, next) ? previous : next));
   }, []);
 
+  /**
+   * Sends a finished run to Murph Tournaments. Only ever called for a player
+   * who is already signed in, or who has just signed in for this purpose.
+   */
+  const saveRun = useCallback(async (run: RunResult) => {
+    setSaveState({ status: "saving" });
+    const result = await saveScoreToMurph(run);
+
+    if (result.status === "saved") {
+      setSaveState({ status: "saved", rank: result.rank, bestScore: result.bestScore });
+      setPlayer((current) =>
+        current ? { ...current, bestScore: result.bestScore, runs: result.runs, rank: result.rank } : current
+      );
+      return;
+    }
+
+    if (result.status === "signed-out") {
+      // The session lapsed between the run and the save. Fall back to the
+      // guest path rather than pretending the score went anywhere.
+      setPlayer(null);
+      setSaveState({ status: "idle" });
+      return;
+    }
+
+    setSaveState({ status: "error", message: result.message });
+  }, []);
+
+  /**
+   * Parks the run, sends the player to Discord, and returns them to this exact
+   * page. Nothing is lost if they abandon the sign-in — the run is already in
+   * this device's local best.
+   */
+  const signInToSave = useCallback((run: RunResult) => {
+    stashPendingRun(run);
+    window.location.href = discordSignInUrl(window.location.href);
+  }, []);
+
+  // The socket exists only while PvP is the chosen mode. A PvE player never
+  // opens one, so single-player is untouched by the match service entirely.
+  useEffect(() => {
+    if (mode !== "pvp") {
+      netRef.current?.disconnect();
+      netRef.current = null;
+      return;
+    }
+    const client = new PvpClient();
+    netRef.current = client;
+    const unsubscribe = client.subscribe(setNet);
+    client.connect();
+    return () => {
+      unsubscribe();
+      client.disconnect();
+      netRef.current = null;
+    };
+  }, [mode]);
+
+  const chooseMode = useCallback((next: GameMode) => { modePreference.set(next); }, []);
+  const chooseDifficulty = useCallback((next: DifficultyId) => {
+    difficultyPreference.set(next);
+  }, []);
+
+  // Ask once, on load, who is playing — and finish saving a run that was
+  // waiting on a sign-in redirect. Never blocks or delays the game.
+  useEffect(() => {
+    let cancelled = false;
+    const pending = takePendingRun();
+
+    const best = loadLocalBest();
+
+    void fetchArcadeSession().then((session) => {
+      if (cancelled) return;
+      setPlayer(session?.signedIn ? session.player : null);
+      if (!pending || !session?.signedIn) return;
+      setSummary({ run: pending, best, isBest: false, runs: 0, restored: true });
+      void saveRun(pending);
+    });
+
+    return () => { cancelled = true; };
+  }, [saveRun]);
+
+  // A run just ended: record it on this device, then offer or perform the save.
+  useEffect(() => {
+    if (!hud.result) {
+      recordedResult.current = null;
+      return;
+    }
+    if (recordedResult.current === hud.result) return;
+    recordedResult.current = hud.result;
+
+    const run: RunResult = {
+      score: hud.score,
+      outcome: hud.result,
+      ship: runShipName.current,
+      rivalHealth: hud.rivalHealth,
+      durationSeconds: runStartedAt.current
+        ? Math.max(0, Math.round((Date.now() - runStartedAt.current) / 1000))
+        : 0,
+    };
+
+    const local = saveLocalRun(run);
+    setSummary({ run, best: local.best, isBest: local.isBest, runs: local.runs, restored: false });
+    setSaveState({ status: "idle" });
+    if (player) void saveRun(run);
+  }, [hud.result, hud.score, hud.rivalHealth, player, saveRun]);
+
+  // Before a run, keep the idle arena matching the selection so the preview
+  // shows exactly what START will produce (EASY re-centres the wormhole at
+  // once). Mutating the ref is enough: the canvas reads it every frame, so no
+  // React state has to change for the preview to update.
+  useEffect(() => {
+    const game = gameRef.current;
+    if (game.running || game.result) return;
+    gameRef.current = createGame(selectedShip(shipId), mode, difficulty);
+  }, [difficulty, mode, shipId]);
+
   const start = useCallback(() => {
-    const game = createGame(selectedShip(shipId));
+    const game = createGame(selectedShip(shipId), mode, difficulty);
     game.running = true;
     game.notice = "ENTERING NEW GROUND";
     gameRef.current = game;
@@ -773,14 +1608,64 @@ export default function WormholeGame() {
     setAimStickPosition({ active: false, x: 0, y: 0 });
     setInspect(null);
     setCodexOpen(false);
+    setBoardOpen(false);
+    setSummary(null);
+    setSaveState({ status: "idle" });
+    runStartedAt.current = Date.now();
+    runShipName.current = game.ship.name;
     sync();
     canvasWrapRef.current?.focus({ preventScroll: true });
     play("magic", 0.28);
-  }, [play, shipId, sync]);
+  }, [difficulty, mode, play, shipId, sync]);
+
+  // The server decides when the match is live. When it says so, launch the
+  // local arena; the client never starts a PvP run on its own timing.
+  const netPhase = net?.phase ?? null;
+  useEffect(() => {
+    if (netPhase !== "active") return;
+    const game = gameRef.current;
+    if (game.mode === "pvp" && game.running && !game.result) return;
+    start();
+    setLobbyOpen(false);
+  }, [netPhase, start]);
+
+  // Hull is reconciled from the server, never trusted from local arithmetic,
+  // and only the server's result ends a PvP match.
+  const serverHull = net?.yourCombat?.hull ?? null;
+  const netResult = net?.result ?? null;
+  useEffect(() => {
+    const game = gameRef.current;
+    if (game.mode !== "pvp" || serverHull === null) return;
+    game.player.health = serverHull;
+  }, [serverHull]);
+
+  useEffect(() => {
+    if (!netResult) return;
+    const game = gameRef.current;
+    if (game.mode !== "pvp") return;
+    game.running = false;
+    game.result = netResult.outcome === "victory" ? "victory" : "defeat";
+    game.notice =
+      netResult.reason === "forfeit"
+        ? `${netResult.opponent} DID NOT RETURN`
+        : netResult.outcome === "victory"
+          ? `${netResult.opponent} DESTROYED`
+          : "SHIP DESTROYED";
+    game.noticeLife = 180;
+  }, [netResult]);
 
   const togglePause = useCallback(() => {
     const game = gameRef.current;
     if (!game.running || game.result) return;
+    if (game.mode === "pvp") {
+      // A live match cannot be paused: the opponent keeps playing. P opens the
+      // menu instead, and the match visibly continues behind it.
+      game.notice = "PVP // MATCH CONTINUES, NO PAUSE";
+      game.noticeLife = 90;
+      setMenuOpen((value) => !value);
+      sync();
+      return;
+    }
     game.paused = !game.paused;
     game.notice = game.paused ? "SIMULATION PAUSED" : "SYSTEMS ONLINE";
     game.noticeLife = 90;
@@ -967,20 +1852,104 @@ export default function WormholeGame() {
       game.portalPulse = 1;
     };
 
+    /**
+     * Terminal hull path. Every source of hull loss ends up here.
+     *
+     * In PvP the local number is a prediction only: hull is reconciled from
+     * the server on every state message, and the server alone declares a
+     * result. The client never ends a PvP match on its own arithmetic.
+     */
+    const applyHullDamage = (game: Game, amount: number) => {
+      const player = game.player;
+      player.health -= amount;
+      if (game.mode === "pvp") {
+        player.health = Math.max(0, player.health);
+        return;
+      }
+      if (player.health > 0) return;
+      player.health = 0;
+      game.running = false;
+      game.result = "defeat";
+      game.notice = "SHIP DESTROYED";
+      burst(game, player.x, player.y, "#ffb346", 70, 13);
+    };
+
+    /**
+     * Tells the server what just hit us. It decides what that costs; the
+     * `source` split matches the single-player one exactly, so the collision
+     * shield covers impacts only on both sides of the wire.
+     */
+    const report = (game: Game, source: "collision" | "impact", amount: number) => {
+      if (game.mode === "pvp") netRef.current?.reportDamage(source, amount);
+    };
+
+    /**
+     * Non-collision damage: projectiles, beams and blasts.
+     *
+     * Deliberately does NOT consult the Easy collision shield — that shield
+     * covers impacts only, and routing weapon fire through it would quietly
+     * turn it into blanket immunity.
+     */
     const damagePlayer = (game: Game, amount: number) => {
       const player = game.player;
       if (player.invuln > 0 || player.shield > 0) return;
-      player.health -= amount;
       player.invuln = 24;
       burst(game, player.x, player.y, "#ff5570", 18, 7);
       play("explosion", 0.24);
-      if (player.health <= 0) {
-        player.health = 0;
-        game.running = false;
-        game.result = "defeat";
-        game.notice = "SHIP DESTROYED";
-        burst(game, player.x, player.y, "#ffb346", 70, 13);
+      report(game, "impact", amount);
+      applyHullDamage(game, amount);
+    };
+
+    /**
+     * Collision damage: walls and hostile bodies.
+     *
+     * Existing immunity wins first (post-hit i-frames, collectible shield), so
+     * the collision shield is never spent while the pilot is already immune.
+     * Whatever the collision shield cannot absorb overflows to hull.
+     */
+    const damageCollision = (game: Game, amount: number) => {
+      const player = game.player;
+      if (player.invuln > 0 || player.shield > 0) return;
+
+      const shield = game.collisionShield;
+      if (!shield) {
+        damagePlayer(game, amount);
+        return;
       }
+
+      // Report the raw collision, not the post-shield remainder: the server
+      // keeps its own shield and must be the one to decide how much of this
+      // reaches hull.
+      report(game, "collision", amount);
+      const hit = absorbCollisionDamage(shield, amount, game.rules);
+      if (hit.absorbed > 0) {
+        game.shieldRipple = 1;
+        play("magic", 0.14);
+      }
+      if (hit.broke) {
+        game.shieldBreak = 1;
+        game.notice = "COLLISION SHIELD DOWN";
+        game.noticeLife = 90;
+        burst(game, player.x, player.y, "#64eaff", 26, 9);
+        play("explosion", 0.2);
+      }
+      if (hit.toHull <= 0) return;
+
+      player.invuln = 24;
+      burst(game, player.x, player.y, "#ff5570", 18, 7);
+      play("explosion", 0.24);
+      applyHullDamage(game, hit.toHull);
+    };
+
+    /**
+     * HARD MODE wormhole contact. Not a collision, so the collision shield
+     * never applies; collectible defensive power-ups still do.
+     */
+    const damageContact = (game: Game, amount: number) => {
+      if (game.player.shield > 0) return;
+      burst(game, game.player.x, game.player.y, "#ff5ac8", 10, 6);
+      play("explosion", 0.18);
+      applyHullDamage(game, amount);
     };
 
     const addIncoming = (game: Game, power: PowerId) => {
@@ -1163,7 +2132,7 @@ export default function WormholeGame() {
 
       const collisionRadius = enemy.kind === "nuke" && (enemy.countdown ?? 0) <= 0 ? 0 : enemy.radius;
       if (collisionRadius > 0 && d < collisionRadius + 12) {
-        damagePlayer(game, enemy.kind === "mines" ? 20 : enemy.kind === "inflator" ? 18 : enemy.kind === "heatseeker" ? 10 : 8);
+        damageCollision(game, enemy.kind === "mines" ? 20 : enemy.kind === "inflator" ? 18 : enemy.kind === "heatseeker" ? 10 : 8);
         if (enemy.kind !== "ufo" && enemy.kind !== "ghost" && enemy.kind !== "wallcrawler" && enemy.kind !== "gunship") enemy.hp = 0;
         enemy.vx *= -1;
         enemy.vy *= -1;
@@ -1183,9 +2152,41 @@ export default function WormholeGame() {
       player.shield = Math.max(0, player.shield - 1);
       player.specialCooldown = Math.max(0, player.specialCooldown - 1);
       player.emp = Math.max(0, player.emp - 1);
-      game.portalAngle = (game.portalAngle + 0.5) % 360;
-      game.portalX = game.worldSize / 2 + Math.cos(game.portalAngle * DEG) * 210;
-      game.portalY = game.worldSize / 2 + Math.sin(game.portalAngle * DEG) * 210;
+      // Wormhole motion is a rule, not a constant: EASY locks it dead centre
+      // while DIFFICULT and HARD MODE keep the original orbit.
+      game.portalAngle = advanceWormholeAngle(game.rules, game.portalAngle);
+      const wormhole = wormholePosition(game.rules, game.worldSize, game.portalAngle);
+      game.portalX = wormhole.x;
+      game.portalY = wormhole.y;
+
+      game.shieldRipple = Math.max(0, game.shieldRipple - 0.06);
+      game.shieldBreak = Math.max(0, game.shieldBreak - 0.04);
+      game.shieldRestored = Math.max(0, game.shieldRestored - 1);
+      game.contactWarning = Math.max(0, game.contactWarning - 1);
+
+      // The collision shield recharges on a timer alone: no position test and
+      // no wormhole test, so it comes back anywhere in the arena.
+      if (game.collisionShield && tickCollisionShield(game.collisionShield, game.rules).restored) {
+        game.shieldRestored = 100;
+        game.notice = "SHIELD RESTORED";
+        game.noticeLife = 90;
+        play("magic", 0.2);
+      }
+
+      // HARD MODE only: overlapping the wormhole burns hull in visible ticks,
+      // capped per contact episode and gated on a genuine exit before the next.
+      const contact = tickContactHazard(
+        game.contact,
+        game.rules,
+        dist(player, { x: game.portalX, y: game.portalY }),
+        player.maxHealth
+      );
+      if (contact.overlapping) game.contactWarning = 24;
+      if (contact.entered) {
+        game.notice = "WORMHOLE CONTACT";
+        game.noticeLife = 110;
+      }
+      if (contact.damage > 0) damageContact(game, contact.damage);
 
       const movementHeading = moveHeading.current;
       const firingHeading = aimHeading.current;
@@ -1227,8 +2228,8 @@ export default function WormholeGame() {
       if (playerSpeed > maxSpeed) { player.vx = (player.vx / playerSpeed) * maxSpeed; player.vy = (player.vy / playerSpeed) * maxSpeed; }
       player.x += player.vx;
       player.y += player.vy;
-      if (player.x < 12 || player.x > game.worldSize - 12) { player.x = cap(player.x, 12, game.worldSize - 12); player.vx *= -0.55; damagePlayer(game, 2); }
-      if (player.y < 12 || player.y > game.worldSize - 12) { player.y = cap(player.y, 12, game.worldSize - 12); player.vy *= -0.55; damagePlayer(game, 2); }
+      if (player.x < 12 || player.x > game.worldSize - 12) { player.x = cap(player.x, 12, game.worldSize - 12); player.vx *= -0.55; damageCollision(game, 2); }
+      if (player.y < 12 || player.y > game.worldSize - 12) { player.y = cap(player.y, 12, game.worldSize - 12); player.vy *= -0.55; damageCollision(game, 2); }
 
       if (fire && game.shotCycle <= 0 && game.playerShots < SHOT_LEVELS[player.gun].maxShots) {
         const shot = SHOT_LEVELS[player.gun];
@@ -1295,20 +2296,30 @@ export default function WormholeGame() {
         power.life -= 1;
         if (dist(power, { x: game.portalX, y: game.portalY }) < 48) {
           power.life = 0;
-          const damage = rivalDamageFor(power.type);
-          game.rivalHealth -= damage;
-          game.score += 750 + damage * 10;
-          game.notice = `${WEAPONS[power.type].short} SENT // RIVAL −${damage}`;
-          game.noticeLife = 115;
-          pushSpawn(game, "transmit", power.type, game.portalX, game.portalY, damage);
+          pushSpawn(game, "transmit", power.type, game.portalX, game.portalY, 0);
           burst(game, game.portalX, game.portalY, POWER_COLORS[power.type], 38, 11);
           play("magic", 0.32);
-          if (game.rivalHealth <= 0) {
-            game.rivalHealth = 0;
-            game.running = false;
-            game.result = "victory";
-            game.notice = "RIVAL ELIMINATED";
-            burst(game, game.portalX, game.portalY, "#ff5ac8", 90, 16);
+
+          if (game.mode === "pvp") {
+            // The wormhole is the delivery route to the other arena. Rival
+            // integrity is a PvE objective and plays no part here: PvP is
+            // decided by the opponent's pilot hull, which only the server sets.
+            netRef.current?.transmit(power.type);
+            game.notice = `${WEAPONS[power.type].short} SENT TO OPPONENT`;
+            game.noticeLife = 115;
+          } else {
+            const damage = rivalDamageFor(power.type);
+            game.rivalHealth -= damage;
+            game.score += 750 + damage * 10;
+            game.notice = `${WEAPONS[power.type].short} SENT // RIVAL −${damage}`;
+            game.noticeLife = 115;
+            if (game.rivalHealth <= 0) {
+              game.rivalHealth = 0;
+              game.running = false;
+              game.result = "victory";
+              game.notice = "RIVAL ELIMINATED";
+              burst(game, game.portalX, game.portalY, "#ff5ac8", 90, 16);
+            }
           }
         }
         for (const enemy of game.enemies) {
@@ -1343,7 +2354,15 @@ export default function WormholeGame() {
         }
       });
 
-      if (game.botTimer <= 0 && game.running) {
+      if (game.mode === "pvp") {
+        // No bot in PvP: every hostile wave is something the opponent chose to
+        // send. The server tags deliveries, so a resend never spawns twice.
+        for (const attack of netRef.current?.drainIncoming() ?? []) {
+          addIncoming(game, attack.weapon as PowerId);
+          game.notice = `${WEAPONS[attack.weapon as PowerId].short} FROM ${attack.from}`;
+          game.noticeLife = 140;
+        }
+      } else if (game.botTimer <= 0 && game.running) {
         const pool: PowerId[] = game.cycles < 1800 ? ["heatseeker", "mines", "ufo", "inflator"] : SENDABLE_POWERUPS;
         const attack = pool[Math.floor(Math.random() * pool.length)];
         addIncoming(game, attack);
@@ -1408,6 +2427,24 @@ export default function WormholeGame() {
         ctx.ellipse(0, 0, radius, radius / 2, time * 0.0015 + radius, 0, Math.PI * 2);
         ctx.stroke();
       }
+      // HARD MODE: a hazard ring on the exact radius that costs hull, so the
+      // dangerous edge is somewhere the pilot can actually see.
+      const hazard = game.rules.contactHazard;
+      if (hazard.enabled) {
+        ctx.save();
+        ctx.scale(1 / swell, 1 / swell);
+        const pulse = 0.5 + Math.sin(time * 0.006) * 0.2;
+        ctx.globalAlpha = game.contactWarning > 0 ? 0.9 : 0.45 + pulse * 0.2;
+        ctx.strokeStyle = game.contactWarning > 0 ? "#ff5570" : "#ff9a4d";
+        ctx.lineWidth = game.contactWarning > 0 ? 3 : 2;
+        ctx.setLineDash([9, 7]);
+        ctx.beginPath();
+        ctx.arc(0, 0, hazard.radius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
+
       const glow = ctx.createRadialGradient(0, 0, 2, 0, 0, 55);
       glow.addColorStop(0, "rgba(255,255,255,.95)");
       glow.addColorStop(.12, "rgba(255,76,190,.9)");
@@ -1756,6 +2793,53 @@ export default function WormholeGame() {
           ctx.stroke();
         }
         ctx.restore();
+
+        // Collision shield: a ring whose weight tracks remaining charge, plus
+        // a ripple on absorption and a flash on break. Drawn unrotated so it
+        // reads as a bubble around the hull rather than part of the ship.
+        const shield = game.collisionShield;
+        if (shield) {
+          const ringRadius = game.ship.id === "flagship" ? 34 : 27;
+          const fraction = shield.charge / shield.capacity;
+          ctx.save();
+          ctx.translate(player.x, player.y);
+          if (fraction > 0) {
+            ctx.globalAlpha = 0.35 + fraction * 0.45;
+            ctx.strokeStyle = "#64eaff";
+            ctx.lineWidth = 1 + fraction * 2.2;
+            if (profile.shadows) { ctx.shadowColor = "#64eaff"; ctx.shadowBlur = 8; }
+            ctx.beginPath();
+            ctx.arc(0, 0, ringRadius, 0, Math.PI * 2);
+            ctx.stroke();
+          } else {
+            // Broken: a dashed ghost ring so the loss is legible at a glance.
+            ctx.globalAlpha = 0.3;
+            ctx.strokeStyle = "#7c94a0";
+            ctx.lineWidth = 1;
+            ctx.setLineDash([5, 7]);
+            ctx.beginPath();
+            ctx.arc(0, 0, ringRadius, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+          }
+          if (game.shieldRipple > 0) {
+            ctx.globalAlpha = game.shieldRipple * 0.7;
+            ctx.strokeStyle = "#d6fbff";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(0, 0, ringRadius + (1 - game.shieldRipple) * 16, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+          if (game.shieldBreak > 0) {
+            ctx.globalAlpha = game.shieldBreak * 0.85;
+            ctx.strokeStyle = "#ffb346";
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(0, 0, ringRadius + (1 - game.shieldBreak) * 30, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
       }
       ctx.restore();
 
@@ -1971,6 +3055,22 @@ export default function WormholeGame() {
   }, [play, sync]);
 
   const currentShip = selectedShip(shipId);
+  const pendingRules = rulesFor(mode, difficulty);
+  const lobbyStatus: LobbyStatus =
+    !net || net.phase === "offline"
+      ? { kind: "offline", reason: net?.offlineReason || "connecting to the match service" }
+      : net.phase === "connecting"
+        ? { kind: "connecting" }
+        : net.phase === "searching"
+          ? { kind: "searching" }
+          : net.phase === "waiting" && net.code
+            ? { kind: "waiting", code: net.code }
+            : { kind: "idle" };
+  /** True once a run is actually under way, so the badge reads live state. */
+  const badgeLive = hud.running && !hud.result;
+  const opponentHullPct = net?.opponentCombat?.maxHull
+    ? (net.opponentCombat.hull / net.opponentCombat.maxHull) * 100
+    : 0;
   const healthPct = hud.maxHealth ? hud.health / hud.maxHealth * 100 : 0;
   const queued = nextWeapon(hud.stock);
   const guidance = hud.notice || hud.coach;
@@ -2024,7 +3124,12 @@ export default function WormholeGame() {
       <header className="topbar">
         <div className="brand">
           <span className="brand-mark" aria-hidden="true">W/02</span>
-          <div><h1>WORMHOLE <em>ARCADE</em></h1><p>NEW GROUND // COMBAT NETWORK</p></div>
+          <div>
+            <h1>WORMHOLE <em>ARCADE</em></h1>
+            <a className="brand-home" href={MURPH_SITE_URL} target="_blank" rel="noopener noreferrer">
+              ← MURPH TOURNAMENTS
+            </a>
+          </div>
         </div>
         <div className="top-actions" ref={topActionsRef}>
           <span className="link-status"><i aria-hidden="true" /> SOLO LINK</span>
@@ -2043,6 +3148,18 @@ export default function WormholeGame() {
               </select>
             </label>
             <button type="button" onClick={() => { setCodexOpen(true); setMenuOpen(false); }} aria-haspopup="dialog">WEAPONS</button>
+            <button type="button" onClick={() => { setBoardOpen(true); setMenuOpen(false); }} aria-haspopup="dialog">BOARD</button>
+            <div className="menu-mode">
+              <ModeSelect
+                mode={mode}
+                difficulty={difficulty}
+                onMode={chooseMode}
+                onDifficulty={chooseDifficulty}
+                locked={gameActive}
+                onOpenLobby={() => { setLobbyOpen(true); setMenuOpen(false); }}
+              />
+            </div>
+            <a className="menu-home" href={MURPH_SITE_URL} target="_blank" rel="noopener noreferrer">MURPH TOURNAMENTS ↗</a>
             <button type="button" onClick={cycleView} aria-label={`Arena width: ${viewSize}. Activate to change.`}>VIEW {viewSize.toUpperCase()}</button>
             <button type="button" aria-pressed={cameraLocked} onClick={() => setCameraLocked((value) => !value)} aria-label={cameraLocked ? "Camera follows your ship. Activate for the whole arena." : "Camera shows the whole arena. Activate to follow your ship."}>
               {cameraLocked ? "CAMERA SHIP" : "CAMERA ARENA"}
@@ -2073,6 +3190,15 @@ export default function WormholeGame() {
 
       <section className="cockpit">
         <aside className="panel ship-panel">
+          <div className="eyebrow">MISSION SETUP</div>
+          <ModeSelect
+            mode={mode}
+            difficulty={difficulty}
+            onMode={chooseMode}
+            onDifficulty={chooseDifficulty}
+            locked={gameActive}
+            onOpenLobby={() => setLobbyOpen(true)}
+          />
           <div className="eyebrow">SHIP SELECT // 8 FRAMES</div>
           <div className="selected-ship">
             <div className="ship-icon" aria-hidden="true"><span className={`ship-glyph ${currentShip.id}`} /></div>
@@ -2129,7 +3255,20 @@ export default function WormholeGame() {
             <div><span>MISSION</span><b>FIRST CONTACT</b></div>
             <div className="score"><span>SCORE</span><b>{hud.score.toLocaleString().padStart(6, "0")}</b></div>
             <div className="match-hull"><span>HULL</span><div className="meter hull"><i style={{ width: `${healthPct}%` }} /></div><b>{hud.health}</b></div>
-            <div className="rival"><span>RIVAL INTEGRITY</span><div className="meter"><i style={{ width: `${hud.rivalHealth}%` }} /></div><b>{hud.rivalHealth}%</b></div>
+            {mode === "pvp" ? (
+              // Rival integrity is the PvE objective and decides nothing in a
+              // match. Showing it here would read as a second, contradictory
+              // victory condition, so PvP shows the one that actually counts.
+              <div className="rival pvp">
+                <span>OPPONENT HULL</span>
+                <div className="meter">
+                  <i style={{ width: `${opponentHullPct}%` }} />
+                </div>
+                <b>{net?.opponentCombat ? Math.round(net.opponentCombat.hull) : "—"}</b>
+              </div>
+            ) : (
+              <div className="rival"><span>RIVAL INTEGRITY</span><div className="meter"><i style={{ width: `${hud.rivalHealth}%` }} /></div><b>{hud.rivalHealth}%</b></div>
+            )}
           </div>
           <p className={`coach-strip ${hud.notice ? "alert" : ""}`}>
             <span aria-hidden="true">▸</span>{guidance}
@@ -2147,8 +3286,56 @@ export default function WormholeGame() {
                 <span><em>PILOT HULL</em><b>{hud.health}/{hud.maxHealth}</b></span>
                 <div className="meter hull"><i style={{ width: `${healthPct}%` }} /></div>
               </div>
+              <DifficultyBadge hud={hud} pending={pendingRules} pendingMode={mode} live={badgeLive} />
+              {mode === "pvp" && net && (net.phase === "active" || net.phase === "finished") ? (
+                <PvpHud net={net} />
+              ) : null}
               <i className="reticle tl" aria-hidden="true" /><i className="reticle tr" aria-hidden="true" />
               <i className="reticle bl" aria-hidden="true" /><i className="reticle br" aria-hidden="true" />
+              {summary ? (
+                <div className="run-summary-layer">
+                  <section className="run-summary" aria-live="polite" aria-label="Run result">
+                    <button className="run-close" type="button" onClick={() => setSummary(null)} aria-label="Dismiss run summary">✕</button>
+                    <p className="run-outcome" data-outcome={summary.run.outcome}>
+                      {summary.restored ? "LAST RUN" : summary.run.outcome === "victory" ? "RIVAL ELIMINATED" : "SHIP DESTROYED"}
+                    </p>
+                    <p className="run-score"><span>SCORE</span><b>{summary.run.score.toLocaleString()}</b></p>
+                    <p className="run-meta">
+                      {summary.isBest ? "NEW DEVICE BEST" : summary.best ? `DEVICE BEST ${summary.best.score.toLocaleString()}` : "FIRST RUN ON THIS DEVICE"}
+                    </p>
+
+                    {player ? (
+                      <div className="run-save">
+                        {saveState.status === "saving" ? <p className="run-status">SAVING TO MURPH TOURNAMENTS…</p> : null}
+                        {saveState.status === "saved" ? (
+                          <p className="run-status ok">
+                            SAVED AS {player.displayName.toUpperCase()}
+                            {saveState.rank ? ` · GLOBAL #${saveState.rank}` : ""}
+                          </p>
+                        ) : null}
+                        {saveState.status === "error" ? (
+                          <>
+                            <p className="run-status warn">{saveState.message}</p>
+                            <button type="button" className="run-action" onClick={() => void saveRun(summary.run)}>TRY SAVING AGAIN</button>
+                          </>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div className="run-save">
+                        <p className="run-status">Saved on this device only. Sign in to put it on the global board.</p>
+                        <button type="button" className="run-action primary" onClick={() => signInToSave(summary.run)}>
+                          SAVE WITH DISCORD
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="run-links">
+                      <button type="button" onClick={start}>RUN AGAIN</button>
+                      <button type="button" onClick={() => setBoardOpen(true)}>GLOBAL BOARD</button>
+                    </div>
+                  </section>
+                </div>
+              ) : null}
             </div>
             <div className="touch-controls" aria-label="Twin-stick touch controls">
               <div className="touch-flight">
@@ -2301,6 +3488,20 @@ export default function WormholeGame() {
       </footer>
 
       {codexOpen ? <WeaponCodex onClose={() => setCodexOpen(false)} reducedMotion={reducedMotion} /> : null}
+      {boardOpen ? <Leaderboard onClose={() => setBoardOpen(false)} /> : null}
+      {lobbyOpen ? (
+        <MultiplayerLobby
+          status={lobbyStatus}
+          net={net}
+          onQuickMatch={() => netRef.current?.quickMatch()}
+          onCreatePrivate={() => netRef.current?.createPrivate()}
+          onJoinCode={(code) => netRef.current?.join(code)}
+          onCancel={() => netRef.current?.cancel()}
+          onShip={(ship) => { setShipId(ship as ShipId); netRef.current?.chooseShip(ship); }}
+          onReady={(ready) => netRef.current?.setReady(ready)}
+          onClose={() => setLobbyOpen(false)}
+        />
+      ) : null}
     </main>
   );
 }
