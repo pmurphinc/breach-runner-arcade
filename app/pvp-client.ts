@@ -13,7 +13,7 @@
  */
 
 /** Must match server/protocol.mjs. `tests/pvp-protocol.test.mjs` asserts it. */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 export const PVP_PATH = "/pvp";
 export const CODE_LENGTH = 6;
 export const COUNTDOWN_SECONDS = 3;
@@ -64,6 +64,7 @@ export type PvpSnapshot = {
   /** Milliseconds until the match goes live, during a countdown. */
   countdownMs: number;
   result: { outcome: "victory" | "defeat"; reason: string; opponent: string } | null;
+  rematch: { you: boolean; opponent: boolean; status: "waiting" | "starting"; expiresAt: number } | null;
   /** Last inbound attack, for the warning banner. */
   incoming: { weapon: string; from: string; at: number } | null;
   error: string | null;
@@ -82,6 +83,7 @@ const EMPTY: PvpSnapshot = {
   opponentCombat: null,
   countdownMs: 0,
   result: null,
+  rematch: null,
   incoming: null,
   error: null,
 };
@@ -234,6 +236,7 @@ export class PvpClient {
           yourCombat: null,
           opponentCombat: null,
           result: null,
+          rematch: null,
           error: message.reason === "opponent_left" ? "Your opponent left." : null,
         });
         return;
@@ -246,6 +249,7 @@ export class PvpClient {
           you: { ship: you?.ship ?? "wing", ready: Boolean(you?.ready) },
           opponent: (message.opponent as PvpOpponent | null) ?? null,
           result: null,
+          rematch: this.snapshot.rematch,
           error: null,
         });
         return;
@@ -306,6 +310,17 @@ export class PvpClient {
         });
         return;
       }
+      case "rematch": {
+        this.update({
+          rematch: {
+            you: Boolean(message.you),
+            opponent: Boolean(message.opponent),
+            status: message.status === "starting" ? "starting" : "waiting",
+            expiresAt: typeof message.expiresAt === "number" ? message.expiresAt : 0,
+          },
+        });
+        return;
+      }
       case "result": {
         this.update({
           phase: "finished",
@@ -338,6 +353,7 @@ export class PvpClient {
   cancel() { this.send({ type: "cancel" }); }
   chooseShip(ship: string) { this.send({ type: "ship", ship }); }
   setReady(ready: boolean) { this.send({ type: "ready", ready }); }
+  requestRematch() { this.send({ type: "rematch" }); }
 
   /** Reports damage taken locally. The server decides what it costs. */
   reportDamage(source: "collision" | "impact", amount: number) {
@@ -353,7 +369,7 @@ export class PvpClient {
 
   leave() {
     this.send({ type: "leave" });
-    this.update({ phase: "idle", opponent: null, result: null, yourCombat: null, opponentCombat: null });
+    this.update({ phase: "idle", opponent: null, result: null, rematch: null, yourCombat: null, opponentCombat: null });
   }
 
   disconnect() {
