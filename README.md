@@ -32,6 +32,20 @@ momentum and retro behaviour, so the frames still handle differently.
 
 Touch controls use a twin-stick layout: the left stick moves the ship while the right stick independently aims and fires the pulse cannon. The **PUP** button is the touch equivalent of `E`, and **SPEC** is the touch equivalent of `Q`. Fullscreen play, high-density canvas rendering, safe-area support, and dedicated layouts for desktop, ultrawide, tablet, phone, and foldable displays are included. Installable PWA mode is planned.
 
+## Release C ship refit
+
+The fleet remains eight frames. The former Rabbit is now **The Viper**, a fragile
+100-hull guided-strike corvette with an MK1 cannon. Its 20-second special opens
+a three-second launch window; every stored attack power-up fired during that
+window steers itself toward the moving wormhole.
+
+The Wing's old one-direction dash is now a three-second **Vector Overdrive**
+that preserves full steering control while raising acceleration and top speed.
+The Squid's old forward teleport is now a 2.5-second **Phase Veil** that breaks
+hostile tracking and collision contact. The background also includes sparse,
+non-colliding world-space rocks that move with the camera and remain visually
+subordinate to projectiles and enemies.
+
 ## Game modes
 
 Choose before launching. The selector is in the ship panel on desktop and in
