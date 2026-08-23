@@ -1,39 +1,23 @@
 "use client";
 
 /**
- * The arcade ship-selection scene.
- *
- * This is the first thing a player sees: a grid of every frame, a detail panel
- * that updates as they move through it, and an explicit confirmation before
- * anything launches. Silhouettes are drawn with the game's own canvas
- * primitive rather than shipped as images, so the scene costs no extra assets
- * and always matches what flies in the arena.
- *
- * Interaction is deliberately explicit on every input method: a tap highlights
- * and inspects, and only SELECT SHIP commits. Nothing here can start a match
- * by accident.
+ * Single-screen carousel used to choose one of Wormhole Arcade's eight ships.
+ * The model stays central while exact, colour-coded statistics surround it.
+ * Arrow buttons, swipe-friendly direct dots, keyboard arrows/A/D and an
+ * explicit SELECT SHIP action all change or confirm the same focused frame.
  */
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { SHIPS, type ShipId } from "./game-data";
-import {
-  SHIP_ORDER,
-  SHIP_PROFILES,
-  compareShips,
-  type ShipProfile,
-  type StatComparison,
-} from "./ship-data";
+import { SHIP_ORDER, SHIP_PROFILES } from "./ship-data";
 import { drawShipShape } from "./weapon-art";
 
-/** One silhouette, drawn from the same primitive the arena uses. */
 const ShipSilhouette = memo(function ShipSilhouette({
   id,
   size,
-  dim = false,
   spin = false,
 }: {
   id: ShipId;
   size: number;
-  dim?: boolean;
   spin?: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -47,7 +31,6 @@ const ShipSilhouette = memo(function ShipSilhouette({
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     canvas.width = size * dpr;
     canvas.height = size * dpr;
-
     let frame = 0;
     let angle = -Math.PI / 2;
 
@@ -57,11 +40,10 @@ const ShipSilhouette = memo(function ShipSilhouette({
       context.save();
       context.translate(size / 2, size / 2);
       context.rotate(angle);
-      // The Flagship is drawn larger than the rest, so scale to the tile.
       context.scale(size / 90, size / 90);
-      context.lineWidth = dim ? 1.6 : 2.2;
-      context.strokeStyle = dim ? "#5d7d88" : "#69ecff";
-      context.fillStyle = dim ? "rgba(93, 125, 136, .10)" : "rgba(86, 226, 255, .14)";
+      context.lineWidth = 2.2;
+      context.strokeStyle = "#69ecff";
+      context.fillStyle = "rgba(86, 226, 255, .14)";
       drawShipShape(context, id, id === "flagship" ? 1.5 : 1.9);
       context.fill();
       context.stroke();
@@ -70,9 +52,6 @@ const ShipSilhouette = memo(function ShipSilhouette({
 
     paint();
     if (!spin) return;
-
-    // A slow drift, not a spin: enough to read as alive without becoming
-    // motion. Reduced-motion callers simply pass spin={false}.
     const tick = () => {
       angle += 0.004;
       paint();
@@ -80,130 +59,26 @@ const ShipSilhouette = memo(function ShipSilhouette({
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [dim, id, size, spin]);
+  }, [id, size, spin]);
 
   return <canvas ref={canvasRef} style={{ width: size, height: size }} aria-hidden="true" />;
 });
 
-/** A comparison row: bar plus both exact values, never colour alone. */
-function ComparisonRow({ row, inspecting }: { row: StatComparison; inspecting: boolean }) {
-  return (
-    <div className="cmp-row" data-direction={row.direction}>
-      <span className="cmp-label">{row.label}</span>
-      <div className="cmp-bars">
-        <div className="cmp-bar"><i style={{ width: `${Math.round(row.fraction * 100)}%` }} /></div>
-        {inspecting ? (
-          <div className="cmp-bar against">
-            <i style={{ width: `${Math.round(row.againstFraction * 100)}%` }} />
-          </div>
-        ) : null}
-      </div>
-      <span className="cmp-value">{row.display}</span>
-      {inspecting ? (
-        <span className="cmp-delta">
-          {row.direction === "same" ? "same as selected" : `${row.deltaDisplay} vs selected`}
-        </span>
-      ) : null}
-    </div>
-  );
-}
-
-function ShipDetail({
-  profile,
-  comparedWith,
-  onSelect,
-}: {
-  profile: ShipProfile;
-  /** The confirmed ship, when the player is inspecting a different one. */
-  comparedWith: ShipId | null;
-  onSelect: () => void;
-}) {
-  const [moreDetails, setMoreDetails] = useState(false);
-  const rows = useMemo(
-    () => compareShips(profile.id, comparedWith ?? profile.id),
-    [comparedWith, profile.id]
-  );
-  const inspecting = comparedWith !== null && comparedWith !== profile.id;
-  const essentialKeys = new Set(["hull", "maxSpeed", "turn", "gun"]);
-  const essentials = profile.stats.filter((stat) => essentialKeys.has(stat.key));
-
-  // Changing the highlighted ship returns to the quick overview. Players can
-  // deliberately open the comparison data again when they need it.
-  useEffect(() => setMoreDetails(false), [profile.id]);
-
-  return (
-    <section className="ship-detail" aria-live="polite">
-      <header>
-        <p className="detail-role">{profile.role}</p>
-        <h3>{profile.name}</h3>
-      </header>
-
-      <p className="detail-playstyle">{profile.playstyle}</p>
-
-      <div className="detail-special">
-        <span>Special ability · {profile.special.cooldownSeconds}s cooldown</span>
-        <b>{profile.special.name}</b>
-        <p>{profile.special.description}</p>
-        <small><kbd>Q</kbd> keyboard · <kbd>SPEC</kbd> touch</small>
-      </div>
-
-      <dl className="detail-essentials" aria-label="Essential ship statistics">
-        {essentials.map((stat) => (
-          <div key={stat.key}>
-            <dt>{stat.label}</dt>
-            <dd>{stat.display}</dd>
-          </div>
-        ))}
-      </dl>
-
-      <button
-        type="button"
-        className="detail-more"
-        aria-expanded={moreDetails}
-        onClick={() => setMoreDetails((open) => !open)}
-      >
-        {moreDetails ? "HIDE DETAILS" : "MORE DETAILS"}
-      </button>
-
-      {moreDetails ? (
-        <div className="detail-advanced">
-          <div className="detail-traits">
-            <div>
-              <span>Strengths</span>
-              <ul>{profile.strengths.map((item) => <li key={item}>{item}</li>)}</ul>
-            </div>
-            <div>
-              <span>Weaknesses</span>
-              <ul>{profile.weaknesses.map((item) => <li key={item}>{item}</li>)}</ul>
-            </div>
-          </div>
-
-          <div className="detail-stats">
-            <span className="detail-stats-head">
-              {inspecting ? `Compared with ${SHIP_PROFILES[comparedWith].name}` : "Full statistics"}
-            </span>
-            {rows.map((row) => (
-              <ComparisonRow key={row.key} row={row} inspecting={inspecting} />
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      <button type="button" className="detail-select" onClick={onSelect}>
-        SELECT SHIP
-      </button>
-    </section>
-  );
-}
+const CARD_ORDER = [
+  { key: "hull", label: "HULL" },
+  { key: "maxSpeed", label: "SPEED" },
+  { key: "gun", label: "GUN" },
+  { key: "thrust", label: "THRUST" },
+  { key: "turn", label: "HANDLING" },
+  { key: "acceleration", label: "ACCEL" },
+] as const;
 
 export type ShipSelectProps = {
-  /** The ship that will fly unless the player picks another. */
   selected: ShipId;
   onConfirm: (id: ShipId) => void;
-  /** Shown only when there is somewhere to go back to. */
   onBack?: () => void;
   reducedMotion: boolean;
-  /** Locks the grid once a PvP countdown has begun. */
+  /** Locks selection once a PvP countdown has begun. */
   locked?: boolean;
 };
 
@@ -214,132 +89,123 @@ export default function ShipSelect({
   reducedMotion,
   locked = false,
 }: ShipSelectProps) {
-  // Highlight starts on the remembered ship, so a returning player sees their
-  // frame already picked out but still has to confirm it.
   const [focused, setFocused] = useState<ShipId>(selected);
   const [confirming, setConfirming] = useState<ShipId | null>(null);
-  const gridRef = useRef<HTMLDivElement>(null);
+  const carouselRef = useRef<HTMLDivElement>(null);
   const profile = SHIP_PROFILES[focused];
+  const index = SHIP_ORDER.indexOf(focused);
 
-  const confirm = useCallback(
-    (id: ShipId) => {
-      if (locked || SHIP_PROFILES[id].locked) return;
-      // A brief confirmation beat before Mission Setup, so the choice lands.
-      setConfirming(id);
-      const delay = reducedMotion ? 0 : 420;
-      window.setTimeout(() => onConfirm(id), delay);
-    },
-    [locked, onConfirm, reducedMotion]
-  );
+  const move = useCallback((direction: -1 | 1) => {
+    if (locked) return;
+    const next = (SHIP_ORDER.indexOf(focused) + direction + SHIP_ORDER.length) % SHIP_ORDER.length;
+    setFocused(SHIP_ORDER[next]);
+  }, [focused, locked]);
 
-  /** Arrow keys and WASD walk the grid; Enter confirms; Escape goes back. */
+  const confirm = useCallback(() => {
+    if (locked) return;
+    setConfirming(focused);
+    const delay = reducedMotion ? 0 : 420;
+    window.setTimeout(() => onConfirm(focused), delay);
+  }, [focused, locked, onConfirm, reducedMotion]);
+
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (locked) return;
-    const columns = columnCount(gridRef.current);
-    const index = SHIP_ORDER.indexOf(focused);
-    let next = index;
-
-    switch (event.key) {
-      case "ArrowRight": case "d": case "D": next = index + 1; break;
-      case "ArrowLeft": case "a": case "A": next = index - 1; break;
-      case "ArrowDown": case "s": case "S": next = index + columns; break;
-      case "ArrowUp": case "w": case "W": next = index - columns; break;
-      case "Home": next = 0; break;
-      case "End": next = SHIP_ORDER.length - 1; break;
-      case "Enter": case " ":
-        event.preventDefault();
-        confirm(focused);
-        return;
-      case "Escape":
-        if (onBack) { event.preventDefault(); onBack(); }
-        return;
-      default:
-        return;
+    if (event.key === "ArrowRight" || event.key === "d" || event.key === "D") {
+      event.preventDefault();
+      move(1);
+    } else if (event.key === "ArrowLeft" || event.key === "a" || event.key === "A") {
+      event.preventDefault();
+      move(-1);
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      setFocused(SHIP_ORDER[0]);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      setFocused(SHIP_ORDER[SHIP_ORDER.length - 1]);
+    } else if ((event.key === "Enter" || event.key === " ") && event.target === event.currentTarget) {
+      event.preventDefault();
+      confirm();
+    } else if (event.key === "Escape" && onBack) {
+      event.preventDefault();
+      onBack();
     }
-
-    event.preventDefault();
-    const clamped = Math.max(0, Math.min(SHIP_ORDER.length - 1, next));
-    setFocused(SHIP_ORDER[clamped]);
   };
-
-  // Keep the DOM focus on the highlighted tile so keyboard focus is always
-  // visible and screen readers follow the selection.
-  useEffect(() => {
-    const tile = gridRef.current?.querySelector<HTMLButtonElement>(`[data-ship="${focused}"]`);
-    if (tile && document.activeElement !== tile && gridRef.current?.contains(document.activeElement)) {
-      tile.focus();
-    }
-  }, [focused]);
 
   return (
     <div className="ship-select" data-confirming={confirming ? "true" : "false"}>
-      <div className="select-head">
-        <p className="select-pilot">PILOT ONE</p>
+      <header className="select-head">
+        <p className="select-pilot">PILOT ONE · FRAME {index + 1}/{SHIPS.length}</p>
         <h2>SELECT YOUR SHIP</h2>
-        <p className="select-sub">
-          {SHIPS.length} frames in the hangar. Highlight one to read it, then confirm to launch.
-        </p>
-      </div>
+      </header>
 
-      <div className="select-body">
-        <div
-          className="ship-grid"
-          role="radiogroup"
-          aria-label="Choose a ship"
-          ref={gridRef}
-          onKeyDown={onKeyDown}
-        >
-          {SHIP_ORDER.map((id) => {
-            const entry = SHIP_PROFILES[id];
-            const isFocused = id === focused;
+      <div
+        className="ship-carousel"
+        role="radiogroup"
+        aria-label="Choose a ship"
+        aria-activedescendant={`ship-dot-${focused}`}
+        tabIndex={0}
+        ref={carouselRef}
+        onKeyDown={onKeyDown}
+      >
+        <div className="carousel-title" aria-live="polite">
+          <p>{profile.role}</p>
+          <h3>{profile.name}</h3>
+          <span>{focused === selected ? "CURRENT SELECTION" : "AVAILABLE"}</span>
+        </div>
+
+        <button type="button" className="carousel-arrow previous" onClick={() => move(-1)} disabled={locked} aria-label="Previous ship">‹</button>
+
+        <div className="carousel-stage">
+          <div className="carousel-model">
+            <span className="model-orbit" aria-hidden="true" />
+            <ShipSilhouette id={focused} size={210} spin={!reducedMotion} />
+          </div>
+
+          {CARD_ORDER.map(({ key, label }) => {
+            const stat = profile.stats.find((entry) => entry.key === key)!;
             return (
-              <button
-                key={id}
-                type="button"
-                role="radio"
-                aria-checked={isFocused}
-                data-ship={id}
-                data-locked={entry.locked ? "true" : "false"}
-                data-selected={id === selected ? "true" : "false"}
-                tabIndex={isFocused ? 0 : -1}
-                disabled={locked}
-                className={`ship-tile ${isFocused ? "focused" : ""}`}
-                // A tap highlights and inspects. It never launches: only the
-                // explicit SELECT SHIP action commits.
-                onClick={() => setFocused(id)}
-                onMouseEnter={() => { if (!locked) setFocused(id); }}
-                onDoubleClick={() => confirm(id)}
-              >
-                <ShipSilhouette
-                  id={id}
-                  size={72}
-                  dim={false}
-                  spin={isFocused && !reducedMotion}
-                />
-                <b>{entry.name.replace(/^The /, "")}</b>
-                <small>{entry.role}</small>
-                <i className="tile-state">
-                  {id === selected ? "SELECTED" : "AVAILABLE"}
-                </i>
-              </button>
+              <article className="carousel-stat" data-stat={key} key={key}>
+                <span>{label}</span>
+                <b>{stat.display}</b>
+                <div aria-hidden="true"><i style={{ width: `${Math.round(stat.fraction * 100)}%` }} /></div>
+              </article>
             );
           })}
         </div>
 
-        <ShipDetail
-          profile={profile}
-          comparedWith={selected}
-          onSelect={() => confirm(focused)}
-        />
-      </div>
+        <button type="button" className="carousel-arrow next" onClick={() => move(1)} disabled={locked} aria-label="Next ship">›</button>
 
-      <div className="select-foot">
-        {onBack ? (
-          <button type="button" className="select-back" onClick={onBack}>BACK</button>
-        ) : <span />}
-        <p className="select-hint">
-          Arrow keys or WASD to move · Enter to confirm · tap a frame to inspect it
-        </p>
+        <section className="carousel-special">
+          <span>SPECIAL · <kbd>Q</kbd> / <kbd>SPEC</kbd> · {profile.special.cooldownSeconds}S</span>
+          <b>{profile.special.name}</b>
+          <p>{profile.special.description}</p>
+        </section>
+
+        <p className="carousel-playstyle">{profile.playstyle}</p>
+
+        <div className="carousel-dots" aria-label="All ships">
+          {SHIP_ORDER.map((id, dotIndex) => (
+            <button
+              id={`ship-dot-${id}`}
+              key={id}
+              type="button"
+              role="radio"
+              aria-checked={id === focused}
+              data-ship={id}
+              onClick={() => { if (!locked) setFocused(id); }}
+              disabled={locked}
+              aria-label={`${SHIP_PROFILES[id].name}, frame ${dotIndex + 1} of ${SHIP_ORDER.length}`}
+            >
+              <span>{dotIndex + 1}</span>
+            </button>
+          ))}
+        </div>
+
+        <footer className="carousel-actions">
+          {onBack ? <button type="button" className="select-back" onClick={onBack}>BACK</button> : <span />}
+          <p>← → or A / D to browse · Enter to confirm</p>
+          <button type="button" className="detail-select" onClick={confirm} disabled={locked}>SELECT SHIP</button>
+        </footer>
       </div>
 
       {confirming ? (
@@ -351,12 +217,4 @@ export default function ShipSelect({
       ) : null}
     </div>
   );
-}
-
-/** How many tiles fit on a row right now, so arrow keys walk the real grid. */
-function columnCount(grid: HTMLElement | null) {
-  if (!grid) return 4;
-  const styles = getComputedStyle(grid);
-  const columns = styles.gridTemplateColumns.split(" ").filter(Boolean).length;
-  return Math.max(1, columns);
 }

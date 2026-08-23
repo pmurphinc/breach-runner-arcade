@@ -70,51 +70,30 @@ test("the ship-selection scene is the launch experience", { skip }, async () => 
     assert.ok(await page.locator(".ship-select").isVisible(), "selection must be the first thing shown");
     assert.match(await page.locator(".select-head h2").innerText(), /SELECT YOUR SHIP/);
     assert.match(await page.locator(".select-pilot").innerText(), /PILOT ONE/);
-    assert.equal(await page.locator(".ship-tile").count(), 8, "every ship should be in the grid");
-    assert.equal(await page.locator(".ship-tile canvas").count(), 8, "each tile draws a silhouette");
+    assert.equal(await page.locator(".carousel-dots button").count(), 8, "carousel exposes all eight ships");
+    assert.equal(await page.locator(".carousel-model canvas").count(), 1, "one large ship model stays central");
+    assert.equal(await page.locator(".carousel-stat").count(), 6, "six coloured stat cards surround the model");
+    assert.equal(await page.locator('[data-stat="hull"]').count(), 1);
+    assert.equal(await page.locator('[data-stat="maxSpeed"]').count(), 1);
+    assert.match(await page.locator(".carousel-special").innerText(), /SPECIAL/);
+    assert.equal(await page.locator('[data-ship]', { hasText: /RANK/ }).count(), 0);
 
-    const tile = (await page.locator(".ship-tile").first().innerText()).replace(/\s+/g, " ");
-    assert.match(tile, /Tank/);
-    assert.match(tile, /Heavy brawler/i, "tiles carry the role");
-    assert.match(tile, /AVAILABLE|SELECTED/, "tiles carry an explicit state");
-
-    // Every frame is selectable; rank labels were presentation-only and had no
-    // progression system behind them.
-    assert.equal(await page.locator('.ship-tile[data-locked="true"]').count(), 0);
-    assert.equal(await page.locator('.ship-tile', { hasText: /RANK/ }).count(), 0);
-    await page.locator('.ship-tile[data-ship="flagship"]').click();
-    await page.waitForTimeout(250);
-    const detail = (await page.locator(".ship-detail").innerText()).replace(/\s+/g, " ");
-    assert.match(detail, /Hull strength/i, "essential values stay visible");
-    assert.match(detail, /Special ability/i);
-    assert.equal(await page.locator(".detail-select").isEnabled(), true);
-
-    // Keyboard walks the real grid and focus stays visible.
-    await page.locator('.ship-tile[data-ship="tank"]').click();
+    // Arrows and keyboard cycle the carousel without launching.
+    await page.locator('[data-ship="tank"]').click();
+    await page.locator(".ship-carousel").focus();
     await page.keyboard.press("ArrowRight");
-    await page.waitForTimeout(200);
-    assert.equal(await page.locator('.ship-tile[aria-checked="true"]').getAttribute("data-ship"), "wing");
-    await page.keyboard.press("KeyS");
-    await page.waitForTimeout(200);
-    assert.notEqual(await page.locator('.ship-tile[aria-checked="true"]').getAttribute("data-ship"), "wing");
-    assert.ok(
-      await page.evaluate(() => document.activeElement?.classList.contains("ship-tile")),
-      "keyboard focus must stay on the grid"
-    );
-
-    // The first view is concise; advanced comparison is opt-in and still
-    // carries exact numbers rather than relying on bars.
-    await page.locator('.ship-tile[data-ship="squid"]').click();
-    await page.waitForTimeout(200);
-    assert.equal(await page.locator(".detail-stats").count(), 0, "advanced statistics start collapsed");
-    await page.locator(".detail-more").click();
-    const comparison = (await page.locator(".detail-stats").innerText()).replace(/\s+/g, " ");
-    assert.match(comparison, /Compared with/);
-    assert.match(comparison, /vs selected/);
-    assert.match(comparison, /\d/);
+    await page.waitForTimeout(150);
+    assert.match(await page.locator(".carousel-title h3").innerText(), /Wing/);
+    await page.keyboard.press("KeyA");
+    await page.waitForTimeout(150);
+    assert.match(await page.locator(".carousel-title h3").innerText(), /Tank/);
+    await page.locator(".carousel-arrow.next").click();
+    assert.match(await page.locator(".carousel-title h3").innerText(), /Wing/);
+    assert.ok(await page.locator(".ship-select").isVisible(), "browsing never launches");
 
     // Confirm, then Mission Setup owns mode and difficulty, then launch.
-    await page.locator('.ship-tile[data-ship="wing"]').click();
+    await page.locator('[data-ship="wing"]').click();
+    await page.locator(".ship-carousel").focus();
     await page.keyboard.press("Enter");
     await page.waitForTimeout(900);
     const setup = (await page.locator(".mission-setup").innerText()).replace(/\s+/g, " ");
@@ -145,13 +124,13 @@ test("on touch, tapping inspects and only SELECT SHIP commits", { skip }, async 
       "no horizontal overflow on a phone"
     );
 
-    await page.locator('.ship-tile[data-ship="squid"]').tap();
+    await page.locator('[data-ship="squid"]').tap();
     await page.waitForTimeout(250);
-    assert.match(await page.locator(".ship-detail").innerText(), /Squid/);
+    assert.match(await page.locator(".carousel-title").innerText(), /Squid/);
     assert.ok(await page.locator(".ship-select").isVisible(), "a tap must never launch the match");
 
     const tooSmall = await page.evaluate(() =>
-      [...document.querySelectorAll(".ship-tile, .detail-select")]
+      [...document.querySelectorAll(".carousel-arrow, .detail-select")]
         .filter((el) => el.getBoundingClientRect().height < 44).length
     );
     assert.equal(tooSmall, 0, "touch targets must be at least 44px");
