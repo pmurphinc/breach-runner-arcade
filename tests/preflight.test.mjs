@@ -430,3 +430,54 @@ test("fullscreen keeps every essential control reachable", { skip }, async () =>
     await browser.close();
   }
 });
+
+test("the canvas HUD is never drawn underneath the panels floating over it", { skip }, async () => {
+  const { chromium } = playwright;
+  const browser = await chromium.launch({ executablePath: CHROME });
+  try {
+    const { context, page, errors } = await openShell(browser, { width: 1440, height: 900 });
+    await enterArena(page);
+    // Let a mission notice appear; it is the readout that used to be hidden.
+    await page.waitForTimeout(1200);
+
+    const overlap = await page.evaluate(() => {
+      const wrap = document.querySelector(".canvas-wrap");
+      const canvas = wrap.querySelector("canvas");
+      const badge = wrap.querySelector(".difficulty-badge");
+      if (!badge) return { checked: false };
+
+      const wrapRect = wrap.getBoundingClientRect();
+      const badgeRect = badge.getBoundingClientRect();
+      // Map the badge onto the canvas backing store.
+      const scaleX = canvas.width / wrapRect.width;
+      const scaleY = canvas.height / wrapRect.height;
+      const x0 = Math.max(0, Math.round((badgeRect.left - wrapRect.left) * scaleX));
+      const y0 = Math.max(0, Math.round((badgeRect.top - wrapRect.top) * scaleY));
+      const w = Math.round(badgeRect.width * scaleX);
+      const h = Math.round(badgeRect.height * scaleY);
+
+      const data = canvas.getContext("2d").getImageData(x0, y0, w, h).data;
+      // HUD panels are outlined in cyan (blue and green well above red) and
+      // filled almost opaque. The arena behind is near-black with faint stars.
+      let panelPixels = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const [r, g, b] = [data[i], data[i + 1], data[i + 2]];
+        if (b > r + 40 && g > r + 25 && b > 90) panelPixels += 1;
+      }
+      return { checked: true, panelPixels, sampled: w * h };
+    });
+
+    assert.ok(overlap.checked, "the rules badge should be present");
+    // A hidden notice panel paints thousands of these; an empty arena a handful.
+    const ratio = overlap.panelPixels / overlap.sampled;
+    assert.ok(
+      ratio < 0.02,
+      `the canvas HUD is drawn behind the rules badge (${(ratio * 100).toFixed(1)}% of that area is HUD panel)`
+    );
+
+    assert.deepEqual(errors, []);
+    await context.close();
+  } finally {
+    await browser.close();
+  }
+});

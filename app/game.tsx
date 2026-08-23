@@ -1683,6 +1683,13 @@ export default function WormholeGame() {
   const reducedMotionRef = useRef(false);
   /** CSS pixels of arena covered by the HTML HUD strip, for the canvas to skip. */
   const hudInsetRef = useRef(0);
+  /**
+   * How far down the canvas HUD must start on each side to clear the DOM
+   * panels floating over the arena — the rules badge on the left, the PvP HUD
+   * on the right. Measured from the real elements rather than hard-coded, so
+   * it stays right when their contents or the type scale change.
+   */
+  const overlayInsetRef = useRef({ left: 0, right: 0 });
   const audioPool = useRef<Map<string, HTMLAudioElement[]>>(new Map());
   /** Epoch ms the current run began, so a finished run can report its length. */
   const runStartedAt = useRef(0);
@@ -1770,6 +1777,45 @@ export default function WormholeGame() {
   useEffect(() => {
     hudInsetRef.current = immersive && layout.sticks === "overlay" ? 44 : 0;
   }, [immersive, layout.sticks]);
+
+  // Keep the canvas HUD clear of the panels floating over the arena. Without
+  // this the mission notice is drawn underneath the rules badge and only its
+  // right-hand end is readable.
+  useEffect(() => {
+    const wrap = canvasWrapRef.current;
+    if (!wrap) return;
+
+    const measure = () => {
+      const wrapTop = wrap.getBoundingClientRect().top;
+      const clearanceBelow = (selector: string) => {
+        const element = wrap.querySelector<HTMLElement>(selector);
+        if (!element) return 0;
+        const rect = element.getBoundingClientRect();
+        if (rect.height === 0) return 0;
+        // Eight pixels of breathing room below the panel.
+        return Math.max(0, Math.round(rect.bottom - wrapTop) + 8);
+      };
+      const next = {
+        left: clearanceBelow(".difficulty-badge"),
+        right: clearanceBelow(".pvp-hud"),
+      };
+      const current = overlayInsetRef.current;
+      if (current.left !== next.left || current.right !== next.right) {
+        overlayInsetRef.current = next;
+      }
+    };
+
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(wrap);
+    for (const selector of [".difficulty-badge", ".pvp-hud"]) {
+      const element = wrap.querySelector(selector);
+      if (element) observer.observe(element);
+    }
+    return () => observer.disconnect();
+    // The ResizeObserver covers shape changes; these deps cover a panel
+    // appearing or disappearing entirely.
+  }, [layout.arena, layout.preset, mode, net?.phase]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -3373,17 +3419,20 @@ export default function WormholeGame() {
       const chargeH = Math.round(fs(12) * (compactUi ? 2.6 : 3.9));
       const noticeH = Math.round(fs(12) * 2.5);
       const noticeRoom = compactUi ? W - pad * 2 : W - pad * 2 - chargeW - 8;
-      const chargeY = compactUi ? top + noticeH + 6 : top;
+      // Each column starts below whatever DOM panel covers that corner.
+      const noticeTop = top + overlayInsetRef.current.left;
+      const chargeTop = top + overlayInsetRef.current.right;
+      const chargeY = compactUi ? noticeTop + noticeH + 6 : chargeTop;
 
       // Mission notice, falling back to the next thing the player has to do.
       const live = game.noticeLife > 0;
       const noticeText = live ? game.notice : coachLine(game);
       ctx.font = mono(live ? 800 : 700, live ? 12.5 : 12);
       const noticeW = Math.min(noticeRoom, ctx.measureText(noticeText).width + pad * 1.8);
-      panel(pad, top, noticeW, noticeH, "rgba(102,225,255,.24)");
+      panel(pad, noticeTop, noticeW, noticeH, "rgba(102,225,255,.24)");
       ctx.fillStyle = live ? "#eafcff" : "#a7c8d1";
       ctx.textAlign = "left";
-      ctx.fillText(fit(noticeText, noticeW - pad * 1.6), pad + pad * 0.8, top + noticeH / 2);
+      ctx.fillText(fit(noticeText, noticeW - pad * 1.6), pad + pad * 0.8, noticeTop + noticeH / 2);
 
       // Wormhole charge.
       const chargeX = W - pad - chargeW;
