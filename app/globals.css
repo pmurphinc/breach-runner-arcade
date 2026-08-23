@@ -569,6 +569,28 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 .detail-select:hover:not(:disabled) { background: var(--cyan); }
 .detail-select:disabled { opacity: .45; cursor: not-allowed; }
 
+/* Width is not a reliable touch-device signal: unfolded Fold screens and Fire
+   tablets are commonly wider than the phone breakpoint. The runtime
+   touch-capable class is capability-based and includes Silk's pointer quirks,
+   so the primary selection action stays in the visual viewport on every touch
+   layout regardless of CSS width. */
+.touch-capable .launch-scene { padding-bottom: calc(var(--touch-target) + 28px + max(7px, var(--safe-bottom))); }
+.touch-capable .ship-select { min-height: auto; }
+.touch-capable .ship-carousel { overflow: visible; }
+.touch-capable .carousel-actions {
+  position: fixed; z-index: 65;
+  left: max(7px, var(--safe-left)); right: max(7px, var(--safe-right)); bottom: max(7px, var(--safe-bottom));
+  display: flex; justify-content: flex-end; gap: 7px; padding: 6px;
+  border: 1px solid var(--line-strong); border-radius: 4px;
+  background: rgba(3, 9, 15, .97); box-shadow: 0 -10px 30px rgba(0, 0, 0, .55);
+}
+.touch-capable .carousel-actions > span,
+.touch-capable .carousel-actions p { display: none; }
+.touch-capable .carousel-actions .select-back { flex: 0 0 auto; }
+.touch-capable .carousel-actions .detail-select {
+  flex: 1 1 auto; width: min(360px, 100%); max-width: 100%;
+}
+
 .select-confirm { position: fixed; inset: 0; z-index: 3; display: grid; place-content: center; justify-items: center; gap: 8px;
   background: rgba(1, 4, 8, .86); pointer-events: none; }
 .select-confirm b { color: var(--cyan); font: 900 var(--fs-xl)/1 var(--mono); letter-spacing: .08em; }
