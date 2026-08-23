@@ -1463,6 +1463,7 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
    are recognizable before selection, while the active option remains explicit
    through fill, outline, contrast, and aria-checked state. */
 .mission-setup .segmented-options button[data-choice="pve"] { --mission-choice: var(--cyan); }
+.mission-setup .segmented-options button[data-choice="practice"] { --mission-choice: #b68cff; }
 .mission-setup .segmented-options button[data-choice="pvp"] { --mission-choice: #ff5f70; }
 .mission-setup .segmented-options button[data-choice="easy"] { --mission-choice: var(--lime); }
 .mission-setup .segmented-options button[data-choice="difficult"] { --mission-choice: var(--amber); }
@@ -1563,4 +1564,72 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
 }
 .mission-setup .segmented-options button[data-choice][aria-checked="true"] small {
   color: #09202a;
+}
+
+
+/* Release B: timing, score settlement, and initials entry. */
+.rule-time {
+  color: var(--amber) !important;
+  font-variant-numeric: tabular-nums;
+}
+.score-settlement {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  width: 100%;
+}
+.score-settlement span {
+  display: grid;
+  gap: 3px;
+  padding: 6px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  background: rgba(5, 17, 25, .82);
+  font: 700 var(--fs-nano)/1.1 var(--mono);
+}
+.score-settlement b {
+  color: #eafcff;
+  font-variant-numeric: tabular-nums;
+}
+.initials-entry {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 7px;
+  align-items: center;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--amber);
+  background: rgba(255, 179, 70, .08);
+}
+.initials-entry label,
+.initials-entry small {
+  grid-column: 1 / -1;
+  color: var(--amber);
+  font: 800 var(--fs-nano)/1.2 var(--mono);
+  letter-spacing: .08em;
+}
+.initials-entry input {
+  min-width: 0;
+  min-height: 48px;
+  padding: 5px 12px;
+  color: var(--lime);
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  outline: none;
+  background: #02070c;
+  text-align: center;
+  text-transform: uppercase;
+  font: 900 clamp(24px, 5vw, 38px)/1 var(--mono);
+  letter-spacing: .35em;
+}
+.initials-entry input:focus-visible {
+  border-color: var(--lime);
+  box-shadow: 0 0 0 2px rgba(184, 255, 114, .25);
+}
+.run-links.locked {
+  display: none;
+}
+@media (max-width: 520px) {
+  .score-settlement { grid-template-columns: 1fr; }
+  .initials-entry { grid-template-columns: 1fr; }
 }
