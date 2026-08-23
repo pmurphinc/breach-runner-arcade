@@ -3525,7 +3525,7 @@ export default function WormholeGame() {
 
       // Next weapon in the bin, mirrored by the HTML inventory below the arena.
       const queued = nextWeapon(game.stock);
-      if (queued && game.running && !game.result) {
+      if (queued && game.running && !game.result && !layout.showTouchControls) {
         const meta = WEAPONS[queued];
         const chipH = Math.round(fs(12) * 3);
         const chipW = cap(W * 0.4, 176, 250);
@@ -3682,6 +3682,7 @@ export default function WormholeGame() {
     : 0;
   const healthPct = hud.maxHealth ? hud.health / hud.maxHealth * 100 : 0;
   const queued = nextWeapon(hud.stock);
+  const queuedBehind = hud.stock.length > 1 ? hud.stock[hud.stock.length - 2] : null;
   const guidance = hud.notice || hud.coach;
 
   const stockCounts = useMemo(() => {
@@ -3975,6 +3976,34 @@ export default function WormholeGame() {
                   <span className="stick-label stick-label-side" aria-hidden="true">DRIVE</span>
                   <span className="stick-knob" style={{ transform: `translate(calc(-50% + ${moveStickPosition.x}px), calc(-50% + ${moveStickPosition.y}px))` }} aria-hidden="true"><i /></span>
                 </div>
+              </div>
+              <div
+                className="touch-powerup-hud"
+                role="status"
+                aria-label={queued
+                  ? `Equipped power-up: ${WEAPONS[queued].name}.${queuedBehind ? ` Next: ${WEAPONS[queuedBehind].name}.` : ""}`
+                  : "No power-up equipped."}
+              >
+                {queuedBehind ? (
+                  <span
+                    className="touch-powerup-queued"
+                    style={{ "--pup": WEAPONS[queuedBehind].color } as React.CSSProperties}
+                    aria-hidden="true"
+                  >
+                    <WeaponIcon id={queuedBehind} size={26} />
+                  </span>
+                ) : null}
+                <button
+                  type="button"
+                  className="touch-powerup-equipped"
+                  style={{ "--pup": queued ? WEAPONS[queued].color : "var(--muted)" } as React.CSSProperties}
+                  aria-label={queued ? `View equipped power-up ${WEAPONS[queued].name}` : "Power-up slot empty"}
+                  disabled={!queued}
+                  onClick={() => queued && pinSlot(queued)}
+                >
+                  {queued ? <WeaponIcon id={queued} size={28} /> : null}
+                  <b>{queued ? WEAPONS[queued].name : "EMPTY"}</b>
+                </button>
               </div>
               <div className="touch-action">
                 <div
