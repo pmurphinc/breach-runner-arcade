@@ -57,26 +57,15 @@ test("specials come from the shared special table with both input prompts", () =
   }
 });
 
-test("lock state follows the shipped unlock field and is never vague", () => {
+test("all eight ships are open until a real progression system exists", () => {
+  assert.equal(SHIP_ORDER.length, 8);
   for (const ship of SHIPS) {
     const profile = SHIP_PROFILES[ship.id];
-    const shouldLock = ship.unlock.toUpperCase() !== "OPEN";
-    assert.equal(profile.locked, shouldLock, `${ship.id} lock state`);
-    assert.equal(isSelectable(ship.id), !shouldLock);
-    if (shouldLock) {
-      assert.match(profile.lockRequirement, /RANK \d+/, "a locked ship must state its rank");
-      assert.notEqual(profile.lockRequirement.trim().toUpperCase(), "LOCKED");
-    } else {
-      assert.equal(profile.lockRequirement, "");
-    }
+    assert.equal(ship.unlock, "OPEN", `${ship.id} must not advertise a fake rank gate`);
+    assert.equal(profile.locked, false, `${ship.id} lock state`);
+    assert.equal(profile.lockRequirement, "");
+    assert.equal(isSelectable(ship.id), true);
   }
-});
-
-test("at least one ship is available and at least one is locked", () => {
-  const open = SHIP_ORDER.filter(isSelectable);
-  const locked = SHIP_ORDER.filter((id) => !isSelectable(id));
-  assert.ok(open.length >= 1, "something must be flyable");
-  assert.ok(locked.length >= 1, "the locked-inspection path needs a locked ship");
 });
 
 test("every ship gets usable strengths, weaknesses, tier and playstyle", () => {

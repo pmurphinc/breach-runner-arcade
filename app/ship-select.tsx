@@ -118,68 +118,79 @@ function ShipDetail({
   comparedWith: ShipId | null;
   onSelect: () => void;
 }) {
+  const [moreDetails, setMoreDetails] = useState(false);
   const rows = useMemo(
     () => compareShips(profile.id, comparedWith ?? profile.id),
     [comparedWith, profile.id]
   );
   const inspecting = comparedWith !== null && comparedWith !== profile.id;
+  const essentialKeys = new Set(["hull", "maxSpeed", "turn", "gun"]);
+  const essentials = profile.stats.filter((stat) => essentialKeys.has(stat.key));
+
+  // Changing the highlighted ship returns to the quick overview. Players can
+  // deliberately open the comparison data again when they need it.
+  useEffect(() => setMoreDetails(false), [profile.id]);
 
   return (
     <section className="ship-detail" aria-live="polite">
       <header>
         <p className="detail-role">{profile.role}</p>
         <h3>{profile.name}</h3>
-        <p className="detail-tier">
-          <span>Suggested experience</span>
-          <b>{profile.experience}</b>
-        </p>
       </header>
-
-      {profile.locked ? (
-        <p className="detail-lock">
-          <b>LOCKED</b> {profile.lockRequirement}
-        </p>
-      ) : null}
 
       <p className="detail-playstyle">{profile.playstyle}</p>
 
       <div className="detail-special">
-        <span>Special ability</span>
+        <span>Special ability · {profile.special.cooldownSeconds}s cooldown</span>
         <b>{profile.special.name}</b>
         <p>{profile.special.description}</p>
-        <small>
-          Press <kbd>{profile.specialInput.keyboard}</kbd> on a keyboard, or{" "}
-          <kbd>{profile.specialInput.touch}</kbd> on touch · {profile.special.cooldownSeconds}s cooldown
-        </small>
+        <small><kbd>Q</kbd> keyboard · <kbd>SPEC</kbd> touch</small>
       </div>
 
-      <div className="detail-traits">
-        <div>
-          <span>Strengths</span>
-          <ul>{profile.strengths.map((item) => <li key={item}>{item}</li>)}</ul>
-        </div>
-        <div>
-          <span>Weaknesses</span>
-          <ul>{profile.weaknesses.map((item) => <li key={item}>{item}</li>)}</ul>
-        </div>
-      </div>
-
-      <div className="detail-stats">
-        <span className="detail-stats-head">
-          {inspecting ? `Compared with ${SHIP_PROFILES[comparedWith].name}` : "Statistics"}
-        </span>
-        {rows.map((row) => (
-          <ComparisonRow key={row.key} row={row} inspecting={inspecting} />
+      <dl className="detail-essentials" aria-label="Essential ship statistics">
+        {essentials.map((stat) => (
+          <div key={stat.key}>
+            <dt>{stat.label}</dt>
+            <dd>{stat.display}</dd>
+          </div>
         ))}
-      </div>
+      </dl>
 
       <button
         type="button"
-        className="detail-select"
-        onClick={onSelect}
-        disabled={profile.locked}
+        className="detail-more"
+        aria-expanded={moreDetails}
+        onClick={() => setMoreDetails((open) => !open)}
       >
-        {profile.locked ? `NEEDS ${profile.unlock}` : "SELECT SHIP"}
+        {moreDetails ? "HIDE DETAILS" : "MORE DETAILS"}
+      </button>
+
+      {moreDetails ? (
+        <div className="detail-advanced">
+          <div className="detail-traits">
+            <div>
+              <span>Strengths</span>
+              <ul>{profile.strengths.map((item) => <li key={item}>{item}</li>)}</ul>
+            </div>
+            <div>
+              <span>Weaknesses</span>
+              <ul>{profile.weaknesses.map((item) => <li key={item}>{item}</li>)}</ul>
+            </div>
+          </div>
+
+          <div className="detail-stats">
+            <span className="detail-stats-head">
+              {inspecting ? `Compared with ${SHIP_PROFILES[comparedWith].name}` : "Full statistics"}
+            </span>
+            {rows.map((row) => (
+              <ComparisonRow key={row.key} row={row} inspecting={inspecting} />
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <button type="button" className="detail-select" onClick={onSelect}>
+        SELECT SHIP
       </button>
     </section>
   );
@@ -302,13 +313,13 @@ export default function ShipSelect({
                 <ShipSilhouette
                   id={id}
                   size={72}
-                  dim={entry.locked}
+                  dim={false}
                   spin={isFocused && !reducedMotion}
                 />
                 <b>{entry.name.replace(/^The /, "")}</b>
                 <small>{entry.role}</small>
                 <i className="tile-state">
-                  {entry.locked ? entry.unlock : id === selected ? "SELECTED" : "AVAILABLE"}
+                  {id === selected ? "SELECTED" : "AVAILABLE"}
                 </i>
               </button>
             );

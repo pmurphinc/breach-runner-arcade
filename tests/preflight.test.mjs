@@ -78,16 +78,16 @@ test("the ship-selection scene is the launch experience", { skip }, async () => 
     assert.match(tile, /Heavy brawler/i, "tiles carry the role");
     assert.match(tile, /AVAILABLE|SELECTED/, "tiles carry an explicit state");
 
-    // A locked ship stays inspectable but cannot be chosen.
-    const locked = page.locator('.ship-tile[data-locked="true"]').first();
-    assert.match(await locked.innerText(), /RANK/, "a locked tile states its rank");
-    await locked.click();
+    // Every frame is selectable; rank labels were presentation-only and had no
+    // progression system behind them.
+    assert.equal(await page.locator('.ship-tile[data-locked="true"]').count(), 0);
+    assert.equal(await page.locator('.ship-tile', { hasText: /RANK/ }).count(), 0);
+    await page.locator('.ship-tile[data-ship="flagship"]').click();
     await page.waitForTimeout(250);
     const detail = (await page.locator(".ship-detail").innerText()).replace(/\s+/g, " ");
-    assert.match(detail, /Strengths/i);
-    assert.match(detail, /Hull strength/i, "locked ships remain fully inspectable");
-    assert.match(detail, /Reaches RANK \d+ to unlock/, "never a bare LOCKED");
-    assert.equal(await page.locator(".detail-select").isDisabled(), true);
+    assert.match(detail, /Hull strength/i, "essential values stay visible");
+    assert.match(detail, /Special ability/i);
+    assert.equal(await page.locator(".detail-select").isEnabled(), true);
 
     // Keyboard walks the real grid and focus stays visible.
     await page.locator('.ship-tile[data-ship="tank"]').click();
@@ -102,9 +102,12 @@ test("the ship-selection scene is the launch experience", { skip }, async () => 
       "keyboard focus must stay on the grid"
     );
 
-    // Comparison carries exact numbers, not just bars.
+    // The first view is concise; advanced comparison is opt-in and still
+    // carries exact numbers rather than relying on bars.
     await page.locator('.ship-tile[data-ship="squid"]').click();
     await page.waitForTimeout(200);
+    assert.equal(await page.locator(".detail-stats").count(), 0, "advanced statistics start collapsed");
+    await page.locator(".detail-more").click();
     const comparison = (await page.locator(".detail-stats").innerText()).replace(/\s+/g, " ");
     assert.match(comparison, /Compared with/);
     assert.match(comparison, /vs selected/);
@@ -424,6 +427,57 @@ test("fullscreen keeps every essential control reachable", { skip }, async () =>
 
     assert.deepEqual(report.offscreen, [], "fullscreen must not push a control off screen");
     assert.ok(report.overflowX <= 0);
+    assert.deepEqual(errors, []);
+    await context.close();
+  } finally {
+    await browser.close();
+  }
+});
+
+test("the canvas HUD is never drawn underneath the panels floating over it", { skip }, async () => {
+  const { chromium } = playwright;
+  const browser = await chromium.launch({ executablePath: CHROME });
+  try {
+    const { context, page, errors } = await openShell(browser, { width: 1440, height: 900 });
+    await enterArena(page);
+    // Let a mission notice appear; it is the readout that used to be hidden.
+    await page.waitForTimeout(1200);
+
+    const overlap = await page.evaluate(() => {
+      const wrap = document.querySelector(".canvas-wrap");
+      const canvas = wrap.querySelector("canvas");
+      const badge = wrap.querySelector(".difficulty-badge");
+      if (!badge) return { checked: false };
+
+      const wrapRect = wrap.getBoundingClientRect();
+      const badgeRect = badge.getBoundingClientRect();
+      // Map the badge onto the canvas backing store.
+      const scaleX = canvas.width / wrapRect.width;
+      const scaleY = canvas.height / wrapRect.height;
+      const x0 = Math.max(0, Math.round((badgeRect.left - wrapRect.left) * scaleX));
+      const y0 = Math.max(0, Math.round((badgeRect.top - wrapRect.top) * scaleY));
+      const w = Math.round(badgeRect.width * scaleX);
+      const h = Math.round(badgeRect.height * scaleY);
+
+      const data = canvas.getContext("2d").getImageData(x0, y0, w, h).data;
+      // HUD panels are outlined in cyan (blue and green well above red) and
+      // filled almost opaque. The arena behind is near-black with faint stars.
+      let panelPixels = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const [r, g, b] = [data[i], data[i + 1], data[i + 2]];
+        if (b > r + 40 && g > r + 25 && b > 90) panelPixels += 1;
+      }
+      return { checked: true, panelPixels, sampled: w * h };
+    });
+
+    assert.ok(overlap.checked, "the rules badge should be present");
+    // A hidden notice panel paints thousands of these; an empty arena a handful.
+    const ratio = overlap.panelPixels / overlap.sampled;
+    assert.ok(
+      ratio < 0.02,
+      `the canvas HUD is drawn behind the rules badge (${(ratio * 100).toFixed(1)}% of that area is HUD panel)`
+    );
+
     assert.deepEqual(errors, []);
     await context.close();
   } finally {
