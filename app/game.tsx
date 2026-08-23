@@ -42,6 +42,18 @@ import {
 } from "./difficulty";
 import { PvpClient, type PvpSnapshot } from "./pvp-client";
 import {
+  DEFAULT_PRESET,
+  PRESET_BLURBS,
+  PRESET_LABELS,
+  SCREEN_PRESETS,
+  budgetFor,
+  budgetsEqual,
+  readViewport,
+  type LayoutBudget,
+  type ScreenPreset,
+  type TouchControlMode,
+} from "./layout-budget";
+import {
   MOVEMENT_CODES,
   applyIntent,
   facingFor,
@@ -90,84 +102,28 @@ type SpawnFx = { x: number; y: number; type: PickupId; kind: SpawnKind; age: num
 
 type QualityMode = "auto" | "high" | "performance";
 type LayoutPref = "auto" | "game" | "desktop";
-type SticksMode = "docked" | "overlay" | "gutter";
 
 /**
- * Layout is derived from the device alone — never from whether a match is
- * running — so the interface never rearranges itself mid-session.
+ * Used for the very first render, before anything has been measured. Values
+ * are conservative on purpose: a small arena that certainly fits is a better
+ * first paint than a large one that has to snap smaller.
  */
-type DeviceLayout = {
-  touch: boolean;
-  /** No precise pointer: a real handheld rather than a touchscreen laptop. */
-  coarse: boolean;
-  handheld: boolean;
-  orientation: "portrait" | "landscape";
-  form: "phone" | "tablet" | "desktop";
-  /** Too narrow for an inline control row; the MENU panel takes over. */
-  narrow: boolean;
-  /** Square arena edge in CSS pixels, measured rather than guessed. */
-  arena: number;
-  stick: number;
-  sticks: SticksMode;
+const FALLBACK_BUDGET: LayoutBudget = {
+  preset: DEFAULT_PRESET,
+  orientation: "landscape",
+  form: "desktop",
+  handheld: false,
+  narrow: false,
+  arena: 520,
+  stick: 0,
+  sticks: "overlay",
+  showTouchControls: false,
+  panels: "scroll",
+  trimmed: false,
+  usableWidth: 1280,
+  usableHeight: 800,
 };
 
-/** Immersive chrome heights, kept in step with the values in globals.css. */
-const TOP_H = 48;
-const HUD_H = 44;
-const DOCK_H = 62;
-const GAP = 6;
-
-const DESKTOP_LAYOUT: DeviceLayout = {
-  touch: false, coarse: false, handheld: false, orientation: "landscape",
-  form: "desktop", narrow: false, arena: 0, stick: 0, sticks: "docked",
-};
-
-function readDeviceLayout(): DeviceLayout {
-  const coarse = window.matchMedia("(pointer: coarse)").matches;
-  // Fire OS Silk can expose a fine pointer and zero touch points despite being
-  // a touch-only tablet. Treat its user agent as touch hardware so essential
-  // controls never disappear behind desktop-only layout assumptions.
-  const touchDeviceUA = /Android|\bSilk\/|Kindle|KF[A-Z]{2,}/i.test(navigator.userAgent);
-  const touch = touchDeviceUA || navigator.maxTouchPoints > 0 || coarse || "ontouchstart" in window;
-  const w = window.innerWidth;
-  const h = window.innerHeight;
-  const shortEdge = Math.min(w, h);
-  // A touchscreen laptop reports touch points but has a fine pointer and a big
-  // screen; it should keep the desktop cockpit.
-  const handheld = touch && (coarse || shortEdge < 950);
-  const orientation = w >= h ? "landscape" : "portrait";
-  const form: DeviceLayout["form"] = !touch ? "desktop" : shortEdge < 600 ? "phone" : "tablet";
-  // Keep JavaScript in step with the single-column tablet breakpoint in CSS.
-  // The old 900/980 mismatch left 901–980px tablets without a MENU button.
-  const narrow = w <= 980;
-
-  if (orientation === "landscape") {
-    const stick = Math.round(cap(Math.min(w * 0.16, h * 0.34), 96, 150));
-    // Side gutters keep the arena completely clear, but on a short, wide screen
-    // they cost more arena than floating the sticks over its lower corners.
-    const gutterArena = Math.min(h - TOP_H - GAP * 2, w - 2 * (stick + 20) - GAP * 2);
-    const overlayArena = Math.min(w - GAP * 2, h - TOP_H - DOCK_H - GAP * 4);
-    const useOverlay = overlayArena > gutterArena * 1.15;
-    return {
-      touch, coarse, handheld, orientation, form, narrow,
-      arena: Math.round(Math.max(220, useOverlay ? overlayArena : gutterArena)),
-      stick,
-      sticks: useOverlay ? "overlay" : "gutter",
-    };
-  }
-
-  const stick = Math.round(cap(Math.min(w * 0.3, h * 0.24), 100, 150));
-  const full = w - GAP * 2;
-  // Prefer the layout where nothing overlaps the arena, but only while the
-  // arena still gets most of the width. Otherwise let the arena fill the width
-  // and float the controls over its lower corners.
-  const dockedArena = Math.min(full, h - TOP_H - HUD_H - DOCK_H - stick - GAP * 4);
-  if (dockedArena >= full * 0.82) {
-    return { touch, coarse, handheld, orientation, form, narrow, arena: Math.round(Math.max(220, dockedArena)), stick, sticks: "docked" };
-  }
-  const arena = Math.round(Math.max(220, Math.min(full, h - TOP_H - DOCK_H - GAP * 4)));
-  return { touch, coarse, handheld, orientation, form, narrow, arena, stick, sticks: "overlay" };
-}
 
 type Enemy = {
   x: number;
@@ -867,6 +823,32 @@ function createPreference<T extends string>(key: string, allowed: readonly T[], 
   };
 }
 
+/** Relative thumbstick size, as a multiplier on the measured natural size. */
+export const STICK_SIZES = { small: 0.8, medium: 1, large: 1.25 } as const;
+export type StickSizeName = keyof typeof STICK_SIZES;
+
+const presetPreference = createPreference<ScreenPreset>(
+  "wormhole-arcade:screen",
+  SCREEN_PRESETS,
+  DEFAULT_PRESET
+);
+const touchControlPreference = createPreference<TouchControlMode>(
+  "wormhole-arcade:touch-controls",
+  ["auto", "show", "hide"],
+  "auto"
+);
+const stickSizePreference = createPreference<StickSizeName>(
+  "wormhole-arcade:stick-size",
+  ["small", "medium", "large"],
+  "medium"
+);
+/** The ship the player last confirmed, pre-highlighted on the next visit. */
+const shipPreference = createPreference<ShipId>(
+  "wormhole-arcade:ship",
+  SHIPS.map((ship) => ship.id),
+  "wing"
+);
+
 const modePreference = createPreference<GameMode>(
   "wormhole-arcade:mode",
   ["pve", "pvp"],
@@ -1342,7 +1324,12 @@ export default function WormholeGame() {
   const aimStickPointer = useRef<number | null>(null);
   const moveHeading = useRef<number | null>(null);
   const aimHeading = useRef<number | null>(null);
-  const [shipId, setShipId] = useState<ShipId>("wing");
+  const shipId = useSyncExternalStore(
+    shipPreference.subscribe,
+    shipPreference.get,
+    shipPreference.getServer
+  );
+  const setShipId = useCallback((next: ShipId) => { shipPreference.set(next); }, []);
   const gameRef = useRef<Game>(createGame(selectedShip("wing")));
   const keys = useRef<Record<string, boolean>>({});
   /** Keys released since the last tick; cleared only after a tick reads them. */
@@ -1350,11 +1337,25 @@ export default function WormholeGame() {
   const [hud, setHud] = useState<Hud>(() => hudFrom(createGame(selectedShip("wing"))));
   const [sound, setSound] = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
-  const [device, setDevice] = useState<DeviceLayout>(DESKTOP_LAYOUT);
   const [layoutPref, setLayoutPref] = useState<LayoutPref>("auto");
   const [menuOpen, setMenuOpen] = useState(false);
   const [cameraLocked, setCameraLocked] = useState(true);
-  const [viewSize, setViewSize] = useState<"compact" | "standard" | "wide">("standard");
+  const screenPreset = useSyncExternalStore(
+    presetPreference.subscribe,
+    presetPreference.get,
+    presetPreference.getServer
+  );
+  const touchControlMode = useSyncExternalStore(
+    touchControlPreference.subscribe,
+    touchControlPreference.get,
+    touchControlPreference.getServer
+  );
+  const stickSizeName = useSyncExternalStore(
+    stickSizePreference.subscribe,
+    stickSizePreference.get,
+    stickSizePreference.getServer
+  );
+  const [budget, setBudget] = useState<LayoutBudget | null>(null);
   const [quality, setQuality] = useState<QualityMode>("auto");
   const [autoLabel, setAutoLabel] = useState("HIGH");
   const [moveStickPosition, setMoveStickPosition] = useState<StickPosition>({ active: false, x: 0, y: 0 });
@@ -1405,46 +1406,51 @@ export default function WormholeGame() {
   useEffect(() => { reducedMotionRef.current = reducedMotion; }, [reducedMotion]);
 
   const gameActive = hud.running && !hud.result;
-  const touchCapable = device.touch;
+  // Until the first measurement lands, assume the safest shape rather than a
+  // desktop one, so a handheld never flashes a layout it cannot use.
+  const layout: LayoutBudget = budget ?? FALLBACK_BUDGET;
+  const touchCapable = layout.showTouchControls;
   // Immersive is a property of the hardware, not of the match in progress.
-  const immersive = layoutPref === "game" || (layoutPref === "auto" && device.handheld);
+  const immersive = layoutPref === "game" || (layoutPref === "auto" && layout.handheld);
 
+  // One measurement drives the whole interface. It is recomputed on every
+  // event that can change the answer — resize, visualViewport changes from
+  // browser chrome or pinch zoom, rotation, fold, fullscreen, and preference
+  // changes — and coalesced into a single animation frame so a stream of
+  // resize events cannot turn into a render storm. Equality gating means an
+  // event that changes nothing costs no React work at all.
   useEffect(() => {
-    // Touch capability, never viewport width: Fire OS Silk and some Android
-    // tablet browsers report a fine pointer while still being touch-only.
     const coarsePointer = window.matchMedia("(pointer: coarse)");
     let frame = 0;
     const measure = () => {
       frame = 0;
-      setDevice((previous) => {
-        const next = readDeviceLayout();
-        return previous.arena === next.arena
-          && previous.stick === next.stick
-          && previous.sticks === next.sticks
-          && previous.orientation === next.orientation
-          && previous.form === next.form
-          && previous.narrow === next.narrow
-          && previous.touch === next.touch
-          && previous.coarse === next.coarse
-          && previous.handheld === next.handheld
-          ? previous
-          : next;
-      });
+      const next = budgetFor(readViewport(touchControlMode, STICK_SIZES[stickSizeName]), screenPreset);
+      setBudget((previous) => (previous && budgetsEqual(previous, next) ? previous : next));
     };
     const schedule = () => { if (!frame) frame = requestAnimationFrame(measure); };
     measure();
+
     coarsePointer.addEventListener?.("change", schedule);
     window.addEventListener("resize", schedule, { passive: true });
     window.addEventListener("orientationchange", schedule, { passive: true });
     window.addEventListener("touchstart", schedule, { passive: true, once: true });
+    document.addEventListener("fullscreenchange", schedule);
+    // visualViewport is the one that notices browser chrome appearing, the
+    // on-screen keyboard, and pinch zoom.
+    window.visualViewport?.addEventListener("resize", schedule);
+    window.visualViewport?.addEventListener("scroll", schedule);
+
     return () => {
       if (frame) cancelAnimationFrame(frame);
       coarsePointer.removeEventListener?.("change", schedule);
       window.removeEventListener("resize", schedule);
       window.removeEventListener("orientationchange", schedule);
       window.removeEventListener("touchstart", schedule);
+      document.removeEventListener("fullscreenchange", schedule);
+      window.visualViewport?.removeEventListener("resize", schedule);
+      window.visualViewport?.removeEventListener("scroll", schedule);
     };
-  }, []);
+  }, [screenPreset, stickSizeName, touchControlMode]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -1464,8 +1470,8 @@ export default function WormholeGame() {
   // Page-level gesture suppression is scoped to active touch gameplay so normal
   // scrolling, zooming, and selection stay available everywhere else.
   useEffect(() => {
-    hudInsetRef.current = immersive && device.sticks === "overlay" ? 44 : 0;
-  }, [immersive, device.sticks]);
+    hudInsetRef.current = immersive && layout.sticks === "overlay" ? 44 : 0;
+  }, [immersive, layout.sticks]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -3195,17 +3201,26 @@ export default function WormholeGame() {
   const layoutLabel = layoutPref === "auto" ? (immersive ? "AUTO · GAME" : "AUTO · DESK") : layoutPref === "game" ? "GAME" : "DESKTOP";
   const cycleLayout = () => setLayoutPref((value) => (value === "auto" ? "game" : value === "game" ? "desktop" : "auto"));
   const cycleQuality = () => setQuality((value) => (value === "auto" ? "high" : value === "high" ? "performance" : "auto"));
-  const cycleView = () => setViewSize((value) => (value === "compact" ? "standard" : value === "standard" ? "wide" : "compact"));
+
 
   return (
     <main
       ref={shellRef}
-      className={`app-shell view-${viewSize} ${touchCapable ? "touch-capable" : ""} compact-menu`}
+      className={`app-shell ${touchCapable ? "touch-capable" : ""} compact-menu`}
       data-immersive={immersive ? "true" : "false"}
-      data-orientation={device.orientation}
-      data-form={device.form}
-      data-sticks={device.sticks}
-      style={immersive ? ({ "--arena-size": `${device.arena}px`, "--stick": `${device.stick}px` } as React.CSSProperties) : undefined}
+      data-orientation={layout.orientation}
+      data-form={layout.form}
+      data-sticks={layout.sticks}
+      data-preset={layout.preset}
+      data-panels={layout.panels}
+      data-touch-controls={layout.showTouchControls ? "on" : "off"}
+      style={{
+        // Every size the interface uses comes from the one measurement, so
+        // CSS never has to guess and cannot disagree with the shell.
+        "--arena-size": `${layout.arena}px`,
+        "--stick": `${layout.stick}px`,
+        "--usable-h": `${layout.usableHeight}px`,
+      } as React.CSSProperties}
     >
       <p className="sr-only" aria-live="polite">{guidance}</p>
 
@@ -3248,7 +3263,17 @@ export default function WormholeGame() {
               />
             </div>
             <a className="menu-home" href={MURPH_SITE_URL} target="_blank" rel="noopener noreferrer">MURPH TOURNAMENTS ↗</a>
-            <button type="button" onClick={cycleView} aria-label={`Arena width: ${viewSize}. Activate to change.`}>VIEW {viewSize.toUpperCase()}</button>
+            <SegmentedChoice
+              label="SCREEN FIT"
+              className="stacked"
+              value={layout.preset}
+              options={SCREEN_PRESETS.map((id) => ({
+                id,
+                label: PRESET_LABELS[id].toUpperCase(),
+                hint: PRESET_BLURBS[id],
+              }))}
+              onChange={(next) => presetPreference.set(next)}
+            />
             <button type="button" aria-pressed={cameraLocked} onClick={() => setCameraLocked((value) => !value)} aria-label={cameraLocked ? "Camera follows your ship. Activate for the whole arena." : "Camera shows the whole arena. Activate to follow your ship."}>
               {cameraLocked ? "CAMERA SHIP" : "CAMERA ARENA"}
             </button>

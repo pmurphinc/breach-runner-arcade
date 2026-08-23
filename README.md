@@ -186,6 +186,30 @@ The API lives in the `murphtournaments-website` repository under
 the game at a different host by setting `NEXT_PUBLIC_MURPH_API_BASE` at build
 time; it defaults to `https://murphtournaments.com`.
 
+## Screen presets
+
+`SCREEN FIT` in the menu offers three presets, persisted locally. Anything
+invalid or missing falls back to Fit Screen.
+
+| Preset | Arena | Panels | Guarantee |
+| --- | --- | --- | --- |
+| **Fit Screen** | Smallest | Scroll internally | The whole interface fits without scrolling the page |
+| **Balanced** | Larger | Scroll internally | Every control still in place; the preferred desktop cockpit |
+| **Arena Focus** | Largest | Become drawers | Hull, shield, inventory and the primary action stay reachable |
+
+All three read from one calculation in `app/layout-budget.ts`, which measures
+`visualViewport` when available (so browser chrome, the on-screen keyboard and
+pinch zoom are accounted for), then subtracts safe-area insets, the top bar,
+the HUD, the inventory and primary action, and the thumbsticks — and gives the
+arena whatever is left. The arena is never allowed to take space a control
+needs, which is what the old Wide preset did: it set a fixed 2040px cockpit,
+so at 2048px wide the controls went off the edge.
+
+The calculation is recomputed on resize, `visualViewport` resize and scroll,
+orientation change, fold, fullscreen entry and exit, and any preference
+change, coalesced into one animation frame and gated on an equality check so
+an event that changes nothing costs no React work.
+
 ## Rendering quality
 
 The top bar cycles between **Auto**, **High**, and **Performance**. Auto starts from device pixel ratio, touch capability, and viewport size, then adapts to measured frame cost, capping canvas resolution and particle counts on lower-powered tablets and phones.
