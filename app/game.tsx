@@ -3935,14 +3935,38 @@ export default function WormholeGame() {
                   <section className="run-summary" aria-live="polite" aria-label="Run result">
                     <button className="run-close" type="button" onClick={() => setSummary(null)} aria-label="Dismiss run summary">✕</button>
                     <p className="run-outcome" data-outcome={summary.run.outcome}>
-                      {summary.restored ? "LAST RUN" : summary.run.outcome === "victory" ? "RIVAL ELIMINATED" : "SHIP DESTROYED"}
+                      {summary.restored ? "LAST RUN" : summary.run.practice ? "PRACTICE COMPLETE" : summary.run.outcome === "victory" ? "RIVAL ELIMINATED" : "SHIP DESTROYED"}
                     </p>
-                    <p className="run-score"><span>SCORE</span><b>{summary.run.score.toLocaleString()}</b></p>
+                    <p className="run-score"><span>FINAL SCORE</span><b>{summary.run.score.toLocaleString()}</b></p>
+                    <div className="score-settlement">
+                      <span>BASE <b>{(summary.run.baseScore ?? summary.run.score).toLocaleString()}</b></span>
+                      <span>TIME <b>{formatRunTime(summary.run.durationSeconds)}</b></span>
+                      <span>PENALTY <b>−{(summary.run.timePenalty ?? 0).toLocaleString()}</b></span>
+                    </div>
                     <p className="run-meta">
                       {summary.isBest ? "NEW DEVICE BEST" : summary.best ? `DEVICE BEST ${summary.best.score.toLocaleString()}` : "FIRST RUN ON THIS DEVICE"}
                     </p>
 
-                    {!sessionChecked ? (
+                    {summary.awaitingInitials ? (
+                      <div className="initials-entry">
+                        <label htmlFor="arcade-initials">ENTER YOUR INITIALS</label>
+                        <input
+                          id="arcade-initials"
+                          value={initialsEntry}
+                          maxLength={3}
+                          inputMode="text"
+                          autoCapitalize="characters"
+                          autoComplete="off"
+                          spellCheck={false}
+                          onChange={(event) => setInitialsEntry(normalizeInitials(event.target.value))}
+                          aria-describedby="initials-help"
+                        />
+                        <small id="initials-help">{initialsEntry.length}/3 · LETTERS OR NUMBERS</small>
+                        <button type="button" className="run-action primary" disabled={initialsEntry.length !== 3} onClick={confirmInitials}>LOCK SCORE</button>
+                      </div>
+                    ) : summary.run.practice ? (
+                      <div className="run-save"><p className="run-status">PRACTICE RUN // NOT SAVED TO LEADERBOARDS</p></div>
+                    ) : !sessionChecked ? (
                       <div className="run-save">
                         <p className="run-status">CHECKING MURPH TOURNAMENTS SESSION…</p>
                       </div>
@@ -3973,7 +3997,7 @@ export default function WormholeGame() {
                       </div>
                     )}
 
-                    <div className="run-links">
+                    <div className={`run-links ${summary.awaitingInitials ? "locked" : ""}`}>
                       {mode === "pvp" ? (
                         <>
                           <button
