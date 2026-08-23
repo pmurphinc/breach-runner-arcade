@@ -715,6 +715,8 @@ type RunSummary = {
   runs: number;
   /** True when the card is reporting a run saved across a sign-in redirect. */
   restored: boolean;
+  /** Victory waits for classic arcade initials before any persistence. */
+  awaitingInitials: boolean;
 };
 
 type SaveState =
@@ -1666,6 +1668,7 @@ export default function WormholeGame() {
   const [player, setPlayer] = useState<ArcadePlayer | null>(null);
   const [sessionChecked, setSessionChecked] = useState(false);
   const [summary, setSummary] = useState<RunSummary | null>(null);
+  const [initialsEntry, setInitialsEntry] = useState("");
   /** The one specific result screen allowed to show the Discord invitation. */
   const [discordPromptRun, setDiscordPromptRun] = useState<RunResult | null>(null);
   const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });
@@ -1932,7 +1935,7 @@ export default function WormholeGame() {
       setPlayer(session?.signedIn ? session.player : null);
       setSessionChecked(true);
       if (!pending || !session?.signedIn) return;
-      setSummary({ run: pending, best, isBest: false, runs: 0, restored: true });
+      setSummary({ run: pending, best, isBest: false, runs: 0, restored: true, awaitingInitials: false });
     });
 
     return () => { cancelled = true; };
@@ -1947,25 +1950,42 @@ export default function WormholeGame() {
     if (recordedResult.current === hud.result) return;
     recordedResult.current = hud.result;
 
+    const settlement = settleScore(hud.score, hud.elapsedSeconds, hud.result);
+    const practice = difficulty === "practice";
     const run: RunResult = {
-      score: hud.score,
+      score: settlement.finalScore,
+      baseScore: settlement.baseScore,
+      timePenalty: settlement.timePenalty,
       outcome: hud.result,
       ship: runShipName.current,
       rivalHealth: hud.rivalHealth,
-      durationSeconds: runStartedAt.current
-        ? Math.max(0, Math.round((Date.now() - runStartedAt.current) / 1000))
-        : 0,
+      durationSeconds: settlement.durationSeconds,
+      practice,
     };
 
-    const local = saveLocalRun(run);
-    setSummary({ run, best: local.best, isBest: local.isBest, runs: local.runs, restored: false });
+    setInitialsEntry("");
+    if (hud.result === "victory" && mode === "pve" && !practice) {
+      setSummary({
+        run,
+        best: loadLocalBest(),
+        isBest: false,
+        runs: 0,
+        restored: false,
+        awaitingInitials: true,
+      });
+    } else if (practice) {
+      setSummary({ run, best: loadLocalBest(), isBest: false, runs: 0, restored: false, awaitingInitials: false });
+    } else {
+      const local = saveLocalRun(run);
+      setSummary({ run, best: local.best, isBest: local.isBest, runs: local.runs, restored: false, awaitingInitials: false });
+    }
     setSaveState({ status: "idle" });
-  }, [hud.result, hud.score, hud.rivalHealth]);
+  }, [difficulty, hud.elapsedSeconds, hud.result, hud.rivalHealth, hud.score, mode]);
 
   // Signed-in players always save automatically, including when a run finishes
   // before the initial Murph Tournaments session request returns.
   useEffect(() => {
-    if (!player || !summary || autoSavedRun.current === summary.run) return;
+    if (!player || !summary || summary.awaitingInitials || summary.run.practice || autoSavedRun.current === summary.run) return;
     autoSavedRun.current = summary.run;
     void saveRun(summary.run);
   }, [player, saveRun, summary]);
@@ -1973,7 +1993,7 @@ export default function WormholeGame() {
   // Offer Discord sign-in on one completed-run screen per device, never while
   // the session request is still pending (which avoids flashing it to members).
   useEffect(() => {
-    if (!sessionChecked || player || !summary || discordPromptRun) return;
+    if (!sessionChecked || player || !summary || summary.awaitingInitials || summary.run.practice || discordPromptRun) return;
     if (hasSeenDiscordSavePrompt()) return;
     markDiscordSavePromptSeen();
     setDiscordPromptRun(summary.run);
@@ -2006,6 +2026,7 @@ export default function WormholeGame() {
     setBoardOpen(false);
     setSummary(null);
     setSaveState({ status: "idle" });
+    setInitialsEntry("");
     runStartedAt.current = Date.now();
     runShipName.current = game.ship.name;
     sync();
@@ -2056,6 +2077,24 @@ export default function WormholeGame() {
     setStage("setup");
     setLobbyOpen(true);
   }, [net?.rematch?.status]);
+
+  const confirmInitials = useCallback(() => {
+    const initials = normalizeInitials(initialsEntry);
+    if (initials.length !== 3) return;
+    setSummary((current) => {
+      if (!current || !current.awaitingInitials) return current;
+      const run = { ...current.run, initials };
+      const local = saveLocalRun(run);
+      return {
+        ...current,
+        run,
+        best: local.best,
+        isBest: local.isBest,
+        runs: local.runs,
+        awaitingInitials: false,
+      };
+    });
+  }, [initialsEntry]);
 
   const togglePause = useCallback(() => {
     const game = gameRef.current;
