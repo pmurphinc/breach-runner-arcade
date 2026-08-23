@@ -10,7 +10,7 @@
  * `tests/pvp-protocol.test.mjs` asserts the two agree.
  */
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 /** WebSocket path. Shares the game's HTTP server and Railway's injected PORT. */
 export const PVP_PATH = "/pvp";
@@ -27,6 +27,7 @@ export const CLIENT_MESSAGES = [
   "transmit",
   "pong",
   "leave",
+  "rematch",
 ];
 
 export const SERVER_MESSAGES = [
@@ -42,6 +43,7 @@ export const SERVER_MESSAGES = [
   "opponent",
   "error",
   "ping",
+  "rematch",
 ];
 
 /** Attack power-ups that may be transmitted. Mirrors SENDABLE_POWERUPS. */
@@ -98,6 +100,9 @@ export const HEARTBEAT_TIMEOUT_MS = 40_000;
 
 /** How long a disconnected player has to come back before forfeiting. */
 export const RECONNECT_GRACE_MS = 20_000;
+
+/** Both players must accept a rematch inside this window. */
+export const REMATCH_TIMEOUT_MS = 20_000;
 
 /** Countdown between both players readying and the match going live. */
 export const COUNTDOWN_SECONDS = 3;
@@ -226,7 +231,7 @@ export function parseClientMessage(raw) {
       return { ok: true, message: { type, t: isFiniteNumber(parsed.t) ? parsed.t : 0 } };
     }
     default:
-      // queue, create, cancel and leave carry no payload.
+      // queue, create, cancel, leave and rematch carry no payload.
       return { ok: true, message: { type } };
   }
 }
