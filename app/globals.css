@@ -87,7 +87,7 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
    AGAIN never reflow the control row. */
 .top-start { display: none; }
 [data-immersive="true"] .top-start { display: inline-flex; }
-.top-start { min-width: 96px; justify-content: center; color: #0a1805; border-color: var(--lime) !important; background: var(--lime) !important; text-align: center; font-weight: 900 !important; }
+.top-actions .top-start { min-width: 96px; justify-content: center; color: #071006 !important; border-color: var(--lime) !important; background: var(--lime) !important; text-align: center; font-weight: 900 !important; text-shadow: none; }
 .top-start:hover { background: #c4ff88 !important; }
 .menu-ship { display: none; }
 .menu-home { display: none; align-items: center; min-height: 34px; padding: 7px 11px; color: #c4e2ea; text-decoration: none; border: 1px solid var(--line); border-radius: 3px; background: rgba(8, 20, 30, .8); font: 700 var(--fs-nano)/1 var(--mono); letter-spacing: .07em; white-space: nowrap; }
