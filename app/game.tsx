@@ -1775,15 +1775,20 @@ export default function WormholeGame() {
       };
       const badgeClearance = clearanceBelow(".difficulty-badge");
       wrap.style.setProperty("--rules-bottom", `${Math.max(0, badgeClearance - 8)}px`);
-      const rulesClearance = Math.max(
+      // Touch/Hybrid fighter bars own separate canvas HUD columns. Measure the
+      // visible labels too because shield status overflows below its bar.
+      const pilotClearance = Math.max(
         badgeClearance,
-        clearanceBelow(".health-rails")
+        clearanceBelow(".pilot-rail"),
+        clearanceBelow(".pilot-rail small")
+      );
+      const rivalClearance = Math.max(
+        badgeClearance,
+        clearanceBelow(".rival-rail")
       );
       const next = {
-        left: rulesClearance,
-        // The rules and fighting-game health rails span the arena, so the
-        // right-side wormhole charge readout must clear both.
-        right: Math.max(rulesClearance, clearanceBelow(".pvp-hud")),
+        left: pilotClearance,
+        right: Math.max(rivalClearance, clearanceBelow(".pvp-hud")),
       };
       const current = overlayInsetRef.current;
       if (current.left !== next.left || current.right !== next.right) {
@@ -1794,7 +1799,13 @@ export default function WormholeGame() {
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(wrap);
-    for (const selector of [".difficulty-badge", ".pvp-hud"]) {
+    for (const selector of [
+      ".difficulty-badge",
+      ".pilot-rail",
+      ".pilot-rail small",
+      ".rival-rail",
+      ".pvp-hud",
+    ]) {
       const element = wrap.querySelector(selector);
       if (element) observer.observe(element);
     }
@@ -3451,11 +3462,21 @@ export default function WormholeGame() {
       const chargeW = cap(W * 0.34, 158, 216);
       const chargeH = Math.round(fs(12) * (compactUi ? 2.6 : 3.9));
       const noticeH = Math.round(fs(12) * 2.5);
-      const noticeRoom = compactUi ? W - pad * 2 : W - pad * 2 - chargeW - 8;
-      // Each column starts below whatever DOM panel covers that corner.
+      const splitTouchHud = viewProfileRef.current.touch;
+      const noticeRoom = splitTouchHud
+        ? Math.max(120, W - pad * 2 - chargeW - 8)
+        : compactUi
+          ? W - pad * 2
+          : W - pad * 2 - chargeW - 8;
+      // Each column starts below its matching DOM health panel. Narrow PC
+      // layouts retain the established stacked HUD; Touch/Hybrid stays split.
       const noticeTop = top + overlayInsetRef.current.left;
       const chargeTop = top + overlayInsetRef.current.right;
-      const chargeY = compactUi ? noticeTop + noticeH + 6 : chargeTop;
+      const chargeY = splitTouchHud
+        ? chargeTop
+        : compactUi
+          ? noticeTop + noticeH + 6
+          : chargeTop;
 
       // Mission notice, falling back to the next thing the player has to do.
       const live = game.noticeLife > 0;
