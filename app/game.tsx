@@ -102,6 +102,12 @@ const ticksForSeconds = (seconds: number) => Math.round(seconds * 1000 / TICK_MS
 const wholeSecondsForTicks = (ticks: number) => Math.max(0, Math.ceil(ticks * TICK_MS / 1000));
 /** More than two nameplates at once is noise, not information. */
 const MAX_NAMEPLATES = 2;
+const ARENA_PALETTES: Record<DifficultyId, readonly [string, string, string]> = {
+  practice: ["#102033", "#06101d", "#020409"],
+  easy: ["#0b1d22", "#061016", "#020409"],
+  difficult: ["#171127", "#090917", "#020409"],
+  hard: ["#241014", "#0d080f", "#030305"],
+};
 
 type Bullet = { x: number; y: number; vx: number; vy: number; damage: number; life: number; enemy: boolean; color: string };
 type Pickup = { x: number; y: number; vx: number; vy: number; type: PickupId; life: number; phase: number };
@@ -3314,10 +3320,11 @@ export default function WormholeGame() {
       const quiet = reducedMotionRef.current;
 
       ctx.setTransform(worldScale, 0, 0, worldScale, 0, 0);
+      const palette = ARENA_PALETTES[game.rules.id];
       const gradient = ctx.createRadialGradient(VIEW_WIDTH / 2, VIEW_HEIGHT / 2, 10, VIEW_WIDTH / 2, VIEW_HEIGHT / 2, VIEW_WIDTH * .58);
-      gradient.addColorStop(0, "#0b1520");
-      gradient.addColorStop(.58, "#050b12");
-      gradient.addColorStop(1, "#020409");
+      gradient.addColorStop(0, palette[0]);
+      gradient.addColorStop(.58, palette[1]);
+      gradient.addColorStop(1, palette[2]);
       ctx.fillStyle = gradient;
       ctx.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
 
