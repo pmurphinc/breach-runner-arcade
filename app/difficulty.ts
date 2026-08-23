@@ -72,6 +72,20 @@ export type ContactHazardRules =
       reentryGraceTicks: number;
     };
 
+export type EnrageEnemy = "mines" | "ufo" | "scarab";
+
+export type WormholeEnrageRules =
+  | { enabled: false }
+  | {
+      enabled: true;
+      /** Remaining rival-integrity fraction that activates enrage. */
+      thresholdFraction: number;
+      /** Delay between automatic enrage waves. */
+      waveIntervalTicks: number;
+      /** Mixed hostile wave emitted by the enraged wormhole. */
+      wave: ReadonlyArray<{ enemy: EnrageEnemy; count: number }>;
+    };
+
 export type DifficultyRules = {
   id: DifficultyId;
   /** Player-facing name, exactly as shown in the selector and HUD. */
@@ -83,6 +97,7 @@ export type DifficultyRules = {
   wormhole: WormholeMotion;
   collisionShield: CollisionShieldRules;
   contactHazard: ContactHazardRules;
+  wormholeEnrage: WormholeEnrageRules;
 };
 
 /** Wormhole orbit used by DIFFICULT and HARD MODE — the game's existing motion. */
@@ -124,6 +139,7 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyRules> = {
       rechargeDelayTicks: ticksForSeconds(4),
     },
     contactHazard: { enabled: false },
+    wormholeEnrage: { enabled: false },
   },
   difficult: {
     id: "difficult",
@@ -134,16 +150,27 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyRules> = {
     wormhole: ORBIT,
     collisionShield: { enabled: false },
     contactHazard: { enabled: false },
+    wormholeEnrage: { enabled: false },
   },
   hard: {
     id: "hard",
     displayName: "HARD MODE // CONTACT HAZARD",
     shortName: "HARD MODE",
     blurb:
-      "The wormhole orbits and touching it burns hull in visible ticks. One unbroken contact is capped at about a third of your hull, and you must leave the radius completely before it can hurt you again.",
+      "The wormhole orbits and touching it burns hull in visible ticks. At 30% rival integrity it enrages, turns red, and repeatedly spits out mines, UFOs, and power-up-eating Scarabs.",
     wormhole: ORBIT,
     collisionShield: { enabled: false },
     contactHazard: HARD_CONTACT,
+    wormholeEnrage: {
+      enabled: true,
+      thresholdFraction: 0.3,
+      waveIntervalTicks: ticksForSeconds(10),
+      wave: [
+        { enemy: "mines", count: 6 },
+        { enemy: "ufo", count: 1 },
+        { enemy: "scarab", count: 2 },
+      ],
+    },
   },
 };
 
