@@ -395,3 +395,12 @@ test("pve resolves to the requested difficulty", () => {
   assert.equal(rulesFor("pve", "difficult"), DIFFICULTIES.difficult);
   assert.equal(rulesFor("pve", "hard"), DIFFICULTIES.hard);
 });
+
+
+test('rectangular arenas centre wormhole and pilot on both axes', () => {
+  const arena = { width: 1504, height: 940 };
+  assert.deepEqual(wormholePosition(EASY, arena, 0), { x: 752, y: 470 });
+  assert.deepEqual(pilotSpawn(EASY, arena), { x: 962, y: 470 });
+  assert.deepEqual(pilotSpawn(DIFFICULT, arena), { x: 752, y: 470 });
+  assert.deepEqual(wormholePosition(DIFFICULT, arena, 0), { x: 962, y: 470 });
+});
