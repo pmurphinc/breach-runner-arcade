@@ -72,9 +72,9 @@ export type Velocity = { vx: number; vy: number };
 /**
  * Applies one tick of movement intent to a velocity.
  *
- * Applies the ship's acceleration as thrust while preserving existing momentum.
- * That keeps the frames feeling different: a Squid changes velocity quickly,
- * while a Flagship takes its time.
+ * The default path preserves the original immediate twin-stick redirection.
+ * The inertial option adds thrust to existing momentum for desktop keyboard
+ * flight. Both paths use the same ship acceleration and maximum speed.
  * Returns a new velocity rather than mutating, so it is trivially testable.
  */
 export function applyIntent(
