@@ -431,33 +431,35 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 
 /* ------------------------------------------------------- settings drawer -- */
 .drawer-backdrop { position: fixed; inset: 0; z-index: 60; display: flex; justify-content: flex-end; background: rgba(1, 4, 8, .72); }
-.settings-drawer { display: flex; flex-direction: column; width: min(400px, 100%); height: 100%;
+.settings-drawer { display: flex; flex-direction: column; width: min(350px, 44vw); min-width: 320px; height: 100%;
+  --fs-nano: clamp(11px, .9vw, 12px); --fs-micro: clamp(11.5px, 1vw, 13px); --fs-xs: clamp(12px, 1.1vw, 14px);
+  --fs-sm: clamp(13px, 1.25vw, 15px); --fs-lg: clamp(17px, 1.8vw, 20px);
   border-left: 1px solid var(--line-strong); background: linear-gradient(180deg, rgba(8, 20, 30, .99), rgba(3, 9, 15, .99));
   box-shadow: -20px 0 60px rgba(0, 0, 0, .6); }
 
 /* Header and footer stay put; only the body scrolls, so the drawer never
    depends on the page being scrollable. */
 .drawer-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  padding: max(12px, var(--safe-top)) 14px 12px; border-bottom: 1px solid var(--line); background: inherit; }
+  padding: max(9px, var(--safe-top)) 11px 9px; border-bottom: 1px solid var(--line); background: inherit; }
 .drawer-head h2 { margin: 0; font-size: var(--fs-lg); letter-spacing: .16em; }
 .drawer-close { width: 44px; height: 44px; color: #c7e4eb; border: 1px solid var(--line); border-radius: 3px;
   background: rgba(2, 8, 13, .7); cursor: pointer; font: 700 var(--fs-sm)/1 var(--mono); }
 .drawer-close:hover { color: white; border-color: var(--line-strong); }
 
 .drawer-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
-  display: grid; gap: 18px; align-content: start; padding: 14px; }
-.drawer-body section { display: grid; gap: 10px; }
+  display: grid; gap: 12px; align-content: start; padding: 10px 11px; }
+.drawer-body section { display: grid; gap: 7px; }
 .drawer-body h3 { margin: 0; color: var(--cyan); font: 900 var(--fs-nano)/1 var(--mono); letter-spacing: .22em; text-transform: uppercase; }
 
-.drawer-summary { display: grid; gap: 5px; padding: 10px 11px; border: 1px solid var(--line); border-radius: 3px; background: rgba(2, 8, 13, .55); }
+.drawer-summary { display: grid; gap: 4px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 3px; background: rgba(2, 8, 13, .55); }
 .drawer-summary p { display: flex; justify-content: space-between; gap: 10px; margin: 0; font: 700 var(--fs-nano)/1.3 var(--mono); letter-spacing: .07em; }
 .drawer-summary span { color: var(--muted); }
 .drawer-summary b { color: #eafcff; }
 .drawer-note { display: block !important; color: var(--muted) !important; font-weight: 600 !important; }
 
-.drawer-actions { display: grid; gap: 6px; }
+.drawer-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
 .drawer-actions button, .drawer-link, .drawer-wide { display: inline-flex; align-items: center; justify-content: center;
-  min-height: var(--touch-target); padding: 0 13px; color: #c4e2ea; text-decoration: none; border: 1px solid var(--line);
+  min-height: var(--touch-target); padding: 0 8px; color: #c4e2ea; text-decoration: none; border: 1px solid var(--line);
   border-radius: 3px; background: rgba(8, 20, 30, .8); cursor: pointer; font: 800 var(--fs-micro)/1 var(--mono); letter-spacing: .09em; }
 .drawer-actions button:hover, .drawer-link:hover, .drawer-wide:hover { color: white; border-color: var(--line-strong); }
 .drawer-wide { width: 100%; }
@@ -468,7 +470,7 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 .drawer-keys dt { color: var(--muted); font: 700 var(--fs-nano)/1.4 var(--mono); }
 .drawer-keys dd { margin: 0; color: #eafcff; font: 700 var(--fs-nano)/1.4 var(--mono); }
 
-.drawer-foot { position: sticky; bottom: 0; z-index: 2; padding: 12px 14px max(12px, var(--safe-bottom));
+.drawer-foot { position: sticky; bottom: 0; z-index: 2; padding: 9px 11px max(9px, var(--safe-bottom));
   border-top: 1px solid var(--line); background: inherit; }
 .drawer-primary { width: 100%; min-height: 48px; color: #061119; border: 1px solid var(--cyan); border-radius: 3px;
   background: rgba(100, 234, 255, .9); cursor: pointer; font: 900 var(--fs-sm)/1 var(--mono); letter-spacing: .12em; }
@@ -477,7 +479,15 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 .settings-drawer :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
 @media (max-width: 520px) {
-  .settings-drawer { width: 100%; }
+  .settings-drawer { width: 100%; min-width: 0; }
+}
+
+@media (max-height: 620px) and (orientation: landscape) {
+  .drawer-head { padding-top: max(6px, var(--safe-top)); padding-bottom: 6px; }
+  .drawer-body { gap: 9px; padding-top: 7px; padding-bottom: 7px; }
+  .drawer-body section { gap: 5px; }
+  .drawer-foot { padding-top: 6px; padding-bottom: max(6px, var(--safe-bottom)); }
+  .drawer-primary { min-height: 44px; }
 }
 
 /* --------------------------------------------------------- launch scene -- */
