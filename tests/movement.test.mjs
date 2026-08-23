@@ -154,10 +154,29 @@ test("thrust upgrades still raise acceleration and top speed", () => {
   assert.ok(speedOf(boosted) > speedOf(plain), "upgraded thrust must reach a higher top speed");
 });
 
+test("touch steering keeps its original immediate response and acceleration", () => {
+  const ship = { acceleration: 0.5, maxSpeed: 4 };
+  const movingRight = { vx: 3, vy: 0 };
+  const touchUp = applyIntent(movingRight, intentFromStick(-90), ship);
+
+  assert.ok(Math.abs(touchUp.vx) < 1e-9, "touch direction should take effect immediately");
+  assert.ok(Math.abs(touchUp.vy + 3.5) < 1e-9,
+    "touch speed must remain current speed plus the unchanged ship acceleration");
+
+  const firstTouchTick = applyIntent(still, intentFromStick(37), ship);
+  assert.ok(Math.abs(speedOf(firstTouchTick) - ship.acceleration) < 1e-9,
+    "touch sensitivity must retain the original first-tick acceleration");
+});
+
 test("changing direction bends momentum instead of snapping to a grid axis", () => {
   const ship = { acceleration: 0.5, maxSpeed: 4 };
   const movingRight = { vx: 3, vy: 0 };
-  const turningUp = applyIntent(movingRight, intentFromKeys(keys({ up: true })), ship);
+  const turningUp = applyIntent(
+    movingRight,
+    intentFromKeys(keys({ up: true })),
+    ship,
+    { inertial: true }
+  );
 
   assert.ok(turningUp.vx > 0, "existing rightward momentum should survive the first upward thrust tick");
   assert.ok(turningUp.vy < 0, "upward thrust should begin curving the flight path");
