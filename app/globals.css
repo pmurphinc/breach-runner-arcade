@@ -1421,3 +1421,39 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
   top: -8%;
   transform: translate(-50%, -50%);
 }
+
+
+/* Landscape tablets use the full existing arena shell. The square game canvas
+   remains undistorted and centered; only the surrounding frame and existing
+   touch-control positions expand into the previously empty side gutters. */
+@media (orientation: landscape) and (min-width: 700px) and (min-height: 430px) {
+  .touch-capable[data-immersive="true"][data-form="tablet"][data-orientation="landscape"] .play-column {
+    align-items: stretch;
+  }
+
+  .touch-capable[data-immersive="true"][data-form="tablet"][data-orientation="landscape"] .arena-stage {
+    width: 100%;
+    max-width: none;
+    margin: 0;
+  }
+
+  .touch-capable[data-immersive="true"][data-form="tablet"][data-orientation="landscape"] .touch-flight {
+    top: auto;
+    right: auto;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    left: max(12px, env(safe-area-inset-left));
+    transform: none;
+  }
+
+  .touch-capable[data-immersive="true"][data-form="tablet"][data-orientation="landscape"] .touch-action {
+    top: auto;
+    right: max(12px, env(safe-area-inset-right));
+    bottom: max(12px, env(safe-area-inset-bottom));
+    left: auto;
+    transform: none;
+  }
+
+  .touch-capable[data-immersive="true"][data-form="tablet"][data-orientation="landscape"] .touch-powerup-hud {
+    bottom: max(12px, env(safe-area-inset-bottom));
+  }
+}
