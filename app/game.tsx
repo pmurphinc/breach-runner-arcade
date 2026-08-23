@@ -982,18 +982,19 @@ function DifficultyBadge({
           ? "FULL"
           : `${charge}%`;
 
+  const gameMode = (live ? hud.mode : pendingMode) === "pvp" ? "PVP" : "PVE";
+  const difficulty = gameMode === "PVP" ? "EASY" : pending.shortName.replace(/ MODE$/i, "");
+  const contact = hazardArmed ? "HAZARD" : "SAFE";
+  const shieldText = charge === null ? "NO COLLISION SHIELD" : `SHIELD ${shield}`;
+  const status = `${gameMode} · ${difficulty} | WORMHOLE ${wormhole} | ${shieldText} | CONTACT ${contact}${live && hud.enrageActive ? " | ENRAGED" : ""}`;
+
   return (
-    <div className={`difficulty-badge ${contactActive ? "hazard" : ""}`}>
-      <b className="badge-mode">
-        {(live ? hud.mode : pendingMode) === "pvp" ? "PVP // EASY RULES" : pending.shortName}
-      </b>
-      <span><em>WORMHOLE</em><i>{wormhole}</i></span>
-      <span className={charge !== null && charge <= 0 ? "warn" : ""}>
-        <em>SHIELD</em><i>{shield}</i>
-      </span>
-      <span className={contactActive ? "warn" : ""}>
-        <em>CONTACT</em><i>{hazardArmed ? (contactActive ? "ACTIVE" : "ARMED") : "OFF"}</i>
-      </span>
+    <div className={`difficulty-badge ${contactActive ? "hazard" : ""}`} role="status" aria-live="polite" aria-label={`Active rules: ${status}`}>
+      <span className="rule-mode">{gameMode} · {difficulty}</span>
+      <span>WORMHOLE {wormhole}</span>
+      <span className={charge !== null && charge <= 0 ? "warn" : ""}>{shieldText}</span>
+      <span className={hazardArmed ? "warn" : ""}>CONTACT {contact}</span>
+      {live && hud.enrageActive ? <span className="warn">ENRAGED</span> : null}
     </div>
   );
 }
@@ -1380,7 +1381,7 @@ function MissionSetup({
 function SettingsDrawer({
   open, onClose, ship, mode, difficulty, gameActive, stage,
   preset, onPreset, cameraLocked, onCamera, quality, autoLabel, onQuality,
-  layoutPref, onLayoutPref, fullscreen, onFullscreen, sound, onSound,
+  layoutPref, onLayoutPref, sound, onSound,
   touchControls, onTouchControls, stickSize, onStickSize,
   onChangeShip, onChangeMode, onRunAgain, onCodex, onBoard, onLobby,
 }: {
@@ -1400,8 +1401,6 @@ function SettingsDrawer({
   onQuality: (next: QualityMode) => void;
   layoutPref: LayoutPref;
   onLayoutPref: (next: LayoutPref) => void;
-  fullscreen: boolean;
-  onFullscreen: () => void;
   sound: boolean;
   onSound: (next: boolean) => void;
   touchControls: TouchControlMode;
@@ -1416,6 +1415,7 @@ function SettingsDrawer({
   onLobby: () => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const [activeTab, setActiveTab] = useState<"play" | "display" | "controls" | "info">("play");
   const closeRef = useRef<HTMLButtonElement>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
   const profile = SHIP_PROFILES[ship];
@@ -1458,6 +1458,10 @@ function SettingsDrawer({
 
   if (!open) return null;
 
+  const tabs = [
+    ["play", "Play"], ["display", "Display"],
+    ["controls", "Controls & Audio"], ["info", "Game Info"],
+  ] as const;
   const modeSummary = mode === "pvp" ? "PVP 1V1" : DIFFICULTIES[difficulty].shortName;
 
   return (
@@ -1475,8 +1479,25 @@ function SettingsDrawer({
           <button ref={closeRef} type="button" className="drawer-close" onClick={onClose} aria-label="Close menu">✕</button>
         </header>
 
+        <nav className="drawer-tabs" role="tablist" aria-label="Menu sections">
+          {tabs.map(([id, label]) => (
+            <button key={id} type="button" role="tab" id={`menu-tab-${id}`}
+              aria-controls={`menu-panel-${id}`} aria-selected={activeTab === id}
+              tabIndex={activeTab === id ? 0 : -1} onClick={() => setActiveTab(id)}
+              onKeyDown={(event) => {
+                const index = tabs.findIndex(([tab]) => tab === activeTab);
+                const direction = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+                if (!direction) return;
+                event.preventDefault();
+                const next = tabs[(index + direction + tabs.length) % tabs.length][0];
+                setActiveTab(next);
+                requestAnimationFrame(() => document.getElementById(`menu-tab-${next}`)?.focus());
+              }}>{label}</button>
+          ))}
+        </nav>
+
         <div className="drawer-body">
-          <section>
+          <section role="tabpanel" id="menu-panel-play" aria-labelledby="menu-tab-play" hidden={activeTab !== "play"}>
             <h3>Play</h3>
             <div className="drawer-summary">
               <p><span>Ship</span><b>{profile.name}</b></p>
@@ -1497,7 +1518,7 @@ function SettingsDrawer({
             </div>
           </section>
 
-          <section>
+          <section role="tabpanel" id="menu-panel-display" aria-labelledby="menu-tab-display" hidden={activeTab !== "display"}>
             <h3>Display</h3>
             <SegmentedChoice
               label="SCREEN FIT"
@@ -1532,12 +1553,9 @@ function SettingsDrawer({
               ] as const}
               onChange={onLayoutPref}
             />
-            <button type="button" className="drawer-wide" aria-pressed={fullscreen} onClick={onFullscreen}>
-              {fullscreen ? "EXIT FULLSCREEN" : "FULLSCREEN"}
-            </button>
           </section>
 
-          <section>
+          <section role="tabpanel" id="menu-panel-controls" aria-labelledby="menu-tab-controls" hidden={activeTab !== "controls"}>
             <h3>Controls &amp; Audio</h3>
             <SegmentedChoice
               label="SOUND"
@@ -1574,7 +1592,7 @@ function SettingsDrawer({
             </dl>
           </section>
 
-          <section>
+          <section role="tabpanel" id="menu-panel-info" aria-labelledby="menu-tab-info" hidden={activeTab !== "info"}>
             <h3>Game Information</h3>
             <div className="drawer-actions">
               <button type="button" onClick={onCodex} aria-haspopup="dialog">WEAPON CODEX</button>
@@ -3745,8 +3763,6 @@ export default function WormholeGame() {
             onQuality={setQuality}
             layoutPref={layoutPref}
             onLayoutPref={setLayoutPref}
-            fullscreen={fullscreen}
-            onFullscreen={toggleFullscreen}
             sound={sound}
             onSound={setSound}
             touchControls={touchControlMode}
@@ -3771,6 +3787,11 @@ export default function WormholeGame() {
           </button>
           <button className="top-start" type="button" onClick={start}>
             {gameActive ? "RESTART" : hud.result ? "RUN AGAIN" : "START"}
+          </button>
+          <button className="top-fullscreen" type="button" aria-pressed={fullscreen} onClick={toggleFullscreen}
+            aria-label={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}>
+            <span className="full-label">{fullscreen ? "EXIT FULLSCREEN" : "FULLSCREEN"}</span>
+            <span className="full-short" aria-hidden="true">{fullscreen ? "EXIT FULL" : "FULL"}</span>
           </button>
           <button className="top-pause" type="button" onClick={togglePause} aria-pressed={hud.paused} aria-label="Pause or resume, keyboard P">P / PAUSE</button>
         </div>
@@ -3827,7 +3848,7 @@ export default function WormholeGame() {
               </select>
             </label>
             <div className="mobile-ship-stats"><span>HULL <b>{currentShip.health}</b></span><span>THRUST <b>MK {currentShip.thrust}</b></span></div>
-            <button type="button" aria-pressed={fullscreen} onClick={toggleFullscreen}>{fullscreen ? "EXIT FULL" : "FULLSCREEN"}</button>
+            <button type="button" onClick={() => setStage("select")}>CHANGE SHIP</button>
           </div>
           <div className="match-bar">
             <div><span>MISSION</span><b>FIRST CONTACT</b></div>
