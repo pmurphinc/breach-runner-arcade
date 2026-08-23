@@ -154,6 +154,17 @@ test("thrust upgrades still raise acceleration and top speed", () => {
   assert.ok(speedOf(boosted) > speedOf(plain), "upgraded thrust must reach a higher top speed");
 });
 
+test("changing direction bends momentum instead of snapping to a grid axis", () => {
+  const ship = { acceleration: 0.5, maxSpeed: 4 };
+  const movingRight = { vx: 3, vy: 0 };
+  const turningUp = applyIntent(movingRight, intentFromKeys(keys({ up: true })), ship);
+
+  assert.ok(turningUp.vx > 0, "existing rightward momentum should survive the first upward thrust tick");
+  assert.ok(turningUp.vy < 0, "upward thrust should begin curving the flight path");
+  assert.ok(Math.abs(turningUp.vx) > Math.abs(turningUp.vy), "the ship should arc instead of making an instant 90-degree turn");
+  assert.ok(speedOf(turningUp) <= ship.maxSpeed, "curved flight must still respect top speed");
+});
+
 test("releasing the keys coasts, and retros bleed the drift off", () => {
   const ship = { acceleration: 0.5, maxSpeed: 4 };
   const moving = { vx: 3, vy: 0 };
