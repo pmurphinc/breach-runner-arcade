@@ -2039,6 +2039,13 @@ export default function WormholeGame() {
     game.noticeLife = 180;
   }, [netResult]);
 
+  useEffect(() => {
+    if (net?.rematch?.status !== "starting") return;
+    setSummary(null);
+    setStage("setup");
+    setLobbyOpen(true);
+  }, [net?.rematch?.status]);
+
   const togglePause = useCallback(() => {
     const game = gameRef.current;
     if (!game.running || game.result) return;
@@ -3889,14 +3896,39 @@ export default function WormholeGame() {
                     )}
 
                     <div className="run-links">
-                      <button type="button" onClick={start}>RUN AGAIN</button>
-                      <button type="button" onClick={() => { setSummary(null); setStage("select"); }}>
-                        CHANGE SHIP
-                      </button>
-                      <button type="button" onClick={() => { setSummary(null); setStage("setup"); }}>
-                        CHANGE MODE
-                      </button>
-                      <button type="button" onClick={() => setBoardOpen(true)}>GLOBAL BOARD</button>
+                      {mode === "pvp" ? (
+                        <>
+                          <button
+                            type="button"
+                            className="run-action primary"
+                            disabled={Boolean(net?.rematch?.you)}
+                            onClick={() => netRef.current?.requestRematch()}
+                          >
+                            {net?.rematch?.you
+                              ? net.rematch.opponent ? "REMATCH STARTING" : "WAITING FOR OPPONENT"
+                              : net?.rematch?.opponent ? "ACCEPT REMATCH" : "REQUEST REMATCH"}
+                          </button>
+                          <button type="button" onClick={() => {
+                            netRef.current?.leave();
+                            setSummary(null);
+                            setLobbyOpen(false);
+                            setStage("setup");
+                          }}>
+                            LEAVE MATCH
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button type="button" onClick={start}>RUN AGAIN</button>
+                          <button type="button" onClick={() => { setSummary(null); setStage("select"); }}>
+                            CHANGE SHIP
+                          </button>
+                          <button type="button" onClick={() => { setSummary(null); setStage("setup"); }}>
+                            CHANGE MODE
+                          </button>
+                          <button type="button" onClick={() => setBoardOpen(true)}>GLOBAL BOARD</button>
+                        </>
+                      )}
                     </div>
                   </section>
                 </div>
