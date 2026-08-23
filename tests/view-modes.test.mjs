@@ -100,7 +100,8 @@ test('special remains radially between PUP and Pause', () => {
 
 test('touch playfield starts below the complete HUD and removes canvas text panels', () => {
   assert.match(game, /const playfieldTop = Math\.ceil\(hudBottom\) \+ 2/);
-  assert.match(game, /--arena-canvas-size/);
+  assert.match(game, /--arena-canvas-width/);
+  assert.match(game, /--arena-canvas-height/);
   const overlay = game.slice(game.indexOf('const drawOverlay'), game.indexOf('// Next weapon in the bin'));
   assert.doesNotMatch(overlay, /WORMHOLE CHARGE|Mission notice|coachLine\(game\)/);
   const reserved = css.slice(css.indexOf('The Touch\/Hybrid HUD occupies a real header lane'));
@@ -138,4 +139,15 @@ test('mission setup has a viewport action and semantic option colors', () => {
   assert.match(launch, /right:\s*max\(7px, var\(--safe-right\)\)/);
   assert.match(launch, /left:\s*max\(7px, var\(--safe-left\)\)/);
   assert.match(launch, /bottom:\s*max\(7px, var\(--safe-bottom\)\)/);
+});
+
+
+test('arena world and viewport use the shared 1504 by 940 ratio', () => {
+  assert.match(game, /const VIEW_WIDTH = 1048/);
+  assert.match(game, /const VIEW_HEIGHT = 655/);
+  assert.match(game, /const WORLD_WIDTH = 1504/);
+  assert.match(game, /const WORLD_HEIGHT = 940/);
+  assert.match(game, /width=\{VIEW_WIDTH\}[\s\S]*height=\{VIEW_HEIGHT\}/);
+  assert.match(css, /aspect-ratio:\s*1504\/940/);
+  assert.doesNotMatch(game, /worldSize:/);
 });
