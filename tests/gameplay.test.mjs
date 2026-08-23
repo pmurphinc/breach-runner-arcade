@@ -182,6 +182,23 @@ test("DIFFICULT: the same wall contact reaches hull, with no shield", { skip }, 
   }
 });
 
+test("PRACTICE: repeated wall contact never reduces hull", { skip }, async () => {
+  const { chromium } = playwright;
+  const browser = await chromium.launch({ executablePath: CHROME });
+  try {
+    const { context, page } = await openGame(browser, "PRACTICE");
+    const startingHull = await hullOf(page);
+    await hold(page);
+    await page.waitForTimeout(5000);
+    await release(page);
+    assert.equal(await hullOf(page), startingHull, "practice hull must remain locked");
+    assert.match(await badgeOf(page), /PRACTICE/);
+    await context.close();
+  } finally {
+    await browser.close();
+  }
+});
+
 test("HARD: the contact hazard is armed and the wormhole moves", { skip }, async () => {
   const { chromium } = playwright;
   const browser = await chromium.launch({ executablePath: CHROME });
