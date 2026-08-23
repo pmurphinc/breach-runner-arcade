@@ -9,6 +9,7 @@ import {
   POWER_LABELS,
   SENDABLE_POWERUPS,
   SHIPS,
+  SHIP_SPECIALS,
   SHOT_LEVELS,
   WEAPONS,
   rivalDamageFor,
@@ -63,6 +64,8 @@ const DEG = Math.PI / 180;
 const THRUST_ACCEL_BONUS = 0.035;
 const THRUST_SPEED_BONUS = 0.25;
 const STOCK_LIMIT = 5;
+const ticksForSeconds = (seconds: number) => Math.round(seconds * 1000 / TICK_MS);
+const wholeSecondsForTicks = (ticks: number) => Math.max(0, Math.ceil(ticks * TICK_MS / 1000));
 /** More than two nameplates at once is noise, not information. */
 const MAX_NAMEPLATES = 2;
 
@@ -265,6 +268,9 @@ type Hud = {
   /** Seconds left on the recharge delay. Zero when full or already restored. */
   collisionRecharge: number;
   contactHazard: boolean;
+  specialName: string;
+  /** Whole seconds remaining; zero means Q/SPEC is ready. */
+  specialCooldown: number;
   /** True while the pilot is inside the wormhole contact radius. */
   contactActive: boolean;
 };
@@ -389,6 +395,8 @@ function hudFrom(game: Game): Hud {
       : null,
     collisionRecharge: game.collisionShield ? secondsForTicks(game.collisionShield.rechargeIn) : 0,
     contactHazard: game.rules.contactHazard.enabled,
+    specialName: SHIP_SPECIALS[game.ship.id].name,
+    specialCooldown: wholeSecondsForTicks(game.player.specialCooldown),
     contactActive: game.contactWarning > 0,
   };
 }
@@ -416,6 +424,8 @@ function hudEqual(a: Hud, b: Hud) {
     && a.collisionShield === b.collisionShield
     && a.collisionRecharge === b.collisionRecharge
     && a.contactHazard === b.contactHazard
+    && a.specialName === b.specialName
+    && a.specialCooldown === b.specialCooldown
     && a.contactActive === b.contactActive
     && a.stock.length === b.stock.length
     && a.stock.every((item, index) => item === b.stock[index]);
@@ -1988,19 +1998,66 @@ export default function WormholeGame() {
 
     const activateSpecial = (game: Game) => {
       const player = game.player;
-      if (player.specialCooldown > 0 || !keys.current.KeyQ) return;
+      const pressed = Boolean(keys.current.KeyQ);
+      if (!pressed) {
+        keys.current.__specialLatch = false;
+        return;
+      }
+      if (keys.current.__specialLatch) return;
+      keys.current.__specialLatch = true;
+
+      const spec = SHIP_SPECIALS[game.ship.id];
+      if (player.specialCooldown > 0) {
+        game.notice = `${spec.name} // READY IN ${wholeSecondsForTicks(player.specialCooldown)}S`;
+        game.noticeLife = 55;
+        return;
+      }
+
       const ship = game.ship.id;
-      if (ship === "turtle") {
+      if (ship === "tank") {
+        player.invuln = Math.max(player.invuln, ticksForSeconds(3));
+        game.notice = "BULWARK // 3S IMMUNITY";
+      } else if (ship === "wing") {
+        const angle = player.angle * DEG;
+        player.vx = Math.cos(angle) * 11;
+        player.vy = Math.sin(angle) * 11;
+        player.invuln = Math.max(player.invuln, ticksForSeconds(0.45));
+        game.notice = "PULSE DASH";
+      } else if (ship === "squid") {
+        const angle = player.angle * DEG;
+        player.x = cap(player.x + Math.cos(angle) * 150, 24, game.worldSize - 24);
+        player.y = cap(player.y + Math.sin(angle) * 150, 24, game.worldSize - 24);
+        player.invuln = Math.max(player.invuln, ticksForSeconds(0.7));
+        game.notice = "PHASE SKIP";
+      } else if (ship === "rabbit") {
+        let target: Enemy | null = null;
+        let targetDistance = Infinity;
+        for (const enemy of game.enemies) {
+          const distance = dist(player, enemy);
+          if (enemy.hp > 0 && distance < targetDistance) {
+            target = enemy;
+            targetDistance = distance;
+          }
+        }
+        const heading = target
+          ? Math.atan2(target.y - player.y, target.x - player.x)
+          : player.angle * DEG;
+        for (let i = -3; i <= 3; i += 1) {
+          const angle = heading + i * 6 * DEG;
+          game.bullets.push({ x: player.x, y: player.y, vx: Math.cos(angle) * 9, vy: Math.sin(angle) * 9, damage: 18, life: 120, enemy: false, color: "#b6ff57" });
+          game.playerShots += 1;
+        }
+        game.notice = target ? "TRACKER SALVO // LOCKED" : "TRACKER SALVO // FORWARD";
+        play("fire", 0.3);
+      } else if (ship === "turtle") {
         game.enemies.forEach((enemy) => {
           if (enemy.kind !== "ghost") destroyEnemy(game, enemy);
         });
         player.health = Math.max(1, player.health - (Math.random() < 0.75 ? 20 : 0));
         game.notice = "TURTLE CANNON";
-        player.specialCooldown = 10;
       } else if (ship === "flash") {
         player.flashMode = player.flashMode === "tank" ? "squid" : "tank";
         game.notice = `FLASH // ${player.flashMode.toUpperCase()} FORM`;
-        player.specialCooldown = 4;
       } else if (ship === "hunter") {
         for (let i = 0; i < 17; i += 1) {
           const angle = (player.angle + (i - 8) * 12) * DEG;
@@ -2008,7 +2065,6 @@ export default function WormholeGame() {
           game.playerShots += 1;
         }
         game.notice = "PIRANHA ARRAY";
-        player.specialCooldown = 1333;
         play("fire", 0.3);
       } else if (ship === "flagship") {
         game.pickups.forEach((pickup) => {
@@ -2025,13 +2081,12 @@ export default function WormholeGame() {
           if (d < 300) { enemy.vx += (dx / d) * 1.2; enemy.vy += (dy / d) * 1.2; }
         });
         game.notice = "A/R FIELD PULSE";
-        player.specialCooldown = 18;
       }
-      if (player.specialCooldown > 0) {
-        game.noticeLife = 80;
-        burst(game, player.x, player.y, "#68f2ff", 26, 8);
-        play("magic", 0.22);
-      }
+
+      player.specialCooldown = ticksForSeconds(spec.cooldownSeconds);
+      game.noticeLife = 90;
+      burst(game, player.x, player.y, "#68f2ff", 26, 8);
+      play("magic", 0.22);
     };
 
     const updateEnemy = (game: Game, enemy: Enemy) => {
@@ -3390,8 +3445,8 @@ export default function WormholeGame() {
                   >
                     <b>PUP</b><small>E</small>
                   </button>
-                  <button className="touch-special" type="button" aria-label="Activate ship special. Same as keyboard Q." {...controlProps("KeyQ")}>
-                    <b>SPEC</b><small>Q</small>
+                  <button className="touch-special" type="button" aria-label={`${hud.specialName}. ${hud.specialCooldown > 0 ? `Ready in ${hud.specialCooldown} seconds.` : "Ready."} Same as keyboard Q.`} disabled={!gameActive || hud.specialCooldown > 0} {...controlProps("KeyQ")}>
+                    <b>SPEC</b><small>{hud.specialCooldown > 0 ? `${hud.specialCooldown}S` : "READY"}</small>
                   </button>
                   <button className="touch-pause" type="button" aria-label="Pause or resume" onClick={togglePause}><b aria-hidden="true">Ⅱ</b><small>P</small></button>
                 </div>
@@ -3405,6 +3460,7 @@ export default function WormholeGame() {
               <div className="meter hull"><i style={{ width: `${healthPct}%` }} /></div>
               <span>SHIELD <b>{hud.shield}%</b></span>
               <div className="meter shield"><i style={{ width: `${hud.shield}%` }} /></div>
+              <span>SPECIAL <b>{hud.specialCooldown > 0 ? `${hud.specialName} ${hud.specialCooldown}S` : `${hud.specialName} READY`}</b></span>
             </div>
             <div className="power-bin">
               <div className="bin-label">
