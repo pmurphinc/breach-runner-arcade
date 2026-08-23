@@ -2858,7 +2858,7 @@ export default function WormholeGame() {
         const type = game.stock.pop()!;
         const angle = player.angle * DEG;
         const homing = game.ship.id === "rabbit" && player.viperGuidance > 0;
-        game.powers.push({ x: player.x + Math.cos(angle) * 12, y: player.y + Math.sin(angle) * 12, vx: Math.cos(angle) * 10 + player.vx, vy: Math.sin(angle) * 10 + player.vy, type, life: 160, homing });
+        game.powers.push({ x: player.x + Math.cos(angle) * 12, y: player.y + Math.sin(angle) * 12, vx: Math.cos(angle) * 10 + player.vx, vy: Math.sin(angle) * 10 + player.vy, type, life: homing ? 320 : 160, homing });
         game.notice = homing ? `${WEAPONS[type].short} // VIPER LOCK` : `${WEAPONS[type].short} ARMED`;
         game.noticeLife = 75;
         burst(game, player.x, player.y, POWER_COLORS[type], 10, 4);
