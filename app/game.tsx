@@ -1773,11 +1773,14 @@ export default function WormholeGame() {
         // Eight pixels of breathing room below the panel.
         return Math.max(0, Math.round(rect.bottom - wrapTop) + 8);
       };
-      const rulesClearance = clearanceBelow(".difficulty-badge");
+      const rulesClearance = Math.max(
+        clearanceBelow(".difficulty-badge"),
+        clearanceBelow(".health-rails")
+      );
       const next = {
         left: rulesClearance,
-        // The rules rail spans the arena, so the right-side wormhole charge
-        // readout must clear it too. PvP may add an even taller right panel.
+        // The rules and fighting-game health rails span the arena, so the
+        // right-side wormhole charge readout must clear both.
         right: Math.max(rulesClearance, clearanceBelow(".pvp-hud")),
       };
       const current = overlayInsetRef.current;
@@ -3586,9 +3589,11 @@ export default function WormholeGame() {
         ctx.fillText(fit(hint, W - 24), W / 2, W / 2 + fs(13.5) * 2.4);
       }
 
-      ctx.strokeStyle = "rgba(101,232,255,.32)";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(1, 1, W - 2, W - 2);
+      if (!viewProfileRef.current.touch) {
+        ctx.strokeStyle = "rgba(101,232,255,.32)";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(1, 1, W - 2, W - 2);
+      }
     };
 
     const loop = (now: number) => {
@@ -3850,8 +3855,8 @@ export default function WormholeGame() {
                 aria-label={`Wormhole combat arena. Hull ${hud.health} of ${hud.maxHealth}. Wormhole charge ${hud.portalCharge} percent. Rival integrity ${hud.rivalHealth} percent. ${hud.enrageActive ? "Wormhole enraged. " : ""}${queued ? `Next power-up ${WEAPONS[queued].name}.` : "Power-up bin empty."}`}
               />
               {viewProfile.verticalRails ? <div className="health-rails" aria-label={`Pilot hull ${hud.health} of ${hud.maxHealth}. Shield ${hud.shield ? `${hud.shield} percent${hud.shield < 100 ? ", recharging" : ", ready"}` : "disabled"}. ${mode === "pvp" ? `Opponent hull ${net?.opponentCombat ? Math.round(net.opponentCombat.hull) : "unavailable"}` : `Rival integrity ${hud.rivalCurrentHealth} of ${hud.rivalMaxHealth}`}.`}>
-                <div className="health-rail pilot-rail"><span>HULL {hud.health}/{hud.maxHealth}</span><i className="rail-fill hull-fill" style={{ height: `${healthPct}%` }} /><i className="rail-fill shield-fill" style={{ height: `${hud.shield}%` }} /><small>{hud.shield ? `SHIELD ${hud.shield}% ${hud.shield < 100 ? "RECHARGING" : "READY"}` : "SHIELD DISABLED"}</small></div>
-                <div className={`health-rail rival-rail ${hud.enrageActive ? "enraged" : ""}`}><span>{mode === "pvp" ? "OPPONENT" : "RIVAL"} {mode === "pvp" ? (net?.opponentCombat ? Math.round(net.opponentCombat.hull) : "—") : `${hud.rivalCurrentHealth}/${hud.rivalMaxHealth}`}</span><i className="rail-fill rival-fill" style={{ height: `${mode === "pvp" ? opponentHullPct : hud.rivalHealth}%` }} /></div>
+                <div className="health-rail pilot-rail"><span>HULL {hud.health}/{hud.maxHealth}</span><i className="rail-fill hull-fill" style={{ width: `${healthPct}%` }} /><i className="rail-fill shield-fill" style={{ width: `${hud.shield}%` }} /><small>{hud.shield ? `SHIELD ${hud.shield}% ${hud.shield < 100 ? "RECHARGING" : "READY"}` : "SHIELD DISABLED"}</small></div>
+                <div className={`health-rail rival-rail ${hud.enrageActive ? "enraged" : ""}`}><span>{mode === "pvp" ? "OPPONENT" : "RIVAL"} {mode === "pvp" ? (net?.opponentCombat ? Math.round(net.opponentCombat.hull) : "—") : `${hud.rivalCurrentHealth}/${hud.rivalMaxHealth}`}</span><i className="rail-fill rival-fill" style={{ width: `${mode === "pvp" ? opponentHullPct : hud.rivalHealth}%` }} /></div>
               </div> : null}
               <div className="pilot-health">
                 <span><em>PILOT HULL</em><b>{hud.health}/{hud.maxHealth}</b></span>
