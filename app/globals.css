@@ -572,8 +572,9 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 .select-confirm span { color: var(--lime); font: 800 var(--fs-sm)/1 var(--mono); letter-spacing: .3em; }
 
 @media (max-width: 700px) {
+  .launch-scene { padding-bottom: calc(66px + max(7px, var(--safe-bottom))); }
   .ship-select { min-height: auto; }
-  .ship-carousel { grid-template-columns: 46px minmax(0, 1fr) 46px; padding: 8px; }
+  .ship-carousel { grid-template-columns: 46px minmax(0, 1fr) 46px; padding: 8px; overflow: visible; }
   .carousel-arrow { width: 44px; height: 62px; }
   .carousel-stage { min-height: 360px; grid-template-columns: repeat(2, minmax(0, 1fr));
     grid-template-rows: 170px repeat(3, minmax(52px, auto));
@@ -583,9 +584,14 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
   .carousel-special { grid-template-columns: minmax(0, 1fr); }
   .carousel-special > span { grid-row: auto; }
   .carousel-playstyle { white-space: normal; }
-  .carousel-actions { grid-template-columns: auto minmax(0, 1fr); }
+  .carousel-actions { position: fixed; z-index: 65; left: max(7px, var(--safe-left)); right: max(7px, var(--safe-right));
+    bottom: max(7px, var(--safe-bottom)); display: flex; justify-content: flex-end; gap: 7px; padding: 6px;
+    border: 1px solid var(--line-strong); border-radius: 4px; background: rgba(3, 9, 15, .97);
+    box-shadow: 0 -10px 30px rgba(0, 0, 0, .55); }
+  .carousel-actions > span { display: none; }
   .carousel-actions p { display: none; }
-  .detail-select { grid-column: 2; }
+  .carousel-actions .select-back { flex: 0 0 auto; }
+  .carousel-actions .detail-select { flex: 1 1 auto; width: min(260px, 72vw); max-width: 100%; }
 }
 
 @media (max-height: 620px) and (orientation: landscape) {
