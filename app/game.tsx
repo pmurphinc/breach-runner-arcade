@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   CATEGORY_LABELS,
   ENEMY_COUNTS,
@@ -20,6 +20,8 @@ import {
 } from "./game-data";
 import { DIRECTIONAL, drawPowerProjectile, drawWeaponGlyph } from "./weapon-art";
 import {
+  DIFFICULTIES,
+  DIFFICULTY_ORDER,
   TICK_MS,
   absorbCollisionDamage,
   advanceWormholeAngle,
@@ -792,6 +794,380 @@ function Leaderboard({ onClose }: { onClose: () => void }) {
   );
 }
 
+/**
+ * A remembered choice, backed by localStorage and read through
+ * `useSyncExternalStore`.
+ *
+ * The store shape matters here: the page is server-rendered, so reading
+ * localStorage during render would hydrate with a different value than the
+ * server sent. `getServerSnapshot` hands React the default for the server pass
+ * and `getSnapshot` supplies the stored value on the client, which is exactly
+ * the mismatch this hook exists to resolve. A blocked or empty store is not an
+ * error — the default simply stands.
+ */
+function createPreference<T extends string>(key: string, allowed: readonly T[], fallback: T) {
+  let cached: T | null = null;
+  const listeners = new Set<() => void>();
+
+  return {
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => { listeners.delete(listener); };
+    },
+    /** Cached so repeated reads are referentially stable, as the hook requires. */
+    get(): T {
+      if (cached === null) {
+        try {
+          const stored = window.localStorage.getItem(key) as T | null;
+          cached = stored && allowed.includes(stored) ? stored : fallback;
+        } catch {
+          cached = fallback;
+        }
+      }
+      return cached;
+    },
+    getServer(): T {
+      return fallback;
+    },
+    set(value: T) {
+      cached = value;
+      try {
+        window.localStorage.setItem(key, value);
+      } catch {
+        // Preferences are a convenience; losing them costs the player nothing.
+      }
+      listeners.forEach((listener) => listener());
+    },
+  };
+}
+
+const modePreference = createPreference<GameMode>(
+  "wormhole-arcade:mode",
+  ["pve", "pvp"],
+  "pve"
+);
+/** Only the PvE difficulty is remembered; PvP is always Easy rules. */
+const difficultyPreference = createPreference<DifficultyId>(
+  "wormhole-arcade:difficulty",
+  DIFFICULTY_ORDER,
+  "difficult"
+);
+
+/**
+ * A segmented control that is genuinely operable by keyboard, mouse and touch.
+ *
+ * Implemented as an ARIA radiogroup with roving tabindex: one stop in the tab
+ * order, arrow keys move between options, Home/End jump to the ends. Buttons
+ * carry a real touch target so the same markup serves a phone.
+ */
+function SegmentedChoice<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+  disabled = false,
+  className = "",
+}: {
+  label: string;
+  value: T;
+  options: readonly { id: T; label: string; hint?: string }[];
+  onChange: (next: T) => void;
+  disabled?: boolean;
+  className?: string;
+}) {
+  const move = (delta: number) => {
+    const index = options.findIndex((option) => option.id === value);
+    const next = options[(index + delta + options.length) % options.length];
+    if (next) onChange(next.id);
+  };
+
+  const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (disabled) return;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") { event.preventDefault(); move(1); }
+    else if (event.key === "ArrowLeft" || event.key === "ArrowUp") { event.preventDefault(); move(-1); }
+    else if (event.key === "Home") { event.preventDefault(); onChange(options[0].id); }
+    else if (event.key === "End") { event.preventDefault(); onChange(options[options.length - 1].id); }
+  };
+
+  return (
+    <div className={`segmented ${className}`}>
+      <span className="segmented-label" id={`seg-${label.replace(/\W+/g, "-").toLowerCase()}`}>{label}</span>
+      <div
+        className="segmented-options"
+        role="radiogroup"
+        aria-labelledby={`seg-${label.replace(/\W+/g, "-").toLowerCase()}`}
+        onKeyDown={onKeyDown}
+      >
+        {options.map((option) => {
+          const active = option.id === value;
+          return (
+            <button
+              key={option.id}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              tabIndex={active ? 0 : -1}
+              disabled={disabled}
+              className={active ? "active" : ""}
+              onClick={() => onChange(option.id)}
+            >
+              <b>{option.label}</b>
+              {option.hint ? <small>{option.hint}</small> : null}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Mode and difficulty picker shown before a run. Locked once a run is under
+ * way, and in PvP the difficulty is fixed by the rules rather than chosen.
+ */
+function ModeSelect({
+  mode,
+  difficulty,
+  onMode,
+  onDifficulty,
+  locked,
+  onOpenLobby,
+}: {
+  mode: GameMode;
+  difficulty: DifficultyId;
+  onMode: (next: GameMode) => void;
+  onDifficulty: (next: DifficultyId) => void;
+  locked: boolean;
+  onOpenLobby: () => void;
+}) {
+  return (
+    <div className="mode-select">
+      <SegmentedChoice
+        label="GAME MODE"
+        value={mode}
+        disabled={locked}
+        options={[
+          { id: "pve", label: "PVE" },
+          { id: "pvp", label: "PVP 1V1" },
+        ] as const}
+        onChange={(next) => {
+          onMode(next);
+          if (next === "pvp") onOpenLobby();
+        }}
+      />
+
+      {mode === "pve" ? (
+        <>
+          <SegmentedChoice
+            label="DIFFICULTY"
+            value={difficulty}
+            disabled={locked}
+            className="stacked"
+            options={DIFFICULTY_ORDER.map((id) => ({
+              id,
+              label: DIFFICULTIES[id].shortName,
+              hint:
+                DIFFICULTIES[id].wormhole.kind === "locked"
+                  ? "WORMHOLE LOCKED"
+                  : DIFFICULTIES[id].contactHazard.enabled
+                    ? "MOVING · CONTACT HAZARD"
+                    : "MOVING WORMHOLE",
+            }))}
+            onChange={onDifficulty}
+          />
+          <p className="mode-blurb">{DIFFICULTIES[difficulty].blurb}</p>
+        </>
+      ) : (
+        <div className="mode-pvp">
+          <p className="mode-blurb">
+            Real-time 1v1. You each fly your own arena with a locked centre wormhole and the
+            Easy collision shield, and send collected attack power-ups through to your opponent.
+            No sign-in needed — guests get a temporary callsign.
+          </p>
+          <button type="button" className="mode-lobby" onClick={onOpenLobby}>
+            OPEN MULTIPLAYER LOBBY
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Compact live readout of the rules in force, pinned over the arena.
+ *
+ * While a run is under way it reports the live state from the HUD snapshot.
+ * Before one starts it reports `pending` — the rules START would apply — so
+ * the badge always describes the run the player is about to fly.
+ */
+function DifficultyBadge({
+  hud,
+  pending,
+  pendingMode,
+  live,
+}: {
+  hud: Hud;
+  pending: DifficultyRules;
+  pendingMode: GameMode;
+  live: boolean;
+}) {
+  const pendingShield = pending.collisionShield.enabled;
+  const wormhole = live
+    ? hud.wormholeState
+    : pending.wormhole.kind === "locked"
+      ? "LOCKED"
+      : "MOVING";
+  const hazardArmed = live ? hud.contactHazard : pending.contactHazard.enabled;
+  const charge = live ? hud.collisionShield : pendingShield ? 100 : null;
+  const recharge = live ? hud.collisionRecharge : 0;
+  const contactActive = live && hud.contactActive;
+
+  const shield =
+    charge === null
+      ? "DISABLED"
+      : recharge > 0
+        ? `RECHARGING ${recharge.toFixed(1)}s`
+        : charge >= 100
+          ? "FULL"
+          : `${charge}%`;
+
+  return (
+    <div className={`difficulty-badge ${contactActive ? "hazard" : ""}`}>
+      <b className="badge-mode">
+        {(live ? hud.mode : pendingMode) === "pvp" ? "PVP // EASY RULES" : pending.shortName}
+      </b>
+      <span><em>WORMHOLE</em><i>{wormhole}</i></span>
+      <span className={charge !== null && charge <= 0 ? "warn" : ""}>
+        <em>SHIELD</em><i>{shield}</i>
+      </span>
+      <span className={contactActive ? "warn" : ""}>
+        <em>CONTACT</em><i>{hazardArmed ? (contactActive ? "ACTIVE" : "ARMED") : "OFF"}</i>
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Multiplayer lobby.
+ *
+ * The offline path is built first and on purpose: PvE has to stay playable
+ * when the match service is unreachable, so "cannot connect" is a first-class
+ * state here rather than an afterthought. Phase 6 supplies a live socket; the
+ * shell and its states do not change.
+ */
+type LobbyStatus =
+  | { kind: "offline"; reason: string }
+  | { kind: "connecting" }
+  | { kind: "idle" }
+  | { kind: "searching" }
+  | { kind: "waiting"; code: string };
+
+function MultiplayerLobby({
+  status,
+  onQuickMatch,
+  onCreatePrivate,
+  onJoinCode,
+  onCancel,
+  onClose,
+}: {
+  status: LobbyStatus;
+  onQuickMatch: () => void;
+  onCreatePrivate: () => void;
+  onJoinCode: (code: string) => void;
+  onCancel: () => void;
+  onClose: () => void;
+}) {
+  const [code, setCode] = useState("");
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => { closeRef.current?.focus(); }, []);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const busy = status.kind === "searching" || status.kind === "waiting" || status.kind === "connecting";
+  const offline = status.kind === "offline";
+
+  return (
+    <div className="codex-backdrop" role="presentation" onClick={onClose}>
+      <div
+        className="codex lobby"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="lobby-heading"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="codex-head">
+          <h2 id="lobby-heading">MULTIPLAYER LOBBY</h2>
+          <p>Real-time 1v1 under Easy rules. No sign-in — guests get a callsign.</p>
+          <button ref={closeRef} type="button" className="codex-close" onClick={onClose} aria-label="Close lobby">✕</button>
+        </div>
+
+        <div className="lobby-body">
+          <p className={`lobby-status ${offline ? "warn" : ""}`} aria-live="polite">
+            {status.kind === "offline" ? `OFFLINE — ${status.reason}` : null}
+            {status.kind === "connecting" ? "CONNECTING TO MATCH SERVICE…" : null}
+            {status.kind === "idle" ? "CONNECTED — CHOOSE HOW TO PLAY" : null}
+            {status.kind === "searching" ? "SEARCHING FOR AN OPPONENT…" : null}
+            {status.kind === "waiting" ? `WAITING — SHARE CODE ${status.code}` : null}
+          </p>
+
+          {status.kind === "waiting" ? (
+            <p className="lobby-code" aria-label={`Invite code ${status.code.split("").join(" ")}`}>
+              {status.code}
+            </p>
+          ) : null}
+
+          <div className="lobby-actions">
+            <button type="button" className="primary" disabled={offline || busy} onClick={onQuickMatch}>
+              QUICK MATCH
+            </button>
+            <button type="button" disabled={offline || busy} onClick={onCreatePrivate}>
+              CREATE PRIVATE MATCH
+            </button>
+          </div>
+
+          <form
+            className="lobby-join"
+            onSubmit={(event) => { event.preventDefault(); if (code.trim()) onJoinCode(code.trim().toUpperCase()); }}
+          >
+            <label htmlFor="lobby-code-input">JOIN WITH CODE</label>
+            <div>
+              <input
+                id="lobby-code-input"
+                value={code}
+                disabled={offline || busy}
+                onChange={(event) => setCode(event.target.value.toUpperCase().slice(0, 6))}
+                placeholder="ABC123"
+                autoComplete="off"
+                spellCheck={false}
+                inputMode="text"
+                maxLength={6}
+              />
+              <button type="submit" disabled={offline || busy || code.trim().length === 0}>JOIN</button>
+            </div>
+          </form>
+
+          <div className="lobby-foot">
+            {busy ? (
+              <button type="button" onClick={onCancel}>CANCEL</button>
+            ) : null}
+            <button type="button" onClick={onClose}>BACK</button>
+          </div>
+
+          {offline ? (
+            <p className="lobby-note">
+              Single-player is unaffected — close this and pick a PvE difficulty to keep flying.
+            </p>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function WormholeGame() {
   const shellRef = useRef<HTMLElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -823,6 +1199,23 @@ export default function WormholeGame() {
   const [inspect, setInspect] = useState<{ id: PickupId; pinned: boolean } | null>(null);
   const [codexOpen, setCodexOpen] = useState(false);
   const [boardOpen, setBoardOpen] = useState(false);
+  const mode = useSyncExternalStore(
+    modePreference.subscribe,
+    modePreference.get,
+    modePreference.getServer
+  );
+  const difficulty = useSyncExternalStore(
+    difficultyPreference.subscribe,
+    difficultyPreference.get,
+    difficultyPreference.getServer
+  );
+  const [lobbyOpen, setLobbyOpen] = useState(false);
+  // Phase 6 replaces this with live socket state. Until then the lobby
+  // truthfully reports that the match service is not connected.
+  const [lobbyStatus] = useState<LobbyStatus>({
+    kind: "offline",
+    reason: "match service not connected in this build",
+  });
   /** Who Murph Tournaments says is playing. Null until the first check answers. */
   const [player, setPlayer] = useState<ArcadePlayer | null>(null);
   const [summary, setSummary] = useState<RunSummary | null>(null);
@@ -985,6 +1378,11 @@ export default function WormholeGame() {
     window.location.href = discordSignInUrl(window.location.href);
   }, []);
 
+  const chooseMode = useCallback((next: GameMode) => { modePreference.set(next); }, []);
+  const chooseDifficulty = useCallback((next: DifficultyId) => {
+    difficultyPreference.set(next);
+  }, []);
+
   // Ask once, on load, who is playing — and finish saving a run that was
   // waiting on a sign-in redirect. Never blocks or delays the game.
   useEffect(() => {
@@ -1029,8 +1427,18 @@ export default function WormholeGame() {
     if (player) void saveRun(run);
   }, [hud.result, hud.score, hud.rivalHealth, player, saveRun]);
 
+  // Before a run, keep the idle arena matching the selection so the preview
+  // shows exactly what START will produce (EASY re-centres the wormhole at
+  // once). Mutating the ref is enough: the canvas reads it every frame, so no
+  // React state has to change for the preview to update.
+  useEffect(() => {
+    const game = gameRef.current;
+    if (game.running || game.result) return;
+    gameRef.current = createGame(selectedShip(shipId), mode, difficulty);
+  }, [difficulty, mode, shipId]);
+
   const start = useCallback(() => {
-    const game = createGame(selectedShip(shipId));
+    const game = createGame(selectedShip(shipId), mode, difficulty);
     game.running = true;
     game.notice = "ENTERING NEW GROUND";
     gameRef.current = game;
@@ -1051,7 +1459,7 @@ export default function WormholeGame() {
     sync();
     canvasWrapRef.current?.focus({ preventScroll: true });
     play("magic", 0.28);
-  }, [play, shipId, sync]);
+  }, [difficulty, mode, play, shipId, sync]);
 
   const togglePause = useCallback(() => {
     const game = gameRef.current;
@@ -2403,6 +2811,9 @@ export default function WormholeGame() {
   }, [play, sync]);
 
   const currentShip = selectedShip(shipId);
+  const pendingRules = rulesFor(mode, difficulty);
+  /** True once a run is actually under way, so the badge reads live state. */
+  const badgeLive = hud.running && !hud.result;
   const healthPct = hud.maxHealth ? hud.health / hud.maxHealth * 100 : 0;
   const queued = nextWeapon(hud.stock);
   const guidance = hud.notice || hud.coach;
@@ -2481,6 +2892,16 @@ export default function WormholeGame() {
             </label>
             <button type="button" onClick={() => { setCodexOpen(true); setMenuOpen(false); }} aria-haspopup="dialog">WEAPONS</button>
             <button type="button" onClick={() => { setBoardOpen(true); setMenuOpen(false); }} aria-haspopup="dialog">BOARD</button>
+            <div className="menu-mode">
+              <ModeSelect
+                mode={mode}
+                difficulty={difficulty}
+                onMode={chooseMode}
+                onDifficulty={chooseDifficulty}
+                locked={gameActive}
+                onOpenLobby={() => { setLobbyOpen(true); setMenuOpen(false); }}
+              />
+            </div>
             <a className="menu-home" href={MURPH_SITE_URL} target="_blank" rel="noopener noreferrer">MURPH TOURNAMENTS ↗</a>
             <button type="button" onClick={cycleView} aria-label={`Arena width: ${viewSize}. Activate to change.`}>VIEW {viewSize.toUpperCase()}</button>
             <button type="button" aria-pressed={cameraLocked} onClick={() => setCameraLocked((value) => !value)} aria-label={cameraLocked ? "Camera follows your ship. Activate for the whole arena." : "Camera shows the whole arena. Activate to follow your ship."}>
@@ -2512,6 +2933,15 @@ export default function WormholeGame() {
 
       <section className="cockpit">
         <aside className="panel ship-panel">
+          <div className="eyebrow">MISSION SETUP</div>
+          <ModeSelect
+            mode={mode}
+            difficulty={difficulty}
+            onMode={chooseMode}
+            onDifficulty={chooseDifficulty}
+            locked={gameActive}
+            onOpenLobby={() => setLobbyOpen(true)}
+          />
           <div className="eyebrow">SHIP SELECT // 8 FRAMES</div>
           <div className="selected-ship">
             <div className="ship-icon" aria-hidden="true"><span className={`ship-glyph ${currentShip.id}`} /></div>
@@ -2586,6 +3016,7 @@ export default function WormholeGame() {
                 <span><em>PILOT HULL</em><b>{hud.health}/{hud.maxHealth}</b></span>
                 <div className="meter hull"><i style={{ width: `${healthPct}%` }} /></div>
               </div>
+              <DifficultyBadge hud={hud} pending={pendingRules} pendingMode={mode} live={badgeLive} />
               <i className="reticle tl" aria-hidden="true" /><i className="reticle tr" aria-hidden="true" />
               <i className="reticle bl" aria-hidden="true" /><i className="reticle br" aria-hidden="true" />
               {summary ? (
@@ -2785,6 +3216,16 @@ export default function WormholeGame() {
 
       {codexOpen ? <WeaponCodex onClose={() => setCodexOpen(false)} reducedMotion={reducedMotion} /> : null}
       {boardOpen ? <Leaderboard onClose={() => setBoardOpen(false)} /> : null}
+      {lobbyOpen ? (
+        <MultiplayerLobby
+          status={lobbyStatus}
+          onQuickMatch={() => undefined}
+          onCreatePrivate={() => undefined}
+          onJoinCode={() => undefined}
+          onCancel={() => undefined}
+          onClose={() => setLobbyOpen(false)}
+        />
+      ) : null}
     </main>
   );
 }
