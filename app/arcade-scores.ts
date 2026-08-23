@@ -25,7 +25,12 @@ export const MURPH_API_BASE =
 export type RunOutcome = "victory" | "defeat";
 
 export type RunResult = {
+  /** Final score after the time adjustment. */
   score: number;
+  baseScore?: number;
+  timePenalty?: number;
+  initials?: string;
+  practice?: boolean;
   outcome: RunOutcome;
   ship: string;
   rivalHealth: number;
@@ -36,6 +41,7 @@ export type LocalBest = {
   score: number;
   outcome: RunOutcome;
   ship: string;
+  initials?: string;
   /** Epoch milliseconds, so the card can say how long the record has stood. */
   achievedAt: number;
 };
@@ -95,8 +101,13 @@ export function loadLocalBest(): LocalBest | null {
     if (typeof record.score !== "number" || !Number.isFinite(record.score)) return null;
     return {
       score: Math.max(0, Math.floor(record.score)),
+      baseScore: typeof record.baseScore === "number" ? Math.max(0, Math.floor(record.baseScore)) : undefined,
+      timePenalty: typeof record.timePenalty === "number" ? Math.max(0, Math.floor(record.timePenalty)) : undefined,
+      initials: typeof record.initials === "string" ? record.initials.slice(0, 3) : undefined,
+      practice: record.practice === true,
       outcome: isOutcome(record.outcome) ? record.outcome : "defeat",
       ship: typeof record.ship === "string" ? record.ship : "Unknown",
+      initials: typeof record.initials === "string" ? record.initials.slice(0, 3) : undefined,
       achievedAt: typeof record.achievedAt === "number" ? record.achievedAt : 0,
     };
   } catch {
@@ -135,6 +146,7 @@ export function saveLocalRun(run: RunResult) {
     score: run.score,
     outcome: run.outcome,
     ship: run.ship,
+    initials: run.initials,
     achievedAt: Date.now(),
   };
   writeStorage(LOCAL_BEST_KEY, JSON.stringify(best));
