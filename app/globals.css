@@ -1028,3 +1028,57 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
   #menu-panel-display h3, #menu-panel-controls h3 { grid-column: 1 / -1; }
   #menu-panel-controls .drawer-keys { grid-column: 1 / -1; }
 }
+
+
+/* Streamlined preflight and arena shell ------------------------------------ */
+.detail-select {
+  color: #04150c;
+  border-color: var(--lime);
+  background: var(--lime);
+}
+.detail-select:hover:not(:disabled),
+.detail-select:focus-visible {
+  background: var(--lime);
+  filter: brightness(1.08);
+}
+
+.mission-setup {
+  margin-inline: auto;
+}
+
+/* Gameplay keeps the arena authoritative. Secondary ship, control, mission,
+   and threat reference material remains available in the tabbed Menu. */
+.cockpit {
+  width: min(1120px, 100%);
+  grid-template-columns: minmax(0, 1fr);
+}
+.ship-panel,
+.intel-panel {
+  display: none;
+}
+.play-column {
+  width: min(100%, 980px);
+  margin-inline: auto;
+}
+
+/* Hull, shield, special status, and collected power-ups form one persistent
+   instrument rail attached directly to the lower edge of the arena. */
+.app-shell:not([data-immersive="true"]) .status-dock {
+  width: 100%;
+  margin: 0;
+  padding: 10px 12px;
+  grid-template-columns: minmax(170px, 220px) minmax(0, 1fr);
+  border-top: 0;
+  border-radius: 0 0 4px 4px;
+  background: linear-gradient(180deg, rgba(6, 18, 27, .98), rgba(2, 9, 14, .99));
+}
+.app-shell:not([data-immersive="true"]) .pilot-health {
+  display: none;
+}
+
+@media (max-width: 620px) {
+  .app-shell:not([data-immersive="true"]) .status-dock {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 8px;
+  }
+}
