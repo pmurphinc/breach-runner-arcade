@@ -1813,9 +1813,12 @@ export default function WormholeGame() {
         // Eight pixels of breathing room below the panel.
         return Math.max(0, Math.round(rect.bottom - wrapTop) + 8);
       };
+      const rulesClearance = clearanceBelow(".difficulty-badge");
       const next = {
-        left: clearanceBelow(".difficulty-badge"),
-        right: clearanceBelow(".pvp-hud"),
+        left: rulesClearance,
+        // The rules rail spans the arena, so the right-side wormhole charge
+        // readout must clear it too. PvP may add an even taller right panel.
+        right: Math.max(rulesClearance, clearanceBelow(".pvp-hud")),
       };
       const current = overlayInsetRef.current;
       if (current.left !== next.left || current.right !== next.right) {
