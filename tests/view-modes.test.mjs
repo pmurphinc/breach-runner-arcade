@@ -71,3 +71,24 @@ test('touch score shares the rules rail and utilities orbit the fire stick', () 
   assert.match(satellites, /\.touch-pause[\s\S]*left:\s*38%/);
   assert.match(satellites, /border-radius:\s*50%/);
 });
+
+
+test('touch frame reaches the viewport and health bars use fighting-game geometry', () => {
+  assert.match(game, /clearanceBelow\("\.health-rails"\)/,
+    'canvas notices and wormhole charge must clear the attached health bars');
+  assert.match(game, /className="rail-fill hull-fill" style=\{\{ width:/);
+  assert.match(game, /className="rail-fill rival-fill" style=\{\{ width:/);
+  const frame = css.slice(css.indexOf('complete remaining viewport as one framed'));
+  assert.match(frame, /\.arena-stage[\s\S]*height:\s*calc\(100dvh/);
+  assert.match(frame, /\.canvas-wrap[\s\S]*height:\s*100%/);
+  const fighterBars = css.slice(css.indexOf('Fighting-game bars attach'));
+  assert.match(fighterBars, /grid-template-columns:\s*minmax\(0, 1fr\) minmax\(0, 1fr\)/);
+  assert.match(fighterBars, /top:\s*var\(--rules-bottom/);
+});
+
+test('special remains radially between PUP and Pause', () => {
+  const radial = css.slice(css.indexOf('A true 9\/10\/11 o’clock arc'));
+  assert.match(radial, /touch-pup[\s\S]*left:\s*0[\s\S]*top:\s*50%/);
+  assert.match(radial, /touch-special[\s\S]*left:\s*-8%[\s\S]*top:\s*17%/);
+  assert.match(radial, /touch-pause[\s\S]*left:\s*17%[\s\S]*top:\s*-8%/);
+});

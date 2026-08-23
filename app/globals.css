@@ -1295,3 +1295,113 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
   left: 38%;
   top: calc(0px - var(--satellite) - 6px);
 }
+
+
+/* Touch/Hybrid portrait uses the complete remaining viewport as one framed
+   control surface. The square world canvas remains undistorted at the top;
+   the lower extension is a HUD/control deck with matching arena grid. */
+.touch-capable[data-immersive="true"] .arena-stage {
+  flex: 1 1 auto;
+  height: calc(100dvh - 54px - max(6px, env(safe-area-inset-bottom)));
+  min-height: 0;
+}
+.touch-capable[data-immersive="true"] .canvas-wrap {
+  height: 100%;
+  overflow: hidden;
+  border: 2px solid rgba(101, 232, 255, .32);
+  box-sizing: border-box;
+  background-color: #02050a;
+  background-image:
+    linear-gradient(rgba(80, 190, 215, .055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(80, 190, 215, .055) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/* Fighting-game bars attach directly beneath the measured rules rail. */
+.touch-capable .health-rails {
+  position: absolute;
+  z-index: 6;
+  top: var(--rules-bottom, 52px);
+  right: 10px;
+  bottom: auto;
+  left: 10px;
+  height: 42px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: clamp(28px, 8vw, 84px);
+  pointer-events: none;
+}
+.touch-capable .health-rail {
+  position: relative;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  left: auto;
+  width: auto;
+  height: 32px;
+  overflow: visible;
+  border: 1px solid rgba(255, 255, 255, .58);
+  background: rgba(1, 5, 9, .88);
+}
+.touch-capable .rail-fill {
+  top: 1px;
+  bottom: 1px;
+  height: auto !important;
+  max-height: none;
+}
+.touch-capable .pilot-rail .hull-fill {
+  right: auto;
+  left: 1px;
+}
+.touch-capable .pilot-rail .shield-fill {
+  top: auto;
+  right: auto;
+  bottom: -7px;
+  left: 1px;
+  height: 4px !important;
+}
+.touch-capable .rival-rail .rival-fill {
+  right: 1px;
+  left: auto;
+}
+.touch-capable .health-rail span {
+  top: 50%;
+  bottom: auto;
+  padding: 3px 7px;
+  transform: translateY(-50%);
+  background: rgba(1, 5, 9, .72);
+}
+.touch-capable .pilot-rail span {
+  right: auto;
+  left: 7px;
+}
+.touch-capable .rival-rail span {
+  right: 7px;
+  left: auto;
+}
+.touch-capable .pilot-rail small {
+  top: calc(100% + 5px);
+  bottom: auto;
+  left: 1px;
+  padding: 1px 5px;
+  background: rgba(1, 5, 9, .78);
+}
+
+/* A true 9/10/11 o'clock arc around the Fire stick. */
+.touch-capable[data-touch-controls="on"] .touch-action .touch-pup {
+  right: auto;
+  left: 0;
+  top: 50%;
+  transform: translate(-115%, -50%);
+}
+.touch-capable[data-touch-controls="on"] .touch-action .touch-special {
+  right: auto;
+  left: -8%;
+  top: 17%;
+  transform: translate(-50%, -50%);
+}
+.touch-capable[data-touch-controls="on"] .touch-action .touch-pause {
+  left: 17%;
+  top: -8%;
+  transform: translate(-50%, -50%);
+}
