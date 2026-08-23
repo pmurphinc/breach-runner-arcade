@@ -19,7 +19,7 @@ import {
   type ShipSpec,
   type WeaponMeta,
 } from "./game-data";
-import { DIRECTIONAL, drawPowerProjectile, drawWeaponGlyph } from "./weapon-art";
+import { DIRECTIONAL, drawPowerProjectile, drawShipShape, drawWeaponGlyph } from "./weapon-art";
 import {
   DIFFICULTIES,
   DIFFICULTY_ORDER,
@@ -40,7 +40,30 @@ import {
   type DifficultyRules,
   type GameMode,
 } from "./difficulty";
+import ShipSelect from "./ship-select";
+import { SHIP_PROFILES } from "./ship-data";
 import { PvpClient, type PvpSnapshot } from "./pvp-client";
+import {
+  DEFAULT_PRESET,
+  PRESET_BLURBS,
+  PRESET_LABELS,
+  SCREEN_PRESETS,
+  budgetFor,
+  budgetsEqual,
+  readViewport,
+  type LayoutBudget,
+  type ScreenPreset,
+  type TouchControlMode,
+} from "./layout-budget";
+import {
+  MOVEMENT_CODES,
+  applyIntent,
+  facingFor,
+  intentFromKeys,
+  intentFromStick,
+  keysFrom,
+  resolveIntent,
+} from "./movement";
 import {
   MURPH_SITE_URL,
   discordSignInUrl,
@@ -83,84 +106,28 @@ type SpawnFx = { x: number; y: number; type: PickupId; kind: SpawnKind; age: num
 
 type QualityMode = "auto" | "high" | "performance";
 type LayoutPref = "auto" | "game" | "desktop";
-type SticksMode = "docked" | "overlay" | "gutter";
 
 /**
- * Layout is derived from the device alone — never from whether a match is
- * running — so the interface never rearranges itself mid-session.
+ * Used for the very first render, before anything has been measured. Values
+ * are conservative on purpose: a small arena that certainly fits is a better
+ * first paint than a large one that has to snap smaller.
  */
-type DeviceLayout = {
-  touch: boolean;
-  /** No precise pointer: a real handheld rather than a touchscreen laptop. */
-  coarse: boolean;
-  handheld: boolean;
-  orientation: "portrait" | "landscape";
-  form: "phone" | "tablet" | "desktop";
-  /** Too narrow for an inline control row; the MENU panel takes over. */
-  narrow: boolean;
-  /** Square arena edge in CSS pixels, measured rather than guessed. */
-  arena: number;
-  stick: number;
-  sticks: SticksMode;
+const FALLBACK_BUDGET: LayoutBudget = {
+  preset: DEFAULT_PRESET,
+  orientation: "landscape",
+  form: "desktop",
+  handheld: false,
+  narrow: false,
+  arena: 520,
+  stick: 0,
+  sticks: "overlay",
+  showTouchControls: false,
+  panels: "scroll",
+  trimmed: false,
+  usableWidth: 1280,
+  usableHeight: 800,
 };
 
-/** Immersive chrome heights, kept in step with the values in globals.css. */
-const TOP_H = 48;
-const HUD_H = 44;
-const DOCK_H = 62;
-const GAP = 6;
-
-const DESKTOP_LAYOUT: DeviceLayout = {
-  touch: false, coarse: false, handheld: false, orientation: "landscape",
-  form: "desktop", narrow: false, arena: 0, stick: 0, sticks: "docked",
-};
-
-function readDeviceLayout(): DeviceLayout {
-  const coarse = window.matchMedia("(pointer: coarse)").matches;
-  // Fire OS Silk can expose a fine pointer and zero touch points despite being
-  // a touch-only tablet. Treat its user agent as touch hardware so essential
-  // controls never disappear behind desktop-only layout assumptions.
-  const touchDeviceUA = /Android|\bSilk\/|Kindle|KF[A-Z]{2,}/i.test(navigator.userAgent);
-  const touch = touchDeviceUA || navigator.maxTouchPoints > 0 || coarse || "ontouchstart" in window;
-  const w = window.innerWidth;
-  const h = window.innerHeight;
-  const shortEdge = Math.min(w, h);
-  // A touchscreen laptop reports touch points but has a fine pointer and a big
-  // screen; it should keep the desktop cockpit.
-  const handheld = touch && (coarse || shortEdge < 950);
-  const orientation = w >= h ? "landscape" : "portrait";
-  const form: DeviceLayout["form"] = !touch ? "desktop" : shortEdge < 600 ? "phone" : "tablet";
-  // Keep JavaScript in step with the single-column tablet breakpoint in CSS.
-  // The old 900/980 mismatch left 901–980px tablets without a MENU button.
-  const narrow = w <= 980;
-
-  if (orientation === "landscape") {
-    const stick = Math.round(cap(Math.min(w * 0.16, h * 0.34), 96, 150));
-    // Side gutters keep the arena completely clear, but on a short, wide screen
-    // they cost more arena than floating the sticks over its lower corners.
-    const gutterArena = Math.min(h - TOP_H - GAP * 2, w - 2 * (stick + 20) - GAP * 2);
-    const overlayArena = Math.min(w - GAP * 2, h - TOP_H - DOCK_H - GAP * 4);
-    const useOverlay = overlayArena > gutterArena * 1.15;
-    return {
-      touch, coarse, handheld, orientation, form, narrow,
-      arena: Math.round(Math.max(220, useOverlay ? overlayArena : gutterArena)),
-      stick,
-      sticks: useOverlay ? "overlay" : "gutter",
-    };
-  }
-
-  const stick = Math.round(cap(Math.min(w * 0.3, h * 0.24), 100, 150));
-  const full = w - GAP * 2;
-  // Prefer the layout where nothing overlaps the arena, but only while the
-  // arena still gets most of the width. Otherwise let the arena fill the width
-  // and float the controls over its lower corners.
-  const dockedArena = Math.min(full, h - TOP_H - HUD_H - DOCK_H - stick - GAP * 4);
-  if (dockedArena >= full * 0.82) {
-    return { touch, coarse, handheld, orientation, form, narrow, arena: Math.round(Math.max(220, dockedArena)), stick, sticks: "docked" };
-  }
-  const arena = Math.round(Math.max(220, Math.min(full, h - TOP_H - DOCK_H - GAP * 4)));
-  return { touch, coarse, handheld, orientation, form, narrow, arena, stick, sticks: "overlay" };
-}
 
 type Enemy = {
   x: number;
@@ -520,23 +487,6 @@ function compact<T>(items: T[], keep: (item: T) => boolean) {
   items.length = write;
 }
 
-function drawShipShape(ctx: CanvasRenderingContext2D, ship: ShipId, scale = 1) {
-  const shapes: Record<ShipId, number[][]> = {
-    tank: [[18, 0], [9, -12], [-11, -16], [-8, -5], [-17, -6], [-13, 0], [-17, 6], [-8, 5], [-11, 16], [9, 12]],
-    wing: [[20, 0], [-8, -10], [-3, -3], [-15, 0], [-3, 3], [-8, 10]],
-    squid: [[18, 0], [-15, -7], [-7, 0], [-19, 12], [1, 7], [-6, 0], [-19, -12]],
-    rabbit: [[17, 0], [5, -7], [-14, -9], [-7, 0], [-14, 9], [5, 7]],
-    turtle: [[18, 0], [8, -13], [-8, -12], [-13, -7], [-12, 0], [-13, 7], [-8, 12], [8, 13]],
-    flash: [[19, 0], [-12, -13], [-5, 0], [-12, 13]],
-    hunter: [[20, 0], [-7, -13], [-5, -5], [-15, -6], [-8, 0], [-15, 6], [-5, 5], [-7, 13]],
-    flagship: [[28, 0], [15, -19], [-8, -19], [-9, -10], [-18, -13], [-20, 0], [-18, 13], [-9, 10], [-8, 19], [15, 19]],
-  };
-  const points = shapes[ship];
-  ctx.beginPath();
-  ctx.moveTo(points[0][0] * scale, points[0][1] * scale);
-  for (let i = 1; i < points.length; i += 1) ctx.lineTo(points[i][0] * scale, points[i][1] * scale);
-  ctx.closePath();
-}
 
 function useReducedMotion() {
   const [reduced, setReduced] = useState(false);
@@ -887,6 +837,32 @@ function createPreference<T extends string>(key: string, allowed: readonly T[], 
   };
 }
 
+/** Relative thumbstick size, as a multiplier on the measured natural size. */
+export const STICK_SIZES = { small: 0.8, medium: 1, large: 1.25 } as const;
+export type StickSizeName = keyof typeof STICK_SIZES;
+
+const presetPreference = createPreference<ScreenPreset>(
+  "wormhole-arcade:screen",
+  SCREEN_PRESETS,
+  DEFAULT_PRESET
+);
+const touchControlPreference = createPreference<TouchControlMode>(
+  "wormhole-arcade:touch-controls",
+  ["auto", "show", "hide"],
+  "auto"
+);
+const stickSizePreference = createPreference<StickSizeName>(
+  "wormhole-arcade:stick-size",
+  ["small", "medium", "large"],
+  "medium"
+);
+/** The ship the player last confirmed, pre-highlighted on the next visit. */
+const shipPreference = createPreference<ShipId>(
+  "wormhole-arcade:ship",
+  SHIPS.map((ship) => ship.id),
+  "wing"
+);
+
 const modePreference = createPreference<GameMode>(
   "wormhole-arcade:mode",
   ["pve", "pvp"],
@@ -967,79 +943,6 @@ function SegmentedChoice<T extends string>({
   );
 }
 
-/**
- * Mode and difficulty picker shown before a run. Locked once a run is under
- * way, and in PvP the difficulty is fixed by the rules rather than chosen.
- */
-function ModeSelect({
-  mode,
-  difficulty,
-  onMode,
-  onDifficulty,
-  locked,
-  onOpenLobby,
-}: {
-  mode: GameMode;
-  difficulty: DifficultyId;
-  onMode: (next: GameMode) => void;
-  onDifficulty: (next: DifficultyId) => void;
-  locked: boolean;
-  onOpenLobby: () => void;
-}) {
-  return (
-    <div className="mode-select">
-      <SegmentedChoice
-        label="GAME MODE"
-        value={mode}
-        disabled={locked}
-        options={[
-          { id: "pve", label: "PVE" },
-          { id: "pvp", label: "PVP 1V1" },
-        ] as const}
-        onChange={(next) => {
-          onMode(next);
-          if (next === "pvp") onOpenLobby();
-        }}
-      />
-
-      {mode === "pve" ? (
-        <>
-          <SegmentedChoice
-            label="DIFFICULTY"
-            value={difficulty}
-            disabled={locked}
-            className="stacked"
-            options={DIFFICULTY_ORDER.map((id) => ({
-              id,
-              label: DIFFICULTIES[id].shortName,
-              hint:
-                DIFFICULTIES[id].wormhole.kind === "locked"
-                  ? "WORMHOLE LOCKED"
-                  : DIFFICULTIES[id].wormholeEnrage.enabled
-                    ? `MOVING${DIFFICULTIES[id].contactHazard.enabled ? " · CONTACT" : ""} · ENRAGE ${Math.round(DIFFICULTIES[id].wormholeEnrage.thresholdFraction * 100)}%`
-                    : DIFFICULTIES[id].contactHazard.enabled
-                      ? "MOVING · CONTACT HAZARD"
-                      : "MOVING WORMHOLE",
-            }))}
-            onChange={onDifficulty}
-          />
-          <p className="mode-blurb">{DIFFICULTIES[difficulty].blurb}</p>
-        </>
-      ) : (
-        <div className="mode-pvp">
-          <p className="mode-blurb">
-            Real-time 1v1. You each fly your own arena with a locked centre wormhole and the
-            Easy collision shield, and send collected attack power-ups through to your opponent.
-            No sign-in needed — guests get a temporary callsign.
-          </p>
-          <button type="button" className="mode-lobby" onClick={onOpenLobby}>
-            OPEN MULTIPLAYER LOBBY
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
 
 /**
  * Compact live readout of the rules in force, pinned over the arena.
@@ -1353,6 +1256,347 @@ function PvpHud({ net }: { net: PvpSnapshot }) {
   );
 }
 
+/** One line describing a difficulty, derived from its rules rather than typed. */
+function difficultyHint(id: DifficultyId) {
+  const rules = DIFFICULTIES[id];
+  if (rules.wormhole.kind === "locked") return "WORMHOLE LOCKED";
+  const parts = ["MOVING"];
+  if (rules.contactHazard.enabled) parts.push("CONTACT");
+  if (rules.wormholeEnrage.enabled) {
+    parts.push(`ENRAGE ${Math.round(rules.wormholeEnrage.thresholdFraction * 100)}%`);
+  }
+  return parts.join(" · ");
+}
+
+/**
+ * Mission Setup: the one place PvE/PvP and difficulty are chosen before a
+ * launch. The menu only ever summarises these and offers a way back here, so
+ * the same setting never appears as two independently interactive copies.
+ */
+function MissionSetup({
+  ship,
+  mode,
+  difficulty,
+  onMode,
+  onDifficulty,
+  onChangeShip,
+  onLaunch,
+  onOpenLobby,
+  net,
+}: {
+  ship: ShipId;
+  mode: GameMode;
+  difficulty: DifficultyId;
+  onMode: (next: GameMode) => void;
+  onDifficulty: (next: DifficultyId) => void;
+  onChangeShip: () => void;
+  onLaunch: () => void;
+  onOpenLobby: () => void;
+  net: PvpSnapshot | null;
+}) {
+  const profile = SHIP_PROFILES[ship];
+  const rules = rulesFor(mode, difficulty);
+  const [moreInfo, setMoreInfo] = useState(false);
+
+  return (
+    <section className="mission-setup">
+      <div className="setup-head">
+        <p className="select-pilot">MISSION SETUP</p>
+        <h2>CHOOSE YOUR MISSION</h2>
+      </div>
+
+      <div className="setup-ship">
+        <div>
+          <span>YOUR SHIP</span>
+          <b>{profile.name}</b>
+          <small>{profile.role} · {profile.experience}</small>
+        </div>
+        <button type="button" onClick={onChangeShip}>CHANGE SHIP</button>
+      </div>
+
+      <SegmentedChoice
+        label="GAME MODE"
+        value={mode}
+        options={[
+          { id: "pve", label: "PVE" },
+          { id: "pvp", label: "PVP 1V1" },
+        ] as const}
+        onChange={onMode}
+      />
+
+      {mode === "pve" ? (
+        <>
+          <SegmentedChoice
+            label="DIFFICULTY"
+            className="stacked"
+            value={difficulty}
+            options={DIFFICULTY_ORDER.map((id) => ({
+              id,
+              label: DIFFICULTIES[id].shortName,
+              hint: difficultyHint(id),
+            }))}
+            onChange={onDifficulty}
+          />
+          <p className="setup-summary">
+            {rules.wormhole.kind === "locked" ? "Wormhole locked centre" : "Wormhole moves"}
+            {" · "}
+            {rules.collisionShield.enabled ? "collision shield" : "no collision shield"}
+            {" · "}
+            {rules.contactHazard.enabled ? "contact hazard" : "contact harmless"}
+            <button type="button" className="more-info" onClick={() => setMoreInfo((v) => !v)} aria-expanded={moreInfo}>
+              {moreInfo ? "LESS" : "MORE INFO"}
+            </button>
+          </p>
+          {moreInfo ? <p className="setup-blurb">{rules.blurb}</p> : null}
+          <button type="button" className="setup-launch" onClick={onLaunch}>LAUNCH MISSION</button>
+        </>
+      ) : (
+        <>
+          <p className="setup-summary">
+            Real-time 1v1 under Easy rules. No sign-in — guests get a callsign.
+            {net?.name ? ` You are ${net.name}.` : ""}
+          </p>
+          <button type="button" className="setup-launch" onClick={onOpenLobby}>
+            OPEN MULTIPLAYER LOBBY
+          </button>
+        </>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Settings drawer.
+ *
+ * Replaces the tall flat dropdown. A right-side sheet with a sticky header
+ * and a sticky primary action, an independently scrolling body, a focus trap,
+ * Escape to close and focus restored to whatever opened it — so it never
+ * depends on the page scrolling and never loses the keyboard.
+ *
+ * It deliberately does not contain the ship grid or a second copy of the
+ * mode and difficulty controls: it summarises what is chosen and offers a way
+ * back to the surface that owns the choice.
+ */
+function SettingsDrawer({
+  open, onClose, ship, mode, difficulty, gameActive, stage,
+  preset, onPreset, cameraLocked, onCamera, quality, autoLabel, onQuality,
+  layoutPref, onLayoutPref, fullscreen, onFullscreen, sound, onSound,
+  touchControls, onTouchControls, stickSize, onStickSize,
+  onChangeShip, onChangeMode, onRunAgain, onCodex, onBoard, onLobby,
+}: {
+  open: boolean;
+  onClose: () => void;
+  ship: ShipId;
+  mode: GameMode;
+  difficulty: DifficultyId;
+  gameActive: boolean;
+  stage: "select" | "setup" | "arena";
+  preset: ScreenPreset;
+  onPreset: (next: ScreenPreset) => void;
+  cameraLocked: boolean;
+  onCamera: (next: boolean) => void;
+  quality: QualityMode;
+  autoLabel: string;
+  onQuality: (next: QualityMode) => void;
+  layoutPref: LayoutPref;
+  onLayoutPref: (next: LayoutPref) => void;
+  fullscreen: boolean;
+  onFullscreen: () => void;
+  sound: boolean;
+  onSound: (next: boolean) => void;
+  touchControls: TouchControlMode;
+  onTouchControls: (next: TouchControlMode) => void;
+  stickSize: StickSizeName;
+  onStickSize: (next: StickSizeName) => void;
+  onChangeShip: () => void;
+  onChangeMode: () => void;
+  onRunAgain: () => void;
+  onCodex: () => void;
+  onBoard: () => void;
+  onLobby: () => void;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const restoreRef = useRef<HTMLElement | null>(null);
+  const profile = SHIP_PROFILES[ship];
+  const rules = rulesFor(mode, difficulty);
+
+  useEffect(() => {
+    if (!open) return;
+    // Remember what opened the drawer so focus can go back there on close.
+    restoreRef.current = document.activeElement as HTMLElement | null;
+    closeRef.current?.focus();
+    const restore = restoreRef.current;
+    return () => { restore?.focus?.(); };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.stopPropagation(); onClose(); return; }
+      if (event.key !== "Tab") return;
+      // Focus trap: Tab cycles inside the drawer rather than escaping to the
+      // page behind it.
+      const candidates = panelRef.current?.querySelectorAll<HTMLElement>(
+        "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), [tabindex]"
+      );
+      // The segmented controls use a roving tabindex, so many of their buttons
+      // carry tabindex="-1" and are not actually tabbable. Including them made
+      // the guarded "last" element the wrong one, and Tab escaped the drawer.
+      const focusable = [...(candidates ?? [])].filter(
+        (element) => element.tabIndex >= 0 && element.offsetParent !== null
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onClose, open]);
+
+  if (!open) return null;
+
+  const modeSummary = mode === "pvp" ? "PVP 1V1" : DIFFICULTIES[difficulty].shortName;
+
+  return (
+    <div className="drawer-backdrop" role="presentation" onClick={onClose}>
+      <div
+        className="settings-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="drawer-title"
+        ref={panelRef}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className="drawer-head">
+          <h2 id="drawer-title">MENU</h2>
+          <button ref={closeRef} type="button" className="drawer-close" onClick={onClose} aria-label="Close menu">✕</button>
+        </header>
+
+        <div className="drawer-body">
+          <section>
+            <h3>Play</h3>
+            <div className="drawer-summary">
+              <p><span>Ship</span><b>{profile.name}</b></p>
+              <p><span>Mode</span><b>{modeSummary}</b></p>
+              {mode === "pve" ? (
+                <p className="drawer-note">
+                  {rules.wormhole.kind === "locked" ? "Wormhole locked centre" : "Wormhole moves"}
+                  {rules.collisionShield.enabled ? " · collision shield" : ""}
+                  {rules.contactHazard.enabled ? " · contact hazard" : ""}
+                </p>
+              ) : null}
+            </div>
+            <div className="drawer-actions">
+              <button type="button" onClick={onChangeShip}>CHANGE SHIP</button>
+              <button type="button" onClick={onChangeMode}>CHANGE MODE</button>
+              {stage === "arena" ? <button type="button" onClick={onRunAgain}>{gameActive ? "RESTART" : "RUN AGAIN"}</button> : null}
+              {mode === "pvp" ? <button type="button" onClick={onLobby}>MULTIPLAYER LOBBY</button> : null}
+            </div>
+          </section>
+
+          <section>
+            <h3>Display</h3>
+            <SegmentedChoice
+              label="SCREEN FIT"
+              className="stacked"
+              value={preset}
+              options={SCREEN_PRESETS.map((id) => ({ id, label: PRESET_LABELS[id].toUpperCase(), hint: PRESET_BLURBS[id] }))}
+              onChange={onPreset}
+            />
+            <SegmentedChoice
+              label="CAMERA"
+              value={cameraLocked ? "ship" : "arena"}
+              options={[{ id: "ship", label: "SHIP LOCK" }, { id: "arena", label: "ARENA" }] as const}
+              onChange={(next) => onCamera(next === "ship")}
+            />
+            <SegmentedChoice
+              label="RENDER QUALITY"
+              value={quality}
+              options={[
+                { id: "auto", label: "AUTO", hint: autoLabel },
+                { id: "high", label: "HIGH" },
+                { id: "performance", label: "PERF" },
+              ] as const}
+              onChange={onQuality}
+            />
+            <SegmentedChoice
+              label="SHELL"
+              value={layoutPref}
+              options={[
+                { id: "auto", label: "AUTO" },
+                { id: "game", label: "GAME" },
+                { id: "desktop", label: "DESKTOP" },
+              ] as const}
+              onChange={onLayoutPref}
+            />
+            <button type="button" className="drawer-wide" aria-pressed={fullscreen} onClick={onFullscreen}>
+              {fullscreen ? "EXIT FULLSCREEN" : "FULLSCREEN"}
+            </button>
+          </section>
+
+          <section>
+            <h3>Controls &amp; Audio</h3>
+            <SegmentedChoice
+              label="SOUND"
+              value={sound ? "on" : "off"}
+              options={[{ id: "on", label: "ON" }, { id: "off", label: "OFF" }] as const}
+              onChange={(next) => onSound(next === "on")}
+            />
+            <SegmentedChoice
+              label="TOUCH CONTROLS"
+              value={touchControls}
+              options={[
+                { id: "auto", label: "AUTO" },
+                { id: "show", label: "SHOW" },
+                { id: "hide", label: "HIDE" },
+              ] as const}
+              onChange={onTouchControls}
+            />
+            <SegmentedChoice
+              label="TOUCH CONTROL SIZE"
+              value={stickSize}
+              options={[
+                { id: "small", label: "SMALL" },
+                { id: "medium", label: "MEDIUM" },
+                { id: "large", label: "LARGE" },
+              ] as const}
+              onChange={onStickSize}
+            />
+            <dl className="drawer-keys">
+              <div><dt>Move</dt><dd>W A S D or arrows</dd></div>
+              <div><dt>Pulse cannon</dt><dd>Space</dd></div>
+              <div><dt>Power-up</dt><dd>E · touch PUP</dd></div>
+              <div><dt>Ship special</dt><dd>Q · touch SPEC</dd></div>
+              <div><dt>Menu / pause</dt><dd>P</dd></div>
+            </dl>
+          </section>
+
+          <section>
+            <h3>Game Information</h3>
+            <div className="drawer-actions">
+              <button type="button" onClick={onCodex} aria-haspopup="dialog">WEAPON CODEX</button>
+              <button type="button" onClick={onBoard} aria-haspopup="dialog">LEADERBOARD</button>
+              <button type="button" onClick={onChangeShip}>VIEW ALL SHIPS</button>
+              <a className="drawer-link" href={MURPH_SITE_URL} target="_blank" rel="noopener noreferrer">
+                MURPH TOURNAMENTS ↗
+              </a>
+            </div>
+          </section>
+        </div>
+
+        <footer className="drawer-foot">
+          <button type="button" className="drawer-primary" onClick={onClose}>
+            {stage === "arena" ? "BACK TO THE ARENA" : "BACK"}
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
 export default function WormholeGame() {
   const shellRef = useRef<HTMLElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -1364,7 +1608,12 @@ export default function WormholeGame() {
   const aimStickPointer = useRef<number | null>(null);
   const moveHeading = useRef<number | null>(null);
   const aimHeading = useRef<number | null>(null);
-  const [shipId, setShipId] = useState<ShipId>("wing");
+  const shipId = useSyncExternalStore(
+    shipPreference.subscribe,
+    shipPreference.get,
+    shipPreference.getServer
+  );
+  const setShipId = useCallback((next: ShipId) => { shipPreference.set(next); }, []);
   const gameRef = useRef<Game>(createGame(selectedShip("wing")));
   const keys = useRef<Record<string, boolean>>({});
   /** Keys released since the last tick; cleared only after a tick reads them. */
@@ -1372,11 +1621,25 @@ export default function WormholeGame() {
   const [hud, setHud] = useState<Hud>(() => hudFrom(createGame(selectedShip("wing"))));
   const [sound, setSound] = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
-  const [device, setDevice] = useState<DeviceLayout>(DESKTOP_LAYOUT);
   const [layoutPref, setLayoutPref] = useState<LayoutPref>("auto");
   const [menuOpen, setMenuOpen] = useState(false);
   const [cameraLocked, setCameraLocked] = useState(true);
-  const [viewSize, setViewSize] = useState<"compact" | "standard" | "wide">("standard");
+  const screenPreset = useSyncExternalStore(
+    presetPreference.subscribe,
+    presetPreference.get,
+    presetPreference.getServer
+  );
+  const touchControlMode = useSyncExternalStore(
+    touchControlPreference.subscribe,
+    touchControlPreference.get,
+    touchControlPreference.getServer
+  );
+  const stickSizeName = useSyncExternalStore(
+    stickSizePreference.subscribe,
+    stickSizePreference.get,
+    stickSizePreference.getServer
+  );
+  const [budget, setBudget] = useState<LayoutBudget | null>(null);
   const [quality, setQuality] = useState<QualityMode>("auto");
   const [autoLabel, setAutoLabel] = useState("HIGH");
   const [moveStickPosition, setMoveStickPosition] = useState<StickPosition>({ active: false, x: 0, y: 0 });
@@ -1394,6 +1657,15 @@ export default function WormholeGame() {
     difficultyPreference.get,
     difficultyPreference.getServer
   );
+  /**
+   * Where the player is before the arena.
+   *
+   * "select" is the dedicated ship scene and is always where a new browser
+   * session starts — the remembered ship pre-highlights, but nothing launches
+   * on its own. "setup" is Mission Setup: mode and difficulty. "arena" means
+   * the shell is showing the game.
+   */
+  const [stage, setStage] = useState<"select" | "setup" | "arena">("select");
   const [lobbyOpen, setLobbyOpen] = useState(false);
   const [net, setNet] = useState<PvpSnapshot | null>(null);
   /** Who Murph Tournaments says is playing. Null means guest or unavailable. */
@@ -1432,46 +1704,51 @@ export default function WormholeGame() {
   useEffect(() => { reducedMotionRef.current = reducedMotion; }, [reducedMotion]);
 
   const gameActive = hud.running && !hud.result;
-  const touchCapable = device.touch;
+  // Until the first measurement lands, assume the safest shape rather than a
+  // desktop one, so a handheld never flashes a layout it cannot use.
+  const layout: LayoutBudget = budget ?? FALLBACK_BUDGET;
+  const touchCapable = layout.showTouchControls;
   // Immersive is a property of the hardware, not of the match in progress.
-  const immersive = layoutPref === "game" || (layoutPref === "auto" && device.handheld);
+  const immersive = layoutPref === "game" || (layoutPref === "auto" && layout.handheld);
 
+  // One measurement drives the whole interface. It is recomputed on every
+  // event that can change the answer — resize, visualViewport changes from
+  // browser chrome or pinch zoom, rotation, fold, fullscreen, and preference
+  // changes — and coalesced into a single animation frame so a stream of
+  // resize events cannot turn into a render storm. Equality gating means an
+  // event that changes nothing costs no React work at all.
   useEffect(() => {
-    // Touch capability, never viewport width: Fire OS Silk and some Android
-    // tablet browsers report a fine pointer while still being touch-only.
     const coarsePointer = window.matchMedia("(pointer: coarse)");
     let frame = 0;
     const measure = () => {
       frame = 0;
-      setDevice((previous) => {
-        const next = readDeviceLayout();
-        return previous.arena === next.arena
-          && previous.stick === next.stick
-          && previous.sticks === next.sticks
-          && previous.orientation === next.orientation
-          && previous.form === next.form
-          && previous.narrow === next.narrow
-          && previous.touch === next.touch
-          && previous.coarse === next.coarse
-          && previous.handheld === next.handheld
-          ? previous
-          : next;
-      });
+      const next = budgetFor(readViewport(touchControlMode, STICK_SIZES[stickSizeName]), screenPreset);
+      setBudget((previous) => (previous && budgetsEqual(previous, next) ? previous : next));
     };
     const schedule = () => { if (!frame) frame = requestAnimationFrame(measure); };
     measure();
+
     coarsePointer.addEventListener?.("change", schedule);
     window.addEventListener("resize", schedule, { passive: true });
     window.addEventListener("orientationchange", schedule, { passive: true });
     window.addEventListener("touchstart", schedule, { passive: true, once: true });
+    document.addEventListener("fullscreenchange", schedule);
+    // visualViewport is the one that notices browser chrome appearing, the
+    // on-screen keyboard, and pinch zoom.
+    window.visualViewport?.addEventListener("resize", schedule);
+    window.visualViewport?.addEventListener("scroll", schedule);
+
     return () => {
       if (frame) cancelAnimationFrame(frame);
       coarsePointer.removeEventListener?.("change", schedule);
       window.removeEventListener("resize", schedule);
       window.removeEventListener("orientationchange", schedule);
       window.removeEventListener("touchstart", schedule);
+      document.removeEventListener("fullscreenchange", schedule);
+      window.visualViewport?.removeEventListener("resize", schedule);
+      window.visualViewport?.removeEventListener("scroll", schedule);
     };
-  }, []);
+  }, [screenPreset, stickSizeName, touchControlMode]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -1491,8 +1768,8 @@ export default function WormholeGame() {
   // Page-level gesture suppression is scoped to active touch gameplay so normal
   // scrolling, zooming, and selection stay available everywhere else.
   useEffect(() => {
-    hudInsetRef.current = immersive && device.sticks === "overlay" ? 44 : 0;
-  }, [immersive, device.sticks]);
+    hudInsetRef.current = immersive && layout.sticks === "overlay" ? 44 : 0;
+  }, [immersive, layout.sticks]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -1683,6 +1960,7 @@ export default function WormholeGame() {
     runShipName.current = game.ship.name;
     sync();
     canvasWrapRef.current?.focus({ preventScroll: true });
+    setStage("arena");
     play("magic", 0.28);
   }, [difficulty, mode, play, shipId, sync]);
 
@@ -1812,7 +2090,9 @@ export default function WormholeGame() {
   }, [updateStick]);
 
   useEffect(() => {
-    const gameKeys = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "KeyE", "KeyQ", "KeyP"];
+    // Every key the game claims, so none of them scrolls the page. Movement
+    // comes from the shared list, so WASD and the arrows stay in step.
+    const gameKeys = [...MOVEMENT_CODES, "Space", "KeyE", "KeyQ", "KeyP"] as string[];
     const down = (event: KeyboardEvent) => {
       const code = event.code;
       const target = event.target as HTMLElement | null;
@@ -2316,42 +2596,58 @@ export default function WormholeGame() {
       }
       if (contact.damage > 0) damageContact(game, contact.damage);
 
-      const movementHeading = moveHeading.current;
       const firingHeading = aimHeading.current;
-      let left = keys.current.ArrowLeft || keys.current.KeyA;
-      let right = keys.current.ArrowRight || keys.current.KeyD;
-      let thrust = keys.current.ArrowUp || keys.current.KeyW;
       let fire = keys.current.Space;
       const launch = keys.current.KeyE;
+
+      // Keyboard and touch resolve to the same movement intent. WASD and the
+      // arrow cluster both request a world-space direction directly; diagonals
+      // are normalized so up-right is not faster than right, and opposing keys
+      // cancel their axis.
+      let intent = resolveIntent(
+        intentFromStick(moveHeading.current),
+        intentFromKeys(keysFrom(keys.current))
+      );
       if (player.emp > 0) {
-        [left, right] = [right, left];
-        if (game.cycles % 3 === 0) [thrust, fire] = [fire, thrust];
+        // EMP still scrambles the pilot: the requested direction is inverted
+        // and the trigger swaps with movement, as it always has.
+        if (intent.active && intent.heading !== null) {
+          intent = { ...intent, heading: intent.heading + 180 };
+        }
+        if (game.cycles % 3 === 0) {
+          const swap = intent.active;
+          fire = swap || fire;
+          if (fire) intent = { active: false, heading: null, magnitude: 0 };
+        }
       }
 
       let handling = game.ship;
       if (game.ship.id === "flash") handling = player.flashMode === "tank" ? SHIPS[0] : SHIPS[2];
       const maxSpeed = handling.maxSpeed + player.thrust * THRUST_SPEED_BONUS;
       const acceleration = handling.acceleration + player.thrust * THRUST_ACCEL_BONUS;
-      if (movementHeading !== null) {
-        const movementAngle = (player.emp > 0 ? movementHeading + 180 : movementHeading) * DEG;
-        if (firingHeading === null) player.angle = movementAngle / DEG;
-        const directedSpeed = Math.min(maxSpeed, Math.hypot(player.vx, player.vy) + acceleration);
-        player.vx = Math.cos(movementAngle) * directedSpeed;
-        player.vy = Math.sin(movementAngle) * directedSpeed;
-        if (game.cycles % 3 === 0) burst(game, player.x - Math.cos(movementAngle) * 14, player.y - Math.sin(movementAngle) * 14, "#63efff", 2, 2.5);
-      } else {
-        if (left) player.angle -= handling.turn;
-        if (right) player.angle += handling.turn;
+
+      const moved = applyIntent(
+        { vx: player.vx, vy: player.vy },
+        intent,
+        { acceleration, maxSpeed },
+        { retros: player.retros }
+      );
+      player.vx = moved.vx;
+      player.vy = moved.vy;
+
+      if (intent.active && intent.heading !== null && game.cycles % 3 === 0) {
+        const exhaust = intent.heading * DEG;
+        burst(game, player.x - Math.cos(exhaust) * 14, player.y - Math.sin(exhaust) * 14, "#63efff", 2, 2.5);
       }
-      if (movementHeading === null && thrust) {
-        player.vx += Math.cos(player.angle * DEG) * acceleration;
-        player.vy += Math.sin(player.angle * DEG) * acceleration;
-        if (game.cycles % 3 === 0) burst(game, player.x - Math.cos(player.angle * DEG) * 14, player.y - Math.sin(player.angle * DEG) * 14, "#63efff", 2, 2.5);
-      } else if (movementHeading === null && player.retros) {
-        player.vx *= 0.995;
-        player.vy *= 0.995;
-      }
-      if (firingHeading !== null) player.angle = player.emp > 0 ? firingHeading + 180 : firingHeading;
+
+      // The hull turns toward travel unless the player is aiming, and keeps its
+      // last heading when nothing is held.
+      player.angle = facingFor(
+        intent,
+        firingHeading === null ? null : player.emp > 0 ? firingHeading + 180 : firingHeading,
+        player.angle
+      );
+
       const playerSpeed = Math.hypot(player.vx, player.vy);
       if (playerSpeed > maxSpeed) { player.vx = (player.vx / playerSpeed) * maxSpeed; player.vy = (player.vy / playerSpeed) * maxSpeed; }
       player.x += player.vx;
@@ -3209,7 +3505,7 @@ export default function WormholeGame() {
         ctx.font = mono(700, 12);
         const hint = touchDevice
           ? "LEFT STICK FLY  ·  RIGHT STICK AIM + FIRE  ·  PUP SENDS A POWER-UP"
-          : "ARROWS / WASD FLY  ·  SPACE CANNON  ·  E POWER-UP  ·  Q SPECIAL  ·  P PAUSE";
+          : "WASD / ARROWS MOVE  ·  SPACE CANNON  ·  E POWER-UP  ·  Q SPECIAL  ·  P PAUSE";
         ctx.fillText(fit(hint, W - 24), W / 2, W / 2 + fs(13.5) * 2.4);
       }
 
@@ -3269,7 +3565,6 @@ export default function WormholeGame() {
   const healthPct = hud.maxHealth ? hud.health / hud.maxHealth * 100 : 0;
   const queued = nextWeapon(hud.stock);
   const guidance = hud.notice || hud.coach;
-  const qualityName = quality === "auto" ? "AUTO" : quality === "high" ? "HIGH" : "PERF";
 
   const stockCounts = useMemo(() => {
     const counts = new Map<PowerId, number>();
@@ -3299,20 +3594,26 @@ export default function WormholeGame() {
     setInspect((current) => (current && !current.pinned ? null : current));
   }, []);
 
-  const layoutLabel = layoutPref === "auto" ? (immersive ? "AUTO · GAME" : "AUTO · DESK") : layoutPref === "game" ? "GAME" : "DESKTOP";
-  const cycleLayout = () => setLayoutPref((value) => (value === "auto" ? "game" : value === "game" ? "desktop" : "auto"));
-  const cycleQuality = () => setQuality((value) => (value === "auto" ? "high" : value === "high" ? "performance" : "auto"));
-  const cycleView = () => setViewSize((value) => (value === "compact" ? "standard" : value === "standard" ? "wide" : "compact"));
+
 
   return (
     <main
       ref={shellRef}
-      className={`app-shell view-${viewSize} ${touchCapable ? "touch-capable" : ""} compact-menu`}
+      className={`app-shell ${touchCapable ? "touch-capable" : ""} compact-menu`}
       data-immersive={immersive ? "true" : "false"}
-      data-orientation={device.orientation}
-      data-form={device.form}
-      data-sticks={device.sticks}
-      style={immersive ? ({ "--arena-size": `${device.arena}px`, "--stick": `${device.stick}px` } as React.CSSProperties) : undefined}
+      data-orientation={layout.orientation}
+      data-form={layout.form}
+      data-sticks={layout.sticks}
+      data-preset={layout.preset}
+      data-panels={layout.panels}
+      data-touch-controls={layout.showTouchControls ? "on" : "off"}
+      style={{
+        // Every size the interface uses comes from the one measurement, so
+        // CSS never has to guess and cannot disagree with the shell.
+        "--arena-size": `${layout.arena}px`,
+        "--stick": `${layout.stick}px`,
+        "--usable-h": `${layout.usableHeight}px`,
+      } as React.CSSProperties}
     >
       <p className="sr-only" aria-live="polite">{guidance}</p>
 
@@ -3330,43 +3631,38 @@ export default function WormholeGame() {
           <span className="link-status"><i aria-hidden="true" /> SOLO LINK</span>
           {/* Secondary controls lay out inline on wide screens and collapse into
               the MENU panel on handhelds, so the row never needs scrolling. */}
-          <div className="top-secondary" id="top-secondary" data-open={menuOpen ? "true" : "false"}>
-            <label className="menu-ship">
-              <span>SHIP FRAME</span>
-              <select
-                aria-label="Select ship frame"
-                value={shipId}
-                disabled={gameActive}
-                onChange={(event) => setShipId(event.target.value as ShipId)}
-              >
-                {SHIPS.map((ship) => <option value={ship.id} key={ship.id}>{ship.name} — {ship.role}</option>)}
-              </select>
-            </label>
-            <button type="button" onClick={() => { setCodexOpen(true); setMenuOpen(false); }} aria-haspopup="dialog">WEAPONS</button>
-            <button type="button" onClick={() => { setBoardOpen(true); setMenuOpen(false); }} aria-haspopup="dialog">BOARD</button>
-            <div className="menu-mode">
-              <ModeSelect
-                mode={mode}
-                difficulty={difficulty}
-                onMode={chooseMode}
-                onDifficulty={chooseDifficulty}
-                locked={gameActive}
-                onOpenLobby={() => { setLobbyOpen(true); setMenuOpen(false); }}
-              />
-            </div>
-            <a className="menu-home" href={MURPH_SITE_URL} target="_blank" rel="noopener noreferrer">MURPH TOURNAMENTS ↗</a>
-            <button type="button" onClick={cycleView} aria-label={`Arena width: ${viewSize}. Activate to change.`}>VIEW {viewSize.toUpperCase()}</button>
-            <button type="button" aria-pressed={cameraLocked} onClick={() => setCameraLocked((value) => !value)} aria-label={cameraLocked ? "Camera follows your ship. Activate for the whole arena." : "Camera shows the whole arena. Activate to follow your ship."}>
-              {cameraLocked ? "CAMERA SHIP" : "CAMERA ARENA"}
-            </button>
-            <button type="button" onClick={cycleQuality} aria-label={`Render quality: ${quality}${quality === "auto" ? `, currently ${autoLabel}` : ""}. Activate to change.`}>
-              QUALITY {qualityName}
-              {quality === "auto" ? <span className="q-detail"> · {autoLabel}</span> : null}
-            </button>
-            <button type="button" onClick={cycleLayout} aria-label={`Layout: ${layoutLabel}. Activate to change.`}>LAYOUT {layoutLabel}</button>
-            <button type="button" aria-pressed={sound} onClick={() => setSound((value) => !value)}>{sound ? "SOUND ON" : "SOUND OFF"}</button>
-            <button className="fullscreen-trigger" type="button" aria-pressed={fullscreen} onClick={toggleFullscreen}>{fullscreen ? "EXIT FULL" : "FULLSCREEN"}</button>
-          </div>
+          <SettingsDrawer
+            open={menuOpen}
+            onClose={() => setMenuOpen(false)}
+            ship={shipId}
+            mode={mode}
+            difficulty={difficulty}
+            gameActive={gameActive}
+            stage={stage}
+            preset={layout.preset}
+            onPreset={(next) => presetPreference.set(next)}
+            cameraLocked={cameraLocked}
+            onCamera={setCameraLocked}
+            quality={quality}
+            autoLabel={autoLabel}
+            onQuality={setQuality}
+            layoutPref={layoutPref}
+            onLayoutPref={setLayoutPref}
+            fullscreen={fullscreen}
+            onFullscreen={toggleFullscreen}
+            sound={sound}
+            onSound={setSound}
+            touchControls={touchControlMode}
+            onTouchControls={(next) => touchControlPreference.set(next)}
+            stickSize={stickSizeName}
+            onStickSize={(next) => stickSizePreference.set(next)}
+            onChangeShip={() => { setMenuOpen(false); setStage("select"); }}
+            onChangeMode={() => { setMenuOpen(false); setStage("setup"); }}
+            onRunAgain={() => { setMenuOpen(false); start(); }}
+            onCodex={() => { setMenuOpen(false); setCodexOpen(true); }}
+            onBoard={() => { setMenuOpen(false); setBoardOpen(true); }}
+            onLobby={() => { setMenuOpen(false); setLobbyOpen(true); }}
+          />
           <button
             className="top-menu-toggle"
             type="button"
@@ -3385,47 +3681,36 @@ export default function WormholeGame() {
 
       <section className="cockpit">
         <aside className="panel ship-panel">
-          <div className="eyebrow">MISSION SETUP</div>
-          <ModeSelect
-            mode={mode}
-            difficulty={difficulty}
-            onMode={chooseMode}
-            onDifficulty={chooseDifficulty}
-            locked={gameActive}
-            onOpenLobby={() => setLobbyOpen(true)}
-          />
-          <div className="eyebrow">SHIP SELECT // 8 FRAMES</div>
+          <div className="eyebrow">MISSION</div>
+          <div className="mission-summary">
+            <p>
+              <span>MODE</span>
+              <b>{mode === "pvp" ? "PVP 1V1" : DIFFICULTIES[difficulty].shortName}</b>
+            </p>
+            <div>
+              <button type="button" onClick={() => setStage("select")}>CHANGE SHIP</button>
+              <button type="button" onClick={() => setStage("setup")}>CHANGE MODE</button>
+            </div>
+          </div>
+          <div className="eyebrow">CURRENT SHIP</div>
           <div className="selected-ship">
             <div className="ship-icon" aria-hidden="true"><span className={`ship-glyph ${currentShip.id}`} /></div>
             <div><h2>{currentShip.name}</h2><p>{currentShip.role}</p></div>
           </div>
-          <div className="ship-select-grid" role="group" aria-label="Choose a ship frame">
-            {SHIPS.map((ship) => (
-              <button
-                type="button"
-                key={ship.id}
-                className={shipId === ship.id ? "active" : ""}
-                aria-pressed={shipId === ship.id}
-                onClick={() => { if (!hud.running) setShipId(ship.id); }}
-                disabled={hud.running && !hud.result}
-              >
-                <span>{ship.name.replace("The ", "")}</span>
-                <small>{ship.unlock}</small>
-              </button>
-            ))}
-          </div>
           <p className="ship-description">{currentShip.special}</p>
           <div className="data-grid">
             <div><span>HULL</span><b>{currentShip.health}</b></div>
-            <div><span>TURN</span><b>{currentShip.turn}°</b></div>
-            <div><span>MAX V</span><b>{currentShip.maxSpeed}</b></div>
-            <div><span>ACCEL</span><b>{currentShip.acceleration}</b></div>
+            <div><span>RESPONSE</span><b>{currentShip.turn}°</b></div>
+            <div><span>TOP SPEED</span><b>{currentShip.maxSpeed}</b></div>
+            <div><span>ACCELERATION</span><b>{currentShip.acceleration}</b></div>
           </div>
           <div className="controls">
             <div className="eyebrow">FLIGHT CONTROL</div>
             <dl>
-              <div><dt>ROTATE</dt><dd>← → / A D</dd></div>
-              <div><dt>THRUST</dt><dd>↑ / W</dd></div>
+              <div><dt>MOVE UP</dt><dd>W / ↑</dd></div>
+              <div><dt>MOVE DOWN</dt><dd>S / ↓</dd></div>
+              <div><dt>MOVE LEFT</dt><dd>A / ←</dd></div>
+              <div><dt>MOVE RIGHT</dt><dd>D / →</dd></div>
               <div><dt>PULSE CANNON</dt><dd>SPACE</dd></div>
               <div><dt>FIRE POWER-UP</dt><dd>E</dd></div>
               <div><dt>SHIP SPECIAL</dt><dd>Q</dd></div>
@@ -3532,6 +3817,12 @@ export default function WormholeGame() {
 
                     <div className="run-links">
                       <button type="button" onClick={start}>RUN AGAIN</button>
+                      <button type="button" onClick={() => { setSummary(null); setStage("select"); }}>
+                        CHANGE SHIP
+                      </button>
+                      <button type="button" onClick={() => { setSummary(null); setStage("setup"); }}>
+                        CHANGE MODE
+                      </button>
                       <button type="button" onClick={() => setBoardOpen(true)}>GLOBAL BOARD</button>
                     </div>
                   </section>
@@ -3690,6 +3981,30 @@ export default function WormholeGame() {
       </footer>
 
       {codexOpen ? <WeaponCodex onClose={() => setCodexOpen(false)} reducedMotion={reducedMotion} /> : null}
+      {stage !== "arena" ? (
+        <div className="launch-scene" data-stage={stage}>
+          {stage === "select" ? (
+            <ShipSelect
+              selected={shipId}
+              reducedMotion={reducedMotion}
+              locked={mode === "pvp" && net?.phase === "countdown"}
+              onConfirm={(id) => { setShipId(id); netRef.current?.chooseShip(id); setStage("setup"); }}
+            />
+          ) : (
+            <MissionSetup
+              ship={shipId}
+              mode={mode}
+              difficulty={difficulty}
+              onMode={chooseMode}
+              onDifficulty={chooseDifficulty}
+              onChangeShip={() => setStage("select")}
+              onLaunch={start}
+              onOpenLobby={() => setLobbyOpen(true)}
+              net={net}
+            />
+          )}
+        </div>
+      ) : null}
       {boardOpen ? <Leaderboard onClose={() => setBoardOpen(false)} /> : null}
       {lobbyOpen ? (
         <MultiplayerLobby

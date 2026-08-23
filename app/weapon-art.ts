@@ -10,7 +10,7 @@
  * scaled from a nominal radius so one function serves a 12px inventory chip and
  * a 30px arena hostile.
  */
-import { WEAPONS, type PickupId } from "./game-data";
+import { WEAPONS, type PickupId, type ShipId } from "./game-data";
 
 export type GlyphContext = {
   /** Nominal radius in the current canvas space. */
@@ -595,4 +595,28 @@ export function drawPowerProjectile(
 /** Compact category chip letter used on canvas badges. */
 export function categoryMark(id: PickupId) {
   return WEAPONS[id].category.charAt(0).toUpperCase();
+}
+
+/**
+ * Traces a ship's outline into the current path, centred on the origin and
+ * pointing right. Lives here with the other drawing primitives so both the
+ * arena and the ship-selection screen render identical silhouettes from one
+ * definition.
+ */
+export function drawShipShape(ctx: CanvasRenderingContext2D, ship: ShipId, scale = 1) {
+  const shapes: Record<ShipId, number[][]> = {
+    tank: [[18, 0], [9, -12], [-11, -16], [-8, -5], [-17, -6], [-13, 0], [-17, 6], [-8, 5], [-11, 16], [9, 12]],
+    wing: [[20, 0], [-8, -10], [-3, -3], [-15, 0], [-3, 3], [-8, 10]],
+    squid: [[18, 0], [-15, -7], [-7, 0], [-19, 12], [1, 7], [-6, 0], [-19, -12]],
+    rabbit: [[17, 0], [5, -7], [-14, -9], [-7, 0], [-14, 9], [5, 7]],
+    turtle: [[18, 0], [8, -13], [-8, -12], [-13, -7], [-12, 0], [-13, 7], [-8, 12], [8, 13]],
+    flash: [[19, 0], [-12, -13], [-5, 0], [-12, 13]],
+    hunter: [[20, 0], [-7, -13], [-5, -5], [-15, -6], [-8, 0], [-15, 6], [-5, 5], [-7, 13]],
+    flagship: [[28, 0], [15, -19], [-8, -19], [-9, -10], [-18, -13], [-20, 0], [-18, 13], [-9, 10], [-8, 19], [15, 19]],
+  };
+  const points = shapes[ship];
+  ctx.beginPath();
+  ctx.moveTo(points[0][0] * scale, points[0][1] * scale);
+  for (let i = 1; i < points.length; i += 1) ctx.lineTo(points[i][0] * scale, points[i][1] * scale);
+  ctx.closePath();
 }

@@ -12,12 +12,22 @@ https://wormhole.murphtournaments.com
 
 | Action | Keyboard |
 | --- | --- |
-| Turn | Arrow keys or `A` / `D` |
-| Thrust | Up arrow or `W` |
+| Move up | `W` or Up arrow |
+| Move down | `S` or Down arrow |
+| Move left | `A` or Left arrow |
+| Move right | `D` or Right arrow |
 | Pulse cannon | Space |
 | Fire collected power-up | `E` |
 | Ship special | `Q` |
 | Pause | `P` |
+
+Desktop movement is direct and world-space: `W` accelerates upward, `S`
+downward, `A` left, `D` right, and holding two adjacent keys moves diagonally
+at the same speed as a cardinal — diagonals are normalized, so no direction is
+faster than another. Opposing keys cancel that axis rather than one winning.
+The hull turns toward its travel direction unless you are aiming, and keeps its
+last heading while drifting. Each ship keeps its own acceleration, top speed,
+momentum and retro behaviour, so the frames still handle differently.
 
 Touch controls use a twin-stick layout: the left stick moves the ship while the right stick independently aims and fires the pulse cannon. The **PUP** button is the touch equivalent of `E`, and **SPEC** is the touch equivalent of `Q`. Fullscreen play, high-density canvas rendering, safe-area support, and dedicated layouts for desktop, ultrawide, tablet, phone, and foldable displays are included. Installable PWA mode is planned.
 
@@ -175,6 +185,73 @@ The API lives in the `murphtournaments-website` repository under
 `/api/arcade/*`, and is opened cross-origin to this arcade's origin only. Point
 the game at a different host by setting `NEXT_PUBLIC_MURPH_API_BASE` at build
 time; it defaults to `https://murphtournaments.com`.
+
+## Ship selection
+
+A new browser session opens on the dedicated selection scene, never straight
+into a match. The remembered ship pre-highlights but still has to be
+confirmed.
+
+```
+ship grid -> confirm -> Mission Setup (mode, then difficulty) -> launch
+```
+
+Keyboard: arrows or WASD walk the grid, Enter confirms, Escape steps back.
+Touch: a tap highlights and inspects; only `SELECT SHIP` commits, so a tile
+can never launch a match by accident. Locked frames stay fully inspectable and
+state the rank they need.
+
+Each frame's detail panel is generated from the shipped statistics in
+`app/game-data.ts` — strengths, weaknesses, suggested experience and playstyle
+are all derived, so a description can never claim something the ship does not
+have. Comparisons against the currently selected ship show bars *and* exact
+values on both sides plus a signed delta, so nothing is communicated by colour
+or bar length alone.
+
+After a match: `RUN AGAIN`, `CHANGE SHIP`, `CHANGE MODE`, `GLOBAL BOARD`.
+Change Ship returns to the scene without reloading the page.
+
+## Menu
+
+`MENU` opens a right-side drawer with a sticky header, an independently
+scrolling body and a sticky primary action. It traps focus, closes on Escape
+and restores focus to whatever opened it.
+
+| Section | Contents |
+| --- | --- |
+| Play | Current ship and mode, Change Ship, Change Mode, Run Again, lobby |
+| Display | Screen fit, camera, render quality, shell, fullscreen |
+| Controls & Audio | Sound, touch controls Auto/Show/Hide, touch size, key reference |
+| Game Information | Weapon Codex, Leaderboard, View All Ships, Murph Tournaments |
+
+The drawer never contains the ship grid or a second copy of the mode and
+difficulty controls: the selection scene owns the ship, Mission Setup owns
+mode and difficulty, and the menu summarises them with a way back. No setting
+exists as two independently interactive copies.
+
+## Screen presets
+
+`SCREEN FIT` in the menu offers three presets, persisted locally. Anything
+invalid or missing falls back to Fit Screen.
+
+| Preset | Arena | Panels | Guarantee |
+| --- | --- | --- | --- |
+| **Fit Screen** | Smallest | Scroll internally | The whole interface fits without scrolling the page |
+| **Balanced** | Larger | Scroll internally | Every control still in place; the preferred desktop cockpit |
+| **Arena Focus** | Largest | Become drawers | Hull, shield, inventory and the primary action stay reachable |
+
+All three read from one calculation in `app/layout-budget.ts`, which measures
+`visualViewport` when available (so browser chrome, the on-screen keyboard and
+pinch zoom are accounted for), then subtracts safe-area insets, the top bar,
+the HUD, the inventory and primary action, and the thumbsticks — and gives the
+arena whatever is left. The arena is never allowed to take space a control
+needs, which is what the old Wide preset did: it set a fixed 2040px cockpit,
+so at 2048px wide the controls went off the edge.
+
+The calculation is recomputed on resize, `visualViewport` resize and scroll,
+orientation change, fold, fullscreen entry and exit, and any preference
+change, coalesced into one animation frame and gated on an equality check so
+an event that changes nothing costs no React work.
 
 ## Rendering quality
 
