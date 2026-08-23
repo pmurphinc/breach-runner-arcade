@@ -24,7 +24,7 @@ export const SHIPS: ShipSpec[] = [
   { id: "turtle", name: "The Turtle", role: "Defensive bruiser", turn: 4.5, maxSpeed: 2.4, acceleration: 0.06, health: 250, gun: 1, thrust: 1, special: "Q: Turtle Cannon clears threats at a health cost.", unlock: "RANK 12" },
   { id: "flash", name: "The Flash", role: "Shape-shifter", turn: 1, maxSpeed: 1, acceleration: 0.1, health: 190, gun: 3, thrust: 3, special: "Q: Transform between Tank and Squid handling.", unlock: "RANK 14" },
   { id: "hunter", name: "The Hunter", role: "Missile corvette", turn: 4.8, maxSpeed: 3.2, acceleration: 0.12, health: 220, gun: 0, thrust: 1, special: "Q: Launch a 17-missile Piranha spread.", unlock: "RANK 12" },
-  { id: "flagship", name: "The Flagship", role: "Command vessel", turn: 2, maxSpeed: 1.8, acceleration: 0.04, health: 300, gun: 0, thrust: 2, special: "Q: Attract power-ups and repel nearby enemies.", unlock: "RANK 14" },
+  { id: "flagship", name: "The Flagship", role: "Command vessel", turn: 2, maxSpeed: 1.8, acceleration: 0.04, health: 300, gun: 0, thrust: 2, special: "Q: Project a 3-second field that pulls in power-ups and repels nearby enemies.", unlock: "RANK 14" },
 ];
 
 export type ShipSpecial = {
