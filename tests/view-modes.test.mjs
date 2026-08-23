@@ -36,3 +36,13 @@ test('view profile owns HUD and canvas queue behavior', () => {
   assert.match(game, /viewProfile\.verticalRails/);
   assert.match(game, /data-view-mode=\{viewMode\}/);
 });
+
+
+test('canvas renderer starts after first-launch view selection', () => {
+  const renderer = game.slice(
+    game.indexOf('const canvas = canvasRef.current'),
+    game.indexOf('const currentShip = selectedShip')
+  );
+  assert.match(renderer, /\[play, sync, viewMode\]/,
+    'the render effect must rerun after the chooser mounts the canvas');
+});
