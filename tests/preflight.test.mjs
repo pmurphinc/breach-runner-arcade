@@ -149,6 +149,46 @@ test("on touch, tapping inspects and only SELECT SHIP commits", { skip }, async 
   }
 });
 
+test("SELECT SHIP stays visible on wide touch screens", { skip }, async () => {
+  const { chromium } = playwright;
+  const browser = await chromium.launch({ executablePath: CHROME });
+  const viewports = [
+    { name: "Fire tablet portrait", width: 800, height: 1280 },
+    { name: "Fire tablet landscape", width: 1280, height: 800 },
+    { name: "Fold unfolded", width: 900, height: 1010 },
+    { name: "phone landscape", width: 844, height: 390 },
+  ];
+  try {
+    for (const viewport of viewports) {
+      const { context, page, errors } = await openShell(browser, { ...viewport, touch: true });
+      const report = await page.locator(".detail-select").evaluate((button) => {
+        const rect = button.getBoundingClientRect();
+        const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+        return {
+          visible: rect.width > 0 && rect.height >= 44,
+          top: rect.top,
+          bottom: rect.bottom,
+          viewportHeight,
+          touchClass: document.querySelector(".app-shell")?.classList.contains("touch-capable"),
+        };
+      });
+      assert.equal(report.touchClass, true, `${viewport.name} must use touch-capable layout`);
+      assert.equal(report.visible, true, `${viewport.name} must render a usable SELECT SHIP button`);
+      assert.ok(report.top >= 0 && report.bottom <= report.viewportHeight,
+        `${viewport.name} SELECT SHIP escaped viewport: ${JSON.stringify(report)}`);
+
+      await page.locator(".detail-select").tap();
+      await page.waitForTimeout(900);
+      assert.ok(await page.locator(".mission-setup").isVisible(),
+        `${viewport.name} must advance after tapping SELECT SHIP`);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+  } finally {
+    await browser.close();
+  }
+});
+
 const PRESET_VIEWPORTS = [
   { name: "2048x1152 desktop", width: 2048, height: 1152, touch: false },
   { name: "2048x1152 touch desktop", width: 2048, height: 1152, touch: true },
