@@ -2695,13 +2695,13 @@ export default function WormholeGame() {
       let fire = keys.current.Space || keys.current.MousePrimary;
       const launch = keys.current.KeyE || keys.current.MouseSecondary;
 
-      // Keyboard and touch resolve to the same movement intent. WASD and the
-      // arrow cluster apply normalized world-space thrust; the shared flight
-      // model preserves existing momentum so turns arc instead of snapping.
-      let intent = resolveIntent(
-        intentFromStick(moveHeading.current),
-        intentFromKeys(keysFrom(keys.current))
-      );
+      // Resolve the input source before combining it. The left thumbstick keeps
+      // the exact immediate response it shipped with, while only WASD/arrows
+      // opt into the newer momentum-preserving flight model.
+      const stickIntent = intentFromStick(moveHeading.current);
+      const keyboardIntent = intentFromKeys(keysFrom(keys.current));
+      const usingTouchThrust = stickIntent.active;
+      let intent = resolveIntent(stickIntent, keyboardIntent);
       if (player.emp > 0) {
         // EMP still scrambles the pilot: the requested direction is inverted
         // and the trigger swaps with movement, as it always has.
@@ -2724,7 +2724,7 @@ export default function WormholeGame() {
         { vx: player.vx, vy: player.vy },
         intent,
         { acceleration, maxSpeed },
-        { retros: player.retros }
+        { retros: player.retros, inertial: !usingTouchThrust }
       );
       player.vx = moved.vx;
       player.vy = moved.vy;

@@ -1,10 +1,10 @@
 /**
  * Shared movement intent.
  *
- * Desktop keys and the touch stick both resolve to the same thing: a direction
- * the pilot wants to travel, or nothing. The game loop then applies that one
- * intent with the ship's own acceleration and top speed, so keyboard and touch
- * cannot drift apart in feel and neither one gets a handling advantage.
+ * Desktop keys and the touch stick both resolve to the same directional intent.
+ * The game loop can then preserve the original immediate thumbstick response
+ * while giving keyboard thrust its newer inertial steering. Both paths retain
+ * the selected ship's acceleration and top speed.
  *
  * Pure and dependency-free so the whole model is testable without a canvas.
  */
@@ -72,16 +72,16 @@ export type Velocity = { vx: number; vy: number };
 /**
  * Applies one tick of movement intent to a velocity.
  *
- * Applies the ship's acceleration as thrust while preserving existing momentum.
- * That keeps the frames feeling different: a Squid changes velocity quickly,
- * while a Flagship takes its time.
+ * The default path preserves the original immediate twin-stick redirection.
+ * The inertial option adds thrust to existing momentum for desktop keyboard
+ * flight. Both paths use the same ship acceleration and maximum speed.
  * Returns a new velocity rather than mutating, so it is trivially testable.
  */
 export function applyIntent(
   velocity: Velocity,
   intent: MovementIntent,
   ship: { acceleration: number; maxSpeed: number },
-  options: { retros?: boolean } = {}
+  options: { retros?: boolean; inertial?: boolean } = {}
 ): Velocity {
   if (!intent.active || intent.heading === null) {
     // Retro thrusters bleed off drift when nothing is held. Without them the
@@ -91,9 +91,19 @@ export function applyIntent(
   }
 
   const radians = (intent.heading * Math.PI) / 180;
-  // Thrusters add force to the ship's existing momentum instead of replacing
-  // its velocity with the requested keyboard direction. That makes a WASD turn
-  // describe a smooth flight arc rather than a grid-like snap.
+  const current = Math.hypot(velocity.vx, velocity.vy);
+
+  if (!options.inertial) {
+    // Original twin-stick response: pointing the stick immediately redirects
+    // the ship while its speed ramps by the ship's unchanged acceleration.
+    // Keeping this branch numerically identical prevents desktop steering work
+    // from changing touch sensitivity, speed, or response.
+    const speed = Math.min(ship.maxSpeed, current + ship.acceleration) * intent.magnitude;
+    return { vx: Math.cos(radians) * speed, vy: Math.sin(radians) * speed };
+  }
+
+  // Keyboard thrusters add force to existing momentum. WASD therefore bends
+  // the flight path instead of replacing velocity with a grid direction.
   let vx = velocity.vx + Math.cos(radians) * ship.acceleration * intent.magnitude;
   let vy = velocity.vy + Math.sin(radians) * ship.acceleration * intent.magnitude;
   const speed = Math.hypot(vx, vy);
