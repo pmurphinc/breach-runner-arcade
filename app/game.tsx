@@ -4074,7 +4074,7 @@ export default function WormholeGame() {
 
       <footer>
         <span>WORMHOLE ARCADE // PLAYABLE PROTOTYPE 0.4</span>
-        <span>940×940 FIELD // SHIP-LOCK + ARENA CAMERAS</span>
+        <span>1504×940 FIELD // SHIP-LOCK + ARENA CAMERAS</span>
       </footer>
 
       {codexOpen ? <WeaponCodex onClose={() => setCodexOpen(false)} reducedMotion={reducedMotion} /> : null}
