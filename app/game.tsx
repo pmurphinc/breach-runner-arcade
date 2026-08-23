@@ -46,7 +46,9 @@ import {
   discordSignInUrl,
   fetchArcadeSession,
   fetchLeaderboard,
+  hasSeenDiscordSavePrompt,
   loadLocalBest,
+  markDiscordSavePromptSeen,
   saveLocalRun,
   saveScoreToMurph,
   stashPendingRun,
@@ -1391,9 +1393,12 @@ export default function WormholeGame() {
   );
   const [lobbyOpen, setLobbyOpen] = useState(false);
   const [net, setNet] = useState<PvpSnapshot | null>(null);
-  /** Who Murph Tournaments says is playing. Null until the first check answers. */
+  /** Who Murph Tournaments says is playing. Null means guest or unavailable. */
   const [player, setPlayer] = useState<ArcadePlayer | null>(null);
+  const [sessionChecked, setSessionChecked] = useState(false);
   const [summary, setSummary] = useState<RunSummary | null>(null);
+  /** The one specific result screen allowed to show the Discord invitation. */
+  const [discordPromptRun, setDiscordPromptRun] = useState<RunResult | null>(null);
   const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });
   const reducedMotion = useReducedMotion();
 
@@ -1408,6 +1413,8 @@ export default function WormholeGame() {
   const runStartedAt = useRef(0);
   /** The outcome already turned into a summary, so each run is recorded once. */
   const recordedResult = useRef<Game["result"]>(null);
+  /** The summary object already submitted automatically for the signed-in player. */
+  const autoSavedRun = useRef<RunResult | null>(null);
   /** Ship the current run is being flown in, fixed at launch. */
   const runShipName = useRef("");
   /**
@@ -1593,9 +1600,9 @@ export default function WormholeGame() {
     void fetchArcadeSession().then((session) => {
       if (cancelled) return;
       setPlayer(session?.signedIn ? session.player : null);
+      setSessionChecked(true);
       if (!pending || !session?.signedIn) return;
       setSummary({ run: pending, best, isBest: false, runs: 0, restored: true });
-      void saveRun(pending);
     });
 
     return () => { cancelled = true; };
@@ -1623,8 +1630,24 @@ export default function WormholeGame() {
     const local = saveLocalRun(run);
     setSummary({ run, best: local.best, isBest: local.isBest, runs: local.runs, restored: false });
     setSaveState({ status: "idle" });
-    if (player) void saveRun(run);
-  }, [hud.result, hud.score, hud.rivalHealth, player, saveRun]);
+  }, [hud.result, hud.score, hud.rivalHealth]);
+
+  // Signed-in players always save automatically, including when a run finishes
+  // before the initial Murph Tournaments session request returns.
+  useEffect(() => {
+    if (!player || !summary || autoSavedRun.current === summary.run) return;
+    autoSavedRun.current = summary.run;
+    void saveRun(summary.run);
+  }, [player, saveRun, summary]);
+
+  // Offer Discord sign-in on one completed-run screen per device, never while
+  // the session request is still pending (which avoids flashing it to members).
+  useEffect(() => {
+    if (!sessionChecked || player || !summary || discordPromptRun) return;
+    if (hasSeenDiscordSavePrompt()) return;
+    markDiscordSavePromptSeen();
+    setDiscordPromptRun(summary.run);
+  }, [discordPromptRun, player, sessionChecked, summary]);
 
   // Before a run, keep the idle arena matching the selection so the preview
   // shows exactly what START will produce (EASY re-centres the wormhole at
@@ -3433,7 +3456,11 @@ export default function WormholeGame() {
                       {summary.isBest ? "NEW DEVICE BEST" : summary.best ? `DEVICE BEST ${summary.best.score.toLocaleString()}` : "FIRST RUN ON THIS DEVICE"}
                     </p>
 
-                    {player ? (
+                    {!sessionChecked ? (
+                      <div className="run-save">
+                        <p className="run-status">CHECKING MURPH TOURNAMENTS SESSION…</p>
+                      </div>
+                    ) : player ? (
                       <div className="run-save">
                         {saveState.status === "saving" ? <p className="run-status">SAVING TO MURPH TOURNAMENTS…</p> : null}
                         {saveState.status === "saved" ? (
@@ -3451,10 +3478,12 @@ export default function WormholeGame() {
                       </div>
                     ) : (
                       <div className="run-save">
-                        <p className="run-status">Saved on this device only. Sign in to put it on the global board.</p>
-                        <button type="button" className="run-action primary" onClick={() => signInToSave(summary.run)}>
-                          SAVE WITH DISCORD
-                        </button>
+                        <p className="run-status">Saved on this device only.{discordPromptRun === summary.run ? " Sign in to put it on the global board." : ""}</p>
+                        {discordPromptRun === summary.run ? (
+                          <button type="button" className="run-action primary" onClick={() => signInToSave(summary.run)}>
+                            SAVE WITH DISCORD
+                          </button>
+                        ) : null}
                       </div>
                     )}
 
