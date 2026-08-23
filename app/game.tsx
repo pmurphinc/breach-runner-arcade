@@ -746,6 +746,7 @@ function Leaderboard({ onClose }: { onClose: () => void }) {
   const [entries, setEntries] = useState<LeaderboardEntry[] | null>(null);
   const [best, setBest] = useState<LocalBest | null>(null);
   const [failed, setFailed] = useState(false);
+  const [boardLimit, setBoardLimit] = useState(10);
   const closeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => { closeRef.current?.focus(); }, []);
@@ -758,13 +759,15 @@ function Leaderboard({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     let cancelled = false;
     const localBest = loadLocalBest();
-    void fetchLeaderboard(10).then((rows) => {
+    setEntries(null);
+    setFailed(false);
+    void fetchLeaderboard(boardLimit).then((rows) => {
       if (cancelled) return;
       setBest(localBest);
       if (rows) setEntries(rows); else setFailed(true);
     });
     return () => { cancelled = true; };
-  }, []);
+  }, [boardLimit]);
 
   return (
     <div className="codex-backdrop" role="presentation" onClick={onClose}>
@@ -802,9 +805,11 @@ function Leaderboard({ onClose }: { onClose: () => void }) {
               <b>{best.score.toLocaleString()}</b>
             </p>
           ) : null}
-          <a className="board-link" href={`${MURPH_SITE_URL}/arcade`} target="_blank" rel="noopener noreferrer">
-            FULL BOARD ON MURPH TOURNAMENTS →
-          </a>
+          {entries !== null && boardLimit === 10 && entries.length >= 10 ? (
+            <button className="board-link" type="button" onClick={() => setBoardLimit(100)}>
+              LOAD FULL BOARD →
+            </button>
+          ) : null}
         </div>
       </div>
     </div>
