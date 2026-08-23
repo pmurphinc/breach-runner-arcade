@@ -74,8 +74,10 @@ test('touch score shares the rules rail and utilities orbit the fire stick', () 
 
 
 test('touch frame reaches the viewport and health bars use fighting-game geometry', () => {
-  assert.match(game, /clearanceBelow\("\.health-rails"\)/,
-    'canvas notices and wormhole charge must clear the attached health bars');
+  assert.match(game, /clearanceBelow\("\.pilot-rail small"\)/,
+    'spawn notices must attach below the visible shield-status label');
+  assert.match(game, /clearanceBelow\("\.rival-rail"\)/,
+    'wormhole charge must attach below Rival or Opponent health');
   assert.match(game, /className="rail-fill hull-fill" style=\{\{ width:/);
   assert.match(game, /className="rail-fill rival-fill" style=\{\{ width:/);
   const frame = css.slice(css.indexOf('complete remaining viewport as one framed'));
@@ -91,4 +93,13 @@ test('special remains radially between PUP and Pause', () => {
   assert.match(radial, /touch-pup[\s\S]*left:\s*0[\s\S]*top:\s*50%/);
   assert.match(radial, /touch-special[\s\S]*left:\s*-8%[\s\S]*top:\s*17%/);
   assert.match(radial, /touch-pause[\s\S]*left:\s*17%[\s\S]*top:\s*-8%/);
+});
+
+
+test('touch canvas HUD keeps separate health-bar anchors', () => {
+  assert.match(game, /const splitTouchHud = viewProfileRef\.current\.touch/);
+  assert.match(game, /const chargeY = splitTouchHud\s*\? chargeTop/s,
+    'Touch and Hybrid charge panels must use the Rival-side anchor');
+  assert.match(game, /W - pad \* 2 - chargeW - 8/,
+    'the left notice must reserve the right charge column on touch');
 });
