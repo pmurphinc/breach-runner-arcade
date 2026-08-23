@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 const game = await readFile(new URL('../app/game.tsx', import.meta.url), 'utf8');
 const settings = await readFile(new URL('../app/view-settings.ts', import.meta.url), 'utf8');
+const css = await readFile(new URL('../app/globals.css', import.meta.url), 'utf8');
 
 test('view modes are explicit, typed, and versioned', () => {
   assert.match(settings, /type ViewMode = "touch" \| "pc" \| "hybrid"/);
@@ -45,4 +46,16 @@ test('canvas renderer starts after first-launch view selection', () => {
   );
   assert.match(renderer, /\[play, sync, viewMode\]/,
     'the render effect must rerun after the chooser mounts the canvas');
+});
+
+
+test('touch health rails reserve the complete overlay control stack', () => {
+  const controlsOn = css.match(/\.touch-capable\[data-sticks="overlay"\]\[data-touch-controls="on"\] \.health-rails \{[^}]+\}/s)?.[0] ?? '';
+  const controlsOff = css.match(/\.touch-capable\[data-sticks="overlay"\]\[data-touch-controls="off"\] \.health-rails \{[^}]+\}/s)?.[0] ?? '';
+  assert.match(controlsOn, /var\(--stick\).*var\(--touch-target\)/s,
+    'rails must stop above both the stick and utility-button row');
+  assert.doesNotMatch(controlsOff, /var\(--stick\)/,
+    'hidden sticks must not reserve their old height');
+  assert.match(controlsOff, /var\(--touch-target\)/,
+    'rails must still clear the compact HUD and utility buttons');
 });
