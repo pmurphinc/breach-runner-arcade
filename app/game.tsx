@@ -1761,7 +1761,7 @@ export default function WormholeGame() {
     hudInsetRef.current = immersive && layout.sticks === "overlay" ? 44 : 0;
   }, [immersive, layout.sticks]);
 
-  // Touch/Hybrid reserves a real header lane above the square playfield.
+  // Touch/Hybrid reserves a real header lane above the 1.6:1 playfield.
   // Measuring the rendered HUD keeps wrapped rules and shield text out of the
   // playable canvas on phones, tablets, and foldables.
   useEffect(() => {
@@ -1771,7 +1771,8 @@ export default function WormholeGame() {
     const measure = () => {
       if (!viewProfile.verticalRails) {
         wrap.style.removeProperty("--arena-playfield-top");
-        wrap.style.removeProperty("--arena-canvas-size");
+        wrap.style.removeProperty("--arena-canvas-width");
+        wrap.style.removeProperty("--arena-canvas-height");
         return;
       }
 
@@ -1789,13 +1790,13 @@ export default function WormholeGame() {
         bottomOf(".rival-rail")
       );
       const playfieldTop = Math.ceil(hudBottom) + 2;
-      const canvasSize = Math.max(
-        1,
-        Math.floor(Math.min(wrapRect.width, wrapRect.height - playfieldTop))
-      );
+      const availableHeight = Math.max(1, wrapRect.height - playfieldTop);
+      const canvasWidth = Math.max(1, Math.floor(Math.min(wrapRect.width, availableHeight * WORLD_WIDTH / WORLD_HEIGHT)));
+      const canvasHeight = Math.max(1, Math.floor(canvasWidth * WORLD_HEIGHT / WORLD_WIDTH));
       wrap.style.setProperty("--rules-bottom", `${Math.max(0, bottomOf(".difficulty-badge"))}px`);
       wrap.style.setProperty("--arena-playfield-top", `${playfieldTop}px`);
-      wrap.style.setProperty("--arena-canvas-size", `${canvasSize}px`);
+      wrap.style.setProperty("--arena-canvas-width", `${canvasWidth}px`);
+      wrap.style.setProperty("--arena-canvas-height", `${canvasHeight}px`);
     };
 
     measure();
