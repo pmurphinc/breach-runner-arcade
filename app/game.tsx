@@ -3616,6 +3616,28 @@ export default function WormholeGame() {
       // Rival wormhole label follows the portal.
       const portalX = (game.portalX * camera.camScale + camera.camX) * (W / VIEW_WIDTH);
       const portalY = (game.portalY * camera.camScale + camera.camY) * (W / VIEW_WIDTH);
+      if (game.victorySequence > 0) {
+        const total = ticksForSeconds(2.4);
+        const progress = 1 - game.victorySequence / total;
+        const pulse = 0.72 + Math.sin(time * 0.03) * 0.18;
+        ctx.save();
+        ctx.translate(portalX, portalY);
+        ctx.globalCompositeOperation = "lighter";
+        ctx.fillStyle = `rgba(255,255,255,${0.25 + progress * 0.7})`;
+        ctx.beginPath();
+        ctx.arc(0, 0, Math.max(4, (34 * (1 - progress)) * pulse), 0, Math.PI * 2);
+        ctx.fill();
+        for (let ring = 0; ring < 3; ring += 1) {
+          ctx.strokeStyle = ring === 1 ? "#ffffff" : "#ff4058";
+          ctx.globalAlpha = Math.max(0.12, 1 - progress) * (1 - ring * 0.18);
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.arc(0, 0, 45 + progress * (80 + ring * 34), 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
       if (game.spawns.length === 0 && portalX > -60 && portalX < W + 60 && portalY > -60 && portalY < H + 60) {
         ctx.font = mono(700, 11.5);
         ctx.textAlign = "center";
