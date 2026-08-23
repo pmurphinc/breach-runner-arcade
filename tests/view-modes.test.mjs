@@ -107,3 +107,14 @@ test('touch playfield starts below the complete HUD and removes canvas text pane
   assert.match(reserved, /margin:\s*var\(--arena-playfield-top/);
   assert.match(reserved, /border-top:\s*2px/);
 });
+
+
+test('landscape tablets reuse the full arena shell and corner controls', () => {
+  const tablet = css.slice(css.indexOf('Landscape tablets use the full existing arena shell'));
+  assert.match(tablet, /data-form="tablet"\]\[data-orientation="landscape"/);
+  assert.match(tablet, /\.arena-stage\s*\{[\s\S]*?width:\s*100%/);
+  assert.match(tablet, /\.touch-flight\s*\{[\s\S]*?bottom:\s*max\(12px,[\s\S]*?left:\s*max\(12px/);
+  assert.match(tablet, /\.touch-action\s*\{[\s\S]*?right:\s*max\(12px,[\s\S]*?bottom:\s*max\(12px/);
+  assert.doesNotMatch(tablet, /scale|dead.?zone|accel|inertia/i,
+    'tablet layout must not alter touch response or gameplay');
+});
