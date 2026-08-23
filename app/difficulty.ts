@@ -202,18 +202,26 @@ export function rulesFor(mode: GameMode, difficulty: DifficultyId): DifficultyRu
   return mode === "pvp" ? PVP_RULES : DIFFICULTIES[difficulty];
 }
 
-/** Where the wormhole sits this tick, given the arena size and orbit phase. */
+export type ArenaDimensions = number | { width: number; height: number };
+
+function arenaCentre(arena: ArenaDimensions) {
+  return typeof arena === "number"
+    ? { x: arena / 2, y: arena / 2 }
+    : { x: arena.width / 2, y: arena.height / 2 };
+}
+
+/** Where the wormhole sits this tick, given the arena dimensions and orbit phase. */
 export function wormholePosition(
   rules: DifficultyRules,
-  worldSize: number,
+  arena: ArenaDimensions,
   angleDegrees: number
 ) {
-  const centre = worldSize / 2;
-  if (rules.wormhole.kind === "locked") return { x: centre, y: centre };
+  const centre = arenaCentre(arena);
+  if (rules.wormhole.kind === "locked") return centre;
   const radians = (angleDegrees * Math.PI) / 180;
   return {
-    x: centre + Math.cos(radians) * rules.wormhole.radius,
-    y: centre + Math.sin(radians) * rules.wormhole.radius,
+    x: centre.x + Math.cos(radians) * rules.wormhole.radius,
+    y: centre.y + Math.sin(radians) * rules.wormhole.radius,
   };
 }
 
@@ -222,10 +230,10 @@ export function wormholePosition(
  * the ship takes the spot the wormhole would otherwise orbit through — the
  * same 210px separation the orbiting modes open with, just mirrored.
  */
-export function pilotSpawn(rules: DifficultyRules, worldSize: number) {
-  const centre = worldSize / 2;
-  if (rules.wormhole.kind === "locked") return { x: centre + ORBIT_SEPARATION, y: centre };
-  return { x: centre, y: centre };
+export function pilotSpawn(rules: DifficultyRules, arena: ArenaDimensions) {
+  const centre = arenaCentre(arena);
+  if (rules.wormhole.kind === "locked") return { x: centre.x + ORBIT_SEPARATION, y: centre.y };
+  return centre;
 }
 
 const ORBIT_SEPARATION = 210;
