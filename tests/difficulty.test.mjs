@@ -349,6 +349,34 @@ test("contact damage scales with maximum hull, so light ships are not deleted", 
   assert.ok(Math.abs(share(light) - share(heavy)) < 1e-9, "same proportion of hull");
 });
 
+// ------------------------------------------------------ HARD: wormhole enrage
+
+test("difficulty sets 100, 200, and 350 rival integrity respectively", () => {
+  assert.equal(EASY.rivalIntegrity, 100);
+  assert.equal(DIFFICULT.rivalIntegrity, 200);
+  assert.equal(HARD.rivalIntegrity, 350);
+});
+
+test("Difficult enrages at 15 percent and Hard enrages at 30 percent integrity", () => {
+  assert.equal(EASY.wormholeEnrage.enabled, false);
+  assert.equal(DIFFICULT.wormholeEnrage.enabled, true);
+  assert.equal(DIFFICULT.wormholeEnrage.thresholdFraction, 0.15);
+  assert.equal(HARD.wormholeEnrage.enabled, true);
+  assert.equal(HARD.wormholeEnrage.thresholdFraction, 0.3);
+});
+
+test("Difficult and Hard enrage emit a mixed mine, UFO, and Scarab wave every ten seconds", () => {
+  const expected = [
+    { enemy: "mines", count: 6 },
+    { enemy: "ufo", count: 1 },
+    { enemy: "scarab", count: 2 },
+  ];
+  for (const rules of [DIFFICULT, HARD]) {
+    assert.equal(rules.wormholeEnrage.waveIntervalTicks, ticksForSeconds(10));
+    assert.deepEqual(rules.wormholeEnrage.wave, expected);
+  }
+});
+
 // ------------------------------------------------------------------- PvP rules
 
 test("pvp always resolves to easy rules regardless of the stored difficulty", () => {
@@ -358,6 +386,8 @@ test("pvp always resolves to easy rules regardless of the stored difficulty", ()
   assert.equal(PVP_RULES.wormhole.kind, "locked");
   assert.equal(PVP_RULES.collisionShield.enabled, true);
   assert.equal(PVP_RULES.contactHazard.enabled, false);
+  assert.equal(PVP_RULES.rivalIntegrity, 100);
+  assert.equal(PVP_RULES.wormholeEnrage.enabled, false);
 });
 
 test("pve resolves to the requested difficulty", () => {

@@ -69,7 +69,9 @@ import {
   discordSignInUrl,
   fetchArcadeSession,
   fetchLeaderboard,
+  hasSeenDiscordSavePrompt,
   loadLocalBest,
+  markDiscordSavePromptSeen,
   saveLocalRun,
   saveScoreToMurph,
   stashPendingRun,
@@ -187,6 +189,10 @@ type Game = {
   portalY: number;
   /** Decays after the portal fires, used to swell the portal on activity. */
   portalPulse: number;
+  /** Hard Mode wormhole enrage, activated once at the configured integrity threshold. */
+  enrageActive: boolean;
+  /** Ticks until the next automatic mixed enrage wave. */
+  enrageTimer: number;
   bullets: Bullet[];
   pickups: Pickup[];
   enemies: Enemy[];
@@ -196,6 +202,7 @@ type Game = {
   stock: PowerId[];
   score: number;
   rivalHealth: number;
+  rivalMaxHealth: number;
   cycles: number;
   botTimer: number;
   shotCycle: number;
@@ -216,7 +223,10 @@ type Hud = {
   thrust: number;
   retros: boolean;
   score: number;
+  /** Normalized rival integrity percentage for UI and saved-run compatibility. */
   rivalHealth: number;
+  rivalCurrentHealth: number;
+  rivalMaxHealth: number;
   portalCharge: number;
   stock: PowerId[];
   running: boolean;
@@ -240,6 +250,8 @@ type Hud = {
   specialCooldown: number;
   /** True while the pilot is inside the wormhole contact radius. */
   contactActive: boolean;
+  /** True while the Hard Mode rival wormhole is enraged. */
+  enrageActive: boolean;
 };
 
 function cap(value: number, min: number, max: number) {
@@ -313,6 +325,8 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
     portalX: wormhole.x,
     portalY: wormhole.y,
     portalPulse: 0,
+    enrageActive: false,
+    enrageTimer: 0,
     bullets: [],
     pickups: [],
     enemies: [],
@@ -321,7 +335,8 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
     spawns: [],
     stock: [],
     score: 0,
-    rivalHealth: 100,
+    rivalHealth: rules.rivalIntegrity,
+    rivalMaxHealth: rules.rivalIntegrity,
     cycles: 0,
     botTimer: 330,
     shotCycle: 0,
@@ -344,7 +359,9 @@ function hudFrom(game: Game): Hud {
     thrust: game.player.thrust,
     retros: game.player.retros,
     score: game.score,
-    rivalHealth: Math.max(0, Math.round(game.rivalHealth)),
+    rivalHealth: Math.max(0, Math.round((game.rivalHealth / game.rivalMaxHealth) * 100)),
+    rivalCurrentHealth: Math.max(0, Math.round(game.rivalHealth)),
+    rivalMaxHealth: game.rivalMaxHealth,
     portalCharge: Math.round((game.portalCharge / PORTAL_THRESHOLD) * 100),
     stock: [...game.stock],
     running: game.running,
@@ -365,6 +382,7 @@ function hudFrom(game: Game): Hud {
     specialName: SHIP_SPECIALS[game.ship.id].name,
     specialCooldown: wholeSecondsForTicks(game.player.specialCooldown),
     contactActive: game.contactWarning > 0,
+    enrageActive: game.enrageActive,
   };
 }
 
@@ -378,6 +396,8 @@ function hudEqual(a: Hud, b: Hud) {
     && a.retros === b.retros
     && a.score === b.score
     && a.rivalHealth === b.rivalHealth
+    && a.rivalCurrentHealth === b.rivalCurrentHealth
+    && a.rivalMaxHealth === b.rivalMaxHealth
     && a.portalCharge === b.portalCharge
     && a.running === b.running
     && a.paused === b.paused
@@ -394,6 +414,7 @@ function hudEqual(a: Hud, b: Hud) {
     && a.specialName === b.specialName
     && a.specialCooldown === b.specialCooldown
     && a.contactActive === b.contactActive
+    && a.enrageActive === b.enrageActive
     && a.stock.length === b.stock.length
     && a.stock.every((item, index) => item === b.stock[index]);
 }
@@ -696,6 +717,7 @@ function Leaderboard({ onClose }: { onClose: () => void }) {
   const [entries, setEntries] = useState<LeaderboardEntry[] | null>(null);
   const [best, setBest] = useState<LocalBest | null>(null);
   const [failed, setFailed] = useState(false);
+  const [boardLimit, setBoardLimit] = useState(10);
   const closeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => { closeRef.current?.focus(); }, []);
@@ -708,13 +730,15 @@ function Leaderboard({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     let cancelled = false;
     const localBest = loadLocalBest();
-    void fetchLeaderboard(10).then((rows) => {
+    setEntries(null);
+    setFailed(false);
+    void fetchLeaderboard(boardLimit).then((rows) => {
       if (cancelled) return;
       setBest(localBest);
       if (rows) setEntries(rows); else setFailed(true);
     });
     return () => { cancelled = true; };
-  }, []);
+  }, [boardLimit]);
 
   return (
     <div className="codex-backdrop" role="presentation" onClick={onClose}>
@@ -752,9 +776,11 @@ function Leaderboard({ onClose }: { onClose: () => void }) {
               <b>{best.score.toLocaleString()}</b>
             </p>
           ) : null}
-          <a className="board-link" href={`${MURPH_SITE_URL}/arcade`} target="_blank" rel="noopener noreferrer">
-            FULL BOARD ON MURPH TOURNAMENTS →
-          </a>
+          {entries !== null && boardLimit === 10 && entries.length >= 10 ? (
+            <button className="board-link" type="button" onClick={() => setBoardLimit(100)}>
+              LOAD FULL BOARD →
+            </button>
+          ) : null}
         </div>
       </div>
     </div>
@@ -1227,6 +1253,18 @@ function PvpHud({ net }: { net: PvpSnapshot }) {
   );
 }
 
+/** One line describing a difficulty, derived from its rules rather than typed. */
+function difficultyHint(id: DifficultyId) {
+  const rules = DIFFICULTIES[id];
+  if (rules.wormhole.kind === "locked") return "WORMHOLE LOCKED";
+  const parts = ["MOVING"];
+  if (rules.contactHazard.enabled) parts.push("CONTACT");
+  if (rules.wormholeEnrage.enabled) {
+    parts.push(`ENRAGE ${Math.round(rules.wormholeEnrage.thresholdFraction * 100)}%`);
+  }
+  return parts.join(" · ");
+}
+
 /**
  * Mission Setup: the one place PvE/PvP and difficulty are chosen before a
  * launch. The menu only ever summarises these and offers a way back here, so
@@ -1292,12 +1330,7 @@ function MissionSetup({
             options={DIFFICULTY_ORDER.map((id) => ({
               id,
               label: DIFFICULTIES[id].shortName,
-              hint:
-                DIFFICULTIES[id].wormhole.kind === "locked"
-                  ? "WORMHOLE LOCKED"
-                  : DIFFICULTIES[id].contactHazard.enabled
-                    ? "MOVING · CONTACT HAZARD"
-                    : "MOVING WORMHOLE",
+              hint: difficultyHint(id),
             }))}
             onChange={onDifficulty}
           />
@@ -1632,9 +1665,12 @@ export default function WormholeGame() {
   const [stage, setStage] = useState<"select" | "setup" | "arena">("select");
   const [lobbyOpen, setLobbyOpen] = useState(false);
   const [net, setNet] = useState<PvpSnapshot | null>(null);
-  /** Who Murph Tournaments says is playing. Null until the first check answers. */
+  /** Who Murph Tournaments says is playing. Null means guest or unavailable. */
   const [player, setPlayer] = useState<ArcadePlayer | null>(null);
+  const [sessionChecked, setSessionChecked] = useState(false);
   const [summary, setSummary] = useState<RunSummary | null>(null);
+  /** The one specific result screen allowed to show the Discord invitation. */
+  const [discordPromptRun, setDiscordPromptRun] = useState<RunResult | null>(null);
   const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });
   const reducedMotion = useReducedMotion();
 
@@ -1649,6 +1685,8 @@ export default function WormholeGame() {
   const runStartedAt = useRef(0);
   /** The outcome already turned into a summary, so each run is recorded once. */
   const recordedResult = useRef<Game["result"]>(null);
+  /** The summary object already submitted automatically for the signed-in player. */
+  const autoSavedRun = useRef<RunResult | null>(null);
   /** Ship the current run is being flown in, fixed at launch. */
   const runShipName = useRef("");
   /**
@@ -1839,9 +1877,9 @@ export default function WormholeGame() {
     void fetchArcadeSession().then((session) => {
       if (cancelled) return;
       setPlayer(session?.signedIn ? session.player : null);
+      setSessionChecked(true);
       if (!pending || !session?.signedIn) return;
       setSummary({ run: pending, best, isBest: false, runs: 0, restored: true });
-      void saveRun(pending);
     });
 
     return () => { cancelled = true; };
@@ -1869,8 +1907,24 @@ export default function WormholeGame() {
     const local = saveLocalRun(run);
     setSummary({ run, best: local.best, isBest: local.isBest, runs: local.runs, restored: false });
     setSaveState({ status: "idle" });
-    if (player) void saveRun(run);
-  }, [hud.result, hud.score, hud.rivalHealth, player, saveRun]);
+  }, [hud.result, hud.score, hud.rivalHealth]);
+
+  // Signed-in players always save automatically, including when a run finishes
+  // before the initial Murph Tournaments session request returns.
+  useEffect(() => {
+    if (!player || !summary || autoSavedRun.current === summary.run) return;
+    autoSavedRun.current = summary.run;
+    void saveRun(summary.run);
+  }, [player, saveRun, summary]);
+
+  // Offer Discord sign-in on one completed-run screen per device, never while
+  // the session request is still pending (which avoids flashing it to members).
+  useEffect(() => {
+    if (!sessionChecked || player || !summary || discordPromptRun) return;
+    if (hasSeenDiscordSavePrompt()) return;
+    markDiscordSavePromptSeen();
+    setDiscordPromptRun(summary.run);
+  }, [discordPromptRun, player, sessionChecked, summary]);
 
   // Before a run, keep the idle arena matching the selection so the preview
   // shows exactly what START will produce (EASY re-centres the wormhole at
@@ -2254,6 +2308,25 @@ export default function WormholeGame() {
       play(power === "nuke" ? "explosion" : "magic", 0.28);
     };
 
+    const spawnEnrageWave = (game: Game) => {
+      const enrage = game.rules.wormholeEnrage;
+      if (!enrage.enabled || game.mode !== "pve" || game.result) return;
+
+      for (const { enemy, count } of enrage.wave) {
+        for (let i = 0; i < count; i += 1) {
+          game.enemies.push(makeEnemy(enemy, game.portalX, game.portalY, i, count));
+        }
+        pushSpawn(game, "hostile", enemy, game.portalX, game.portalY, count);
+      }
+
+      game.incoming = "ufo";
+      game.notice = "WORMHOLE ENRAGED // MINES · UFO · SCARABS";
+      game.noticeLife = 180;
+      game.portalPulse = 1;
+      burst(game, game.portalX, game.portalY, "#ff263f", 52, 12);
+      play("explosion", 0.36);
+    };
+
     const destroyEnemy = (game: Game, enemy: Enemy) => {
       enemy.hp = 0;
       game.score += enemy.kind === "nuke" ? 600 : enemy.kind === "gunship" ? 300 : 100;
@@ -2495,6 +2568,14 @@ export default function WormholeGame() {
       game.portalX = wormhole.x;
       game.portalY = wormhole.y;
 
+      if (game.enrageActive && game.rules.wormholeEnrage.enabled) {
+        game.enrageTimer -= 1;
+        if (game.enrageTimer <= 0) {
+          game.enrageTimer = game.rules.wormholeEnrage.waveIntervalTicks;
+          spawnEnrageWave(game);
+        }
+      }
+
       game.shieldRipple = Math.max(0, game.shieldRipple - 0.06);
       game.shieldBreak = Math.max(0, game.shieldBreak - 0.04);
       game.shieldRestored = Math.max(0, game.shieldRestored - 1);
@@ -2665,6 +2746,19 @@ export default function WormholeGame() {
             game.score += 750 + damage * 10;
             game.notice = `${WEAPONS[power.type].short} SENT // RIVAL −${damage}`;
             game.noticeLife = 115;
+
+            const enrage = game.rules.wormholeEnrage;
+            if (
+              enrage.enabled
+              && !game.enrageActive
+              && game.rivalHealth > 0
+              && game.rivalHealth <= enrage.thresholdFraction * game.rivalMaxHealth
+            ) {
+              game.enrageActive = true;
+              game.enrageTimer = enrage.waveIntervalTicks;
+              spawnEnrageWave(game);
+            }
+
             if (game.rivalHealth <= 0) {
               game.rivalHealth = 0;
               game.running = false;
@@ -2773,7 +2867,9 @@ export default function WormholeGame() {
       ctx.globalCompositeOperation = "lighter";
       const step = detail >= 0.5 ? 4 : 8;
       for (let radius = 30; radius < 60; radius += step) {
-        ctx.strokeStyle = radius % 8 === 0 ? "rgba(255,84,194,.42)" : "rgba(125,80,255,.3)";
+        ctx.strokeStyle = game.enrageActive
+          ? (radius % 8 === 0 ? "rgba(255,38,63,.78)" : "rgba(255,112,42,.48)")
+          : (radius % 8 === 0 ? "rgba(255,84,194,.42)" : "rgba(125,80,255,.3)");
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.ellipse(0, 0, radius, radius / 2, time * 0.0015 + radius, 0, Math.PI * 2);
@@ -2799,8 +2895,8 @@ export default function WormholeGame() {
 
       const glow = ctx.createRadialGradient(0, 0, 2, 0, 0, 55);
       glow.addColorStop(0, "rgba(255,255,255,.95)");
-      glow.addColorStop(.12, "rgba(255,76,190,.9)");
-      glow.addColorStop(.48, "rgba(73,31,116,.45)");
+      glow.addColorStop(.12, game.enrageActive ? "rgba(255,28,48,.98)" : "rgba(255,76,190,.9)");
+      glow.addColorStop(.48, game.enrageActive ? "rgba(148,12,20,.68)" : "rgba(73,31,116,.45)");
       glow.addColorStop(1, "rgba(0,0,0,0)");
       ctx.fillStyle = glow;
       ctx.beginPath();
@@ -2815,7 +2911,7 @@ export default function WormholeGame() {
       ctx.beginPath();
       ctx.arc(0, 0, 64, 0, Math.PI * 2);
       ctx.stroke();
-      ctx.strokeStyle = charge > 0.75 ? "#b2ff62" : "#ff70cc";
+      ctx.strokeStyle = game.enrageActive ? "#ff263f" : charge > 0.75 ? "#b2ff62" : "#ff70cc";
       ctx.lineCap = "round";
       ctx.beginPath();
       ctx.arc(0, 0, 64, -Math.PI / 2, -Math.PI / 2 + charge * Math.PI * 2);
@@ -3608,7 +3704,7 @@ export default function WormholeGame() {
                 <b>{net?.opponentCombat ? Math.round(net.opponentCombat.hull) : "—"}</b>
               </div>
             ) : (
-              <div className="rival"><span>RIVAL INTEGRITY</span><div className="meter"><i style={{ width: `${hud.rivalHealth}%` }} /></div><b>{hud.rivalHealth}%</b></div>
+              <div className={`rival ${hud.enrageActive ? "enraged" : ""}`}><span>{hud.enrageActive ? "RIVAL INTEGRITY // ENRAGED" : "RIVAL INTEGRITY"}</span><div className="meter"><i style={{ width: `${hud.rivalHealth}%` }} /></div><b>{hud.rivalCurrentHealth}/{hud.rivalMaxHealth} · {hud.rivalHealth}%</b></div>
             )}
           </div>
           <p className={`coach-strip ${hud.notice ? "alert" : ""}`}>
@@ -3621,7 +3717,7 @@ export default function WormholeGame() {
                 width={BOARD}
                 height={BOARD}
                 role="img"
-                aria-label={`Wormhole combat arena. Hull ${hud.health} of ${hud.maxHealth}. Wormhole charge ${hud.portalCharge} percent. Rival integrity ${hud.rivalHealth} percent. ${queued ? `Next power-up ${WEAPONS[queued].name}.` : "Power-up bin empty."}`}
+                aria-label={`Wormhole combat arena. Hull ${hud.health} of ${hud.maxHealth}. Wormhole charge ${hud.portalCharge} percent. Rival integrity ${hud.rivalHealth} percent. ${hud.enrageActive ? "Wormhole enraged. " : ""}${queued ? `Next power-up ${WEAPONS[queued].name}.` : "Power-up bin empty."}`}
               />
               <div className="pilot-health">
                 <span><em>PILOT HULL</em><b>{hud.health}/{hud.maxHealth}</b></span>
@@ -3645,7 +3741,11 @@ export default function WormholeGame() {
                       {summary.isBest ? "NEW DEVICE BEST" : summary.best ? `DEVICE BEST ${summary.best.score.toLocaleString()}` : "FIRST RUN ON THIS DEVICE"}
                     </p>
 
-                    {player ? (
+                    {!sessionChecked ? (
+                      <div className="run-save">
+                        <p className="run-status">CHECKING MURPH TOURNAMENTS SESSION…</p>
+                      </div>
+                    ) : player ? (
                       <div className="run-save">
                         {saveState.status === "saving" ? <p className="run-status">SAVING TO MURPH TOURNAMENTS…</p> : null}
                         {saveState.status === "saved" ? (
@@ -3663,10 +3763,12 @@ export default function WormholeGame() {
                       </div>
                     ) : (
                       <div className="run-save">
-                        <p className="run-status">Saved on this device only. Sign in to put it on the global board.</p>
-                        <button type="button" className="run-action primary" onClick={() => signInToSave(summary.run)}>
-                          SAVE WITH DISCORD
-                        </button>
+                        <p className="run-status">Saved on this device only.{discordPromptRun === summary.run ? " Sign in to put it on the global board." : ""}</p>
+                        {discordPromptRun === summary.run ? (
+                          <button type="button" className="run-action primary" onClick={() => signInToSave(summary.run)}>
+                            SAVE WITH DISCORD
+                          </button>
+                        ) : null}
                       </div>
                     )}
 

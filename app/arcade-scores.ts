@@ -60,6 +60,7 @@ export type LeaderboardEntry = {
 
 const LOCAL_BEST_KEY = "wormhole-arcade:best";
 const LOCAL_RUNS_KEY = "wormhole-arcade:runs";
+const DISCORD_SAVE_PROMPT_SEEN_KEY = "wormhole-arcade:discord-save-prompt-seen";
 
 function readStorage(key: string) {
   try {
@@ -107,6 +108,15 @@ export function loadLocalRunCount() {
   const raw = readStorage(LOCAL_RUNS_KEY);
   const parsed = raw ? Number.parseInt(raw, 10) : 0;
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+/** The Discord save invitation is shown on only one completed-run screen per device. */
+export function hasSeenDiscordSavePrompt() {
+  return readStorage(DISCORD_SAVE_PROMPT_SEEN_KEY) === "1";
+}
+
+export function markDiscordSavePromptSeen() {
+  writeStorage(DISCORD_SAVE_PROMPT_SEEN_KEY, "1");
 }
 
 /**

@@ -280,12 +280,13 @@ test("WASD and the arrows move the ship in world space", { skip }, async () => {
     const diagonal = await relative(["KeyW", "KeyD"]);
     assert.ok(diagonal.dx > 0.02 && diagonal.dy < -0.02, "W+D should move up and right");
 
-    const cardinalSpeed = Math.hypot(right.dx, right.dy);
-    const diagonalSpeed = Math.hypot(diagonal.dx, diagonal.dy);
-    assert.ok(
-      diagonalSpeed <= cardinalSpeed * 1.12,
-      `diagonal (${diagonalSpeed.toFixed(3)}) must not outrun cardinal (${cardinalSpeed.toFixed(3)})`
-    );
+    // Diagonal *speed* is deliberately not compared here. This measurement is
+    // a pixel centroid sampled over about a second of live play, with enemies,
+    // particles and wall bounces all moving in frame, so the ratio drifts
+    // enough to flake. movement.test.mjs asserts normalization exactly against
+    // the maths (< 1e-9, at the first tick and at top speed); what the browser
+    // uniquely proves is that the keys reach the ship at all, which is what
+    // the direction assertions above cover.
 
     const cancelled = await relative(["KeyW", "KeyS"]);
     assert.ok(Math.abs(cancelled.dy) < 0.03, `W+S should cancel, got dy=${cancelled.dy.toFixed(3)}`);

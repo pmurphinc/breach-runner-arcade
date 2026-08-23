@@ -179,6 +179,9 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 /* PvP tracks opponent hull here, not rival integrity, so it reads as hull. */
 .rival.pvp .meter i { background: linear-gradient(90deg, #ff5570, #ffb346); box-shadow: 0 0 8px rgba(255, 120, 90, .45); }
 .rival.pvp > b { color: #ffc9d3; }
+.rival.enraged span, .rival.enraged > b { color: #ff5a63; }
+.rival.enraged .meter { outline: 1px solid rgba(255, 38, 63, .42); }
+.rival.enraged .meter i { background: linear-gradient(90deg, #9f0d1c, #ff263f, #ff7a2a); box-shadow: 0 0 12px rgba(255, 38, 63, .75); animation: threat-pulse .55s infinite alternate; }
 
 /* Contextual coaching: the same line the canvas shows, as real text. */
 .coach-strip { display: flex; align-items: center; gap: 9px; margin: 0 0 8px; padding: 9px 13px; color: #cfe8ee; border-left: 3px solid var(--cyan); font: 700 var(--fs-xs)/1.35 var(--mono); letter-spacing: .05em; }
@@ -313,7 +316,7 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 .board-you { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0; padding: 9px 11px; border: 1px dashed var(--line-strong); border-radius: 3px; }
 .board-you span { color: var(--muted); font: 700 var(--fs-nano)/1 var(--mono); letter-spacing: .12em; }
 .board-you b { color: var(--cyan); font: 900 var(--fs-sm)/1 var(--mono); }
-.board-link { color: var(--cyan); text-decoration: none; text-align: center; font: 800 var(--fs-micro)/1.4 var(--mono); letter-spacing: .08em; }
+.board-link { width: 100%; padding: 8px; color: var(--cyan); border: 0; background: transparent; cursor: pointer; text-decoration: none; text-align: center; font: 800 var(--fs-micro)/1.4 var(--mono); letter-spacing: .08em; }
 .board-link:hover, .board-link:focus-visible { text-decoration: underline; }
 @media (max-width: 420px) {
   .board-list li { grid-template-columns: 26px minmax(0, 1fr) auto; }
