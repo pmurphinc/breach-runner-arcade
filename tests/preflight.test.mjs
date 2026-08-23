@@ -218,19 +218,29 @@ test("SELECT SHIP stays visible on wide touch screens", { skip }, async () => {
       if (viewport.name === "Fold unfolded") {
         const foldFit = await page.evaluate(() => {
           const vh = window.visualViewport?.height ?? innerHeight;
-          const selectors = [".arena-stage", ".status-dock", ".touch-flight", ".touch-action"];
-          return selectors.map((selector) => {
+          const selectors = [".arena-stage", ".touch-flight", ".touch-action", ".touch-powerup-hud"];
+          const bounds = selectors.map((selector) => {
             const el = document.querySelector(selector);
             if (!el) return { selector, missing: true };
             const rect = el.getBoundingClientRect();
-            return { selector, top: rect.top, bottom: rect.bottom, height: rect.height, vh };
+            return { selector, top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right, height: rect.height, vh };
           });
+          const move = document.querySelector(".touch-flight")?.getBoundingClientRect();
+          const fire = document.querySelector(".touch-action")?.getBoundingClientRect();
+          const queue = document.querySelector(".touch-powerup-hud")?.getBoundingClientRect();
+          return {
+            bounds,
+            queueBetweenSticks: Boolean(move && fire && queue && queue.left >= move.right - 1 && queue.right <= fire.left + 1),
+            desktopBinVisible: Boolean(document.querySelector(".power-bin")?.getBoundingClientRect().height),
+          };
         });
-        for (const item of foldFit) {
+        for (const item of foldFit.bounds) {
           assert.equal(item.missing, undefined, `${item.selector} must exist on the unfolded Fold`);
           assert.ok(item.top >= -1 && item.bottom <= item.vh + 1,
             `${item.selector} escaped the unfolded Fold viewport: ${JSON.stringify(item)}`);
         }
+        assert.equal(foldFit.queueBetweenSticks, true, "touch power-up queue must fit between the sticks");
+        assert.equal(foldFit.desktopBinVisible, false, "the five-slot desktop bin stays hidden in touch view");
       }
       assert.deepEqual(errors, []);
       await context.close();
