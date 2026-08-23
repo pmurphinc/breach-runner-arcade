@@ -115,8 +115,8 @@ function readDeviceLayout(): DeviceLayout {
   // Fire OS Silk can expose a fine pointer and zero touch points despite being
   // a touch-only tablet. Treat its user agent as touch hardware so essential
   // controls never disappear behind desktop-only layout assumptions.
-  const fireTablet = /\bSilk\/|Kindle|KF[A-Z]{2,}/i.test(navigator.userAgent);
-  const touch = fireTablet || navigator.maxTouchPoints > 0 || coarse || "ontouchstart" in window;
+  const touchDeviceUA = /Android|\bSilk\/|Kindle|KF[A-Z]{2,}/i.test(navigator.userAgent);
+  const touch = touchDeviceUA || navigator.maxTouchPoints > 0 || coarse || "ontouchstart" in window;
   const w = window.innerWidth;
   const h = window.innerHeight;
   const shortEdge = Math.min(w, h);
@@ -125,7 +125,9 @@ function readDeviceLayout(): DeviceLayout {
   const handheld = touch && (coarse || shortEdge < 950);
   const orientation = w >= h ? "landscape" : "portrait";
   const form: DeviceLayout["form"] = !touch ? "desktop" : shortEdge < 600 ? "phone" : "tablet";
-  const narrow = w < 900;
+  // Keep JavaScript in step with the single-column tablet breakpoint in CSS.
+  // The old 900/980 mismatch left 901–980px tablets without a MENU button.
+  const narrow = w <= 980;
 
   if (orientation === "landscape") {
     const stick = Math.round(cap(Math.min(w * 0.16, h * 0.34), 96, 150));
