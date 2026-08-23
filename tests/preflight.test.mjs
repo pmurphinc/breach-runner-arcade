@@ -126,6 +126,8 @@ test("the ship-selection scene is the launch experience", { skip }, async () => 
     );
     assert.ok(await page.locator(".status-dock .vitals").isVisible(), "Hull and Shield stay visible");
     assert.ok(await page.locator(".status-dock .power-bin").isVisible(), "the collected power-up bin stays visible");
+    assert.equal(await page.locator(".touch-powerup-hud").isVisible(), false,
+      "desktop keeps the full bin and never shows the compact touch queue");
 
     assert.deepEqual(errors, []);
     await context.close();
