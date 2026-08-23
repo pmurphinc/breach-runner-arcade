@@ -119,6 +119,9 @@ test("on touch, tapping inspects and only SELECT SHIP commits", { skip }, async 
     const { context, page, errors } = await openShell(browser, { width: 390, height: 844, touch: true });
 
     assert.ok(await page.locator(".ship-select").isVisible());
+    const selectBounds = await page.locator(".detail-select").boundingBox();
+    assert.ok(selectBounds, "SELECT SHIP must be rendered");
+    assert.ok(selectBounds.y >= 0 && selectBounds.y + selectBounds.height <= 844, "SELECT SHIP must stay inside the phone/Fold viewport");
     assert.ok(
       (await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)) <= 0,
       "no horizontal overflow on a phone"
