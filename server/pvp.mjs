@@ -241,9 +241,17 @@ function handle(matches, player, message, now, send) {
       if (!result.ok) send({ type: "error", code: result.code });
       return;
     }
+    case "rematch": {
+      const result = matches.requestRematch(player, now);
+      if (!result.ok) send({ type: "error", code: result.code });
+      return;
+    }
     case "leave": {
-      matches.disconnect(player, now);
-      player.connected = true;
+      const result = matches.leaveMatch(player);
+      if (!result.ok) {
+        send({ type: "error", code: result.code });
+        return;
+      }
       send({ type: "lobby", state: "idle" });
       return;
     }

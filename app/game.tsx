@@ -88,7 +88,7 @@ const PORTAL_THRESHOLD = 150;
 const DEG = Math.PI / 180;
 const THRUST_ACCEL_BONUS = 0.035;
 const THRUST_SPEED_BONUS = 0.25;
-const STOCK_LIMIT = 5;
+const STOCK_LIMIT = 10;
 const ticksForSeconds = (seconds: number) => Math.round(seconds * 1000 / TICK_MS);
 const wholeSecondsForTicks = (ticks: number) => Math.max(0, Math.ceil(ticks * TICK_MS / 1000));
 /** More than two nameplates at once is noise, not information. */
@@ -928,6 +928,7 @@ function SegmentedChoice<T extends string>({
             >
               <b>{option.label}</b>
               {option.hint ? <small>{option.hint}</small> : null}
+              {active ? <span className="choice-selected" aria-hidden="true">✓ SELECTED</span> : null}
             </button>
           );
         })}
@@ -2037,6 +2038,13 @@ export default function WormholeGame() {
           : "SHIP DESTROYED";
     game.noticeLife = 180;
   }, [netResult]);
+
+  useEffect(() => {
+    if (net?.rematch?.status !== "starting") return;
+    setSummary(null);
+    setStage("setup");
+    setLobbyOpen(true);
+  }, [net?.rematch?.status]);
 
   const togglePause = useCallback(() => {
     const game = gameRef.current;
@@ -3888,14 +3896,39 @@ export default function WormholeGame() {
                     )}
 
                     <div className="run-links">
-                      <button type="button" onClick={start}>RUN AGAIN</button>
-                      <button type="button" onClick={() => { setSummary(null); setStage("select"); }}>
-                        CHANGE SHIP
-                      </button>
-                      <button type="button" onClick={() => { setSummary(null); setStage("setup"); }}>
-                        CHANGE MODE
-                      </button>
-                      <button type="button" onClick={() => setBoardOpen(true)}>GLOBAL BOARD</button>
+                      {mode === "pvp" ? (
+                        <>
+                          <button
+                            type="button"
+                            className="run-action primary"
+                            disabled={Boolean(net?.rematch?.you)}
+                            onClick={() => netRef.current?.requestRematch()}
+                          >
+                            {net?.rematch?.you
+                              ? net.rematch.opponent ? "REMATCH STARTING" : "WAITING FOR OPPONENT"
+                              : net?.rematch?.opponent ? "ACCEPT REMATCH" : "REQUEST REMATCH"}
+                          </button>
+                          <button type="button" onClick={() => {
+                            netRef.current?.leave();
+                            setSummary(null);
+                            setLobbyOpen(false);
+                            setStage("setup");
+                          }}>
+                            LEAVE MATCH
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button type="button" onClick={start}>RUN AGAIN</button>
+                          <button type="button" onClick={() => { setSummary(null); setStage("select"); }}>
+                            CHANGE SHIP
+                          </button>
+                          <button type="button" onClick={() => { setSummary(null); setStage("setup"); }}>
+                            CHANGE MODE
+                          </button>
+                          <button type="button" onClick={() => setBoardOpen(true)}>GLOBAL BOARD</button>
+                        </>
+                      )}
                     </div>
                   </section>
                 </div>
@@ -3928,6 +3961,7 @@ export default function WormholeGame() {
                   ? `Equipped power-up: ${WEAPONS[queued].name}.${queuedBehind ? ` Next: ${WEAPONS[queuedBehind].name}.` : ""}`
                   : "No power-up equipped."}
               >
+                <span className="touch-powerup-count" aria-hidden="true">{hud.stock.length}/{STOCK_LIMIT}</span>
                 {queuedBehind ? (
                   <span
                     className="touch-powerup-queued"
@@ -3994,7 +4028,7 @@ export default function WormholeGame() {
             </div>
             <div className="power-bin">
               <div className="bin-label">
-                <span>POWER-UP BIN</span>
+                <span>POWER-UP BIN <b className="bin-count">{hud.stock.length}/{STOCK_LIMIT}</b></span>
                 <small>FIRE WITH <b>E</b> / <b>PUP</b></small>
               </div>
               <ul className="bin-slots" aria-label="Power-up bin. The last collected power-up fires first.">
