@@ -1272,6 +1272,7 @@ function PvpHud({ net }: { net: PvpSnapshot }) {
 /** One line describing a difficulty, derived from its rules rather than typed. */
 function difficultyHint(id: DifficultyId) {
   const rules = DIFFICULTIES[id];
+  if (rules.unlimitedHull) return "UNLIMITED HULL · NO LEADERBOARD";
   if (rules.wormhole.kind === "locked") return "WORMHOLE LOCKED";
   const parts = ["MOVING"];
   if (rules.contactHazard.enabled) parts.push("CONTACT");
@@ -2698,7 +2699,6 @@ export default function WormholeGame() {
       if (!game.running || game.paused || game.result) return;
       const player = game.player;
       game.cycles += 1;
-      game.elapsedTicks += 1;
 
       if (game.victorySequence > 0) {
         game.victorySequence -= 1;
@@ -2708,6 +2708,14 @@ export default function WormholeGame() {
           const angle = range(0, Math.PI * 2);
           burst(game, game.portalX + Math.cos(angle) * radius, game.portalY + Math.sin(angle) * radius, game.victorySequence % 16 === 0 ? "#ffffff" : "#ff5ac8", 12, 8);
         }
+        for (const particle of game.particles) {
+          particle.x += particle.vx;
+          particle.y += particle.vy;
+          particle.vx *= 0.97;
+          particle.vy *= 0.97;
+          particle.life -= 1;
+        }
+        game.particles = game.particles.filter((particle) => particle.life > 0);
         if (game.victorySequence <= 0) {
           burst(game, game.portalX, game.portalY, "#ffffff", 130, 20);
           game.running = false;
@@ -2717,6 +2725,7 @@ export default function WormholeGame() {
         }
         return;
       }
+      game.elapsedTicks += 1;
       game.shotCycle -= 1;
       game.botTimer -= 1;
       game.noticeLife = Math.max(0, game.noticeLife - 1);
