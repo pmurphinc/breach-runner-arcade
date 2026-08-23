@@ -20,11 +20,11 @@ export const SHIPS: ShipSpec[] = [
   { id: "tank", name: "The Tank", role: "Heavy brawler", turn: 5, maxSpeed: 2.7, acceleration: 0.04, health: 280, gun: 2, thrust: 0, special: "Q: Bulwark grants three seconds of impact immunity.", unlock: "OPEN" },
   { id: "wing", name: "The Wing", role: "Balanced interceptor", turn: 7, maxSpeed: 3.2, acceleration: 0.1, health: 240, gun: 1, thrust: 1, special: "Q: Pulse Dash surges forward and breaks contact.", unlock: "OPEN" },
   { id: "squid", name: "The Squid", role: "High-speed scout", turn: 10, maxSpeed: 4.5, acceleration: 0.19, health: 200, gun: 0, thrust: 3, special: "Q: Phase Skip jumps forward through immediate danger.", unlock: "OPEN" },
-  { id: "rabbit", name: "The Rabbit", role: "Tracking corvette", turn: 12, maxSpeed: 5, acceleration: 0.14, health: 180, gun: 0, thrust: 2, special: "Q: Tracker Salvo targets the nearest hostile.", unlock: "RANK 12" },
-  { id: "turtle", name: "The Turtle", role: "Defensive bruiser", turn: 4.5, maxSpeed: 2.4, acceleration: 0.06, health: 250, gun: 1, thrust: 1, special: "Q: Turtle Cannon clears threats at a health cost.", unlock: "RANK 12" },
-  { id: "flash", name: "The Flash", role: "Shape-shifter", turn: 1, maxSpeed: 1, acceleration: 0.1, health: 190, gun: 3, thrust: 3, special: "Q: Transform between Tank and Squid handling.", unlock: "RANK 14" },
-  { id: "hunter", name: "The Hunter", role: "Missile corvette", turn: 4.8, maxSpeed: 3.2, acceleration: 0.12, health: 220, gun: 0, thrust: 1, special: "Q: Launch a 17-missile Piranha spread.", unlock: "RANK 12" },
-  { id: "flagship", name: "The Flagship", role: "Command vessel", turn: 2, maxSpeed: 1.8, acceleration: 0.04, health: 300, gun: 0, thrust: 2, special: "Q: Project a 3-second field that pulls in power-ups and repels nearby enemies.", unlock: "RANK 14" },
+  { id: "rabbit", name: "The Rabbit", role: "Tracking corvette", turn: 12, maxSpeed: 5, acceleration: 0.14, health: 180, gun: 0, thrust: 2, special: "Q: Tracker Salvo targets the nearest hostile.", unlock: "OPEN" },
+  { id: "turtle", name: "The Turtle", role: "Defensive bruiser", turn: 4.5, maxSpeed: 2.4, acceleration: 0.06, health: 250, gun: 1, thrust: 1, special: "Q: Turtle Cannon clears threats at a health cost.", unlock: "OPEN" },
+  { id: "flash", name: "The Flash", role: "Shape-shifter", turn: 1, maxSpeed: 1, acceleration: 0.1, health: 190, gun: 3, thrust: 3, special: "Q: Transform between Tank and Squid handling.", unlock: "OPEN" },
+  { id: "hunter", name: "The Hunter", role: "Missile corvette", turn: 4.8, maxSpeed: 3.2, acceleration: 0.12, health: 220, gun: 0, thrust: 1, special: "Q: Launch a 17-missile Piranha spread.", unlock: "OPEN" },
+  { id: "flagship", name: "The Flagship", role: "Command vessel", turn: 2, maxSpeed: 1.8, acceleration: 0.04, health: 300, gun: 0, thrust: 2, special: "Q: Project a 3-second field that pulls in power-ups and repels nearby enemies.", unlock: "OPEN" },
 ];
 
 export type ShipSpecial = {
