@@ -77,6 +77,9 @@ test("the ship-selection scene is the launch experience", { skip }, async () => 
     assert.equal(await page.locator('[data-stat="maxSpeed"]').count(), 1);
     assert.match(await page.locator(".carousel-special").innerText(), /SPECIAL/);
     assert.equal(await page.locator('[data-ship]', { hasText: /RANK/ }).count(), 0);
+    const selectColor = await page.locator(".detail-select").evaluate(
+      (button) => getComputedStyle(button).backgroundColor
+    );
 
     // Arrows and keyboard cycle the carousel without launching.
     await page.locator('[data-ship="tank"]').click();
@@ -100,10 +103,29 @@ test("the ship-selection scene is the launch experience", { skip }, async () => 
     assert.match(setup, /GAME MODE/);
     assert.match(setup, /DIFFICULTY/);
     assert.match(setup, /The Wing/);
+    const setupLayout = await page.locator(".mission-setup").evaluate((panel) => {
+      const rect = panel.getBoundingClientRect();
+      const launch = panel.querySelector(".setup-launch");
+      return {
+        centerDelta: Math.abs(rect.left + rect.width / 2 - innerWidth / 2),
+        launchColor: launch ? getComputedStyle(launch).backgroundColor : "",
+      };
+    });
+    assert.ok(setupLayout.centerDelta <= 2, "Mission Setup must be horizontally centered");
+    assert.equal(selectColor, setupLayout.launchColor, "SELECT SHIP uses the same green confirmation color");
 
     await page.locator(".setup-launch").click();
     await page.waitForTimeout(700);
     assert.equal(await page.locator(".launch-scene").isVisible(), false, "launching enters the arena");
+    assert.equal(await page.locator(".ship-panel").isVisible(), false, "ship briefing moves into the Menu");
+    assert.equal(await page.locator(".intel-panel").isVisible(), false, "mission intel moves into the Menu");
+    assert.equal(
+      await page.locator(".status-dock").evaluate((dock) => dock.parentElement?.classList.contains("arena-stage")),
+      true,
+      "vitals and power-ups must be attached to the arena"
+    );
+    assert.ok(await page.locator(".status-dock .vitals").isVisible(), "Hull and Shield stay visible");
+    assert.ok(await page.locator(".status-dock .power-bin").isVisible(), "the collected power-up bin stays visible");
 
     assert.deepEqual(errors, []);
     await context.close();
