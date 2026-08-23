@@ -79,6 +79,7 @@ import {
   type LocalBest,
   type RunResult,
 } from "./arcade-scores";
+import { formatRunTime, normalizeInitials, settleScore } from "./run-scoring";
 
 const VIEW_WIDTH = 1048;
 const VIEW_HEIGHT = 655;
@@ -191,6 +192,10 @@ type Game = {
   portalY: number;
   /** Decays after the portal fires, used to swell the portal on activity. */
   portalPulse: number;
+  /** Simulation time that actually elapsed while the run was active. */
+  elapsedTicks: number;
+  /** Remaining ticks in the wormhole-collapse victory sequence. */
+  victorySequence: number;
   /** Hard Mode wormhole enrage, activated once at the configured integrity threshold. */
   enrageActive: boolean;
   /** Ticks until the next automatic mixed enrage wave. */
@@ -225,6 +230,7 @@ type Hud = {
   thrust: number;
   retros: boolean;
   score: number;
+  elapsedSeconds: number;
   /** Normalized rival integrity percentage for UI and saved-run compatibility. */
   rivalHealth: number;
   rivalCurrentHealth: number;
@@ -330,6 +336,8 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
     portalX: wormhole.x,
     portalY: wormhole.y,
     portalPulse: 0,
+    elapsedTicks: 0,
+    victorySequence: 0,
     enrageActive: false,
     enrageTimer: 0,
     bullets: [],
@@ -364,6 +372,7 @@ function hudFrom(game: Game): Hud {
     thrust: game.player.thrust,
     retros: game.player.retros,
     score: game.score,
+    elapsedSeconds: Math.floor(game.elapsedTicks * TICK_MS / 1000),
     rivalHealth: Math.max(0, Math.round((game.rivalHealth / game.rivalMaxHealth) * 100)),
     rivalCurrentHealth: Math.max(0, Math.round(game.rivalHealth)),
     rivalMaxHealth: game.rivalMaxHealth,
@@ -400,6 +409,7 @@ function hudEqual(a: Hud, b: Hud) {
     && a.thrust === b.thrust
     && a.retros === b.retros
     && a.score === b.score
+    && a.elapsedSeconds === b.elapsedSeconds
     && a.rivalHealth === b.rivalHealth
     && a.rivalCurrentHealth === b.rivalCurrentHealth
     && a.rivalMaxHealth === b.rivalMaxHealth
@@ -989,6 +999,7 @@ function DifficultyBadge({
   return (
     <div className={`difficulty-badge ${contactActive ? "hazard" : ""}`} role="status" aria-live="polite" aria-label={`Score ${hud.score}. Active rules: ${status}`}>
       <span className="rule-score">SCORE {hud.score.toLocaleString().padStart(6, "0")}</span>
+      <span className="rule-time">TIME {formatRunTime(hud.elapsedSeconds)}</span>
       <span className="rule-mode">{gameMode} · {difficulty}</span>
       <span>WORMHOLE {wormhole}</span>
       <span className={charge !== null && charge <= 0 ? "warn" : ""}>{shieldText}</span>
@@ -2307,6 +2318,12 @@ export default function WormholeGame() {
      */
     const applyHullDamage = (game: Game, amount: number) => {
       const player = game.player;
+      if (game.rules.unlimitedHull) {
+        player.health = player.maxHealth;
+        game.notice = "PRACTICE // HULL LOCKED";
+        game.noticeLife = 55;
+        return;
+      }
       player.health -= amount;
       if (game.mode === "pvp") {
         player.health = Math.max(0, player.health);
@@ -2642,6 +2659,25 @@ export default function WormholeGame() {
       if (!game.running || game.paused || game.result) return;
       const player = game.player;
       game.cycles += 1;
+      game.elapsedTicks += 1;
+
+      if (game.victorySequence > 0) {
+        game.victorySequence -= 1;
+        game.portalPulse = 1;
+        if (game.victorySequence % 8 === 0) {
+          const radius = range(18, 95);
+          const angle = range(0, Math.PI * 2);
+          burst(game, game.portalX + Math.cos(angle) * radius, game.portalY + Math.sin(angle) * radius, game.victorySequence % 16 === 0 ? "#ffffff" : "#ff5ac8", 12, 8);
+        }
+        if (game.victorySequence <= 0) {
+          burst(game, game.portalX, game.portalY, "#ffffff", 130, 20);
+          game.running = false;
+          game.result = "victory";
+          game.notice = "RIVAL ELIMINATED";
+          play("explosion", 0.38);
+        }
+        return;
+      }
       game.shotCycle -= 1;
       game.botTimer -= 1;
       game.noticeLife = Math.max(0, game.noticeLife - 1);
@@ -2877,9 +2913,12 @@ export default function WormholeGame() {
 
             if (game.rivalHealth <= 0) {
               game.rivalHealth = 0;
-              game.running = false;
-              game.result = "victory";
-              game.notice = "RIVAL ELIMINATED";
+              game.victorySequence = ticksForSeconds(2.4);
+              game.notice = "WORMHOLE COLLAPSE // STAND CLEAR";
+              game.noticeLife = game.victorySequence;
+              game.enemies.length = 0;
+              game.bullets.length = 0;
+              game.powers.length = 0;
               burst(game, game.portalX, game.portalY, "#ff5ac8", 90, 16);
             }
           }
