@@ -112,11 +112,7 @@ function cap(value: number, min: number, max: number) {
 /** Should thumbsticks appear at all? Capability and preference, not layout. */
 export function resolveTouchControls(input: ViewportInput) {
   if (input.touchControls === "show") return true;
-  if (input.touchControls === "hide") {
-    // Never strand someone with no way to fly: a coarse-pointer device has no
-    // usable keyboard, so the sticks stay regardless of the stored preference.
-    return input.coarse;
-  }
+  if (input.touchControls === "hide") return false;
   return input.touch;
 }
 

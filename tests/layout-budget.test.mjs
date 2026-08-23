@@ -153,7 +153,7 @@ test("touch capability is separate from layout mode", () => {
   assert.equal(desktop.form, "desktop");
 });
 
-test("touch controls can be forced on or off, but never stranded", () => {
+test("explicit thumbstick choice is authoritative", () => {
   const coarse = viewport({ width: 390, height: 844, touch: true, coarse: true });
   const laptop = viewport({ width: 1920, height: 1080, touch: true });
 
@@ -161,12 +161,10 @@ test("touch controls can be forced on or off, but never stranded", () => {
   assert.equal(resolveTouchControls({ ...laptop, touchControls: "hide" }), false);
   assert.equal(resolveTouchControls({ ...laptop, touchControls: "auto" }), true);
 
-  // A coarse-pointer device has no usable keyboard, so hiding must not leave
-  // the player with no way to fly.
   assert.equal(
     resolveTouchControls({ ...coarse, touchControls: "hide" }),
-    true,
-    "a phone must keep its sticks even when hidden is stored"
+    false,
+    "Thumbsticks OFF removes the controls and their pointer hit areas"
   );
 });
 
