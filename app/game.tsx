@@ -220,6 +220,10 @@ type Game = {
   portalY: number;
   /** Decays after the portal fires, used to swell the portal on activity. */
   portalPulse: number;
+  /** Hard Mode wormhole enrage, activated once at the configured integrity threshold. */
+  enrageActive: boolean;
+  /** Ticks until the next automatic mixed enrage wave. */
+  enrageTimer: number;
   bullets: Bullet[];
   pickups: Pickup[];
   enemies: Enemy[];
@@ -273,6 +277,8 @@ type Hud = {
   specialCooldown: number;
   /** True while the pilot is inside the wormhole contact radius. */
   contactActive: boolean;
+  /** True while the Hard Mode rival wormhole is enraged. */
+  enrageActive: boolean;
 };
 
 function cap(value: number, min: number, max: number) {
@@ -346,6 +352,8 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
     portalX: wormhole.x,
     portalY: wormhole.y,
     portalPulse: 0,
+    enrageActive: false,
+    enrageTimer: 0,
     bullets: [],
     pickups: [],
     enemies: [],
@@ -398,6 +406,7 @@ function hudFrom(game: Game): Hud {
     specialName: SHIP_SPECIALS[game.ship.id].name,
     specialCooldown: wholeSecondsForTicks(game.player.specialCooldown),
     contactActive: game.contactWarning > 0,
+    enrageActive: game.enrageActive,
   };
 }
 
@@ -427,6 +436,7 @@ function hudEqual(a: Hud, b: Hud) {
     && a.specialName === b.specialName
     && a.specialCooldown === b.specialCooldown
     && a.contactActive === b.contactActive
+    && a.enrageActive === b.enrageActive
     && a.stock.length === b.stock.length
     && a.stock.every((item, index) => item === b.stock[index]);
 }
@@ -991,9 +1001,11 @@ function ModeSelect({
               hint:
                 DIFFICULTIES[id].wormhole.kind === "locked"
                   ? "WORMHOLE LOCKED"
-                  : DIFFICULTIES[id].contactHazard.enabled
-                    ? "MOVING · CONTACT HAZARD"
-                    : "MOVING WORMHOLE",
+                  : DIFFICULTIES[id].wormholeEnrage.enabled
+                    ? "MOVING · CONTACT · ENRAGE 30%"
+                    : DIFFICULTIES[id].contactHazard.enabled
+                      ? "MOVING · CONTACT HAZARD"
+                      : "MOVING WORMHOLE",
             }))}
             onChange={onDifficulty}
           />
@@ -1984,6 +1996,25 @@ export default function WormholeGame() {
       play(power === "nuke" ? "explosion" : "magic", 0.28);
     };
 
+    const spawnEnrageWave = (game: Game) => {
+      const enrage = game.rules.wormholeEnrage;
+      if (!enrage.enabled || game.mode !== "pve" || game.result) return;
+
+      for (const { enemy, count } of enrage.wave) {
+        for (let i = 0; i < count; i += 1) {
+          game.enemies.push(makeEnemy(enemy, game.portalX, game.portalY, i, count));
+        }
+        pushSpawn(game, "hostile", enemy, game.portalX, game.portalY, count);
+      }
+
+      game.incoming = "ufo";
+      game.notice = "WORMHOLE ENRAGED // MINES · UFO · SCARABS";
+      game.noticeLife = 180;
+      game.portalPulse = 1;
+      burst(game, game.portalX, game.portalY, "#ff263f", 52, 12);
+      play("explosion", 0.36);
+    };
+
     const destroyEnemy = (game: Game, enemy: Enemy) => {
       enemy.hp = 0;
       game.score += enemy.kind === "nuke" ? 600 : enemy.kind === "gunship" ? 300 : 100;
@@ -2225,6 +2256,14 @@ export default function WormholeGame() {
       game.portalX = wormhole.x;
       game.portalY = wormhole.y;
 
+      if (game.enrageActive && game.rules.wormholeEnrage.enabled) {
+        game.enrageTimer -= 1;
+        if (game.enrageTimer <= 0) {
+          game.enrageTimer = game.rules.wormholeEnrage.waveIntervalTicks;
+          spawnEnrageWave(game);
+        }
+      }
+
       game.shieldRipple = Math.max(0, game.shieldRipple - 0.06);
       game.shieldBreak = Math.max(0, game.shieldBreak - 0.04);
       game.shieldRestored = Math.max(0, game.shieldRestored - 1);
@@ -2379,6 +2418,19 @@ export default function WormholeGame() {
             game.score += 750 + damage * 10;
             game.notice = `${WEAPONS[power.type].short} SENT // RIVAL −${damage}`;
             game.noticeLife = 115;
+
+            const enrage = game.rules.wormholeEnrage;
+            if (
+              enrage.enabled
+              && !game.enrageActive
+              && game.rivalHealth > 0
+              && game.rivalHealth <= enrage.thresholdFraction * 100
+            ) {
+              game.enrageActive = true;
+              game.enrageTimer = enrage.waveIntervalTicks;
+              spawnEnrageWave(game);
+            }
+
             if (game.rivalHealth <= 0) {
               game.rivalHealth = 0;
               game.running = false;
@@ -2487,7 +2539,9 @@ export default function WormholeGame() {
       ctx.globalCompositeOperation = "lighter";
       const step = detail >= 0.5 ? 4 : 8;
       for (let radius = 30; radius < 60; radius += step) {
-        ctx.strokeStyle = radius % 8 === 0 ? "rgba(255,84,194,.42)" : "rgba(125,80,255,.3)";
+        ctx.strokeStyle = game.enrageActive
+          ? (radius % 8 === 0 ? "rgba(255,38,63,.78)" : "rgba(255,112,42,.48)")
+          : (radius % 8 === 0 ? "rgba(255,84,194,.42)" : "rgba(125,80,255,.3)");
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.ellipse(0, 0, radius, radius / 2, time * 0.0015 + radius, 0, Math.PI * 2);
@@ -2513,8 +2567,8 @@ export default function WormholeGame() {
 
       const glow = ctx.createRadialGradient(0, 0, 2, 0, 0, 55);
       glow.addColorStop(0, "rgba(255,255,255,.95)");
-      glow.addColorStop(.12, "rgba(255,76,190,.9)");
-      glow.addColorStop(.48, "rgba(73,31,116,.45)");
+      glow.addColorStop(.12, game.enrageActive ? "rgba(255,28,48,.98)" : "rgba(255,76,190,.9)");
+      glow.addColorStop(.48, game.enrageActive ? "rgba(148,12,20,.68)" : "rgba(73,31,116,.45)");
       glow.addColorStop(1, "rgba(0,0,0,0)");
       ctx.fillStyle = glow;
       ctx.beginPath();
@@ -2529,7 +2583,7 @@ export default function WormholeGame() {
       ctx.beginPath();
       ctx.arc(0, 0, 64, 0, Math.PI * 2);
       ctx.stroke();
-      ctx.strokeStyle = charge > 0.75 ? "#b2ff62" : "#ff70cc";
+      ctx.strokeStyle = game.enrageActive ? "#ff263f" : charge > 0.75 ? "#b2ff62" : "#ff70cc";
       ctx.lineCap = "round";
       ctx.beginPath();
       ctx.arc(0, 0, 64, -Math.PI / 2, -Math.PI / 2 + charge * Math.PI * 2);
@@ -3333,7 +3387,7 @@ export default function WormholeGame() {
                 <b>{net?.opponentCombat ? Math.round(net.opponentCombat.hull) : "—"}</b>
               </div>
             ) : (
-              <div className="rival"><span>RIVAL INTEGRITY</span><div className="meter"><i style={{ width: `${hud.rivalHealth}%` }} /></div><b>{hud.rivalHealth}%</b></div>
+              <div className={`rival ${hud.enrageActive ? "enraged" : ""}`}><span>{hud.enrageActive ? "RIVAL INTEGRITY // ENRAGED" : "RIVAL INTEGRITY"}</span><div className="meter"><i style={{ width: `${hud.rivalHealth}%` }} /></div><b>{hud.rivalHealth}%</b></div>
             )}
           </div>
           <p className={`coach-strip ${hud.notice ? "alert" : ""}`}>
@@ -3346,7 +3400,7 @@ export default function WormholeGame() {
                 width={BOARD}
                 height={BOARD}
                 role="img"
-                aria-label={`Wormhole combat arena. Hull ${hud.health} of ${hud.maxHealth}. Wormhole charge ${hud.portalCharge} percent. Rival integrity ${hud.rivalHealth} percent. ${queued ? `Next power-up ${WEAPONS[queued].name}.` : "Power-up bin empty."}`}
+                aria-label={`Wormhole combat arena. Hull ${hud.health} of ${hud.maxHealth}. Wormhole charge ${hud.portalCharge} percent. Rival integrity ${hud.rivalHealth} percent. ${hud.enrageActive ? "Wormhole enraged. " : ""}${queued ? `Next power-up ${WEAPONS[queued].name}.` : "Power-up bin empty."}`}
               />
               <div className="pilot-health">
                 <span><em>PILOT HULL</em><b>{hud.health}/{hud.maxHealth}</b></span>

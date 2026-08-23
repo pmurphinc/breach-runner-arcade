@@ -160,6 +160,9 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 /* PvP tracks opponent hull here, not rival integrity, so it reads as hull. */
 .rival.pvp .meter i { background: linear-gradient(90deg, #ff5570, #ffb346); box-shadow: 0 0 8px rgba(255, 120, 90, .45); }
 .rival.pvp > b { color: #ffc9d3; }
+.rival.enraged span, .rival.enraged > b { color: #ff5a63; }
+.rival.enraged .meter { outline: 1px solid rgba(255, 38, 63, .42); }
+.rival.enraged .meter i { background: linear-gradient(90deg, #9f0d1c, #ff263f, #ff7a2a); box-shadow: 0 0 12px rgba(255, 38, 63, .75); animation: threat-pulse .55s infinite alternate; }
 
 /* Contextual coaching: the same line the canvas shows, as real text. */
 .coach-strip { display: flex; align-items: center; gap: 9px; margin: 0 0 8px; padding: 9px 13px; color: #cfe8ee; border-left: 3px solid var(--cyan); font: 700 var(--fs-xs)/1.35 var(--mono); letter-spacing: .05em; }
