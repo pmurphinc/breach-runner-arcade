@@ -392,3 +392,34 @@ test("origin policy is strict in production and permissive only on loopback", as
   const staged = allowedOrigins({ ...prod, PVP_EXTRA_ORIGINS: "https://staging.example/" });
   assert.equal(isOriginAllowed("https://staging.example", staged, prod), true);
 });
+
+
+test("a rematch waits for both players and returns them to ship select", () => {
+  const { server, a, b } = readiedMatch();
+  server.finish(a.player.room, a.player, "hull", 7000);
+
+  const first = server.requestRematch(a.player, 7100);
+  assert.equal(first.ok, true);
+  assert.equal(first.starting, false);
+  assert.equal(a.last("rematch").you, true);
+  assert.equal(b.last("rematch").opponent, true);
+  assert.equal(a.player.room.phase, "finished");
+
+  const second = server.requestRematch(b.player, 7200);
+  assert.equal(second.starting, true);
+  assert.equal(a.last("rematch").status, "starting");
+  assert.equal(b.last("rematch").status, "starting");
+  assert.equal(a.player.room.phase, "select");
+  assert.equal(a.player.ready, false);
+  assert.equal(b.player.ready, false);
+});
+
+test("leaving a finished match returns both pilots to the lobby", () => {
+  const { server, a, b } = readiedMatch();
+  server.finish(a.player.room, a.player, "hull", 7000);
+  const result = server.leaveMatch(a.player);
+  assert.equal(result.ok, true);
+  assert.equal(a.player.room, null);
+  assert.equal(b.player.room, null);
+  assert.equal(b.last("lobby").reason, "opponent_left");
+});
