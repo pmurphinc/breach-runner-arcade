@@ -457,6 +457,7 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 .touch-controls button b { font: 900 var(--fs-micro)/1 var(--mono); }
 .touch-controls button small { font: 700 var(--fs-nano)/1 var(--mono); opacity: .78; }
 .touch-controls button:active { border-color: var(--cyan); background: rgba(100, 234, 255, .24); transform: translateY(1px); }
+.touch-controls button:disabled { opacity: .46; cursor: not-allowed; filter: saturate(.35); transform: none; }
 .touch-controls .touch-pup { color: #200615; border-color: var(--pink); background: var(--pink); }
 .touch-controls .touch-special { color: #1f1202; border-color: var(--amber); background: var(--amber); }
 .touch-controls .touch-pause { color: #bfe0e8; }
