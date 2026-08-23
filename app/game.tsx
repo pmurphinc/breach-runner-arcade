@@ -20,6 +20,24 @@ import {
 } from "./game-data";
 import { DIRECTIONAL, drawPowerProjectile, drawWeaponGlyph } from "./weapon-art";
 import {
+  TICK_MS,
+  absorbCollisionDamage,
+  advanceWormholeAngle,
+  createCollisionShield,
+  createContactHazard,
+  pilotSpawn,
+  rulesFor,
+  secondsForTicks,
+  tickCollisionShield,
+  tickContactHazard,
+  wormholePosition,
+  type CollisionShieldState,
+  type ContactHazardState,
+  type DifficultyId,
+  type DifficultyRules,
+  type GameMode,
+} from "./difficulty";
+import {
   MURPH_SITE_URL,
   discordSignInUrl,
   fetchArcadeSession,
@@ -37,7 +55,6 @@ import {
 
 const BOARD = 655;
 const WORLD_SIZE = 940;
-const TICK_MS = 15;
 const PORTAL_THRESHOLD = 150;
 const DEG = Math.PI / 180;
 const THRUST_ACCEL_BONUS = 0.035;
@@ -169,7 +186,22 @@ type Player = {
 type Game = {
   worldSize: number;
   ship: ShipSpec;
+  /** Rules in force for this run. Read by the loop; never re-derived from an id. */
+  rules: DifficultyRules;
+  mode: GameMode;
   player: Player;
+  /** Easy-mode collision shield. Null whenever the rules do not grant one. */
+  collisionShield: CollisionShieldState | null;
+  /** Wormhole contact episode tracking. Inert unless the hazard is enabled. */
+  contact: ContactHazardState;
+  /** Ticks left on the on-screen WORMHOLE CONTACT warning. */
+  contactWarning: number;
+  /** Decays after the shield absorbs a hit, drives the impact ripple. */
+  shieldRipple: number;
+  /** Decays after the shield breaks, drives the break flash. */
+  shieldBreak: number;
+  /** Ticks left on the SHIELD RESTORED confirmation. */
+  shieldRestored: number;
   portalAngle: number;
   portalCharge: number;
   portalX: number;
@@ -214,6 +246,18 @@ type Hud = {
   incoming: PowerId | null;
   notice: string;
   coach: string;
+  /** Rules badge: what the pilot is flying under right now. */
+  mode: GameMode;
+  difficulty: DifficultyId;
+  difficultyName: string;
+  wormholeState: "LOCKED" | "MOVING";
+  /** Percentage of collision shield left, or null when the rules grant none. */
+  collisionShield: number | null;
+  /** Seconds left on the recharge delay. Zero when full or already restored. */
+  collisionRecharge: number;
+  contactHazard: boolean;
+  /** True while the pilot is inside the wormhole contact radius. */
+  contactActive: boolean;
 };
 
 function cap(value: number, min: number, max: number) {
@@ -250,13 +294,24 @@ function coachLine(game: Game) {
   return `SHOOT THE WORMHOLE // ${Math.ceil(remaining)} MORE DAMAGE GENERATES A POWER-UP`;
 }
 
-function createGame(ship: ShipSpec): Game {
+function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: DifficultyId = "difficult"): Game {
+  const rules = rulesFor(mode, difficulty);
+  const spawn = pilotSpawn(rules, WORLD_SIZE);
+  const wormhole = wormholePosition(rules, WORLD_SIZE, 0);
   return {
     worldSize: WORLD_SIZE,
     ship,
+    rules,
+    mode,
+    collisionShield: createCollisionShield(rules),
+    contact: createContactHazard(),
+    contactWarning: 0,
+    shieldRipple: 0,
+    shieldBreak: 0,
+    shieldRestored: 0,
     player: {
-      x: WORLD_SIZE / 2,
-      y: WORLD_SIZE / 2,
+      x: spawn.x,
+      y: spawn.y,
       vx: 0,
       vy: 0,
       angle: -90,
@@ -273,8 +328,8 @@ function createGame(ship: ShipSpec): Game {
     },
     portalAngle: 0,
     portalCharge: 0,
-    portalX: WORLD_SIZE / 2 + 210,
-    portalY: WORLD_SIZE / 2,
+    portalX: wormhole.x,
+    portalY: wormhole.y,
     portalPulse: 0,
     bullets: [],
     pickups: [],
@@ -316,6 +371,16 @@ function hudFrom(game: Game): Hud {
     incoming: game.incoming,
     notice: game.noticeLife > 0 ? game.notice : "",
     coach: coachLine(game),
+    mode: game.mode,
+    difficulty: game.rules.id,
+    difficultyName: game.rules.shortName,
+    wormholeState: game.rules.wormhole.kind === "locked" ? "LOCKED" : "MOVING",
+    collisionShield: game.collisionShield
+      ? Math.round((game.collisionShield.charge / game.collisionShield.capacity) * 100)
+      : null,
+    collisionRecharge: game.collisionShield ? secondsForTicks(game.collisionShield.rechargeIn) : 0,
+    contactHazard: game.rules.contactHazard.enabled,
+    contactActive: game.contactWarning > 0,
   };
 }
 
@@ -336,6 +401,13 @@ function hudEqual(a: Hud, b: Hud) {
     && a.incoming === b.incoming
     && a.notice === b.notice
     && a.coach === b.coach
+    && a.mode === b.mode
+    && a.difficulty === b.difficulty
+    && a.wormholeState === b.wormholeState
+    && a.collisionShield === b.collisionShield
+    && a.collisionRecharge === b.collisionRecharge
+    && a.contactHazard === b.contactHazard
+    && a.contactActive === b.contactActive
     && a.stock.length === b.stock.length
     && a.stock.every((item, index) => item === b.stock[index]);
 }
@@ -1170,20 +1242,80 @@ export default function WormholeGame() {
       game.portalPulse = 1;
     };
 
+    /** Terminal hull path. Every source of hull loss ends up here. */
+    const applyHullDamage = (game: Game, amount: number) => {
+      const player = game.player;
+      player.health -= amount;
+      if (player.health > 0) return;
+      player.health = 0;
+      game.running = false;
+      game.result = "defeat";
+      game.notice = "SHIP DESTROYED";
+      burst(game, player.x, player.y, "#ffb346", 70, 13);
+    };
+
+    /**
+     * Non-collision damage: projectiles, beams and blasts.
+     *
+     * Deliberately does NOT consult the Easy collision shield — that shield
+     * covers impacts only, and routing weapon fire through it would quietly
+     * turn it into blanket immunity.
+     */
     const damagePlayer = (game: Game, amount: number) => {
       const player = game.player;
       if (player.invuln > 0 || player.shield > 0) return;
-      player.health -= amount;
       player.invuln = 24;
       burst(game, player.x, player.y, "#ff5570", 18, 7);
       play("explosion", 0.24);
-      if (player.health <= 0) {
-        player.health = 0;
-        game.running = false;
-        game.result = "defeat";
-        game.notice = "SHIP DESTROYED";
-        burst(game, player.x, player.y, "#ffb346", 70, 13);
+      applyHullDamage(game, amount);
+    };
+
+    /**
+     * Collision damage: walls and hostile bodies.
+     *
+     * Existing immunity wins first (post-hit i-frames, collectible shield), so
+     * the collision shield is never spent while the pilot is already immune.
+     * Whatever the collision shield cannot absorb overflows to hull.
+     */
+    const damageCollision = (game: Game, amount: number) => {
+      const player = game.player;
+      if (player.invuln > 0 || player.shield > 0) return;
+
+      const shield = game.collisionShield;
+      if (!shield) {
+        damagePlayer(game, amount);
+        return;
       }
+
+      const hit = absorbCollisionDamage(shield, amount, game.rules);
+      if (hit.absorbed > 0) {
+        game.shieldRipple = 1;
+        play("magic", 0.14);
+      }
+      if (hit.broke) {
+        game.shieldBreak = 1;
+        game.notice = "COLLISION SHIELD DOWN";
+        game.noticeLife = 90;
+        burst(game, player.x, player.y, "#64eaff", 26, 9);
+        play("explosion", 0.2);
+      }
+      if (hit.toHull <= 0) return;
+
+      player.invuln = 24;
+      burst(game, player.x, player.y, "#ff5570", 18, 7);
+      play("explosion", 0.24);
+      applyHullDamage(game, hit.toHull);
+    };
+
+    /**
+     * HARD MODE wormhole contact. Not a collision, so the collision shield
+     * never applies; collectible defensive power-ups still do.
+     */
+    const damageContact = (game: Game, amount: number) => {
+      if (game.player.shield > 0) return;
+      burst(game, game.player.x, game.player.y, "#ff5ac8", 10, 6);
+      play("explosion", 0.18);
+      applyHullDamage(game, amount);
     };
 
     const addIncoming = (game: Game, power: PowerId) => {
@@ -1366,7 +1498,7 @@ export default function WormholeGame() {
 
       const collisionRadius = enemy.kind === "nuke" && (enemy.countdown ?? 0) <= 0 ? 0 : enemy.radius;
       if (collisionRadius > 0 && d < collisionRadius + 12) {
-        damagePlayer(game, enemy.kind === "mines" ? 20 : enemy.kind === "inflator" ? 18 : enemy.kind === "heatseeker" ? 10 : 8);
+        damageCollision(game, enemy.kind === "mines" ? 20 : enemy.kind === "inflator" ? 18 : enemy.kind === "heatseeker" ? 10 : 8);
         if (enemy.kind !== "ufo" && enemy.kind !== "ghost" && enemy.kind !== "wallcrawler" && enemy.kind !== "gunship") enemy.hp = 0;
         enemy.vx *= -1;
         enemy.vy *= -1;
@@ -1386,9 +1518,41 @@ export default function WormholeGame() {
       player.shield = Math.max(0, player.shield - 1);
       player.specialCooldown = Math.max(0, player.specialCooldown - 1);
       player.emp = Math.max(0, player.emp - 1);
-      game.portalAngle = (game.portalAngle + 0.5) % 360;
-      game.portalX = game.worldSize / 2 + Math.cos(game.portalAngle * DEG) * 210;
-      game.portalY = game.worldSize / 2 + Math.sin(game.portalAngle * DEG) * 210;
+      // Wormhole motion is a rule, not a constant: EASY locks it dead centre
+      // while DIFFICULT and HARD MODE keep the original orbit.
+      game.portalAngle = advanceWormholeAngle(game.rules, game.portalAngle);
+      const wormhole = wormholePosition(game.rules, game.worldSize, game.portalAngle);
+      game.portalX = wormhole.x;
+      game.portalY = wormhole.y;
+
+      game.shieldRipple = Math.max(0, game.shieldRipple - 0.06);
+      game.shieldBreak = Math.max(0, game.shieldBreak - 0.04);
+      game.shieldRestored = Math.max(0, game.shieldRestored - 1);
+      game.contactWarning = Math.max(0, game.contactWarning - 1);
+
+      // The collision shield recharges on a timer alone: no position test and
+      // no wormhole test, so it comes back anywhere in the arena.
+      if (game.collisionShield && tickCollisionShield(game.collisionShield, game.rules).restored) {
+        game.shieldRestored = 100;
+        game.notice = "SHIELD RESTORED";
+        game.noticeLife = 90;
+        play("magic", 0.2);
+      }
+
+      // HARD MODE only: overlapping the wormhole burns hull in visible ticks,
+      // capped per contact episode and gated on a genuine exit before the next.
+      const contact = tickContactHazard(
+        game.contact,
+        game.rules,
+        dist(player, { x: game.portalX, y: game.portalY }),
+        player.maxHealth
+      );
+      if (contact.overlapping) game.contactWarning = 24;
+      if (contact.entered) {
+        game.notice = "WORMHOLE CONTACT";
+        game.noticeLife = 110;
+      }
+      if (contact.damage > 0) damageContact(game, contact.damage);
 
       const movementHeading = moveHeading.current;
       const firingHeading = aimHeading.current;
@@ -1430,8 +1594,8 @@ export default function WormholeGame() {
       if (playerSpeed > maxSpeed) { player.vx = (player.vx / playerSpeed) * maxSpeed; player.vy = (player.vy / playerSpeed) * maxSpeed; }
       player.x += player.vx;
       player.y += player.vy;
-      if (player.x < 12 || player.x > game.worldSize - 12) { player.x = cap(player.x, 12, game.worldSize - 12); player.vx *= -0.55; damagePlayer(game, 2); }
-      if (player.y < 12 || player.y > game.worldSize - 12) { player.y = cap(player.y, 12, game.worldSize - 12); player.vy *= -0.55; damagePlayer(game, 2); }
+      if (player.x < 12 || player.x > game.worldSize - 12) { player.x = cap(player.x, 12, game.worldSize - 12); player.vx *= -0.55; damageCollision(game, 2); }
+      if (player.y < 12 || player.y > game.worldSize - 12) { player.y = cap(player.y, 12, game.worldSize - 12); player.vy *= -0.55; damageCollision(game, 2); }
 
       if (fire && game.shotCycle <= 0 && game.playerShots < SHOT_LEVELS[player.gun].maxShots) {
         const shot = SHOT_LEVELS[player.gun];
@@ -1611,6 +1775,24 @@ export default function WormholeGame() {
         ctx.ellipse(0, 0, radius, radius / 2, time * 0.0015 + radius, 0, Math.PI * 2);
         ctx.stroke();
       }
+      // HARD MODE: a hazard ring on the exact radius that costs hull, so the
+      // dangerous edge is somewhere the pilot can actually see.
+      const hazard = game.rules.contactHazard;
+      if (hazard.enabled) {
+        ctx.save();
+        ctx.scale(1 / swell, 1 / swell);
+        const pulse = 0.5 + Math.sin(time * 0.006) * 0.2;
+        ctx.globalAlpha = game.contactWarning > 0 ? 0.9 : 0.45 + pulse * 0.2;
+        ctx.strokeStyle = game.contactWarning > 0 ? "#ff5570" : "#ff9a4d";
+        ctx.lineWidth = game.contactWarning > 0 ? 3 : 2;
+        ctx.setLineDash([9, 7]);
+        ctx.beginPath();
+        ctx.arc(0, 0, hazard.radius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
+
       const glow = ctx.createRadialGradient(0, 0, 2, 0, 0, 55);
       glow.addColorStop(0, "rgba(255,255,255,.95)");
       glow.addColorStop(.12, "rgba(255,76,190,.9)");
@@ -1959,6 +2141,53 @@ export default function WormholeGame() {
           ctx.stroke();
         }
         ctx.restore();
+
+        // Collision shield: a ring whose weight tracks remaining charge, plus
+        // a ripple on absorption and a flash on break. Drawn unrotated so it
+        // reads as a bubble around the hull rather than part of the ship.
+        const shield = game.collisionShield;
+        if (shield) {
+          const ringRadius = game.ship.id === "flagship" ? 34 : 27;
+          const fraction = shield.charge / shield.capacity;
+          ctx.save();
+          ctx.translate(player.x, player.y);
+          if (fraction > 0) {
+            ctx.globalAlpha = 0.35 + fraction * 0.45;
+            ctx.strokeStyle = "#64eaff";
+            ctx.lineWidth = 1 + fraction * 2.2;
+            if (profile.shadows) { ctx.shadowColor = "#64eaff"; ctx.shadowBlur = 8; }
+            ctx.beginPath();
+            ctx.arc(0, 0, ringRadius, 0, Math.PI * 2);
+            ctx.stroke();
+          } else {
+            // Broken: a dashed ghost ring so the loss is legible at a glance.
+            ctx.globalAlpha = 0.3;
+            ctx.strokeStyle = "#7c94a0";
+            ctx.lineWidth = 1;
+            ctx.setLineDash([5, 7]);
+            ctx.beginPath();
+            ctx.arc(0, 0, ringRadius, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+          }
+          if (game.shieldRipple > 0) {
+            ctx.globalAlpha = game.shieldRipple * 0.7;
+            ctx.strokeStyle = "#d6fbff";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(0, 0, ringRadius + (1 - game.shieldRipple) * 16, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+          if (game.shieldBreak > 0) {
+            ctx.globalAlpha = game.shieldBreak * 0.85;
+            ctx.strokeStyle = "#ffb346";
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(0, 0, ringRadius + (1 - game.shieldBreak) * 30, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
       }
       ctx.restore();
 
