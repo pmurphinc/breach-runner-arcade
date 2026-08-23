@@ -80,8 +80,10 @@ import {
   type RunResult,
 } from "./arcade-scores";
 
-const BOARD = 655;
-const WORLD_SIZE = 940;
+const VIEW_WIDTH = 1048;
+const VIEW_HEIGHT = 655;
+const WORLD_WIDTH = 1504;
+const WORLD_HEIGHT = 940;
 const PORTAL_THRESHOLD = 150;
 const DEG = Math.PI / 180;
 const THRUST_ACCEL_BONUS = 0.035;
@@ -164,7 +166,8 @@ type Player = {
 };
 
 type Game = {
-  worldSize: number;
+  worldWidth: number;
+  worldHeight: number;
   ship: ShipSpec;
   /** Rules in force for this run. Read by the loop; never re-derived from an id. */
   rules: DifficultyRules;
@@ -289,10 +292,12 @@ function coachLine(game: Game) {
 
 function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: DifficultyId = "difficult"): Game {
   const rules = rulesFor(mode, difficulty);
-  const spawn = pilotSpawn(rules, WORLD_SIZE);
-  const wormhole = wormholePosition(rules, WORLD_SIZE, 0);
+  const arena = { width: WORLD_WIDTH, height: WORLD_HEIGHT };
+  const spawn = pilotSpawn(rules, arena);
+  const wormhole = wormholePosition(rules, arena, 0);
   return {
-    worldSize: WORLD_SIZE,
+    worldWidth: WORLD_WIDTH,
+    worldHeight: WORLD_HEIGHT,
     ship,
     rules,
     mode,
@@ -2130,14 +2135,14 @@ export default function WormholeGame() {
     // Convert the cursor from CSS pixels into arena coordinates, then undo the
     // active camera transform. This keeps mouse aim exact in both ship-lock and
     // full-arena camera modes.
-    const screenX = ((event.clientX - rect.left) / rect.width) * BOARD;
-    const screenY = ((event.clientY - rect.top) / rect.height) * BOARD;
+    const screenX = ((event.clientX - rect.left) / rect.width) * VIEW_WIDTH;
+    const screenY = ((event.clientY - rect.top) / rect.height) * VIEW_HEIGHT;
     const game = gameRef.current;
     const player = game.player;
     const locked = cameraRef.current;
-    const camScale = locked ? 1 : BOARD / game.worldSize;
-    const camX = locked ? cap(BOARD / 2 - player.x, BOARD - game.worldSize, 0) : 0;
-    const camY = locked ? cap(BOARD / 2 - player.y, BOARD - game.worldSize, 0) : 0;
+    const camScale = locked ? 1 : Math.min(VIEW_WIDTH / game.worldWidth, VIEW_HEIGHT / game.worldHeight);
+    const camX = locked ? cap(VIEW_WIDTH / 2 - player.x, VIEW_WIDTH - game.worldWidth, 0) : (VIEW_WIDTH - game.worldWidth * camScale) / 2;
+    const camY = locked ? cap(VIEW_HEIGHT / 2 - player.y, VIEW_HEIGHT - game.worldHeight, 0) : (VIEW_HEIGHT - game.worldHeight * camScale) / 2;
     const worldX = (screenX - camX) / camScale;
     const worldY = (screenY - camY) / camScale;
     aimHeading.current = (Math.atan2(worldY - player.y, worldX - player.x) * 180) / Math.PI;
@@ -2220,10 +2225,11 @@ export default function WormholeGame() {
     let accumulator = 0;
     let hudDelay = 0;
 
-    // Rendering geometry. `worldScale` maps the 655-unit arena viewport onto the
-    // backing store; `cssScale` maps CSS pixels onto it so HUD text keeps a
-    // constant on-screen size no matter how large the arena is drawn.
-    let cssWidth = Math.max(1, canvas.getBoundingClientRect().width || BOARD);
+    // Rendering geometry. The 1048 × 655 viewport is the same 1.6:1
+    // shape as the authoritative 1504 × 940 world.
+    const initialRect = canvas.getBoundingClientRect();
+    let cssWidth = Math.max(1, initialRect.width || VIEW_WIDTH);
+    let cssHeight = Math.max(1, initialRect.height || VIEW_HEIGHT);
     let worldScale = 1;
     let cssScale = 1;
     let needsResize = true;
@@ -2249,19 +2255,22 @@ export default function WormholeGame() {
     const applyResize = () => {
       needsResize = false;
       const dpr = Math.min(2, window.devicePixelRatio || 1);
-      const target = Math.max(420, Math.min(profile.maxBackingPx, Math.round(cssWidth * dpr)));
-      if (canvas.width !== target || canvas.height !== target) {
-        canvas.width = target;
-        canvas.height = target;
+      const targetWidth = Math.max(420, Math.min(profile.maxBackingPx, Math.round(cssWidth * dpr)));
+      const targetHeight = Math.max(263, Math.round(targetWidth * VIEW_HEIGHT / VIEW_WIDTH));
+      if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
       }
-      worldScale = target / BOARD;
-      cssScale = target / cssWidth;
+      worldScale = targetWidth / VIEW_WIDTH;
+      cssScale = targetWidth / cssWidth;
     };
 
     const observer = new ResizeObserver((entries) => {
       const width = entries[0]?.contentRect.width ?? 0;
-      if (width > 0 && Math.abs(width - cssWidth) > 0.5) {
-        cssWidth = width;
+      const height = entries[0]?.contentRect.height ?? 0;
+      if ((width > 0 && Math.abs(width - cssWidth) > 0.5) || (height > 0 && Math.abs(height - cssHeight) > 0.5)) {
+        cssWidth = Math.max(1, width);
+        cssHeight = Math.max(1, height);
         needsResize = true;
       }
     });
@@ -2456,8 +2465,8 @@ export default function WormholeGame() {
         game.notice = "PULSE DASH";
       } else if (ship === "squid") {
         const angle = player.angle * DEG;
-        player.x = cap(player.x + Math.cos(angle) * 150, 24, game.worldSize - 24);
-        player.y = cap(player.y + Math.sin(angle) * 150, 24, game.worldSize - 24);
+        player.x = cap(player.x + Math.cos(angle) * 150, 24, game.worldWidth - 24);
+        player.y = cap(player.y + Math.sin(angle) * 150, 24, game.worldHeight - 24);
         player.invuln = Math.max(player.invuln, ticksForSeconds(0.7));
         game.notice = "PHASE SKIP";
       } else if (ship === "rabbit") {
@@ -2568,8 +2577,8 @@ export default function WormholeGame() {
         }
       } else if (enemy.kind === "wallcrawler") {
         if (enemy.x <= 12) { enemy.x = 12; enemy.vx = 0; enemy.vy = 4; }
-        if (enemy.y >= game.worldSize - 12) { enemy.y = game.worldSize - 12; enemy.vx = 4; enemy.vy = 0; }
-        if (enemy.x >= game.worldSize - 12) { enemy.x = game.worldSize - 12; enemy.vx = 0; enemy.vy = -4; }
+        if (enemy.y >= game.worldHeight - 12) { enemy.y = game.worldHeight - 12; enemy.vx = 4; enemy.vy = 0; }
+        if (enemy.x >= game.worldWidth - 12) { enemy.x = game.worldWidth - 12; enemy.vx = 0; enemy.vy = -4; }
         if (enemy.y <= 12) { enemy.y = 12; enemy.vx = -4; enemy.vy = 0; }
         if (enemy.age % 35 === 0) spawnEnemyBullet(game, enemy, 6, 10);
       } else if (enemy.kind === "ghost") {
@@ -2605,10 +2614,10 @@ export default function WormholeGame() {
         enemy.x += enemy.vx;
         enemy.y += enemy.vy;
       }
-      if (enemy.x < 4 || enemy.x > game.worldSize - 4) enemy.vx *= -1;
-      if (enemy.y < 4 || enemy.y > game.worldSize - 4) enemy.vy *= -1;
-      enemy.x = cap(enemy.x, 4, game.worldSize - 4);
-      enemy.y = cap(enemy.y, 4, game.worldSize - 4);
+      if (enemy.x < 4 || enemy.x > game.worldWidth - 4) enemy.vx *= -1;
+      if (enemy.y < 4 || enemy.y > game.worldHeight - 4) enemy.vy *= -1;
+      enemy.x = cap(enemy.x, 4, game.worldWidth - 4);
+      enemy.y = cap(enemy.y, 4, game.worldHeight - 4);
 
       const collisionRadius = enemy.kind === "nuke" && (enemy.countdown ?? 0) <= 0 ? 0 : enemy.radius;
       if (collisionRadius > 0 && d < collisionRadius + 12) {
@@ -2635,7 +2644,7 @@ export default function WormholeGame() {
       // Wormhole motion is a rule, not a constant: EASY locks it dead centre
       // while DIFFICULT and HARD MODE keep the original orbit.
       game.portalAngle = advanceWormholeAngle(game.rules, game.portalAngle);
-      const wormhole = wormholePosition(game.rules, game.worldSize, game.portalAngle);
+      const wormhole = wormholePosition(game.rules, { width: game.worldWidth, height: game.worldHeight }, game.portalAngle);
       game.portalX = wormhole.x;
       game.portalY = wormhole.y;
 
@@ -2731,8 +2740,8 @@ export default function WormholeGame() {
       if (playerSpeed > maxSpeed) { player.vx = (player.vx / playerSpeed) * maxSpeed; player.vy = (player.vy / playerSpeed) * maxSpeed; }
       player.x += player.vx;
       player.y += player.vy;
-      if (player.x < 12 || player.x > game.worldSize - 12) { player.x = cap(player.x, 12, game.worldSize - 12); player.vx *= -0.55; damageCollision(game, 2); }
-      if (player.y < 12 || player.y > game.worldSize - 12) { player.y = cap(player.y, 12, game.worldSize - 12); player.vy *= -0.55; damageCollision(game, 2); }
+      if (player.x < 12 || player.x > game.worldWidth - 12) { player.x = cap(player.x, 12, game.worldWidth - 12); player.vx *= -0.55; damageCollision(game, 2); }
+      if (player.y < 12 || player.y > game.worldHeight - 12) { player.y = cap(player.y, 12, game.worldHeight - 12); player.vy *= -0.55; damageCollision(game, 2); }
 
       if (fire && game.shotCycle <= 0 && game.playerShots < SHOT_LEVELS[player.gun].maxShots) {
         const shot = SHOT_LEVELS[player.gun];
@@ -2926,13 +2935,13 @@ export default function WormholeGame() {
       // In-place compaction: no new arrays are allocated every tick.
       let liveShots = 0;
       compact(game.bullets, (item) => {
-        const alive = item.life > 0 && item.x > -30 && item.x < game.worldSize + 30 && item.y > -30 && item.y < game.worldSize + 30;
+        const alive = item.life > 0 && item.x > -30 && item.x < game.worldWidth + 30 && item.y > -30 && item.y < game.worldHeight + 30;
         if (alive && !item.enemy) liveShots += 1;
         return alive;
       });
       game.playerShots = liveShots;
       compact(game.pickups, (item) => item.life > 0);
-      compact(game.powers, (item) => item.life > 0 && item.x > -30 && item.x < game.worldSize + 30 && item.y > -30 && item.y < game.worldSize + 30);
+      compact(game.powers, (item) => item.life > 0 && item.x > -30 && item.x < game.worldWidth + 30 && item.y > -30 && item.y < game.worldHeight + 30);
       compact(game.enemies, (item) => item.hp > 0);
       compact(game.particles, (item) => item.life > 0);
       compact(game.spawns, (item) => item.age < item.life);
@@ -2950,8 +2959,8 @@ export default function WormholeGame() {
     // Star field positions are deterministic, so build them once instead of
     // recomputing 85 modulo pairs on every frame.
     const stars = Array.from({ length: 85 }, (_, i) => ({
-      x: (i * 83.17) % BOARD,
-      y: (i * 47.31) % BOARD,
+      x: (i * 83.17) % VIEW_WIDTH,
+      y: (i * 47.31) % VIEW_HEIGHT,
       size: i % 11 === 0 ? 2 : 1,
       cyan: i % 8 === 0,
     }));
@@ -3166,7 +3175,7 @@ export default function WormholeGame() {
         }
         // Directional launch burst, thrown away from the arena centre.
         if (hostile && detail >= 0.35 && p < 0.5) {
-          const away = Math.atan2(spawn.y - WORLD_SIZE / 2, spawn.x - WORLD_SIZE / 2) + Math.PI;
+          const away = Math.atan2(spawn.y - WORLD_HEIGHT / 2, spawn.x - WORLD_WIDTH / 2) + Math.PI;
           ctx.rotate(away);
           ctx.globalAlpha = (1 - p * 2) * 0.55;
           ctx.fillStyle = color;
@@ -3188,12 +3197,12 @@ export default function WormholeGame() {
       const quiet = reducedMotionRef.current;
 
       ctx.setTransform(worldScale, 0, 0, worldScale, 0, 0);
-      const gradient = ctx.createRadialGradient(BOARD / 2, BOARD / 2, 10, BOARD / 2, BOARD / 2, BOARD * .72);
+      const gradient = ctx.createRadialGradient(VIEW_WIDTH / 2, VIEW_HEIGHT / 2, 10, VIEW_WIDTH / 2, VIEW_HEIGHT / 2, VIEW_WIDTH * .58);
       gradient.addColorStop(0, "#0b1520");
       gradient.addColorStop(.58, "#050b12");
       gradient.addColorStop(1, "#020409");
       ctx.fillStyle = gradient;
-      ctx.fillRect(0, 0, BOARD, BOARD);
+      ctx.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
 
       for (const star of stars) {
         const alpha = quiet || detail < 0.5 ? 0.3 : .22 + Math.sin(time * .001 + star.x) * .18;
@@ -3205,22 +3214,24 @@ export default function WormholeGame() {
       ctx.strokeStyle = "rgba(86, 176, 200, .055)";
       ctx.lineWidth = 1;
       ctx.beginPath();
-      for (let p = 30; p < BOARD; p += 30) {
-        ctx.moveTo(p, 0);
-        ctx.lineTo(p, BOARD);
-        ctx.moveTo(0, p);
-        ctx.lineTo(BOARD, p);
+      for (let x = 30; x < VIEW_WIDTH; x += 30) {
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, VIEW_HEIGHT);
+      }
+      for (let y = 30; y < VIEW_HEIGHT; y += 30) {
+        ctx.moveTo(0, y);
+        ctx.lineTo(VIEW_WIDTH, y);
       }
       ctx.stroke();
 
       const locked = cameraRef.current;
-      const camScale = locked ? 1 : BOARD / game.worldSize;
-      const camX = locked ? cap(BOARD / 2 - player.x, BOARD - game.worldSize, 0) : 0;
-      const camY = locked ? cap(BOARD / 2 - player.y, BOARD - game.worldSize, 0) : 0;
+      const camScale = locked ? 1 : Math.min(VIEW_WIDTH / game.worldWidth, VIEW_HEIGHT / game.worldHeight);
+      const camX = locked ? cap(VIEW_WIDTH / 2 - player.x, VIEW_WIDTH - game.worldWidth, 0) : (VIEW_WIDTH - game.worldWidth * camScale) / 2;
+      const camY = locked ? cap(VIEW_HEIGHT / 2 - player.y, VIEW_HEIGHT - game.worldHeight, 0) : (VIEW_HEIGHT - game.worldHeight * camScale) / 2;
       const viewLeft = -camX / camScale;
       const viewTop = -camY / camScale;
-      const viewRight = (BOARD - camX) / camScale;
-      const viewBottom = (BOARD - camY) / camScale;
+      const viewRight = (VIEW_WIDTH - camX) / camScale;
+      const viewBottom = (VIEW_HEIGHT - camY) / camScale;
       const visible = (x: number, y: number, r: number) =>
         x + r > viewLeft && x - r < viewRight && y + r > viewTop && y - r < viewBottom;
 
@@ -3423,6 +3434,7 @@ export default function WormholeGame() {
     const drawOverlay = (time: number, camera: { camScale: number; camX: number; camY: number }) => {
       const game = gameRef.current;
       const W = cssWidth;
+      const H = cssHeight;
       ctx.setTransform(cssScale, 0, 0, cssScale, 0, 0);
       ctx.textBaseline = "middle";
 
@@ -3455,7 +3467,7 @@ export default function WormholeGame() {
         const chipH = Math.round(fs(12) * 3);
         const chipW = cap(W * 0.4, 176, 250);
         const chipX = W - pad - chipW;
-        const chipY = W - pad - chipH;
+        const chipY = H - pad - chipH;
         panel(chipX, chipY, chipW, chipH, `${meta.color}66`);
         ctx.save();
         ctx.translate(chipX + chipH * 0.5, chipY + chipH * 0.5);
@@ -3506,13 +3518,13 @@ export default function WormholeGame() {
       }
 
       // Rival wormhole label follows the portal.
-      const portalX = (game.portalX * camera.camScale + camera.camX) * (W / BOARD);
-      const portalY = (game.portalY * camera.camScale + camera.camY) * (W / BOARD);
-      if (game.spawns.length === 0 && portalX > -60 && portalX < W + 60 && portalY > -60 && portalY < W + 60) {
+      const portalX = (game.portalX * camera.camScale + camera.camX) * (W / VIEW_WIDTH);
+      const portalY = (game.portalY * camera.camScale + camera.camY) * (W / VIEW_WIDTH);
+      if (game.spawns.length === 0 && portalX > -60 && portalX < W + 60 && portalY > -60 && portalY < H + 60) {
         ctx.font = mono(700, 11.5);
         ctx.textAlign = "center";
         ctx.fillStyle = "rgba(244,226,255,.9)";
-        ctx.fillText("RIVAL WORMHOLE", cap(portalX, 60, W - 60), cap(portalY + 82 * camera.camScale * (W / BOARD), 12, W - 12));
+        ctx.fillText("RIVAL WORMHOLE", cap(portalX, 60, W - 60), cap(portalY + 82 * camera.camScale * (W / VIEW_WIDTH), 12, H - 12));
       }
 
       // Player-hit feedback: a brief red rim, never a full-screen wash.
@@ -3807,8 +3819,8 @@ export default function WormholeGame() {
             <div className="canvas-wrap" ref={canvasWrapRef} tabIndex={-1}>
               <canvas
                 ref={canvasRef}
-                width={BOARD}
-                height={BOARD}
+                width={VIEW_WIDTH}
+                height={VIEW_HEIGHT}
                 onPointerMove={handleArenaPointerMove}
                 onPointerDown={handleArenaPointerDown}
                 onPointerUp={handleArenaPointerUp}
