@@ -65,6 +65,7 @@ const THRUST_ACCEL_BONUS = 0.035;
 const THRUST_SPEED_BONUS = 0.25;
 const STOCK_LIMIT = 5;
 const ticksForSeconds = (seconds: number) => Math.round(seconds * 1000 / TICK_MS);
+const wholeSecondsForTicks = (ticks: number) => Math.max(0, Math.ceil(ticks * TICK_MS / 1000));
 /** More than two nameplates at once is noise, not information. */
 const MAX_NAMEPLATES = 2;
 
@@ -395,7 +396,7 @@ function hudFrom(game: Game): Hud {
     collisionRecharge: game.collisionShield ? secondsForTicks(game.collisionShield.rechargeIn) : 0,
     contactHazard: game.rules.contactHazard.enabled,
     specialName: SHIP_SPECIALS[game.ship.id].name,
-    specialCooldown: secondsForTicks(game.player.specialCooldown),
+    specialCooldown: wholeSecondsForTicks(game.player.specialCooldown),
     contactActive: game.contactWarning > 0,
   };
 }
@@ -2007,7 +2008,7 @@ export default function WormholeGame() {
 
       const spec = SHIP_SPECIALS[game.ship.id];
       if (player.specialCooldown > 0) {
-        game.notice = `${spec.name} // READY IN ${secondsForTicks(player.specialCooldown)}S`;
+        game.notice = `${spec.name} // READY IN ${wholeSecondsForTicks(player.specialCooldown)}S`;
         game.noticeLife = 55;
         return;
       }
