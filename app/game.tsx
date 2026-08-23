@@ -233,6 +233,7 @@ type Game = {
   stock: PowerId[];
   score: number;
   rivalHealth: number;
+  rivalMaxHealth: number;
   cycles: number;
   botTimer: number;
   shotCycle: number;
@@ -253,7 +254,10 @@ type Hud = {
   thrust: number;
   retros: boolean;
   score: number;
+  /** Normalized rival integrity percentage for UI and saved-run compatibility. */
   rivalHealth: number;
+  rivalCurrentHealth: number;
+  rivalMaxHealth: number;
   portalCharge: number;
   stock: PowerId[];
   running: boolean;
@@ -362,7 +366,8 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
     spawns: [],
     stock: [],
     score: 0,
-    rivalHealth: 100,
+    rivalHealth: rules.rivalIntegrity,
+    rivalMaxHealth: rules.rivalIntegrity,
     cycles: 0,
     botTimer: 330,
     shotCycle: 0,
@@ -385,7 +390,9 @@ function hudFrom(game: Game): Hud {
     thrust: game.player.thrust,
     retros: game.player.retros,
     score: game.score,
-    rivalHealth: Math.max(0, Math.round(game.rivalHealth)),
+    rivalHealth: Math.max(0, Math.round((game.rivalHealth / game.rivalMaxHealth) * 100)),
+    rivalCurrentHealth: Math.max(0, Math.round(game.rivalHealth)),
+    rivalMaxHealth: game.rivalMaxHealth,
     portalCharge: Math.round((game.portalCharge / PORTAL_THRESHOLD) * 100),
     stock: [...game.stock],
     running: game.running,
@@ -420,6 +427,8 @@ function hudEqual(a: Hud, b: Hud) {
     && a.retros === b.retros
     && a.score === b.score
     && a.rivalHealth === b.rivalHealth
+    && a.rivalCurrentHealth === b.rivalCurrentHealth
+    && a.rivalMaxHealth === b.rivalMaxHealth
     && a.portalCharge === b.portalCharge
     && a.running === b.running
     && a.paused === b.paused
@@ -1002,7 +1011,7 @@ function ModeSelect({
                 DIFFICULTIES[id].wormhole.kind === "locked"
                   ? "WORMHOLE LOCKED"
                   : DIFFICULTIES[id].wormholeEnrage.enabled
-                    ? "MOVING · CONTACT · ENRAGE 30%"
+                    ? `MOVING${DIFFICULTIES[id].contactHazard.enabled ? " · CONTACT" : ""} · ENRAGE ${Math.round(DIFFICULTIES[id].wormholeEnrage.thresholdFraction * 100)}%`
                     : DIFFICULTIES[id].contactHazard.enabled
                       ? "MOVING · CONTACT HAZARD"
                       : "MOVING WORMHOLE",
@@ -2424,7 +2433,7 @@ export default function WormholeGame() {
               enrage.enabled
               && !game.enrageActive
               && game.rivalHealth > 0
-              && game.rivalHealth <= enrage.thresholdFraction * 100
+              && game.rivalHealth <= enrage.thresholdFraction * game.rivalMaxHealth
             ) {
               game.enrageActive = true;
               game.enrageTimer = enrage.waveIntervalTicks;
@@ -3387,7 +3396,7 @@ export default function WormholeGame() {
                 <b>{net?.opponentCombat ? Math.round(net.opponentCombat.hull) : "—"}</b>
               </div>
             ) : (
-              <div className={`rival ${hud.enrageActive ? "enraged" : ""}`}><span>{hud.enrageActive ? "RIVAL INTEGRITY // ENRAGED" : "RIVAL INTEGRITY"}</span><div className="meter"><i style={{ width: `${hud.rivalHealth}%` }} /></div><b>{hud.rivalHealth}%</b></div>
+              <div className={`rival ${hud.enrageActive ? "enraged" : ""}`}><span>{hud.enrageActive ? "RIVAL INTEGRITY // ENRAGED" : "RIVAL INTEGRITY"}</span><div className="meter"><i style={{ width: `${hud.rivalHealth}%` }} /></div><b>{hud.rivalCurrentHealth}/{hud.rivalMaxHealth} · {hud.rivalHealth}%</b></div>
             )}
           </div>
           <p className={`coach-strip ${hud.notice ? "alert" : ""}`}>

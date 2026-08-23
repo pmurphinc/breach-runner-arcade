@@ -97,6 +97,8 @@ export type DifficultyRules = {
   wormhole: WormholeMotion;
   collisionShield: CollisionShieldRules;
   contactHazard: ContactHazardRules;
+  /** Starting rival integrity for this difficulty. Standard integrity is 100. */
+  rivalIntegrity: number;
   wormholeEnrage: WormholeEnrageRules;
 };
 
@@ -139,6 +141,7 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyRules> = {
       rechargeDelayTicks: ticksForSeconds(4),
     },
     contactHazard: { enabled: false },
+    rivalIntegrity: 100,
     wormholeEnrage: { enabled: false },
   },
   difficult: {
@@ -146,21 +149,32 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyRules> = {
     displayName: "DIFFICULT // MOVING VOID",
     shortName: "DIFFICULT",
     blurb:
-      "The wormhole orbits the arena and you have to lead it. No collision shield — impacts hit hull under the normal rules. Collectible shields and defensive power-ups work as they always have.",
+      "The wormhole orbits with 200 integrity and you have to lead it. At 15% integrity it enrages, turns red, and repeatedly spits out mines, UFOs, and power-up-eating Scarabs. No collision shield — impacts hit hull under the normal rules.",
     wormhole: ORBIT,
     collisionShield: { enabled: false },
     contactHazard: { enabled: false },
-    wormholeEnrage: { enabled: false },
+    rivalIntegrity: 200,
+    wormholeEnrage: {
+      enabled: true,
+      thresholdFraction: 0.15,
+      waveIntervalTicks: ticksForSeconds(10),
+      wave: [
+        { enemy: "mines", count: 6 },
+        { enemy: "ufo", count: 1 },
+        { enemy: "scarab", count: 2 },
+      ],
+    },
   },
   hard: {
     id: "hard",
     displayName: "HARD MODE // CONTACT HAZARD",
     shortName: "HARD MODE",
     blurb:
-      "The wormhole orbits and touching it burns hull in visible ticks. At 30% rival integrity it enrages, turns red, and repeatedly spits out mines, UFOs, and power-up-eating Scarabs.",
+      "The wormhole has 350 integrity, orbits, and touching it burns hull in visible ticks. At 30% integrity it enrages, turns red, and repeatedly spits out mines, UFOs, and power-up-eating Scarabs.",
     wormhole: ORBIT,
     collisionShield: { enabled: false },
     contactHazard: HARD_CONTACT,
+    rivalIntegrity: 350,
     wormholeEnrage: {
       enabled: true,
       thresholdFraction: 0.3,
