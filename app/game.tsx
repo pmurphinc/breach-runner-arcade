@@ -1011,7 +1011,7 @@ function ModeSelect({
                 DIFFICULTIES[id].wormhole.kind === "locked"
                   ? "WORMHOLE LOCKED"
                   : DIFFICULTIES[id].wormholeEnrage.enabled
-                    ? "MOVING · CONTACT · ENRAGE 30%"
+                    ? `MOVING${DIFFICULTIES[id].contactHazard.enabled ? " · CONTACT" : ""} · ENRAGE ${Math.round(DIFFICULTIES[id].wormholeEnrage.thresholdFraction * 100)}%`
                     : DIFFICULTIES[id].contactHazard.enabled
                       ? "MOVING · CONTACT HAZARD"
                       : "MOVING WORMHOLE",
