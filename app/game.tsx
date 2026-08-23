@@ -1001,9 +1001,11 @@ function ModeSelect({
               hint:
                 DIFFICULTIES[id].wormhole.kind === "locked"
                   ? "WORMHOLE LOCKED"
-                  : DIFFICULTIES[id].contactHazard.enabled
-                    ? "MOVING · CONTACT HAZARD"
-                    : "MOVING WORMHOLE",
+                  : DIFFICULTIES[id].wormholeEnrage.enabled
+                    ? "MOVING · CONTACT · ENRAGE 30%"
+                    : DIFFICULTIES[id].contactHazard.enabled
+                      ? "MOVING · CONTACT HAZARD"
+                      : "MOVING WORMHOLE",
             }))}
             onChange={onDifficulty}
           />
