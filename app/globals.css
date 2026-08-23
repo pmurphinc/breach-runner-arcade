@@ -531,6 +531,13 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
   border-radius: 3px; background: rgba(255, 179, 77, .1); font: 600 var(--fs-micro)/1.45 var(--mono); }
 .detail-lock b { color: var(--amber); letter-spacing: .1em; }
 .detail-playstyle { margin: 0; color: #b9d9e2; font: 600 var(--fs-micro)/1.55 var(--mono); }
+.detail-essentials { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 0; }
+.detail-essentials div { min-width: 0; padding: 8px 9px; border: 1px solid var(--line); border-radius: 3px; background: rgba(2, 8, 13, .45); }
+.detail-essentials dt { overflow: hidden; color: var(--muted); font: 700 var(--fs-nano)/1.2 var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.detail-essentials dd { margin: 4px 0 0; color: #eafcff; font: 900 var(--fs-xs)/1 var(--mono); }
+.detail-more { min-height: 40px; color: #bfe0e8; border: 1px solid var(--line); border-radius: 3px; background: rgba(8, 20, 30, .72); cursor: pointer; font: 800 var(--fs-nano)/1 var(--mono); letter-spacing: .1em; }
+.detail-more:hover { color: white; border-color: var(--line-strong); }
+.detail-advanced { display: grid; gap: 10px; padding-top: 2px; }
 .detail-special { display: grid; gap: 3px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 3px; background: rgba(2, 8, 13, .55); }
 .detail-special > span { color: var(--muted); font: 700 var(--fs-nano)/1 var(--mono); letter-spacing: .12em; }
 .detail-special > b { color: var(--pup, var(--cyan)); font: 900 var(--fs-xs)/1.2 var(--mono); letter-spacing: .07em; }
