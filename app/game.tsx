@@ -80,6 +80,14 @@ import {
   type RunResult,
 } from "./arcade-scores";
 import { formatRunTime, normalizeInitials, settleScore } from "./run-scoring";
+import {
+  SQUID_PHASE_SECONDS,
+  VIPER_GUIDANCE_SECONDS,
+  WING_OVERDRIVE_SECONDS,
+  hostileTrackingVector,
+  overdriveHandling,
+  steerHomingVelocity,
+} from "./ship-specials";
 
 const VIEW_WIDTH = 1048;
 const VIEW_HEIGHT = 655;
@@ -94,10 +102,16 @@ const ticksForSeconds = (seconds: number) => Math.round(seconds * 1000 / TICK_MS
 const wholeSecondsForTicks = (ticks: number) => Math.max(0, Math.ceil(ticks * TICK_MS / 1000));
 /** More than two nameplates at once is noise, not information. */
 const MAX_NAMEPLATES = 2;
+const ARENA_PALETTES: Record<DifficultyId, readonly [string, string, string]> = {
+  practice: ["#102033", "#06101d", "#020409"],
+  easy: ["#0b1d22", "#061016", "#020409"],
+  difficult: ["#171127", "#090917", "#020409"],
+  hard: ["#241014", "#0d080f", "#030305"],
+};
 
 type Bullet = { x: number; y: number; vx: number; vy: number; damage: number; life: number; enemy: boolean; color: string };
 type Pickup = { x: number; y: number; vx: number; vy: number; type: PickupId; life: number; phase: number };
-type PowerShot = { x: number; y: number; vx: number; vy: number; type: PowerId; life: number };
+type PowerShot = { x: number; y: number; vx: number; vy: number; type: PowerId; life: number; homing: boolean };
 type Particle = { x: number; y: number; vx: number; vy: number; color: string; size: number; life: number; maxLife: number };
 type StickPosition = { active: boolean; x: number; y: number };
 type StickKind = "move" | "aim";
@@ -161,6 +175,12 @@ type Player = {
   retros: boolean;
   specialCooldown: number;
   emp: number;
+  /** Ticks remaining on the Wing's controllable handling boost. */
+  wingOverdrive: number;
+  /** Ticks remaining on the Squid's tracking-breaking phase veil. */
+  squidPhase: number;
+  /** Ticks remaining in which newly launched Viper power-ups gain guidance. */
+  viperGuidance: number;
   /** Ticks remaining on the Flagship's continuous attraction/repulsion field. */
   flagshipField: number;
   flashMode: "tank" | "squid";
@@ -328,6 +348,9 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
       retros: ship.thrust > 0,
       specialCooldown: 0,
       emp: 0,
+      wingOverdrive: 0,
+      squidPhase: 0,
+      viperGuidance: 0,
       flagshipField: 0,
       flashMode: "tank",
     },
@@ -2527,37 +2550,15 @@ export default function WormholeGame() {
         player.invuln = Math.max(player.invuln, ticksForSeconds(3));
         game.notice = "BULWARK // 3S IMMUNITY";
       } else if (ship === "wing") {
-        const angle = player.angle * DEG;
-        player.vx = Math.cos(angle) * 11;
-        player.vy = Math.sin(angle) * 11;
-        player.invuln = Math.max(player.invuln, ticksForSeconds(0.45));
-        game.notice = "PULSE DASH";
+        player.wingOverdrive = ticksForSeconds(WING_OVERDRIVE_SECONDS);
+        game.notice = "VECTOR OVERDRIVE // 3S";
       } else if (ship === "squid") {
-        const angle = player.angle * DEG;
-        player.x = cap(player.x + Math.cos(angle) * 150, 24, game.worldWidth - 24);
-        player.y = cap(player.y + Math.sin(angle) * 150, 24, game.worldHeight - 24);
-        player.invuln = Math.max(player.invuln, ticksForSeconds(0.7));
-        game.notice = "PHASE SKIP";
+        player.squidPhase = ticksForSeconds(SQUID_PHASE_SECONDS);
+        player.invuln = Math.max(player.invuln, player.squidPhase);
+        game.notice = "PHASE VEIL // TRACKING BROKEN";
       } else if (ship === "rabbit") {
-        let target: Enemy | null = null;
-        let targetDistance = Infinity;
-        for (const enemy of game.enemies) {
-          const distance = dist(player, enemy);
-          if (enemy.hp > 0 && distance < targetDistance) {
-            target = enemy;
-            targetDistance = distance;
-          }
-        }
-        const heading = target
-          ? Math.atan2(target.y - player.y, target.x - player.x)
-          : player.angle * DEG;
-        for (let i = -3; i <= 3; i += 1) {
-          const angle = heading + i * 6 * DEG;
-          game.bullets.push({ x: player.x, y: player.y, vx: Math.cos(angle) * 9, vy: Math.sin(angle) * 9, damage: 18, life: 120, enemy: false, color: "#b6ff57" });
-          game.playerShots += 1;
-        }
-        game.notice = target ? "TRACKER SALVO // LOCKED" : "TRACKER SALVO // FORWARD";
-        play("fire", 0.3);
+        player.viperGuidance = ticksForSeconds(VIPER_GUIDANCE_SECONDS);
+        game.notice = "VIPER GUIDANCE // LAUNCH WITHIN 3S";
       } else if (ship === "turtle") {
         game.enemies.forEach((enemy) => {
           if (enemy.kind !== "ghost") destroyEnemy(game, enemy);
@@ -2590,8 +2591,9 @@ export default function WormholeGame() {
       const player = game.player;
       enemy.age += 1;
       enemy.cooldown -= 1;
-      const dx = player.x - enemy.x;
-      const dy = player.y - enemy.y;
+      const tracking = hostileTrackingVector(enemy.x, enemy.y, player.x, player.y, player.squidPhase > 0);
+      const dx = tracking.dx;
+      const dy = tracking.dy;
       const d = Math.max(1, Math.hypot(dx, dy));
 
       if (enemy.kind === "heatseeker") {
@@ -2736,6 +2738,9 @@ export default function WormholeGame() {
       player.invuln = Math.max(0, player.invuln - 1);
       player.shield = Math.max(0, player.shield - 1);
       player.specialCooldown = Math.max(0, player.specialCooldown - 1);
+      player.wingOverdrive = Math.max(0, player.wingOverdrive - 1);
+      player.squidPhase = Math.max(0, player.squidPhase - 1);
+      player.viperGuidance = Math.max(0, player.viperGuidance - 1);
       player.emp = Math.max(0, player.emp - 1);
       // Wormhole motion is a rule, not a constant: EASY locks it dead centre
       // while DIFFICULT and HARD MODE keep the original orbit.
@@ -2807,8 +2812,11 @@ export default function WormholeGame() {
 
       let handling = game.ship;
       if (game.ship.id === "flash") handling = player.flashMode === "tank" ? SHIPS[0] : SHIPS[2];
-      const maxSpeed = handling.maxSpeed + player.thrust * THRUST_SPEED_BONUS;
-      const acceleration = handling.acceleration + player.thrust * THRUST_ACCEL_BONUS;
+      const baseMaxSpeed = handling.maxSpeed + player.thrust * THRUST_SPEED_BONUS;
+      const baseAcceleration = handling.acceleration + player.thrust * THRUST_ACCEL_BONUS;
+      const specialHandling = overdriveHandling(baseAcceleration, baseMaxSpeed, player.wingOverdrive > 0);
+      const maxSpeed = specialHandling.maxSpeed;
+      const acceleration = specialHandling.acceleration;
 
       const moved = applyIntent(
         { vx: player.vx, vy: player.vy },
@@ -2855,8 +2863,9 @@ export default function WormholeGame() {
         keys.current.__launchLatch = true;
         const type = game.stock.pop()!;
         const angle = player.angle * DEG;
-        game.powers.push({ x: player.x + Math.cos(angle) * 12, y: player.y + Math.sin(angle) * 12, vx: Math.cos(angle) * 10 + player.vx, vy: Math.sin(angle) * 10 + player.vy, type, life: 160 });
-        game.notice = `${WEAPONS[type].short} ARMED`;
+        const homing = game.ship.id === "rabbit" && player.viperGuidance > 0;
+        game.powers.push({ x: player.x + Math.cos(angle) * 12, y: player.y + Math.sin(angle) * 12, vx: Math.cos(angle) * 10 + player.vx, vy: Math.sin(angle) * 10 + player.vy, type, life: homing ? 320 : 160, homing });
+        game.notice = homing ? `${WEAPONS[type].short} // VIPER LOCK` : `${WEAPONS[type].short} ARMED`;
         game.noticeLife = 75;
         burst(game, player.x, player.y, POWER_COLORS[type], 10, 4);
         play("fire", 0.2);
@@ -2927,6 +2936,11 @@ export default function WormholeGame() {
       });
 
       game.powers.forEach((power) => {
+        if (power.homing) {
+          const guided = steerHomingVelocity(power.x, power.y, power.vx, power.vy, game.portalX, game.portalY);
+          power.vx = guided.vx;
+          power.vy = guided.vy;
+        }
         power.x += power.vx;
         power.y += power.vy;
         power.life -= 1;
@@ -3062,6 +3076,16 @@ export default function WormholeGame() {
       y: (i * 47.31) % VIEW_HEIGHT,
       size: i % 11 === 0 ? 2 : 1,
       cyan: i % 8 === 0,
+    }));
+    // Sparse, non-colliding world landmarks. They move with the camera to make
+    // flight readable, but stay faint enough to remain behind combat.
+    const backgroundRocks = Array.from({ length: 11 }, (_, i) => ({
+      x: 90 + (i * 317.3) % (WORLD_WIDTH - 180),
+      y: 80 + (i * 191.7) % (WORLD_HEIGHT - 160),
+      radius: 34 + (i % 4) * 18,
+      sides: 7 + (i % 3),
+      rotation: (i * 0.73) % (Math.PI * 2),
+      drift: 0.00001 * (i % 2 === 0 ? 1 : -1),
     }));
 
     const drawPortal = (game: Game, time: number, detail: number) => {
@@ -3296,10 +3320,11 @@ export default function WormholeGame() {
       const quiet = reducedMotionRef.current;
 
       ctx.setTransform(worldScale, 0, 0, worldScale, 0, 0);
+      const palette = ARENA_PALETTES[game.rules.id];
       const gradient = ctx.createRadialGradient(VIEW_WIDTH / 2, VIEW_HEIGHT / 2, 10, VIEW_WIDTH / 2, VIEW_HEIGHT / 2, VIEW_WIDTH * .58);
-      gradient.addColorStop(0, "#0b1520");
-      gradient.addColorStop(.58, "#050b12");
-      gradient.addColorStop(1, "#020409");
+      gradient.addColorStop(0, palette[0]);
+      gradient.addColorStop(.58, palette[1]);
+      gradient.addColorStop(1, palette[2]);
       ctx.fillStyle = gradient;
       ctx.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
 
@@ -3337,6 +3362,29 @@ export default function WormholeGame() {
       ctx.save();
       ctx.translate(camX, camY);
       ctx.scale(camScale, camScale);
+
+      for (const rock of backgroundRocks) {
+        if (!visible(rock.x, rock.y, rock.radius + 20)) continue;
+        ctx.save();
+        ctx.translate(rock.x, rock.y);
+        ctx.rotate(rock.rotation + time * rock.drift);
+        ctx.globalAlpha = detail < 0.5 ? 0.035 : 0.065;
+        ctx.fillStyle = "#5a7180";
+        ctx.strokeStyle = "rgba(112, 175, 190, .22)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        for (let side = 0; side < rock.sides; side += 1) {
+          const angle = (side / rock.sides) * Math.PI * 2;
+          const uneven = side % 2 === 0 ? 1 : 0.78;
+          const x = Math.cos(angle) * rock.radius * uneven;
+          const y = Math.sin(angle) * rock.radius * uneven;
+          if (side === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
 
       drawPortal(game, time, detail);
       for (const spawn of game.spawns) drawSpawnFx(spawn, time, detail);
@@ -3434,6 +3482,7 @@ export default function WormholeGame() {
         ctx.save();
         ctx.translate(player.x, player.y);
         ctx.rotate(player.angle * DEG);
+        if (player.squidPhase > 0) ctx.globalAlpha = 0.42 + Math.sin(time * 0.02) * 0.12;
         ctx.strokeStyle = player.invuln > 0 ? "#ffffff" : "#69ecff";
         ctx.fillStyle = "rgba(86, 226, 255, .12)";
         if (profile.shadows) { ctx.shadowColor = "#62eaff"; ctx.shadowBlur = 10; }
@@ -3449,6 +3498,30 @@ export default function WormholeGame() {
           ctx.stroke();
         }
         ctx.restore();
+
+        if (player.wingOverdrive > 0) {
+          ctx.save();
+          ctx.translate(player.x, player.y);
+          ctx.globalAlpha = 0.28;
+          ctx.strokeStyle = "#68f2ff";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(0, 0, 30 + Math.sin(time * 0.018) * 4, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        if (player.viperGuidance > 0) {
+          ctx.save();
+          ctx.translate(player.x, player.y);
+          ctx.globalAlpha = 0.3;
+          ctx.strokeStyle = "#b6ff57";
+          ctx.setLineDash([5, 7]);
+          ctx.beginPath();
+          ctx.arc(0, 0, 34, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+        }
 
         if (player.flagshipField > 0) {
           const life = player.flagshipField / ticksForSeconds(3);
