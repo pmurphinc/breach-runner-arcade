@@ -1457,3 +1457,52 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
     bottom: max(12px, env(safe-area-inset-bottom));
   }
 }
+
+
+/* Mission Setup uses semantic color families so mode and difficulty choices
+   are recognizable before selection, while the active option remains explicit
+   through fill, outline, contrast, and aria-checked state. */
+.mission-setup .segmented-options button[data-choice="pve"] { --mission-choice: var(--cyan); }
+.mission-setup .segmented-options button[data-choice="pvp"] { --mission-choice: #ff5f70; }
+.mission-setup .segmented-options button[data-choice="easy"] { --mission-choice: var(--lime); }
+.mission-setup .segmented-options button[data-choice="difficult"] { --mission-choice: var(--amber); }
+.mission-setup .segmented-options button[data-choice="hard"] { --mission-choice: #ff4058; }
+
+.mission-setup .segmented-options button[data-choice] {
+  color: var(--mission-choice);
+  border-color: color-mix(in srgb, var(--mission-choice), transparent 48%);
+  background: color-mix(in srgb, var(--mission-choice), transparent 90%);
+}
+.mission-setup .segmented-options button[data-choice]:hover:not(:disabled),
+.mission-setup .segmented-options button[data-choice]:focus-visible {
+  border-color: var(--mission-choice);
+  background: color-mix(in srgb, var(--mission-choice), transparent 80%);
+}
+.mission-setup .segmented-options button[data-choice][aria-checked="true"] {
+  color: #031017;
+  border-color: var(--mission-choice);
+  background: var(--mission-choice);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--mission-choice), transparent 32%),
+    0 0 18px color-mix(in srgb, var(--mission-choice), transparent 72%);
+}
+.mission-setup .segmented-options button[data-choice][aria-checked="true"] small {
+  color: #09202a;
+  opacity: .82;
+}
+
+/* Match Ship Select's touch action dock: the mission action remains visible,
+   scales to the safe viewport width, and never requires scrolling to launch. */
+.touch-capable .mission-setup {
+  padding-bottom: calc(var(--touch-target) + 24px + max(7px, var(--safe-bottom)));
+}
+.touch-capable .setup-launch {
+  position: fixed;
+  z-index: 65;
+  right: max(7px, var(--safe-right));
+  bottom: max(7px, var(--safe-bottom));
+  left: max(7px, var(--safe-left));
+  width: auto;
+  min-height: max(52px, var(--touch-target));
+  margin: 0;
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, .55);
+}

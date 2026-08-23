@@ -918,6 +918,7 @@ function SegmentedChoice<T extends string>({
               tabIndex={active ? 0 : -1}
               disabled={disabled}
               className={active ? "active" : ""}
+              data-choice={option.id}
               onClick={() => onChange(option.id)}
             >
               <b>{option.label}</b>

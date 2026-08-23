@@ -118,3 +118,24 @@ test('landscape tablets reuse the full arena shell and corner controls', () => {
   assert.doesNotMatch(tablet, /scale|dead.?zone|accel|inertia/i,
     'tablet layout must not alter touch response or gameplay');
 });
+
+
+test('mission setup has a viewport action and semantic option colors', () => {
+  assert.match(game, /data-choice=\{option\.id\}/);
+  const mission = css.slice(css.indexOf('Mission Setup uses semantic color families'));
+  for (const [choice, color] of [
+    ['pve', 'var\\(--cyan\\)'],
+    ['pvp', '#ff5f70'],
+    ['easy', 'var\\(--lime\\)'],
+    ['difficult', 'var\\(--amber\\)'],
+    ['hard', '#ff4058'],
+  ]) {
+    assert.match(mission, new RegExp(`data-choice="${choice}"[^}]+--mission-choice: ${color}`));
+  }
+  assert.match(mission, /aria-checked="true"/);
+  const launch = css.slice(css.indexOf("Match Ship Select's touch action dock"));
+  assert.match(launch, /\.touch-capable \.setup-launch[\s\S]*position:\s*fixed/);
+  assert.match(launch, /right:\s*max\(7px, var\(--safe-right\)\)/);
+  assert.match(launch, /left:\s*max\(7px, var\(--safe-left\)\)/);
+  assert.match(launch, /bottom:\s*max\(7px, var\(--safe-bottom\)\)/);
+});
