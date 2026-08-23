@@ -78,16 +78,16 @@ test("the ship-selection scene is the launch experience", { skip }, async () => 
     assert.match(tile, /Heavy brawler/i, "tiles carry the role");
     assert.match(tile, /AVAILABLE|SELECTED/, "tiles carry an explicit state");
 
-    // A locked ship stays inspectable but cannot be chosen.
-    const locked = page.locator('.ship-tile[data-locked="true"]').first();
-    assert.match(await locked.innerText(), /RANK/, "a locked tile states its rank");
-    await locked.click();
+    // Every frame is selectable; rank labels were presentation-only and had no
+    // progression system behind them.
+    assert.equal(await page.locator('.ship-tile[data-locked="true"]').count(), 0);
+    assert.equal(await page.locator('.ship-tile', { hasText: /RANK/ }).count(), 0);
+    await page.locator('.ship-tile[data-ship="flagship"]').click();
     await page.waitForTimeout(250);
     const detail = (await page.locator(".ship-detail").innerText()).replace(/\s+/g, " ");
-    assert.match(detail, /Strengths/i);
-    assert.match(detail, /Hull strength/i, "locked ships remain fully inspectable");
-    assert.match(detail, /Reaches RANK \d+ to unlock/, "never a bare LOCKED");
-    assert.equal(await page.locator(".detail-select").isDisabled(), true);
+    assert.match(detail, /Hull strength/i, "essential values stay visible");
+    assert.match(detail, /Special ability/i);
+    assert.equal(await page.locator(".detail-select").isEnabled(), true);
 
     // Keyboard walks the real grid and focus stays visible.
     await page.locator('.ship-tile[data-ship="tank"]').click();
@@ -102,9 +102,12 @@ test("the ship-selection scene is the launch experience", { skip }, async () => 
       "keyboard focus must stay on the grid"
     );
 
-    // Comparison carries exact numbers, not just bars.
+    // The first view is concise; advanced comparison is opt-in and still
+    // carries exact numbers rather than relying on bars.
     await page.locator('.ship-tile[data-ship="squid"]').click();
     await page.waitForTimeout(200);
+    assert.equal(await page.locator(".detail-stats").count(), 0, "advanced statistics start collapsed");
+    await page.locator(".detail-more").click();
     const comparison = (await page.locator(".detail-stats").innerText()).replace(/\s+/g, " ");
     assert.match(comparison, /Compared with/);
     assert.match(comparison, /vs selected/);
