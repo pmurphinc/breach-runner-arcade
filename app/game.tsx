@@ -972,13 +972,15 @@ function DifficultyBadge({
   pendingMode: GameMode;
   live: boolean;
 }) {
-  const pendingShield = pending.collisionShield.enabled;
+  const activeRules = live ? DIFFICULTIES[hud.difficulty] : pending;
+  const pendingShield = activeRules.collisionShield.enabled;
+  const unlimitedHull = activeRules.unlimitedHull;
   const wormhole = live
     ? hud.wormholeState
-    : pending.wormhole.kind === "locked"
+    : activeRules.wormhole.kind === "locked"
       ? "LOCKED"
       : "MOVING";
-  const hazardArmed = live ? hud.contactHazard : pending.contactHazard.enabled;
+  const hazardArmed = live ? hud.contactHazard : activeRules.contactHazard.enabled;
   const charge = live ? hud.collisionShield : pendingShield ? 100 : null;
   const recharge = live ? hud.collisionRecharge : 0;
   const contactActive = live && hud.contactActive;
@@ -993,9 +995,13 @@ function DifficultyBadge({
           : `${charge}%`;
 
   const gameMode = (live ? hud.mode : pendingMode) === "pvp" ? "PVP" : "PVE";
-  const difficulty = gameMode === "PVP" ? "EASY" : pending.shortName.replace(/ MODE$/i, "");
+  const difficulty = gameMode === "PVP" ? "EASY" : activeRules.shortName.replace(/ MODE$/i, "");
   const contact = hazardArmed ? "HAZARD" : "SAFE";
-  const shieldText = charge === null ? "NO COLLISION SHIELD" : `SHIELD ${shield}`;
+  const shieldText = unlimitedHull
+    ? "HULL UNLIMITED"
+    : charge === null
+      ? "NO COLLISION SHIELD"
+      : `SHIELD ${shield}`;
   const status = `${gameMode} · ${difficulty} | WORMHOLE ${wormhole} | ${shieldText} | CONTACT ${contact}${live && hud.enrageActive ? " | ENRAGED" : ""}`;
 
   return (
@@ -1689,8 +1695,6 @@ export default function WormholeGame() {
    * it stays right when their contents or the type scale change.
    */
   const audioPool = useRef<Map<string, HTMLAudioElement[]>>(new Map());
-  /** Epoch ms the current run began, so a finished run can report its length. */
-  const runStartedAt = useRef(0);
   /** The outcome already turned into a summary, so each run is recorded once. */
   const recordedResult = useRef<Game["result"]>(null);
   /** The summary object already submitted automatically for the signed-in player. */
@@ -1952,7 +1956,7 @@ export default function WormholeGame() {
     recordedResult.current = hud.result;
 
     const settlement = settleScore(hud.score, hud.elapsedSeconds, hud.result);
-    const practice = difficulty === "practice";
+    const practice = hud.difficulty === "practice";
     const run: RunResult = {
       score: settlement.finalScore,
       baseScore: settlement.baseScore,
@@ -1965,7 +1969,7 @@ export default function WormholeGame() {
     };
 
     setInitialsEntry("");
-    if (hud.result === "victory" && mode === "pve" && !practice) {
+    if (hud.result === "victory" && hud.mode === "pve" && !practice) {
       setSummary({
         run,
         best: loadLocalBest(),
@@ -1981,7 +1985,7 @@ export default function WormholeGame() {
       setSummary({ run, best: local.best, isBest: local.isBest, runs: local.runs, restored: false, awaitingInitials: false });
     }
     setSaveState({ status: "idle" });
-  }, [difficulty, hud.elapsedSeconds, hud.result, hud.rivalHealth, hud.score, mode]);
+  }, [hud.difficulty, hud.elapsedSeconds, hud.mode, hud.result, hud.rivalHealth, hud.score]);
 
   // Signed-in players always save automatically, including when a run finishes
   // before the initial Murph Tournaments session request returns.
@@ -2028,7 +2032,6 @@ export default function WormholeGame() {
     setSummary(null);
     setSaveState({ status: "idle" });
     setInitialsEntry("");
-    runStartedAt.current = Date.now();
     runShipName.current = game.ship.name;
     sync();
     canvasWrapRef.current?.focus({ preventScroll: true });
@@ -3964,7 +3967,7 @@ export default function WormholeGame() {
               {summary ? (
                 <div className="run-summary-layer">
                   <section className="run-summary" aria-live="polite" aria-label="Run result">
-                    <button className="run-close" type="button" onClick={() => setSummary(null)} aria-label="Dismiss run summary">✕</button>
+                    {!summary.awaitingInitials ? <button className="run-close" type="button" onClick={() => setSummary(null)} aria-label="Dismiss run summary">✕</button> : null}
                     <p className="run-outcome" data-outcome={summary.run.outcome}>
                       {summary.restored ? "LAST RUN" : summary.run.practice ? "PRACTICE COMPLETE" : summary.run.outcome === "victory" ? "RIVAL ELIMINATED" : "SHIP DESTROYED"}
                     </p>
@@ -3990,6 +3993,11 @@ export default function WormholeGame() {
                           autoComplete="off"
                           spellCheck={false}
                           onChange={(event) => setInitialsEntry(normalizeInitials(event.target.value))}
+                          onKeyDown={(event) => {
+                            if (event.key !== "Enter") return;
+                            event.preventDefault();
+                            confirmInitials();
+                          }}
                           aria-describedby="initials-help"
                         />
                         <small id="initials-help">{initialsEntry.length}/3 · LETTERS OR NUMBERS</small>
