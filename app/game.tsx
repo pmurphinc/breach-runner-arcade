@@ -1773,8 +1773,10 @@ export default function WormholeGame() {
         // Eight pixels of breathing room below the panel.
         return Math.max(0, Math.round(rect.bottom - wrapTop) + 8);
       };
+      const badgeClearance = clearanceBelow(".difficulty-badge");
+      wrap.style.setProperty("--rules-bottom", `${Math.max(0, badgeClearance - 8)}px`);
       const rulesClearance = Math.max(
-        clearanceBelow(".difficulty-badge"),
+        badgeClearance,
         clearanceBelow(".health-rails")
       );
       const next = {
