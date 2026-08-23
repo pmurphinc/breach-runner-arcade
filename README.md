@@ -42,11 +42,12 @@ mouse and touch all work. Your PvE difficulty is remembered on the device.
 
 | Mode | Wormhole | Collision shield | Wormhole contact |
 | --- | --- | --- | --- |
+| `PRACTICE // UNLIMITED HULL` | Locked dead centre | Unlimited hull; no leaderboard submission | Harmless |
 | `EASY // COLLISION SHIELD` | Locked dead centre | Yes — 40 capacity, 4s recharge | Harmless |
 | `DIFFICULT // MOVING VOID` | Orbits, 210px at 0.5°/tick | None | Harmless |
 | `HARD MODE // CONTACT HAZARD` | Orbits | None | Damages hull in ticks |
 
-All three rules live in `app/difficulty.ts` as data, with the collision shield
+All four rules live in `app/difficulty.ts` as data, with the collision shield
 and contact hazard implemented as pure state machines. Nothing in the game loop
 branches on a difficulty id, and every value below is tunable in that one file.
 
@@ -70,6 +71,20 @@ destroy a full-health pilot, and three separate episodes still leave about 4%
 hull, so contact damage alone needs a fourth. A new episode requires leaving
 the radius completely, and a 0.6s re-entry grace stops jitter at the boundary
 opening extra episodes.
+
+### Timer, scoring, and victory
+
+The run timer advances only while active gameplay advances; pausing does not
+consume time, and the 2.4-second wormhole-collapse sequence is not charged to
+the player. A victory subtracts **10 points per completed second** from the raw
+score, never below zero. The results card shows base score, elapsed time,
+penalty, and final score separately.
+
+PvE victories ask for three classic arcade initials before the run is written
+to device history or submitted for an authenticated player. Practice runs show
+the same completion feedback but are never stored or submitted. The global
+leaderboard continues to identify authenticated players by their Murph
+Tournaments/Discord identity; initials are retained with the local run record.
 
 ### PvP 1v1
 

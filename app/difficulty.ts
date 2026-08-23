@@ -25,7 +25,7 @@ export function secondsForTicks(ticks: number) {
 }
 
 export type GameMode = "pve" | "pvp";
-export type DifficultyId = "easy" | "difficult" | "hard";
+export type DifficultyId = "practice" | "easy" | "difficult" | "hard";
 
 /** How the rival wormhole behaves in the arena. */
 export type WormholeMotion =
@@ -97,6 +97,8 @@ export type DifficultyRules = {
   wormhole: WormholeMotion;
   collisionShield: CollisionShieldRules;
   contactHazard: ContactHazardRules;
+  /** Practice ignores every source of pilot hull damage. */
+  unlimitedHull: boolean;
   /** Starting rival integrity for this difficulty. Standard integrity is 100. */
   rivalIntegrity: number;
   wormholeEnrage: WormholeEnrageRules;
@@ -128,6 +130,19 @@ const HARD_CONTACT: ContactHazardRules = {
 };
 
 export const DIFFICULTIES: Record<DifficultyId, DifficultyRules> = {
+  practice: {
+    id: "practice",
+    displayName: "PRACTICE // UNLIMITED HULL",
+    shortName: "PRACTICE",
+    blurb:
+      "Learn the flight controls, weapons, and wormhole loop without taking hull damage. Practice runs are never submitted to the leaderboard.",
+    wormhole: { kind: "locked" },
+    collisionShield: { enabled: false },
+    contactHazard: { enabled: false },
+    unlimitedHull: true,
+    rivalIntegrity: 100,
+    wormholeEnrage: { enabled: false },
+  },
   easy: {
     id: "easy",
     displayName: "EASY // COLLISION SHIELD",
@@ -141,6 +156,7 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyRules> = {
       rechargeDelayTicks: ticksForSeconds(4),
     },
     contactHazard: { enabled: false },
+    unlimitedHull: false,
     rivalIntegrity: 100,
     wormholeEnrage: { enabled: false },
   },
@@ -153,6 +169,7 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyRules> = {
     wormhole: ORBIT,
     collisionShield: { enabled: false },
     contactHazard: { enabled: false },
+    unlimitedHull: false,
     rivalIntegrity: 200,
     wormholeEnrage: {
       enabled: true,
@@ -174,6 +191,7 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyRules> = {
     wormhole: ORBIT,
     collisionShield: { enabled: false },
     contactHazard: HARD_CONTACT,
+    unlimitedHull: false,
     rivalIntegrity: 350,
     wormholeEnrage: {
       enabled: true,
@@ -188,8 +206,8 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyRules> = {
   },
 };
 
-/** Order the selector presents the three PvE difficulties in. */
-export const DIFFICULTY_ORDER: DifficultyId[] = ["easy", "difficult", "hard"];
+/** Order the selector presents the four PvE choices in. */
+export const DIFFICULTY_ORDER: DifficultyId[] = ["practice", "easy", "difficult", "hard"];
 
 /**
  * PvP always runs Easy rules: centred wormhole, collision shield, no contact
