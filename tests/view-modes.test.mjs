@@ -59,3 +59,15 @@ test('touch health rails reserve the complete overlay control stack', () => {
   assert.match(controlsOff, /var\(--touch-target\)/,
     'rails must still clear the compact HUD and utility buttons');
 });
+
+
+test('touch score shares the rules rail and utilities orbit the fire stick', () => {
+  assert.match(game, /className="rule-score">SCORE/);
+  assert.match(css, /\.touch-capable \.match-bar\s*\{\s*display:\s*none/);
+  assert.match(css, /\.touch-capable \.difficulty-badge \.rule-score/);
+  const satellites = css.slice(css.indexOf('Three independent circular utility buttons'));
+  assert.match(satellites, /\.touch-pup[\s\S]*right:\s*calc\(100% \+ 8px\)/);
+  assert.match(satellites, /\.touch-special[\s\S]*right:\s*85%/);
+  assert.match(satellites, /\.touch-pause[\s\S]*left:\s*38%/);
+  assert.match(satellites, /border-radius:\s*50%/);
+});
