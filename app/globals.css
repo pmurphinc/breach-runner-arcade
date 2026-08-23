@@ -294,7 +294,7 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 .board-you { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0; padding: 9px 11px; border: 1px dashed var(--line-strong); border-radius: 3px; }
 .board-you span { color: var(--muted); font: 700 var(--fs-nano)/1 var(--mono); letter-spacing: .12em; }
 .board-you b { color: var(--cyan); font: 900 var(--fs-sm)/1 var(--mono); }
-.board-link { color: var(--cyan); text-decoration: none; text-align: center; font: 800 var(--fs-micro)/1.4 var(--mono); letter-spacing: .08em; }
+.board-link { width: 100%; padding: 8px; color: var(--cyan); border: 0; background: transparent; cursor: pointer; text-decoration: none; text-align: center; font: 800 var(--fs-micro)/1.4 var(--mono); letter-spacing: .08em; }
 .board-link:hover, .board-link:focus-visible { text-decoration: underline; }
 @media (max-width: 420px) {
   .board-list li { grid-template-columns: 26px minmax(0, 1fr) auto; }
