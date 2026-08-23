@@ -3619,7 +3619,7 @@ export default function WormholeGame() {
       window.removeEventListener("resize", onDprChange);
       window.removeEventListener("orientationchange", onDprChange);
     };
-  }, [play, sync]);
+  }, [play, sync, viewMode]);
 
   const currentShip = selectedShip(shipId);
   const pendingRules = rulesFor(mode, difficulty);
