@@ -246,6 +246,11 @@ function handle(matches, player, message, now, send) {
       if (!result.ok) send({ type: "error", code: result.code });
       return;
     }
+    case "world": {
+      const result = matches.updateWorld(player, message, now);
+      if (!result.ok) send({ type: "error", code: result.code });
+      return;
+    }
     case "rematch": {
       const result = matches.requestRematch(player, now);
       if (!result.ok) send({ type: "error", code: result.code });

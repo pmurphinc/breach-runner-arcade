@@ -5,10 +5,9 @@
  * a `send` function, so the whole state machine can be driven from tests
  * without opening a socket. `server/pvp.mjs` supplies the transport.
  *
- * Each player simulates their own arena locally. The server does not model
- * positions or movement at all — it owns exactly the things a client must not
- * be trusted with: who is in a match, hull, collision shield, transmissions,
- * and the result.
+ * In co-op the first player is the arena host. Its validated, rate-limited
+ * enemy snapshots are relayed to the teammate so both devices render one world.
+ * The server still owns match membership, shared rival integrity and results.
  */
 import {
   COUNTDOWN_SECONDS,
@@ -197,6 +196,8 @@ export class MatchServer {
       touchedAt: now,
       countdownEndsAt: 0,
       transmitSeq: 0,
+      worldSeq: -1,
+      lastWorldAt: 0,
       rematchVotes: new Set(),
       rematchExpiresAt: 0,
     };
@@ -239,6 +240,8 @@ export class MatchServer {
       touchedAt: now,
       countdownEndsAt: 0,
       transmitSeq: 0,
+      worldSeq: -1,
+      lastWorldAt: 0,
       rematchVotes: new Set(),
       rematchExpiresAt: 0,
     };
@@ -406,6 +409,21 @@ export class MatchServer {
     return { ok: true };
   }
 
+  updateWorld(player, world, now = Date.now()) {
+    const room = player.room;
+    if (!room || room.kind !== "coop" || room.phase !== PHASES.ACTIVE) {
+      return { ok: false, code: ERRORS.NOT_IN_MATCH };
+    }
+    if (room.players[0]?.id !== player.id) return { ok: false, code: ERRORS.WRONG_PHASE };
+    if (world.seq <= room.worldSeq) return { ok: true, ignored: true };
+    if (now - room.lastWorldAt < 70) return { ok: true, ignored: true };
+    room.worldSeq = world.seq;
+    room.lastWorldAt = now;
+    room.touchedAt = now;
+    this.sendTo(this.opponentOf(room, player), { type: "world", ...world, hostId: player.id });
+    return { ok: true };
+  }
+
   finishCoop(room, outcome, reason, now = Date.now()) {
     if (room.phase === PHASES.FINISHED) return;
     room.phase = PHASES.FINISHED;
@@ -562,6 +580,7 @@ export class MatchServer {
         kind: room.kind,
         difficulty: room.difficulty,
         phase: room.phase,
+        hostId: room.players[0]?.id ?? null,
         you: { id: player.id, name: player.name, ship: player.ship, ready: player.ready },
         opponent: opponent
           ? {

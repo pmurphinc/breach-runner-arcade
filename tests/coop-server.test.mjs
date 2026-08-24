@@ -70,3 +70,34 @@ test("one destroyed pilot produces a shared defeat", () => {
   assert.equal(aResult.outcome, "defeat");
   assert.equal(bResult.outcome, "defeat");
 });
+
+
+test("only the co-op host can publish the shared enemy world", () => {
+  const { server, a, b } = activeCoop();
+  const world = {
+    seq: 1,
+    portalX: 752,
+    portalY: 470,
+    portalAngle: 1.2,
+    enrageActive: false,
+    enemies: [{ kind: "mines", x: 700, y: 400, vx: 0, vy: 0, hp: 20, maxHp: 20, radius: 12, age: 40, cooldown: 0, phase: 0, armed: true }],
+  };
+  const rejected = server.updateWorld(b.player, world, 5000);
+  assert.equal(rejected.ok, false);
+  assert.equal(a.messages.some((message) => message.type === "world"), false);
+
+  const accepted = server.updateWorld(a.player, world, 5100);
+  assert.equal(accepted.ok, true);
+  const relayed = b.messages.findLast((message) => message.type === "world");
+  assert.equal(relayed.seq, 1);
+  assert.equal(relayed.enemies[0].kind, "mines");
+  assert.equal(relayed.hostId, a.player.id);
+});
+
+test("stale co-op world revisions are ignored", () => {
+  const { server, a, b } = activeCoop();
+  const world = { seq: 4, portalX: 752, portalY: 470, portalAngle: 0, enrageActive: false, enemies: [] };
+  server.updateWorld(a.player, world, 5000);
+  server.updateWorld(a.player, { ...world, seq: 3 }, 5200);
+  assert.equal(b.messages.filter((message) => message.type === "world").length, 1);
+});
