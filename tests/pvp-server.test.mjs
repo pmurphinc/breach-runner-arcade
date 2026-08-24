@@ -258,18 +258,30 @@ test("a client cannot claim unlimited damage in one window", () => {
   );
 });
 
-test("victory is decided by opponent hull reaching zero", () => {
+test("victory identifies the eliminated pilot and final damage source for both players", () => {
   const { server, a, b } = readiedMatch();
   let seq = 1;
   let now = 6000;
   while (a.player.combat.hull > 0 && seq < 400) {
-    server.reportDamage(a.player, { seq: seq++, source: "impact", amount: 50 }, now);
+    server.reportDamage(
+      a.player,
+      { seq: seq++, source: "impact", amount: 50, cause: "hostile_projectile" },
+      now
+    );
     now += 1000; // step past the rate window each time
   }
+  const defeated = a.last("result");
+  const winner = b.last("result");
   assert.equal(a.player.combat.hull, 0);
-  assert.equal(a.last("result").outcome, "defeat");
-  assert.equal(b.last("result").outcome, "victory");
-  assert.equal(b.last("result").reason, "hull");
+  assert.equal(defeated.outcome, "defeat");
+  assert.equal(winner.outcome, "victory");
+  assert.equal(winner.reason, "hull");
+  assert.equal(defeated.youEliminated, true);
+  assert.equal(winner.youEliminated, false);
+  assert.equal(defeated.eliminatedName, "ALPHA");
+  assert.equal(winner.eliminatedName, "ALPHA");
+  assert.equal(defeated.cause, "hostile_projectile");
+  assert.equal(winner.cause, "hostile_projectile");
 });
 
 test("transmissions reach the opponent, tagged so duplicates can be dropped", () => {
