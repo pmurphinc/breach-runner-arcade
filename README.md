@@ -46,6 +46,19 @@ hostile tracking and collision contact. The background also includes sparse,
 non-colliding world-space rocks that move with the camera and remain visually
 subordinate to projectiles and enemies.
 
+## Ship balance budget
+
+Every frame must score between **90 and 100 points**, with 100 as a hard cap.
+The calculation in `app/ship-balance.ts` assigns numeric costs to hull,
+handling, top speed, acceleration, cannon level, thrust level, and the existing
+special ability. Automated tests fail if any future ship exceeds the ceiling or
+falls below the fleet band.
+
+The system changes no artwork, controls, weapon behavior, or special mechanics.
+For this pass, The Squid was the only over-budget frame: its scout identity is
+preserved while handling changes from 10 to 9, top speed from 4.5 to 4.0,
+acceleration from 0.19 to 0.13, and thrust from MK4 to MK3.
+
 ## Game modes
 
 Choose before launching. The selector is in the ship panel on desktop and in
