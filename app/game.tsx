@@ -3695,6 +3695,31 @@ export default function WormholeGame() {
           ctx.fill();
           ctx.stroke();
           ctx.restore();
+          const allyDx = teammate.x - player.x;
+          const allyDy = teammate.y - player.y;
+          const allyDistance = Math.hypot(allyDx, allyDy);
+          if (allyDistance > 180) {
+            const direction = Math.atan2(allyDy, allyDx);
+            const beaconX = player.x + Math.cos(direction) * 72;
+            const beaconY = player.y + Math.sin(direction) * 72;
+            ctx.save();
+            ctx.translate(beaconX, beaconY);
+            ctx.rotate(direction);
+            ctx.fillStyle = "#b6ff57";
+            ctx.strokeStyle = "#ffffff";
+            ctx.lineWidth = 2;
+            ctx.shadowColor = "#b6ff57";
+            ctx.shadowBlur = 12;
+            ctx.beginPath();
+            ctx.moveTo(14, 0);
+            ctx.lineTo(-8, -9);
+            ctx.lineTo(-4, 0);
+            ctx.lineTo(-8, 9);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            ctx.restore();
+          }
           ctx.save();
           ctx.fillStyle = "#06110a";
           ctx.strokeStyle = "#b6ff57";
