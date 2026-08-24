@@ -2090,7 +2090,7 @@ export default function WormholeGame() {
    * Continuous victory riser: audible from the first pull frame through the
    * singularity collapse, then faded out just before the blast cue begins.
    */
-  const playVictorySuction = useCallback((progress: number, remainingSeconds: number, volume = 0.085) => {
+  const playVictorySuction = useCallback((frequencyHz: number, remainingSeconds: number, volume = 0.085) => {
     if (!soundRef.current || victorySuctionAudio.current || typeof window === "undefined") return;
     const AudioContextClass = window.AudioContext
       ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -2117,8 +2117,6 @@ export default function WormholeGame() {
     filter.connect(master);
     master.connect(context.destination);
 
-    const startFrequency = VICTORY_SUCTION_FREQUENCY.startHz
-      * (VICTORY_SUCTION_FREQUENCY.endHz / VICTORY_SUCTION_FREQUENCY.startHz) ** progress;
     const voices = [
       { type: "sawtooth" as OscillatorType, ratio: 1, level: 0.62 },
       { type: "triangle" as OscillatorType, ratio: 1.5, level: 0.34 },
@@ -2127,7 +2125,7 @@ export default function WormholeGame() {
       const oscillator = context.createOscillator();
       const voiceGain = context.createGain();
       oscillator.type = voice.type;
-      oscillator.frequency.setValueAtTime(startFrequency * voice.ratio, start);
+      oscillator.frequency.setValueAtTime(frequencyHz * voice.ratio, start);
       oscillator.frequency.exponentialRampToValueAtTime(VICTORY_SUCTION_FREQUENCY.endHz * voice.ratio, end);
       voiceGain.gain.setValueAtTime(voice.level, start);
       oscillator.connect(voiceGain);
@@ -2999,7 +2997,7 @@ export default function WormholeGame() {
         const visual = victoryVisualState(game.victorySequence, TICK_MS);
         const suction = victorySuctionState(game.victorySequence, TICK_MS);
         if (suction.active && !victorySuctionAudio.current) {
-          playVictorySuction(suction.progress, suction.remainingSeconds);
+          playVictorySuction(suction.frequencyHz, suction.remainingSeconds);
         } else if (!suction.active && victorySuctionAudio.current) {
           stopVictorySuction(0.018);
         }
