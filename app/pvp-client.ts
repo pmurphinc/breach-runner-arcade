@@ -13,7 +13,7 @@
  */
 
 /** Must match server/protocol.mjs. `tests/pvp-protocol.test.mjs` asserts it. */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 export const PVP_PATH = "/pvp";
 export const CODE_LENGTH = 6;
 export const COUNTDOWN_SECONDS = 3;
@@ -48,6 +48,10 @@ export type PvpOpponent = {
   connected: boolean;
 };
 
+export type NetworkMode = "pvp" | "coop";
+export type TeammatePosition = { id: string; name: string; ship: string; x: number; y: number; angle: number };
+export type CoopRival = { hull: number; maxHull: number; score: number };
+
 export type PvpSnapshot = {
   phase: PvpPhase;
   /** Why the lobby is offline, when it is. */
@@ -56,11 +60,15 @@ export type PvpSnapshot = {
   /** True while a reconnect attempt is in flight during a live match. */
   reconnecting: boolean;
   name: string;
+  kind: NetworkMode;
+  difficulty: string;
   code: string | null;
   you: { ready: boolean; ship: string } | null;
   opponent: PvpOpponent | null;
   yourCombat: PvpCombat | null;
   opponentCombat: PvpCombat | null;
+  rival: CoopRival | null;
+  teammate: TeammatePosition | null;
   /** Milliseconds until the match goes live, during a countdown. */
   countdownMs: number;
   result: { outcome: "victory" | "defeat"; reason: string; opponent: string } | null;
@@ -76,11 +84,15 @@ const EMPTY: PvpSnapshot = {
   connected: false,
   reconnecting: false,
   name: "",
+  kind: "pvp",
+  difficulty: "easy",
   code: null,
   you: null,
   opponent: null,
   yourCombat: null,
   opponentCombat: null,
+  rival: null,
+  teammate: null,
   countdownMs: 0,
   result: null,
   rematch: null,
@@ -115,6 +127,15 @@ export class PvpClient {
   /** Delivered attacks the game has not yet spawned. */
   private incomingQueue: { weapon: string; from: string }[] = [];
   private warningTimer: ReturnType<typeof setTimeout> | null = null;
+  private sessionKind: NetworkMode;
+  private difficulty: string;
+  private lastPositionAt = 0;
+
+  constructor(kind: NetworkMode = "pvp", difficulty = "easy") {
+    this.sessionKind = kind;
+    this.difficulty = difficulty;
+    this.snapshot = { ...EMPTY, kind, difficulty };
+  }
 
   subscribe(listener: Listener) {
     this.listeners.add(listener);
@@ -233,6 +254,8 @@ export class PvpClient {
           name: typeof message.name === "string" ? message.name : this.snapshot.name,
           opponent: null,
           you: null,
+          rival: null,
+          teammate: null,
           yourCombat: null,
           opponentCombat: null,
           result: null,
@@ -245,6 +268,8 @@ export class PvpClient {
         const you = message.you as { ship?: string; ready?: boolean } | undefined;
         this.update({
           phase: this.snapshot.phase === "active" ? "active" : "select",
+          kind: message.kind === "coop" ? "coop" : "pvp",
+          difficulty: typeof message.difficulty === "string" ? message.difficulty : this.difficulty,
           code: typeof message.code === "string" ? message.code : null,
           you: { ship: you?.ship ?? "wing", ready: Boolean(you?.ready) },
           opponent: (message.opponent as PvpOpponent | null) ?? null,
@@ -281,7 +306,12 @@ export class PvpClient {
         if (message.phase === "active" || message.you) patch.phase = "active";
         if (message.you) patch.yourCombat = message.you as PvpCombat;
         if (message.opponent) patch.opponentCombat = message.opponent as PvpCombat;
+        if (message.rival) patch.rival = message.rival as CoopRival;
         this.update(patch);
+        return;
+      }
+      case "teammate": {
+        this.update({ teammate: message as unknown as TeammatePosition });
         return;
       }
       case "incoming": {
@@ -347,8 +377,8 @@ export class PvpClient {
     return true;
   }
 
-  quickMatch() { this.send({ type: "queue" }); }
-  createPrivate() { this.send({ type: "create" }); }
+  quickMatch() { this.send({ type: "queue", kind: this.sessionKind, difficulty: this.difficulty }); }
+  createPrivate() { this.send({ type: "create", kind: this.sessionKind, difficulty: this.difficulty }); }
   join(code: string) { this.send({ type: "join", code: code.toUpperCase() }); }
   cancel() { this.send({ type: "cancel" }); }
   chooseShip(ship: string) { this.send({ type: "ship", ship }); }
@@ -360,6 +390,13 @@ export class PvpClient {
     if (amount <= 0) return;
     this.damageSeq += 1;
     this.send({ type: "damage", seq: this.damageSeq, source, amount: Math.round(amount) });
+  }
+
+  reportPosition(x: number, y: number, angle: number) {
+    const now = performance.now();
+    if (now - this.lastPositionAt < 66) return;
+    this.lastPositionAt = now;
+    this.send({ type: "position", x, y, angle });
   }
 
   transmit(weapon: string) {

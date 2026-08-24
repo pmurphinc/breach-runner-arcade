@@ -363,3 +363,21 @@ WORMHOLE_TEST_URL=http://localhost:5199/ npm run test:gameplay
 ## Attribution
 
 This is a fan-made preservation and modernization project inspired by the original Centerfleet/Centerscore **Wormhole**. Original game names, sounds, and other legacy materials remain the property of their respective owners.
+
+
+## PvE co-op (Release D)
+
+Choose **PVE CO-OP**, select a difficulty, then use Quick Match or a private six-character room code. Two pilots launch together with independent ships and hull, one server-authoritative wormhole objective, shared score, shared victory/defeat, rematch voting, and the existing reconnect grace.
+
+Co-op scales the selected PvE rules for two pilots:
+
+| Difficulty | Solo integrity | Co-op integrity |
+| --- | ---: | ---: |
+| Practice | 100 | 200 |
+| Easy | 100 | 200 |
+| Difficult | 200 | 400 |
+| Hard | 350 | 700 |
+
+Normal hostile waves and enrage waves spawn twice their solo counts. The 150-damage power-up generation threshold is unchanged. Solo PvE and 1v1 values are not modified.
+
+The match server owns room membership, both pilot combat states, shared Rival Integrity, transmissions, score, and the result. Teammate position updates are presentation data only. Rooms remain in memory, so a Railway redeploy ends active matches.
