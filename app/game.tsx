@@ -1118,7 +1118,7 @@ function MultiplayerLobby({
               <p className="lobby-status" aria-live="polite">
                 {net.phase === "countdown"
                   ? `LAUNCHING IN ${Math.ceil(net.countdownMs / 1000)}…`
-                  : "OPPONENT FOUND — CHOOSE YOUR SHIP"}
+                  : net?.kind === "coop" ? "ALLY FOUND — CHOOSE YOUR SHIP" : "OPPONENT FOUND — CHOOSE YOUR SHIP"}
               </p>
               <div className="lobby-versus">
                 <div>
@@ -1562,7 +1562,7 @@ function SettingsDrawer({
               <button type="button" onClick={onChangeShip}>CHANGE SHIP</button>
               <button type="button" onClick={onChangeMode}>CHANGE MODE</button>
               {stage === "arena" ? <button type="button" onClick={onRunAgain}>{gameActive ? "RESTART" : "RUN AGAIN"}</button> : null}
-              {mode === "pvp" ? <button type="button" onClick={onLobby}>MULTIPLAYER LOBBY</button> : null}
+              {mode !== "pve" ? <button type="button" onClick={onLobby}>{mode === "coop" ? "CO-OP LOBBY" : "MULTIPLAYER LOBBY"}</button> : null}
             </div>
           </section>
 
@@ -2159,7 +2159,7 @@ export default function WormholeGame() {
     if (game.mode !== "pve") {
       // A live network match cannot be paused: the opponent keeps playing. P opens the
       // menu instead, and the match visibly continues behind it.
-      game.notice = "PVP // MATCH CONTINUES, NO PAUSE";
+      game.notice = game.mode === "coop" ? "CO-OP // TEAM PLAY CONTINUES, NO PAUSE" : "PVP // MATCH CONTINUES, NO PAUSE";
       game.noticeLife = 90;
       setMenuOpen((value) => !value);
       sync();
@@ -4302,7 +4302,7 @@ export default function WormholeGame() {
                     )}
 
                     <div className={`run-links ${summary.awaitingInitials ? "locked" : ""}`}>
-                      {mode === "pvp" ? (
+                      {mode !== "pve" ? (
                         <>
                           <button
                             type="button"
@@ -4311,7 +4311,7 @@ export default function WormholeGame() {
                             onClick={() => netRef.current?.requestRematch()}
                           >
                             {net?.rematch?.you
-                              ? net.rematch.opponent ? "REMATCH STARTING" : "WAITING FOR OPPONENT"
+                              ? net.rematch.opponent ? "REMATCH STARTING" : mode === "coop" ? "WAITING FOR ALLY" : "WAITING FOR OPPONENT"
                               : net?.rematch?.opponent ? "ACCEPT REMATCH" : "REQUEST REMATCH"}
                           </button>
                           <button type="button" onClick={() => {
@@ -4524,7 +4524,7 @@ export default function WormholeGame() {
             <ShipSelect
               selected={shipId}
               reducedMotion={reducedMotion}
-              locked={mode === "pvp" && net?.phase === "countdown"}
+              locked={mode !== "pve" && net?.phase === "countdown"}
               onConfirm={(id) => { setShipId(id); netRef.current?.chooseShip(id); setStage("setup"); }}
             />
           ) : (
