@@ -35,7 +35,7 @@ Touch controls use a twin-stick layout: the left stick moves the ship while the 
 ## Release C ship refit
 
 The fleet remains eight frames. The former Rabbit is now **The Viper**, a fragile
-100-hull guided-strike corvette with an MK1 cannon. Its 20-second special opens
+150-hull guided-strike corvette with a 3.0 top speed with an MK1 cannon. Its 20-second special opens
 a three-second launch window; every stored attack power-up fired during that
 window steers itself toward the moving wormhole.
 
