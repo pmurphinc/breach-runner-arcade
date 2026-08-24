@@ -1478,6 +1478,7 @@ export default function WormholeGame() {
   const reducedMotion = useReducedMotion();
 
   /** Menu and codex state for the global key handler, without re-subscribing. */
+  const menuRef = useRef<MenuStack>(INITIAL_STACK);
   const menuOpenRef = useRef(false);
   const codexOpenRef = useRef(false);
   const soundRef = useRef(true);
@@ -1513,6 +1514,7 @@ export default function WormholeGame() {
    */
   const netRef = useRef<PvpClient | null>(null);
 
+  useEffect(() => { menuRef.current = menu; }, [menu]);
   useEffect(() => { menuOpenRef.current = menuOpen; }, [menuOpen]);
   useEffect(() => { codexOpenRef.current = codexOpen; }, [codexOpen]);
   useEffect(() => { soundRef.current = sound; }, [sound]);
@@ -2060,11 +2062,14 @@ export default function WormholeGame() {
    * this, the button cannot mean different things on different screens.
    */
   const toggleMenu = useCallback(() => {
-    setMenu((stack) => {
-      const next = menuButtonTarget(stack, gameRef.current.running && !gameRef.current.result);
-      setPaused(menuIsOpen(next));
-      return next;
-    });
+    // Computed outside the updater on purpose: pausing is a side effect, and
+    // React may invoke a state updater more than once.
+    const next = menuButtonTarget(
+      menuRef.current,
+      gameRef.current.running && !gameRef.current.result
+    );
+    setPaused(menuIsOpen(next));
+    setMenu(next);
   }, [setPaused]);
 
   /** Fullscreen state, owned by the global layer and derived from the browser. */
