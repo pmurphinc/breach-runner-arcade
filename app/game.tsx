@@ -64,12 +64,11 @@ import {
 } from "./movement";
 import {
   MURPH_SITE_URL,
-  fetchArcadeSession,
+  createArcadeRunId,
   fetchLeaderboard,
   loadLocalBest,
   saveLocalRun,
   saveScoreToMurph,
-  type ArcadePlayer,
   type LeaderboardEntry,
   type LocalBest,
   type RunResult,
@@ -812,7 +811,7 @@ type RunSummary = {
 type SaveState =
   | { status: "idle" }
   | { status: "saving" }
-  | { status: "saved"; rank: number | null; bestScore: number }
+  | { status: "saved"; rank: number | null }
   | { status: "error"; message: string };
 
 const INITIALS_INPUT_SELECTOR = "#arcade-initials, #menu-player-initials";
@@ -839,7 +838,9 @@ function Leaderboard({ onClose }: { onClose: () => void }) {
   const [entries, setEntries] = useState<LeaderboardEntry[] | null>(null);
   const [best, setBest] = useState<LocalBest | null>(null);
   const [failed, setFailed] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [boardLimit, setBoardLimit] = useState(10);
+  const [reloadKey, setReloadKey] = useState(0);
   const closeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => { closeRef.current?.focus(); }, []);
@@ -852,15 +853,18 @@ function Leaderboard({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     let cancelled = false;
     const localBest = loadLocalBest();
-    setEntries(null);
+    setBest(localBest);
+    if (boardLimit === 10) setEntries(null);
     setFailed(false);
+    setLoading(true);
     void fetchLeaderboard(boardLimit).then((rows) => {
       if (cancelled) return;
-      setBest(localBest);
-      if (rows) setEntries(rows); else setFailed(true);
+      setLoading(false);
+      if (rows) setEntries(rows);
+      else setFailed(true);
     });
     return () => { cancelled = true; };
-  }, [boardLimit]);
+  }, [boardLimit, reloadKey]);
 
   return (
     <div className="codex-backdrop" role="presentation" onClick={onClose}>
@@ -873,21 +877,21 @@ function Leaderboard({ onClose }: { onClose: () => void }) {
       >
         <div className="codex-head">
           <h2 id="board-heading">GLOBAL BOARD</h2>
-          <p>Best run per signed-in pilot. Guest scores stay on your own device.</p>
+          <p>Classic arcade high scores. No account or login required.</p>
           <button ref={closeRef} type="button" className="codex-close" onClick={onClose} aria-label="Close leaderboard">✕</button>
         </div>
         <div className="board-body">
-          {failed ? <p className="board-note">Murph Tournaments could not be reached. Your scores are safe on this device.</p> : null}
-          {!failed && entries === null ? <p className="board-note">Loading the board…</p> : null}
-          {entries !== null && entries.length === 0 ? <p className="board-note">No saved runs yet. Sign in after a run to put the first score up.</p> : null}
+          {failed ? <p className="board-note">The global board could not be reached. Your device score is safe.</p> : null}
+          {loading && entries === null ? <p className="board-note">Loading the board…</p> : null}
+          {!loading && entries !== null && entries.length === 0 ? <p className="board-note">No scores yet. Win a non-Practice PvE run to claim the first spot.</p> : null}
           {entries !== null && entries.length > 0 ? (
             <ol className="board-list">
               {entries.map((entry) => (
-                <li key={`${entry.rank}-${entry.displayName}`}>
+                <li key={entry.id}>
                   <span className="board-rank">{entry.rank}</span>
-                  <span className="board-name">{entry.displayName}</span>
-                  <span className="board-runs">{entry.runs} {entry.runs === 1 ? "RUN" : "RUNS"}</span>
-                  <b>{entry.bestScore.toLocaleString()}</b>
+                  <span className="board-name">{entry.initials}</span>
+                  <span className="board-runs">{entry.ship} · {entry.difficulty.toUpperCase()}</span>
+                  <b>{entry.score.toLocaleString()}</b>
                 </li>
               ))}
             </ol>
@@ -898,9 +902,14 @@ function Leaderboard({ onClose }: { onClose: () => void }) {
               <b>{best.score.toLocaleString()}</b>
             </p>
           ) : null}
-          {entries !== null && boardLimit === 10 && entries.length >= 10 ? (
+          {entries !== null && !failed && boardLimit === 10 && entries.length >= 10 ? (
             <button className="board-link" type="button" onClick={() => setBoardLimit(100)}>
               LOAD FULL BOARD →
+            </button>
+          ) : null}
+          {failed ? (
+            <button className="board-link" type="button" onClick={() => setReloadKey((value) => value + 1)}>
+              RETRY BOARD →
             </button>
           ) : null}
         </div>
@@ -1825,8 +1834,6 @@ export default function WormholeGame() {
   const [net, setNet] = useState<PvpSnapshot | null>(null);
   // Derived beside its state so every later effect can safely reference it.
   const netResult = net?.result ?? null;
-  /** Who Murph Tournaments says is playing. Null means guest or unavailable. */
-  const [player, setPlayer] = useState<ArcadePlayer | null>(null);
   const [summary, setSummary] = useState<RunSummary | null>(null);
   const [initialsEntry, setInitialsEntry] = useState("");
   const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });
@@ -1854,7 +1861,7 @@ export default function WormholeGame() {
   } | null>(null);
   /** The outcome already turned into a summary, so each run is recorded once. */
   const recordedResult = useRef<Game["result"]>(null);
-  /** The summary object already submitted automatically for the signed-in player. */
+  /** The summary object already submitted to the public initials leaderboard. */
   const autoSavedRun = useRef<RunResult | null>(null);
   /** Ship the current run is being flown in, fixed at launch. */
   const runShipName = useRef("");
@@ -2146,25 +2153,13 @@ export default function WormholeGame() {
     setHud((previous) => (hudEqual(previous, next) ? previous : next));
   }, []);
 
-  /**
-   * Sends a finished run to Murph Tournaments only when the browser already
-   * has an active session. Wormhole Arcade never asks a guest to sign in.
-   */
+  /** Sends a completed initials-tagged victory to the public arcade board. */
   const saveRun = useCallback(async (run: RunResult) => {
     setSaveState({ status: "saving" });
     const result = await saveScoreToMurph(run);
 
     if (result.status === "saved") {
-      setSaveState({ status: "saved", rank: result.rank, bestScore: result.bestScore });
-      setPlayer((current) =>
-        current ? { ...current, bestScore: result.bestScore, runs: result.runs, rank: result.rank } : current
-      );
-      return;
-    }
-
-    if (result.status === "signed-out") {
-      setPlayer(null);
-      setSaveState({ status: "idle" });
+      setSaveState({ status: "saved", rank: result.rank });
       return;
     }
 
@@ -2194,19 +2189,7 @@ export default function WormholeGame() {
     difficultyPreference.set(next);
   }, []);
 
-  // Silently recognize an existing Murph Tournaments session. Guests keep
-  // playing locally and are never shown a login request.
-  useEffect(() => {
-    let cancelled = false;
-
-    void fetchArcadeSession().then((session) => {
-      if (!cancelled) setPlayer(session?.signedIn ? session.player : null);
-    });
-
-    return () => { cancelled = true; };
-  }, []);
-
-  // A run just ended: record it on this device, then offer or perform the save.
+  // A run just ended: record it on this device and prepare leaderboard data.
   useEffect(() => {
     if (!hud.result) {
       recordedResult.current = null;
@@ -2218,9 +2201,11 @@ export default function WormholeGame() {
     const settlement = settleScore(hud.score, hud.elapsedSeconds, hud.result);
     const practice = hud.difficulty === "practice";
     const run: RunResult = {
+      runId: createArcadeRunId(),
       score: settlement.finalScore,
       baseScore: settlement.baseScore,
       timePenalty: settlement.timePenalty,
+      difficulty: hud.difficulty,
       outcome: hud.result,
       ship: runShipName.current,
       rivalHealth: hud.rivalHealth,
@@ -2268,13 +2253,20 @@ export default function WormholeGame() {
     setSaveState({ status: "idle" });
   }, [hud.deathCause, hud.deathDamage, hud.difficulty, hud.elapsedSeconds, hud.mode, hud.result, hud.rivalFinalCause, hud.rivalFinalDamage, hud.rivalHealth, hud.score, netResult, settings.playerInitials]);
 
-  // Signed-in players always save automatically, including when a run finishes
-  // before the initial Murph Tournaments session request returns.
+  // Every initials-tagged, non-Practice solo victory joins the public board.
   useEffect(() => {
-    if (!player || !summary || summary.awaitingInitials || summary.run.practice || autoSavedRun.current === summary.run) return;
+    if (
+      mode !== "pve" ||
+      !summary ||
+      summary.awaitingInitials ||
+      summary.run.outcome !== "victory" ||
+      summary.run.practice ||
+      !summary.run.initials ||
+      autoSavedRun.current === summary.run
+    ) return;
     autoSavedRun.current = summary.run;
     void saveRun(summary.run);
-  }, [player, saveRun, summary]);
+  }, [mode, saveRun, summary]);
 
   // Before a run, keep the idle arena matching the selection so the preview
   // shows exactly what START will produce (EASY re-centres the wormhole at
@@ -4638,16 +4630,16 @@ export default function WormholeGame() {
                             ? `SCORE LOCKED // ${summary.run.initials} · SAVED ON THIS DEVICE`
                             : "RUN SAVED ON THIS DEVICE"}
                         </p>
-                        {player && saveState.status === "saving" ? <p className="run-status">SYNCING GLOBAL BOARD…</p> : null}
-                        {player && saveState.status === "saved" ? (
+                        {summary.run.outcome === "victory" && mode === "pve" && saveState.status === "saving" ? <p className="run-status">ADDING SCORE TO GLOBAL BOARD…</p> : null}
+                        {summary.run.outcome === "victory" && mode === "pve" && saveState.status === "saved" ? (
                           <p className="run-status ok">
-                            GLOBAL BOARD SYNCED{saveState.rank ? ` · #${saveState.rank}` : ""}
+                            GLOBAL BOARD UPDATED{saveState.rank ? ` · #${saveState.rank}` : ""}
                           </p>
                         ) : null}
-                        {player && saveState.status === "error" ? (
+                        {summary.run.outcome === "victory" && mode === "pve" && saveState.status === "error" ? (
                           <>
                             <p className="run-status warn">{saveState.message}</p>
-                            <button type="button" className="run-action" onClick={() => void saveRun(summary.run)}>TRY SYNC AGAIN</button>
+                            <button type="button" className="run-action" onClick={() => void saveRun(summary.run)}>TRY BOARD AGAIN</button>
                           </>
                         ) : null}
                       </div>

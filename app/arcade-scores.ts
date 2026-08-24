@@ -1,41 +1,34 @@
 /**
- * Score persistence for Wormhole Arcade.
+ * Local score history and the public, initials-only Wormhole leaderboard.
  *
- * The arcade has no database of its own and never gates play behind an
- * account. Two independent stores back that promise:
- *
- *  - Guests: personal bests live in this device's `localStorage` and are never
- *    uploaded anywhere.
- *  - Signed-in players: after a run they may save that score to Murph
- *    Tournaments, which is also what puts them on the global board.
- *
- * Everything here fails soft. A blocked `localStorage`, an offline network, or
- * a Murph Tournaments outage must never stop someone from playing.
+ * Play never depends on the network. Device bests stay in localStorage, while
+ * completed non-Practice PvE victories can also be submitted to the shared
+ * arcade board without an account or login.
  */
 
 export const MURPH_SITE_URL = "https://murphtournaments.com";
 
-/**
- * Where the score API lives. Overridable at build time so a local arcade can
- * point at a local site; the deployed default is the production site.
- */
+/** The public score API lives on Murph Tournaments in production. */
 export const MURPH_API_BASE =
   process.env.NEXT_PUBLIC_MURPH_API_BASE?.replace(/\/+$/, "") || MURPH_SITE_URL;
 
 export type RunOutcome = "victory" | "defeat";
+export type ArcadeDifficulty = "easy" | "difficult" | "hard" | "practice";
 
 export type RunResult = {
+  /** Unique per completed run so a retry cannot create a duplicate row. */
+  runId: string;
   /** Final score after the time adjustment. */
   score: number;
   baseScore?: number;
   timePenalty?: number;
   initials?: string;
   practice?: boolean;
+  difficulty: ArcadeDifficulty;
   outcome: RunOutcome;
   ship: string;
   rivalHealth: number;
   durationSeconds: number;
-  /** Human-readable target and authoritative final event retained across Discord sign-in. */
   finalTarget?: string;
   finalCause?: string;
   finalDamage?: number;
@@ -51,33 +44,24 @@ export type LocalBest = {
   achievedAt: number;
 };
 
-export type ArcadePlayer = {
-  displayName: string;
-  discordUsername: string | null;
-  discordAvatarUrl: string | null;
-  bestScore: number;
-  runs: number;
-  rank: number | null;
-};
-
 export type LeaderboardEntry = {
+  id: number;
   rank: number;
-  displayName: string;
-  discordUsername: string | null;
-  discordAvatarUrl: string | null;
-  bestScore: number;
-  runs: number;
+  initials: string;
+  score: number;
+  ship: string;
+  difficulty: Exclude<ArcadeDifficulty, "practice">;
+  durationSeconds: number;
+  achievedAt: string;
 };
 
 const LOCAL_BEST_KEY = "wormhole-arcade:best";
 const LOCAL_RUNS_KEY = "wormhole-arcade:runs";
-const DISCORD_SAVE_PROMPT_SEEN_KEY = "wormhole-arcade:discord-save-prompt-seen";
 
 function readStorage(key: string) {
   try {
     return window.localStorage.getItem(key);
   } catch {
-    // Private mode, disabled site data, or an embedded webview. Not an error.
     return null;
   }
 }
@@ -95,6 +79,14 @@ function isOutcome(value: unknown): value is RunOutcome {
   return value === "victory" || value === "defeat";
 }
 
+export function createArcadeRunId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  const random = Math.random().toString(36).slice(2).padEnd(12, "0");
+  return `${Date.now().toString(36)}-${random}`;
+}
+
 export function loadLocalBest(): LocalBest | null {
   const raw = readStorage(LOCAL_BEST_KEY);
   if (!raw) return null;
@@ -106,10 +98,6 @@ export function loadLocalBest(): LocalBest | null {
     if (typeof record.score !== "number" || !Number.isFinite(record.score)) return null;
     return {
       score: Math.max(0, Math.floor(record.score)),
-      baseScore: typeof record.baseScore === "number" ? Math.max(0, Math.floor(record.baseScore)) : undefined,
-      timePenalty: typeof record.timePenalty === "number" ? Math.max(0, Math.floor(record.timePenalty)) : undefined,
-      initials: typeof record.initials === "string" ? record.initials.slice(0, 3) : undefined,
-      practice: record.practice === true,
       outcome: isOutcome(record.outcome) ? record.outcome : "defeat",
       ship: typeof record.ship === "string" ? record.ship : "Unknown",
       initials: typeof record.initials === "string" ? record.initials.slice(0, 3) : undefined,
@@ -126,19 +114,7 @@ export function loadLocalRunCount() {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
-/** The Discord save invitation is shown on only one completed-run screen per device. */
-export function hasSeenDiscordSavePrompt() {
-  return readStorage(DISCORD_SAVE_PROMPT_SEEN_KEY) === "1";
-}
-
-export function markDiscordSavePromptSeen() {
-  writeStorage(DISCORD_SAVE_PROMPT_SEEN_KEY, "1");
-}
-
-/**
- * Records a finished run against this device's history.
- * Returns the stored best afterwards and whether this run replaced it.
- */
+/** Records a finished run against this device and returns the device best. */
 export function saveLocalRun(run: RunResult) {
   const previous = loadLocalBest();
   const runs = loadLocalRunCount() + 1;
@@ -161,33 +137,19 @@ export function saveLocalRun(run: RunResult) {
 async function murphFetch(path: string, init?: RequestInit) {
   return fetch(`${MURPH_API_BASE}${path}`, {
     ...init,
-    // The Murph session cookie is SameSite=None; Secure, so it rides along on
-    // these cross-origin calls. Without this the API always sees a guest.
-    credentials: "include",
+    credentials: "omit",
     headers: { accept: "application/json", ...(init?.headers ?? {}) },
   });
 }
 
-/** Who Murph Tournaments thinks is playing. `null` means "could not ask". */
-export async function fetchArcadeSession(): Promise<
-  { signedIn: boolean; player: ArcadePlayer | null } | null
-> {
-  try {
-    const response = await murphFetch("/api/arcade/session");
-    if (!response.ok) return null;
-    return (await response.json()) as {
-      signedIn: boolean;
-      player: ArcadePlayer | null;
-    };
-  } catch {
-    return null;
-  }
-}
-
 export async function fetchLeaderboard(limit = 10): Promise<LeaderboardEntry[] | null> {
   try {
-    const response = await murphFetch(`/api/arcade/leaderboard?limit=${limit}`);
-    if (!response.ok) return null;
+    const response = await murphFetch(`/api/arcade/leaderboard?limit=${limit}`, {
+      cache: "no-store",
+    });
+    if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) {
+      return null;
+    }
     const body = (await response.json()) as { entries?: LeaderboardEntry[] };
     return body.entries ?? [];
   } catch {
@@ -196,126 +158,49 @@ export async function fetchLeaderboard(limit = 10): Promise<LeaderboardEntry[] |
 }
 
 export type SaveScoreResult =
-  | { status: "saved"; bestScore: number; runs: number; rank: number | null }
-  | { status: "signed-out" }
+  | { status: "saved"; rank: number | null }
   | { status: "failed"; message: string };
 
+/** Submit one completed classic-arcade victory. No account cookie is sent. */
 export async function saveScoreToMurph(run: RunResult): Promise<SaveScoreResult> {
+  if (
+    run.outcome !== "victory" ||
+    run.practice ||
+    run.difficulty === "practice" ||
+    !run.initials ||
+    !/^[A-Z0-9]{3}$/.test(run.initials)
+  ) {
+    return { status: "failed", message: "Only completed arcade victories can be ranked." };
+  }
+
   try {
     const response = await murphFetch("/api/arcade/scores", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
+        runId: run.runId,
+        initials: run.initials,
         score: run.score,
-        outcome: run.outcome,
-        ship: run.ship || undefined,
-        rivalHealth: run.rivalHealth,
+        ship: run.ship,
+        difficulty: run.difficulty,
         durationSeconds: run.durationSeconds,
       }),
     });
 
-    if (response.status === 401) return { status: "signed-out" };
-
     if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as
-        | { error?: string }
-        | null;
+      const body = (await response.json().catch(() => null)) as { error?: string } | null;
       return {
         status: "failed",
-        message: body?.error ?? "That score could not be saved.",
+        message: body?.error ?? "That score could not be added to the board.",
       };
     }
 
-    const body = (await response.json()) as {
-      bestScore?: number;
-      runs?: number;
-      rank?: number | null;
-    };
-    return {
-      status: "saved",
-      bestScore: body.bestScore ?? run.score,
-      runs: body.runs ?? 1,
-      rank: body.rank ?? null,
-    };
+    const body = (await response.json()) as { rank?: number | null };
+    return { status: "saved", rank: body.rank ?? null };
   } catch {
     return {
       status: "failed",
-      message: "Murph Tournaments could not be reached.",
+      message: "The global board could not be reached. Your device score is safe.",
     };
-  }
-}
-
-/**
- * Sends the player to Discord sign-in and back to this exact page afterwards,
- * so a run that is waiting to be saved is still on screen when they return.
- */
-export function discordSignInUrl(returnTo: string) {
-  return `${MURPH_API_BASE}/api/auth/discord/login?returnTo=${encodeURIComponent(returnTo)}`;
-}
-
-/**
- * A finished run held across the Discord sign-in round trip.
- *
- * Signing in navigates away to Discord and back, so the run in memory is gone
- * by the time the player returns. It is parked here with a short expiry —
- * long enough for an OAuth hop, short enough that a run abandoned mid-sign-in
- * does not resurface days later.
- */
-const PENDING_RUN_KEY = "wormhole-arcade:pending-run";
-const PENDING_RUN_TTL_MS = 15 * 60 * 1000;
-
-export function stashPendingRun(run: RunResult) {
-  writeStorage(PENDING_RUN_KEY, JSON.stringify({ ...run, stashedAt: Date.now() }));
-}
-
-export function clearPendingRun() {
-  try {
-    window.localStorage.removeItem(PENDING_RUN_KEY);
-  } catch {
-    // Nothing to clean up if storage is unavailable.
-  }
-}
-
-/** Reads the parked run and clears it, so it can only ever be saved once. */
-export function takePendingRun(): RunResult | null {
-  const raw = readStorage(PENDING_RUN_KEY);
-  clearPendingRun();
-  if (!raw) return null;
-
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null) return null;
-    const record = parsed as Record<string, unknown>;
-    const stashedAt = typeof record.stashedAt === "number" ? record.stashedAt : 0;
-    if (Date.now() - stashedAt > PENDING_RUN_TTL_MS) return null;
-    if (typeof record.score !== "number" || !Number.isFinite(record.score)) return null;
-
-    return {
-      score: Math.max(0, Math.floor(record.score)),
-      baseScore:
-        typeof record.baseScore === "number" && Number.isFinite(record.baseScore)
-          ? Math.max(0, Math.floor(record.baseScore))
-          : undefined,
-      timePenalty:
-        typeof record.timePenalty === "number" && Number.isFinite(record.timePenalty)
-          ? Math.max(0, Math.floor(record.timePenalty))
-          : undefined,
-      initials: typeof record.initials === "string" ? record.initials.slice(0, 3) : undefined,
-      practice: record.practice === true,
-      outcome: isOutcome(record.outcome) ? record.outcome : "defeat",
-      ship: typeof record.ship === "string" ? record.ship : "Unknown",
-      rivalHealth: typeof record.rivalHealth === "number" ? record.rivalHealth : 0,
-      durationSeconds:
-        typeof record.durationSeconds === "number" ? record.durationSeconds : 0,
-      finalTarget: typeof record.finalTarget === "string" ? record.finalTarget.slice(0, 80) : undefined,
-      finalCause: typeof record.finalCause === "string" ? record.finalCause.slice(0, 40) : undefined,
-      finalDamage:
-        typeof record.finalDamage === "number" && Number.isFinite(record.finalDamage)
-          ? Math.max(0, Math.floor(record.finalDamage))
-          : undefined,
-      finalReason: typeof record.finalReason === "string" ? record.finalReason.slice(0, 40) : undefined,
-    };
-  } catch {
-    return null;
   }
 }
