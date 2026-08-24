@@ -77,7 +77,7 @@ test('victory suction audio rises during pull and stops before the blast', () =>
   assert.match(audio, /filter\.frequency\.exponentialRampToValueAtTime\(6200, end\)/);
   const sequence = game.slice(game.indexOf('if \(game\.victorySequence > 0\)'), game.indexOf('game\.cycles \+= 1'));
   assert.match(sequence, /victorySuctionState/);
-  assert.match(sequence, /suction\.active[\s\S]*playVictorySuction/);
+  assert.match(sequence, /suction\.active[\s\S]*playVictorySuction\(suction\.frequencyHz, suction\.remainingSeconds\)/);
   assert.match(sequence, /!suction\.active[\s\S]*stopVictorySuction/);
 });
 
