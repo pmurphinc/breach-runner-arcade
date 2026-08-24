@@ -35,7 +35,7 @@ Touch controls use a twin-stick layout: the left stick moves the ship while the 
 ## Release C ship refit
 
 The fleet remains eight frames. The former Rabbit is now **The Viper**, a fragile
-100-hull guided-strike corvette with an MK1 cannon. Its 20-second special opens
+150-hull guided-strike corvette with a 3.0 top speed with an MK1 cannon. Its 20-second special opens
 a three-second launch window; every stored attack power-up fired during that
 window steers itself toward the moving wormhole.
 
@@ -45,6 +45,19 @@ The Squid's old forward teleport is now a 2.5-second **Phase Veil** that breaks
 hostile tracking and collision contact. The background also includes sparse,
 non-colliding world-space rocks that move with the camera and remain visually
 subordinate to projectiles and enemies.
+
+## Ship balance budget
+
+Every frame must score between **90 and 100 points**, with 100 as a hard cap.
+The calculation in `app/ship-balance.ts` assigns numeric costs to hull,
+handling, top speed, acceleration, cannon level, thrust level, and the existing
+special ability. Automated tests fail if any future ship exceeds the ceiling or
+falls below the fleet band.
+
+The system changes no artwork, controls, weapon behavior, or special mechanics.
+For this pass, The Squid was the only over-budget frame: its scout identity is
+preserved while handling changes from 10 to 9, top speed from 4.5 to 4.0,
+acceleration from 0.19 to 0.13, and thrust from MK3 to MK2.
 
 ## Game modes
 

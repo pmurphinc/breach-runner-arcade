@@ -10,12 +10,13 @@ import {
   steerHomingVelocity,
 } from "../app/ship-specials.ts";
 
-test("Rabbit frame is reworked into the fragile MK1 Viper", () => {
+test("Rabbit frame is reworked into the balanced MK1 Viper", () => {
   const viper = SHIPS.find((ship) => ship.id === "rabbit");
   assert.ok(viper);
   assert.equal(viper.name, "The Viper");
-  assert.equal(viper.health, 100);
-  assert.equal(viper.gun, 0);
+  assert.equal(viper.health, 150);
+  assert.equal(viper.maxSpeed, 3);
+  assert.equal(viper.gun, 1);
   assert.equal(SHIP_SPECIALS.rabbit.name, "VIPER GUIDANCE");
   assert.equal(SHIP_SPECIALS.rabbit.cooldownSeconds, 20);
   assert.equal(VIPER_GUIDANCE_SECONDS, 3);
