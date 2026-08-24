@@ -2092,7 +2092,7 @@ export default function WormholeGame() {
     setSaveState({ status: "error", message: result.message });
   }, []);
 
-  // Network modes share the proven WebSocket lobby. Solo PvE never opens a socket.  // Network modes share the proven WebSocket lobby. Solo PvE never opens a socket.
+  // Network modes share the proven WebSocket lobby. Solo PvE never opens a socket.
   useEffect(() => {
     if (mode === "pve") {
       netRef.current?.disconnect();
@@ -2127,7 +2127,7 @@ export default function WormholeGame() {
     return () => { cancelled = true; };
   }, []);
 
-  // A run just ended: record it on this device, then offer or perform the save.  // A run just ended: record it on this device, then offer or perform the save.
+  // A run just ended: record it on this device, then offer or perform the save.
   useEffect(() => {
     if (!hud.result) {
       recordedResult.current = null;
@@ -2189,7 +2189,7 @@ export default function WormholeGame() {
     setSaveState({ status: "idle" });
   }, [hud.deathCause, hud.deathDamage, hud.difficulty, hud.elapsedSeconds, hud.mode, hud.result, hud.rivalFinalCause, hud.rivalFinalDamage, hud.rivalHealth, hud.score, netResult, settings.playerInitials]);
 
-  // Signed-in players always save automatically, including when a run finishes  // Signed-in players always save automatically, including when a run finishes
+  // Signed-in players always save automatically, including when a run finishes
   // before the initial Murph Tournaments session request returns.
   useEffect(() => {
     if (!player || !summary || summary.awaitingInitials || summary.run.practice || autoSavedRun.current === summary.run) return;
@@ -2197,7 +2197,7 @@ export default function WormholeGame() {
     void saveRun(summary.run);
   }, [player, saveRun, summary]);
 
-  // Before a run, keep the idle arena matching the selection so the preview  // Before a run, keep the idle arena matching the selection so the preview
+  // Before a run, keep the idle arena matching the selection so the preview
   // shows exactly what START will produce (EASY re-centres the wormhole at
   // once). Mutating the ref is enough: the canvas reads it every frame, so no
   // React state has to change for the preview to update.
@@ -2311,7 +2311,7 @@ export default function WormholeGame() {
     (document.activeElement as HTMLElement | null)?.blur();
   }, [initialsEntry, setSetting, summary]);
 
-  const togglePause = useCallback(() => {  const togglePause = useCallback(() => {
+  const togglePause = useCallback(() => {
     const game = gameRef.current;
     if (!game.running || game.result) return;
     if (game.mode !== "pve") {
@@ -4567,7 +4567,7 @@ export default function WormholeGame() {
                       </div>
                     )}
 
-                    <div className={`death-info ${summary.run.outcome === "victory" ? "victory" : ""}`} role="status">                    <div className={`death-info ${summary.run.outcome === "victory" ? "victory" : ""}`} role="status">
+                    <div className={`death-info ${summary.run.outcome === "victory" ? "victory" : ""}`} role="status">
                       <strong>FINAL EVENT</strong>
                       <span>{finalEventLabel(summary.run)}</span>
                     </div>
