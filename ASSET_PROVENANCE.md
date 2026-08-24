@@ -15,19 +15,24 @@ The four file-based gameplay effects below were replaced during the commercial I
 | `public/sounds/magic.wav` | Cleared | Newly generated original waveform created specifically for this project during Phase 1. No source recording or legacy game sample used. |
 | `public/sounds/thrust.wav` | Cleared | Newly generated original waveform created specifically for this project during Phase 1. No source recording or legacy game sample used. |
 
-The newer shield, power-up, portal-collapse, and victory-riser cues are synthesized at runtime with the Web Audio API from code in this repository and do not depend on external audio files.
+The newer shield, power-up, rift-collapse, and victory-riser cues are synthesized at runtime with the Web Audio API from code in this repository and do not depend on external audio files.
 
 ### Gameplay art
 
-Ships, weapons, projectiles, portal effects, particles, HUD elements, and most gameplay visuals are rendered procedurally by application code. No external sprite sheet is required for those systems.
+Ships, weapons, projectiles, rift effects, particles, HUD elements, and most gameplay visuals are rendered procedurally by application code. No external sprite sheet is required for those systems.
+
+The current ship silhouettes are polygon definitions stored in `app/weapon-art.ts`, and the weapon/pickup silhouettes are likewise repository code. Phase 1 treats them as code-owned prototype artwork, not imported commercial art. They should still receive a deliberate art-direction review before store screenshots, trailers, or final commercial launch artwork are produced.
 
 Phase 1 changes the player-facing fleet and weapon identity while retaining existing internal compatibility keys. Internal keys such as `tank`, `wing`, `heatseeker`, or `scarab` are implementation identifiers and are not intended as product branding.
 
-### Marketing art
+### Brand and marketing art
 
-`public/og.png` predates the commercial cleanup and must not be reused for Google Play, Steam, trailers, advertisements, or other commercial launch material until its provenance and visual content have been reviewed. New commercial key art should be created before store submission.
+| Path | Status | Provenance / restriction |
+| --- | --- | --- |
+| `public/favicon.svg` | Cleared for current project use | Original geometric rift mark created specifically for Breach Runner during Phase 1 using SVG primitives only. |
+| `public/og.png` | Dormant / not cleared | Predates the commercial cleanup. Phase 1 removes it from active Open Graph and Twitter metadata. Do not reuse it for stores, trailers, advertisements, or other commercial launch material. |
 
-`public/favicon.svg` should likewise be reviewed or replaced when the final commercial title and visual identity are selected.
+New commercial key art, store icons, screenshots, capsule art, and trailer assets should be created from cleared material before store submission.
 
 ## Rules for new assets
 
