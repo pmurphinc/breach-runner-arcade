@@ -39,6 +39,61 @@
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --touch-target: 44px;
   --stick: clamp(112px, min(30vw, 30dvh), 140px);
+
+  /*
+   * Spacing scale
+   * -------------
+   * Fluid rather than stepped, so spacing compresses continuously as the
+   * viewport narrows instead of jumping at a breakpoint. Every gap and pad in
+   * the menu system comes from here.
+   */
+  --space-1: clamp(4px, .5vw, 6px);
+  --space-2: clamp(6px, .8vw, 10px);
+  --space-3: clamp(10px, 1.2vw, 14px);
+  --space-4: clamp(14px, 1.8vw, 20px);
+  --space-5: clamp(18px, 2.6vw, 28px);
+  --space-6: clamp(24px, 3.4vw, 40px);
+
+  /*
+   * Control sizing
+   * --------------
+   * The floor is the 44px touch target; the ceiling stops a desktop button
+   * from growing absurd just because touch is supported. Shrinking below the
+   * floor is never the answer to a small screen — the layout reflows instead.
+   */
+  --control-h: clamp(44px, 6.4vmin, 54px);
+  --control-h-lg: clamp(52px, 9vmin, 68px);
+
+  --radius-1: 3px;
+  --radius-2: 6px;
+  --radius-3: 10px;
+
+  --border-1: 1px solid var(--line);
+  --border-2: 1px solid var(--line-strong);
+  --glow-soft: 0 0 0 1px rgba(100, 234, 255, .12), 0 10px 30px rgba(0, 0, 0, .45);
+  --glow-active: 0 0 0 1px rgba(100, 234, 255, .5), 0 0 22px rgba(100, 234, 255, .22);
+  --panel-bg: linear-gradient(180deg, rgba(8, 20, 30, .97), rgba(3, 9, 15, .97));
+  --scrim: rgba(1, 4, 8, .86);
+
+  --motion-fast: 120ms;
+  --motion-base: 200ms;
+
+  /*
+   * Z-index scale
+   * -------------
+   * The complete layer list for the whole interface. Every stacked element
+   * takes its value from this block and nothing writes a bare number, so the
+   * question "can this cover that?" has one answer written down. The system
+   * layer is last on purpose: Menu and Fullscreen outrank every screen, modal
+   * and HUD element that exists or will exist.
+   */
+  --z-arena: 0;
+  --z-hud: 10;
+  --z-hud-float: 20;
+  --z-screen: 100;
+  --z-overlay: 200;
+  --z-dialog: 300;
+  --z-system: 400;
 }
 
 /* Touch hardware reads at a longer distance: lift the whole scale, not one rule. */
@@ -113,11 +168,7 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
    the surrounding panels are allowed to take. The old Wide preset set a fixed
    2040px cockpit, which is how controls left the screen at 2048px wide. */
 [data-preset="fit"] .cockpit { width: min(1420px, 100%); grid-template-columns: clamp(240px, 17vw, 290px) minmax(0, 1fr) clamp(242px, 17vw, 296px); }
-[data-preset="balanced"] .cockpit { width: min(1680px, 100%); }
 /* Arena Focus drops the permanent panels entirely; they return as drawers. */
-[data-preset="arena"] .cockpit { width: 100%; grid-template-columns: minmax(0, 1fr); }
-[data-preset="arena"] .ship-panel,
-[data-preset="arena"] .intel-panel { display: none; }
 [data-panels="drawer"] .ship-panel,
 [data-panels="drawer"] .intel-panel { display: none; }
 
@@ -454,7 +505,7 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 .lobby-note { margin: 0; color: var(--muted); font: 600 var(--fs-micro)/1.5 var(--mono); }
 
 /* ------------------------------------------------------- settings drawer -- */
-.drawer-backdrop { position: fixed; inset: 0; z-index: 60; display: flex; justify-content: flex-end; background: rgba(1, 4, 8, .72); }
+.drawer-backdrop { position: fixed; inset: 0; z-index: var(--z-overlay); display: flex; justify-content: flex-end; background: rgba(1, 4, 8, .72); }
 .settings-drawer { display: flex; flex-direction: column; width: min(350px, 44vw); min-width: 320px; height: 100%;
   --fs-nano: clamp(11px, .9vw, 12px); --fs-micro: clamp(11.5px, 1vw, 13px); --fs-xs: clamp(12px, 1.1vw, 14px);
   --fs-sm: clamp(13px, 1.25vw, 15px); --fs-lg: clamp(17px, 1.8vw, 20px);
@@ -517,7 +568,7 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 /* --------------------------------------------------------- launch scene -- */
 /* Covers the shell rather than replacing it, so the arena stays mounted and
    the layout never jumps when the scene closes. */
-.launch-scene { position: fixed; inset: 0; z-index: 40; overflow-y: auto; overscroll-behavior: contain;
+.launch-scene { position: fixed; inset: 0; z-index: var(--z-screen); overflow-y: auto; overscroll-behavior: contain;
   padding: max(12px, var(--safe-top)) max(12px, var(--safe-right)) max(12px, var(--safe-bottom)) max(12px, var(--safe-left));
   background: radial-gradient(circle at 50% 12%, rgba(88, 40, 140, .3), rgba(1, 4, 8, .97) 62%), #01040a; }
 
@@ -599,7 +650,7 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 .touch-capable .ship-select { min-height: auto; }
 .touch-capable .ship-carousel { overflow: visible; }
 .touch-capable .carousel-actions {
-  position: fixed; z-index: 65;
+  position: fixed; z-index: calc(var(--z-screen) + 1);
   left: max(7px, var(--safe-left)); right: max(7px, var(--safe-right)); bottom: max(7px, var(--safe-bottom));
   display: flex; justify-content: flex-end; gap: 7px; padding: 6px;
   border: 1px solid var(--line-strong); border-radius: 4px;
@@ -630,7 +681,7 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
   .carousel-special { grid-template-columns: minmax(0, 1fr); }
   .carousel-special > span { grid-row: auto; }
   .carousel-playstyle { white-space: normal; }
-  .carousel-actions { position: fixed; z-index: 65; left: max(7px, var(--safe-left)); right: max(7px, var(--safe-right));
+  .carousel-actions { position: fixed; z-index: calc(var(--z-screen) + 1); left: max(7px, var(--safe-left)); right: max(7px, var(--safe-right));
     bottom: max(7px, var(--safe-bottom)); display: flex; justify-content: flex-end; gap: 7px; padding: 6px;
     border: 1px solid var(--line-strong); border-radius: 4px; background: rgba(3, 9, 15, .97);
     box-shadow: 0 -10px 30px rgba(0, 0, 0, .55); }
@@ -717,7 +768,7 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 /* ---------------------------------------------------------------- codex -- */
 .codex-trigger { width: 100%; min-height: var(--touch-target); margin-top: 15px; color: #061119; border: 1px solid var(--cyan); border-radius: 3px; background: rgba(100, 234, 255, .88); cursor: pointer; font: 800 var(--fs-micro)/1 var(--mono); letter-spacing: .08em; }
 .codex-trigger:hover { background: var(--cyan); }
-.codex-backdrop { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); background: rgba(1, 4, 8, .82); }
+.codex-backdrop { position: fixed; inset: 0; z-index: var(--z-overlay); display: grid; place-items: center; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); background: rgba(1, 4, 8, .82); }
 .codex { width: min(920px, 100%); max-height: 92dvh; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 4px; background: linear-gradient(180deg, rgba(8, 20, 30, .99), rgba(3, 9, 15, .99)); box-shadow: 0 28px 70px rgba(0, 0, 0, .7); }
 .codex-head { position: relative; padding: 16px 58px 14px 18px; border-bottom: 1px solid var(--line); }
 .codex-head h2 { margin: 0; font-size: var(--fs-lg); letter-spacing: .06em; }
@@ -788,7 +839,6 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 .aim-stick .stick-knob { border-color: rgba(211, 255, 167, .68); background: radial-gradient(circle at 38% 32%, #41622b, #213819 52%, #0b1908 70%); box-shadow: inset 0 1px 3px rgba(255, 255, 255, .16), inset 0 -7px 14px rgba(0, 0, 0, .3), 0 5px 10px rgba(0, 0, 0, .45), 0 0 0 3px rgba(168, 255, 82, .09); }
 .aim-stick.active .stick-knob { border-color: var(--lime); box-shadow: inset 0 1px 3px rgba(255, 255, 255, .2), inset 0 -7px 14px rgba(0, 0, 0, .3), 0 5px 12px rgba(0, 0, 0, .5), 0 0 0 4px rgba(168, 255, 82, .13), 0 0 18px rgba(168, 255, 82, .24); }
 
-footer { display: flex; justify-content: space-between; gap: 18px; padding: 8px clamp(14px, 2vw, 28px) 14px; color: var(--muted); font: 700 var(--fs-nano)/1.3 var(--mono); letter-spacing: .09em; }
 
 @keyframes threat-pulse { to { box-shadow: inset 0 0 18px rgba(255, 90, 114, .08), 0 0 12px rgba(255, 90, 114, .05); } }
 
@@ -830,10 +880,9 @@ footer { display: flex; justify-content: space-between; gap: 18px; padding: 8px 
   .bin-label small { margin-top: 0; }
   .start-button { justify-self: end; min-width: 150px; }
   .touch-controls { display: flex; }
-  .weapon-card-layer { position: fixed; z-index: 40; inset: auto; left: 50%; top: 50%; width: min(380px, calc(100vw - 20px)); max-height: 80dvh; overflow: auto; transform: translate(-50%, -50%); }
+  .weapon-card-layer { position: fixed; z-index: var(--z-hud-float); inset: auto; left: 50%; top: 50%; width: min(380px, calc(100vw - 20px)); max-height: 80dvh; overflow: auto; transform: translate(-50%, -50%); }
   .codex-body { grid-template-columns: minmax(0, 1fr); }
   .codex-list { max-height: 34dvh; }
-  footer { display: none; }
 }
 
 @media (max-width: 900px) {
@@ -904,7 +953,6 @@ footer { display: flex; justify-content: space-between; gap: 18px; padding: 8px 
 [data-immersive="true"] .coach-strip,
 [data-immersive="true"] .pilot-health,
 [data-immersive="true"] .vitals,
-[data-immersive="true"] footer { display: none; }
 [data-immersive="true"] .play-column { position: relative; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 6px 6px max(6px, env(safe-area-inset-bottom)); }
 [data-immersive="true"] .arena-stage { flex: 0 0 auto; width: var(--arena-size); margin: 0; }
 [data-immersive="true"] .match-bar { flex: 0 0 auto; width: var(--arena-size); min-height: 0; height: 40px; margin: 0; padding: 4px 10px; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
@@ -919,7 +967,7 @@ footer { display: flex; justify-content: space-between; gap: 18px; padding: 8px 
 [data-immersive="true"] .bin-label, [data-immersive="true"] .start-button { display: none; }
 [data-immersive="true"] .power-bin { grid-template-columns: minmax(0, 1fr); }
 [data-immersive="true"] .slot.empty, [data-immersive="true"] .slot > button { min-height: 46px; }
-[data-immersive="true"] .weapon-card-layer { position: fixed; z-index: 40; inset: auto; left: 50%; top: 50%; width: min(380px, calc(100vw - 20px)); max-height: 78dvh; overflow: auto; transform: translate(-50%, -50%); }
+[data-immersive="true"] .weapon-card-layer { position: fixed; z-index: var(--z-hud-float); inset: auto; left: 50%; top: 50%; width: min(380px, calc(100vw - 20px)); max-height: 78dvh; overflow: auto; transform: translate(-50%, -50%); }
 
 /* Thumbsticks. The overlay container is the arena, so gutter placement in
    landscape anchors outside it and portrait placement anchors inside it. */
@@ -1105,17 +1153,11 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
 }
 
 
-/* Hotfix: after the desktop briefing columns were removed, wide touch-capable
-   browsers could keep the old three-column measured arena budget and collapse
-   the playfield. Re-budget the single-column shell from the actual viewport. */
-@media (min-width: 900px) and (min-height: 600px) and (orientation: landscape) {
-  [data-immersive="true"] {
-    --arena-size: min(72dvh, 70vw, 760px) !important;
-  }
-
-  .app-shell:not([data-immersive="true"]) .arena-stage {
-    width: min(100%, 72dvh, 760px);
-  }
+/* The arena size comes from layout-budget.ts and nowhere else. A media query
+   with !important used to override the measurement here, which is precisely
+   the disagreement the single budget exists to prevent. */
+.app-shell:not([data-immersive="true"]) .arena-stage {
+  width: min(100%, var(--arena-size));
 }
 
 
@@ -1519,7 +1561,7 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
 }
 .touch-capable .setup-launch {
   position: fixed;
-  z-index: 65;
+  z-index: calc(var(--z-screen) + 1);
   right: max(7px, var(--safe-right));
   bottom: max(7px, var(--safe-bottom));
   left: max(7px, var(--safe-left));
@@ -1548,7 +1590,7 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
   border: 1px solid currentColor;
   border-radius: 999px;
   background: rgba(255,255,255,.5);
-  font: 900 10px/1 var(--mono);
+  font: 900 var(--fs-nano)/1 var(--mono);
   letter-spacing: .06em;
 }
 .mission-setup .segmented-options button:not([aria-checked="true"]) .choice-selected {
@@ -1568,7 +1610,8 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
   border: 1px solid var(--lime);
   border-radius: 999px;
   background: var(--lime);
-  font: 900 10px/1 var(--mono);
+  /* Never below the readability floor; --fs-nano is the floor, not 10px. */
+  font: 900 var(--fs-nano)/1 var(--mono);
 }
 
 
@@ -1683,4 +1726,586 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
 }
 .death-info.victory span {
   color: var(--lime);
+}
+
+/* ==========================================================================
+   GLOBAL SYSTEM LAYER
+   ==========================================================================
+   Menu and Fullscreen. One instance, above everything, inset from every
+   hardware intrusion. Screens do not render their own copies and cannot cover
+   this — that is enforced here by --z-system sitting at the top of the scale
+   rather than by each screen remembering to behave.
+   ========================================================================== */
+
+.system-controls {
+  position: fixed;
+  z-index: var(--z-system);
+  top: max(var(--space-2), var(--safe-top));
+  right: max(var(--space-2), var(--safe-right));
+  display: flex;
+  gap: var(--space-2);
+  /* The bar itself must never eat taps meant for the game underneath it. */
+  pointer-events: none;
+}
+
+.system-controls > * { pointer-events: auto; }
+
+.system-button {
+  min-height: var(--touch-target);
+  min-width: var(--touch-target);
+  padding: 0 var(--space-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  color: var(--ink);
+  background: var(--panel-bg);
+  border: var(--border-2);
+  border-radius: var(--radius-2);
+  box-shadow: var(--glow-soft);
+  cursor: pointer;
+  font: 800 var(--fs-micro)/1 var(--mono);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition: opacity var(--motion-base) ease, border-color var(--motion-fast) ease,
+    background-color var(--motion-fast) ease;
+}
+
+.system-glyph { font-size: 1.15em; line-height: 1; }
+
+.system-button:hover,
+.system-button:focus-visible { border-color: var(--focus); background: rgba(14, 34, 48, .98); }
+
+/* Unobtrusive during play, never hidden, and back to full strength the moment
+   a pointer or the keyboard reaches it. */
+.system-controls[data-dimmed="true"] .system-button { opacity: .55; }
+.system-controls[data-dimmed="true"] .system-button:hover,
+.system-controls[data-dimmed="true"] .system-button:focus-visible { opacity: 1; }
+
+/* Narrow viewports keep the icons and drop the words. The target keeps its
+   full 44px either way — the label goes, the tap area does not. */
+@container style(--system-compact: 1) { .system-text { display: none; } }
+
+@media (max-width: 560px) {
+  .system-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .system-button { padding: 0; }
+}
+
+/* ==========================================================================
+   MENU SYSTEM
+   ==========================================================================
+   One screen container for every menu surface. The rows are
+   `auto / minmax(0,1fr) / auto`: header and footer are sized by their content
+   and the middle takes what is left — down to nothing — and scrolls. That is
+   what stops a landscape phone pushing the primary action off the bottom, and
+   every screen gets it without opting in.
+   ========================================================================== */
+
+.menu-screen {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-screen);
+  display: grid;
+  place-items: center;
+  padding:
+    max(var(--space-3), var(--safe-top))
+    max(var(--space-3), var(--safe-right))
+    max(var(--space-3), var(--safe-bottom))
+    max(var(--space-3), var(--safe-left));
+  /* Leave the system controls a clear lane at the top right on every screen. */
+  padding-top: calc(max(var(--space-3), var(--safe-top)) + var(--touch-target) + var(--space-2));
+  background: var(--scrim);
+  overscroll-behavior: contain;
+  /*
+   * One explicit row, so `max-height: 100%` on the panel has something
+   * definite to resolve against. With an auto row the percentage resolves
+   * against the row's own content height, which is circular — the panel then
+   * grows past the viewport and takes its footer with it.
+   */
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.menu-panel {
+  container-type: inline-size;
+  container-name: menu;
+  width: min(720px, 100%);
+  max-height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  border: var(--border-2);
+  border-radius: var(--radius-3);
+  background: var(--panel-bg);
+  box-shadow: var(--glow-soft);
+  outline: none;
+}
+
+.menu-screen[data-wide="true"] .menu-panel { width: min(1100px, 100%); }
+
+.menu-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--border-1);
+}
+
+.menu-heading { min-width: 0; }
+.menu-eyebrow {
+  margin: 0 0 2px;
+  color: var(--cyan);
+  font: 700 var(--fs-nano)/1.2 var(--mono);
+  letter-spacing: .18em;
+  text-transform: uppercase;
+}
+.menu-header h2 {
+  margin: 0;
+  color: var(--ink);
+  font: 800 var(--fs-xl)/1.05 var(--mono);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.menu-back {
+  flex: 0 0 auto;
+  min-height: var(--touch-target);
+  padding: 0 var(--space-3);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--cyan);
+  background: transparent;
+  border: var(--border-1);
+  border-radius: var(--radius-2);
+  cursor: pointer;
+  font: 700 var(--fs-micro)/1 var(--mono);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.menu-back:hover, .menu-back:focus-visible { border-color: var(--focus); color: var(--ink); }
+
+/* The only scrolling region. The page itself never scrolls. */
+.menu-content {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  padding: var(--space-4);
+  display: grid;
+  gap: var(--space-4);
+  align-content: start;
+}
+
+.menu-footer {
+  padding: var(--space-3) var(--space-4) max(var(--space-3), var(--safe-bottom));
+  border-top: var(--border-1);
+}
+
+.menu-section { display: grid; gap: var(--space-3); }
+.menu-section h3 {
+  margin: 0;
+  color: var(--cyan);
+  font: 800 var(--fs-sm)/1.2 var(--mono);
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+.menu-section-hint { margin: 0; color: var(--muted); font: 500 var(--fs-xs)/1.45 var(--mono); }
+
+/* -------------------------------------------------------- primary action -- */
+
+.play-button {
+  width: 100%;
+  min-height: var(--control-h-lg);
+  padding: 0 var(--space-4);
+  color: #04120a;
+  background: linear-gradient(180deg, var(--lime), #7fd93a);
+  border: 0;
+  border-radius: var(--radius-2);
+  cursor: pointer;
+  font: 900 var(--fs-lg)/1 var(--mono);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  box-shadow: 0 0 24px rgba(168, 255, 82, .28);
+  transition: filter var(--motion-fast) ease, transform var(--motion-fast) ease;
+}
+.play-button:hover, .play-button:focus-visible { filter: brightness(1.08); }
+.play-button:active { transform: translateY(1px); }
+
+.danger-button {
+  width: 100%;
+  min-height: var(--control-h);
+  color: var(--red);
+  background: rgba(40, 8, 14, .7);
+  border: 1px solid rgba(255, 90, 114, .5);
+  border-radius: var(--radius-2);
+  cursor: pointer;
+  font: 800 var(--fs-sm)/1 var(--mono);
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.danger-button:hover, .danger-button:focus-visible { background: rgba(60, 12, 20, .85); color: #ffd9df; }
+
+.menu-link-button {
+  justify-self: start;
+  min-height: var(--touch-target);
+  padding: 0 var(--space-3);
+  color: var(--cyan);
+  background: transparent;
+  border: var(--border-1);
+  border-radius: var(--radius-2);
+  cursor: pointer;
+  font: 700 var(--fs-xs)/1 var(--mono);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.menu-link-button:hover, .menu-link-button:focus-visible { border-color: var(--focus); color: var(--ink); }
+
+/* ------------------------------------------------------------------ home -- */
+
+.home-layout { display: grid; gap: var(--space-4); }
+
+.play-panel {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: var(--border-2);
+  border-radius: var(--radius-2);
+  background: rgba(6, 18, 27, .8);
+  box-shadow: var(--glow-active);
+}
+
+.play-summary { display: grid; gap: var(--space-2); }
+
+.summary-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-1);
+  border-radius: var(--radius-1);
+  background: rgba(3, 11, 18, .6);
+}
+.summary-text { min-width: 0; display: grid; gap: 1px; flex: 1 1 auto; }
+.summary-text span {
+  color: var(--muted);
+  font: 700 var(--fs-nano)/1.2 var(--mono);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+.summary-text b { color: var(--ink); font: 800 var(--fs-md)/1.2 var(--mono); }
+.summary-text small { color: var(--muted-2); font: 500 var(--fs-nano)/1.35 var(--mono); }
+
+.summary-action {
+  flex: 0 0 auto;
+  min-height: var(--touch-target);
+  min-width: var(--touch-target);
+  padding: 0 var(--space-3);
+  color: var(--cyan);
+  background: transparent;
+  border: var(--border-1);
+  border-radius: var(--radius-1);
+  cursor: pointer;
+  font: 700 var(--fs-nano)/1 var(--mono);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.summary-action:hover, .summary-action:focus-visible { border-color: var(--focus); color: var(--ink); }
+
+/* Reflow is automatic: as many columns as fit at 200px, no breakpoints. */
+.menu-nav {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-2);
+}
+.menu-nav button {
+  min-height: var(--control-h);
+  padding: var(--space-2) var(--space-3);
+  display: grid;
+  gap: 2px;
+  align-content: center;
+  text-align: left;
+  color: var(--ink);
+  background: rgba(6, 16, 25, .7);
+  border: var(--border-1);
+  border-radius: var(--radius-2);
+  cursor: pointer;
+}
+.menu-nav button:hover, .menu-nav button:focus-visible {
+  border-color: var(--focus);
+  background: rgba(12, 30, 43, .9);
+}
+.menu-nav b { font: 800 var(--fs-sm)/1.2 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+.menu-nav small { color: var(--muted); font: 500 var(--fs-nano)/1.3 var(--mono); }
+
+/*
+ * The one genuine structural shift, and it is a container query rather than a
+ * media query: the Play panel and the nav sit side by side when the *panel*
+ * is wide enough, regardless of what the viewport is doing. The same component
+ * therefore behaves correctly on an ultrawide and inside a narrow drawer.
+ */
+@container menu (min-width: 720px) {
+  .home-layout { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); align-items: start; }
+  .menu-nav { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ----------------------------------------------------------- option rows -- */
+
+.option-row { display: grid; gap: var(--space-2); }
+.option-label {
+  color: var(--muted);
+  font: 700 var(--fs-nano)/1.2 var(--mono);
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+.option-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-2);
+}
+.option-row[data-columns="stack"] .option-choices { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+
+.option-choices button {
+  min-height: var(--control-h);
+  padding: var(--space-2) var(--space-3);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas: "check label" "check hint";
+  gap: 0 var(--space-2);
+  align-content: center;
+  text-align: left;
+  color: var(--ink);
+  background: rgba(4, 12, 19, .7);
+  border: var(--border-1);
+  border-radius: var(--radius-1);
+  cursor: pointer;
+}
+.option-check { grid-area: check; width: 1em; color: var(--lime); font: 900 var(--fs-sm)/1 var(--mono); }
+.option-choices button b { grid-area: label; font: 800 var(--fs-sm)/1.25 var(--mono); letter-spacing: .06em; }
+.option-choices button small { grid-area: hint; color: var(--muted); font: 500 var(--fs-nano)/1.3 var(--mono); }
+.option-choices button.active { border-color: var(--lime); background: rgba(20, 40, 16, .55); }
+.option-choices button:hover:not(:disabled),
+.option-choices button:focus-visible { border-color: var(--focus); }
+.option-choices button:disabled { opacity: .45; cursor: not-allowed; }
+
+/* --------------------------------------------------------------- toggles -- */
+
+.ui-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: var(--control-h);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-1);
+  border-radius: var(--radius-1);
+  background: rgba(4, 12, 19, .7);
+}
+.ui-toggle-label { display: grid; gap: 1px; color: var(--ink); font: 700 var(--fs-sm)/1.2 var(--mono); }
+.ui-toggle-label small { color: var(--muted); font: 500 var(--fs-nano)/1.3 var(--mono); }
+.ui-toggle button {
+  flex: 0 0 auto;
+  min-height: var(--touch-target);
+  min-width: 84px;
+  padding: 0 var(--space-3);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--muted);
+  background: rgba(2, 8, 13, .8);
+  border: var(--border-1);
+  border-radius: var(--radius-1);
+  cursor: pointer;
+  font: 800 var(--fs-nano)/1 var(--mono);
+  letter-spacing: .12em;
+}
+/* State is carried by the word ON/OFF and the dot position, not by hue alone. */
+.ui-toggle button i {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--muted-2);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .12);
+  transition: background-color var(--motion-fast) ease;
+}
+.ui-toggle button[aria-checked="true"] { color: var(--lime); border-color: rgba(168, 255, 82, .5); }
+.ui-toggle button[aria-checked="true"] i { background: var(--lime); box-shadow: 0 0 10px rgba(168, 255, 82, .7); }
+.ui-toggle button:disabled { opacity: .45; cursor: not-allowed; }
+
+/* ----------------------------------------------------------------- modes -- */
+
+.mode-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: var(--space-2); }
+.mode-card {
+  min-height: var(--control-h-lg);
+  padding: var(--space-3);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas: "check label" "check hint";
+  gap: 0 var(--space-2);
+  text-align: left;
+  color: var(--ink);
+  background: rgba(4, 12, 19, .7);
+  border: var(--border-1);
+  border-radius: var(--radius-2);
+  cursor: pointer;
+}
+.mode-card b { grid-area: label; font: 800 var(--fs-md)/1.2 var(--mono); letter-spacing: .06em; }
+.mode-card small { grid-area: hint; color: var(--muted); font: 500 var(--fs-xs)/1.4 var(--mono); }
+.mode-card.active { border-color: var(--lime); background: rgba(20, 40, 16, .5); }
+.mode-card:hover, .mode-card:focus-visible { border-color: var(--focus); }
+
+/* ----------------------------------------------------------------- ships -- */
+
+.ships-layout { display: grid; gap: var(--space-4); }
+.ship-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: var(--space-2); }
+.ship-card {
+  position: relative;
+  min-height: var(--control-h-lg);
+  padding: var(--space-2);
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  color: var(--ink);
+  background: rgba(4, 12, 19, .7);
+  border: var(--border-1);
+  border-radius: var(--radius-2);
+  cursor: pointer;
+  text-align: center;
+}
+.ship-card b { font: 800 var(--fs-xs)/1.2 var(--mono); letter-spacing: .06em; }
+.ship-card small { color: var(--muted); font: 500 var(--fs-nano)/1.25 var(--mono); }
+.ship-card.active { border-color: var(--cyan); background: rgba(8, 32, 44, .8); box-shadow: var(--glow-active); }
+.ship-card:hover, .ship-card:focus-visible { border-color: var(--focus); }
+.ship-card-check { position: absolute; top: 4px; right: 6px; color: var(--lime); font: 900 var(--fs-xs)/1 var(--mono); }
+.ship-card-art { display: grid; place-items: center; height: 44px; }
+
+.ship-detail {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: var(--border-1);
+  border-radius: var(--radius-2);
+  background: rgba(3, 11, 18, .7);
+}
+.ship-detail-art { display: grid; place-items: center; }
+.ship-detail h3 { margin: 0; font: 800 var(--fs-lg)/1.1 var(--mono); letter-spacing: .06em; }
+.ship-detail-role { margin: 0; color: var(--cyan); font: 700 var(--fs-xs)/1.3 var(--mono); text-transform: uppercase; letter-spacing: .12em; }
+
+.ship-stats { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--space-1); }
+.ship-stats li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px var(--space-2); align-items: baseline; }
+.ship-stats span { color: var(--muted); font: 600 var(--fs-nano)/1.3 var(--mono); }
+.ship-stats b { color: var(--ink); font: 800 var(--fs-xs)/1.3 var(--mono); }
+.ship-stats i { grid-column: 1 / -1; height: 4px; background: rgba(100, 234, 255, .12); border-radius: 2px; overflow: hidden; }
+.ship-stats em { display: block; height: 100%; background: var(--cyan); }
+
+.ship-special { display: grid; gap: 2px; padding: var(--space-3); border: 1px solid rgba(255, 89, 199, .35); border-radius: var(--radius-1); background: rgba(30, 8, 24, .5); }
+.ship-special span { color: var(--pink); font: 700 var(--fs-nano)/1.2 var(--mono); letter-spacing: .14em; text-transform: uppercase; }
+.ship-special b { font: 800 var(--fs-sm)/1.2 var(--mono); letter-spacing: .06em; }
+.ship-special p { margin: 0; color: var(--muted); font: 500 var(--fs-xs)/1.45 var(--mono); }
+
+@container menu (min-width: 720px) {
+  .ships-layout { grid-template-columns: minmax(0, 1fr) minmax(280px, .8fr); align-items: start; }
+}
+
+/* ------------------------------------------------------------------ info -- */
+
+.how-to { margin: 0; padding: 0; list-style: none; counter-reset: step; display: grid; gap: var(--space-2); }
+.how-to li {
+  counter-increment: step;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px var(--space-3);
+  grid-template-areas: "num label" "num text";
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-1);
+  border-radius: var(--radius-1);
+  background: rgba(4, 12, 19, .6);
+}
+.how-to li::before {
+  grid-area: num;
+  content: "0" counter(step);
+  align-self: center;
+  color: var(--cyan);
+  font: 900 var(--fs-lg)/1 var(--mono);
+}
+.how-to b { grid-area: label; font: 800 var(--fs-sm)/1.2 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+.how-to span { grid-area: text; color: var(--muted); font: 500 var(--fs-xs)/1.45 var(--mono); }
+
+.control-list { margin: 0; display: grid; gap: var(--space-1); }
+.control-list > div {
+  display: grid;
+  grid-template-columns: minmax(120px, .8fr) minmax(0, 1.4fr);
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--border-1);
+}
+.control-list dt { color: var(--ink); font: 700 var(--fs-xs)/1.35 var(--mono); }
+.control-list dd { margin: 0; color: var(--muted); font: 500 var(--fs-xs)/1.35 var(--mono); }
+
+/* ----------------------------------------------------------------- pause -- */
+
+.pause-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--space-2); }
+.pause-actions button {
+  min-height: var(--control-h);
+  padding: 0 var(--space-3);
+  color: var(--ink);
+  background: rgba(6, 16, 25, .8);
+  border: var(--border-1);
+  border-radius: var(--radius-2);
+  cursor: pointer;
+  font: 800 var(--fs-sm)/1 var(--mono);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.pause-actions button:hover, .pause-actions button:focus-visible { border-color: var(--focus); background: rgba(12, 30, 43, .95); }
+
+/* -------------------------------------------------------------- initials -- */
+
+.initials-field { display: grid; gap: var(--space-2); justify-items: start; }
+.initials-field label { color: var(--muted); font: 700 var(--fs-nano)/1.2 var(--mono); letter-spacing: .16em; text-transform: uppercase; }
+.initials-field input {
+  width: 6ch;
+  min-height: var(--control-h);
+  padding: 0 var(--space-2);
+  color: var(--ink);
+  background: rgba(2, 8, 13, .9);
+  border: var(--border-2);
+  border-radius: var(--radius-1);
+  font: 900 var(--fs-lg)/1 var(--mono);
+  letter-spacing: .3em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+/* --------------------------------------------------------- short screens -- */
+
+/*
+ * The only viewport-level media query the menu needs, and it is about shape,
+ * not hardware: when there is very little height, decorative space goes first
+ * and the content region keeps scrolling. Nothing is hidden and no target
+ * shrinks.
+ */
+@media (max-height: 480px) {
+  .menu-screen { padding-top: calc(max(var(--space-1), var(--safe-top)) + var(--touch-target)); }
+  .menu-content { padding: var(--space-2) var(--space-3); gap: var(--space-2); }
+  .menu-header { padding: var(--space-2) var(--space-3); }
+  .menu-header h2 { font-size: var(--fs-lg); }
+  .menu-eyebrow { display: none; }
+  .home-layout, .ships-layout { gap: var(--space-2); }
+  .ship-detail-art { display: none; }
+}
+
+/* Foldables: keep the panel inside one segment rather than straddling the
+   hinge, using the segment width the device reports. */
+@media (horizontal-viewport-segments: 2) {
+  .menu-panel { width: min(env(viewport-segment-width 0 0), 100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .system-button, .play-button, .menu-nav button { transition: none; }
+}
+
+@media (forced-colors: active) {
+  .system-button, .menu-panel, .play-button, .option-choices button, .mode-card, .ship-card {
+    border: 1px solid CanvasText;
+  }
+  .option-choices button.active, .mode-card.active, .ship-card.active { outline: 2px solid Highlight; }
 }

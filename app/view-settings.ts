@@ -1,11 +1,24 @@
 export type ViewMode = "touch" | "pc" | "hybrid";
 export type TouchControlSize = "small" | "medium" | "large";
+/** How loud the effects bus plays. Music is not implemented, so it is absent. */
+export type SoundLevel = "low" | "medium" | "high";
 
 export type DeviceSettings = {
   version: 1;
+  /**
+   * The player's explicit override, or null for "work it out".
+   *
+   * Null used to mean "block the whole game behind a Choose Your View screen
+   * before anything renders". It now means the game infers the view from the
+   * device's actual pointer capabilities, which is a thing the browser can
+   * answer accurately and the player should never have to. The override stays
+   * available in Settings for the cases inference gets wrong — a tablet with a
+   * keyboard case, a touchscreen laptop.
+   */
   viewMode: ViewMode | null;
   cameraLock: boolean;
   sound: boolean;
+  soundLevel: SoundLevel;
   thumbsticks: boolean;
   touchControlSize: TouchControlSize;
   /** Three-character arcade identity remembered on this device. */
@@ -20,6 +33,7 @@ export const DEFAULT_SETTINGS: DeviceSettings = {
   viewMode: null,
   cameraLock: true,
   sound: true,
+  soundLevel: "medium",
   thumbsticks: true,
   touchControlSize: "medium",
   playerInitials: "",
@@ -33,6 +47,7 @@ export const VIEW_PROFILES = {
 
 const isViewMode = (value: unknown): value is ViewMode => value === "touch" || value === "pc" || value === "hybrid";
 const isSize = (value: unknown): value is TouchControlSize => value === "small" || value === "medium" || value === "large";
+const isLevel = (value: unknown): value is SoundLevel => value === "low" || value === "medium" || value === "high";
 const normalizePlayerInitials = (value: unknown) => {
   if (typeof value !== "string") return "";
   const normalized = value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 3);
@@ -47,6 +62,7 @@ export function migrateSettings(value: unknown): DeviceSettings {
     viewMode: isViewMode(candidate.viewMode) ? candidate.viewMode : null,
     cameraLock: typeof candidate.cameraLock === "boolean" ? candidate.cameraLock : true,
     sound: typeof candidate.sound === "boolean" ? candidate.sound : true,
+    soundLevel: isLevel(candidate.soundLevel) ? candidate.soundLevel : "medium",
     thumbsticks: typeof candidate.thumbsticks === "boolean" ? candidate.thumbsticks : true,
     touchControlSize: isSize(candidate.touchControlSize) ? candidate.touchControlSize : "medium",
     playerInitials: normalizePlayerInitials(candidate.playerInitials),
@@ -72,4 +88,87 @@ export const settingsStore = {
     try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(cached)); } catch { /* storage may be unavailable */ }
     listeners.forEach((listener) => listener());
   },
+};
+
+/** Relative gain applied to every effect, so the level means something real. */
+export const SOUND_GAIN: Record<SoundLevel, number> = {
+  low: 0.45,
+  medium: 1,
+  high: 1.6,
+};
+
+/**
+ * What the device can actually do, as reported by the browser.
+ *
+ * Deliberately capability-based rather than device-based: no user-agent
+ * sniffing, no model lists. A device either has a coarse pointer or it does
+ * not, and that is the only question that changes how the game should be
+ * driven.
+ */
+export type InputCapability = { touch: boolean; mouse: boolean };
+
+export function readInputCapability(): InputCapability {
+  if (typeof window === "undefined") return { touch: false, mouse: true };
+  const query = (value: string) => {
+    try {
+      return window.matchMedia(value).matches;
+    } catch {
+      return false;
+    }
+  };
+  const touch =
+    navigator.maxTouchPoints > 0 || query("(pointer: coarse)") || query("(any-pointer: coarse)");
+  // `any-pointer: fine` catches a tablet with a trackpad case, which wants the
+  // hybrid treatment rather than the touch one.
+  const mouse = query("(pointer: fine)") || query("(any-pointer: fine)");
+  return { touch, mouse: mouse || !touch };
+}
+
+/** Both kinds of pointer means both kinds of control stay live. */
+export function inferViewMode(capability: InputCapability): ViewMode {
+  if (capability.touch && capability.mouse) return "hybrid";
+  return capability.touch ? "touch" : "pc";
+}
+
+/**
+ * The view actually in force: the player's override when they set one, and
+ * the inferred answer otherwise. Nothing blocks on this — there is always an
+ * answer, so the game can render on the first frame.
+ */
+export function resolveViewMode(stored: ViewMode | null, capability: InputCapability): ViewMode {
+  return stored ?? inferViewMode(capability);
+}
+
+/**
+ * Input capability as a subscribable store.
+ *
+ * Reading this in an effect and calling setState would be a cascading render,
+ * and would also miss the interesting case: pointer capability is not fixed
+ * for the life of a page. Plugging a mouse into a tablet, or detaching a
+ * keyboard case, flips it. Subscribing means the layout follows.
+ *
+ * The snapshot is cached so repeated reads are referentially stable, which is
+ * what `useSyncExternalStore` requires.
+ */
+const CAPABILITY_QUERIES = ["(pointer: coarse)", "(any-pointer: coarse)", "(pointer: fine)", "(any-pointer: fine)"];
+const SERVER_CAPABILITY: InputCapability = { touch: false, mouse: true };
+
+let capabilityCache: InputCapability | null = null;
+
+export const capabilityStore = {
+  subscribe(listener: () => void) {
+    if (typeof window === "undefined") return () => {};
+    const invalidate = () => {
+      capabilityCache = null;
+      listener();
+    };
+    const lists = CAPABILITY_QUERIES.map((query) => window.matchMedia(query));
+    lists.forEach((list) => list.addEventListener?.("change", invalidate));
+    return () => lists.forEach((list) => list.removeEventListener?.("change", invalidate));
+  },
+  getSnapshot(): InputCapability {
+    if (!capabilityCache) capabilityCache = readInputCapability();
+    return capabilityCache;
+  },
+  getServerSnapshot: (): InputCapability => SERVER_CAPABILITY,
 };

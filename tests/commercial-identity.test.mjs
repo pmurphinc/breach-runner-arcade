@@ -56,7 +56,12 @@ test("player-facing game copy no longer exposes legacy branding or old ability l
     assert.doesNotMatch(game, new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
   }
   assert.match(game, /BREACH <em>RUNNER<\/em>/);
-  assert.match(game, /PROJECT RIFT \/\/ ORIGINAL BUILD/);
+  // The original-build provenance claim is a commercial-IP record, not player
+  // copy. It used to sit in the Mission Intel panel; it belongs in the
+  // provenance document, which is where a reviewer would actually look.
+  assert.match(provenance, /rendered procedurally by application code/i);
+  assert.match(provenance, /player-facing fleet and weapon identity/i);
+  assert.doesNotMatch(game, /PROJECT RIFT \/\/ ORIGINAL BUILD/);
 });
 
 test("public metadata and README do not market the project as a recreation", () => {
