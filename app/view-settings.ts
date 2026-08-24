@@ -8,6 +8,8 @@ export type DeviceSettings = {
   sound: boolean;
   thumbsticks: boolean;
   touchControlSize: TouchControlSize;
+  /** Three-character arcade identity remembered on this device. */
+  playerInitials: string;
 };
 
 export const SETTINGS_KEY = "wormhole-arcade:settings:v1";
@@ -20,6 +22,7 @@ export const DEFAULT_SETTINGS: DeviceSettings = {
   sound: true,
   thumbsticks: true,
   touchControlSize: "medium",
+  playerInitials: "",
 };
 
 export const VIEW_PROFILES = {
@@ -30,6 +33,11 @@ export const VIEW_PROFILES = {
 
 const isViewMode = (value: unknown): value is ViewMode => value === "touch" || value === "pc" || value === "hybrid";
 const isSize = (value: unknown): value is TouchControlSize => value === "small" || value === "medium" || value === "large";
+const normalizePlayerInitials = (value: unknown) => {
+  if (typeof value !== "string") return "";
+  const normalized = value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 3);
+  return normalized.length === 3 ? normalized : "";
+};
 
 export function migrateSettings(value: unknown): DeviceSettings {
   if (!value || typeof value !== "object") return DEFAULT_SETTINGS;
@@ -41,6 +49,7 @@ export function migrateSettings(value: unknown): DeviceSettings {
     sound: typeof candidate.sound === "boolean" ? candidate.sound : true,
     thumbsticks: typeof candidate.thumbsticks === "boolean" ? candidate.thumbsticks : true,
     touchControlSize: isSize(candidate.touchControlSize) ? candidate.touchControlSize : "medium",
+    playerInitials: normalizePlayerInitials(candidate.playerInitials),
   };
 }
 
