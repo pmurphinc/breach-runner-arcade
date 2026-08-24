@@ -35,6 +35,11 @@ export type RunResult = {
   ship: string;
   rivalHealth: number;
   durationSeconds: number;
+  /** Human-readable target and authoritative final event retained across Discord sign-in. */
+  finalTarget?: string;
+  finalCause?: string;
+  finalDamage?: number;
+  finalReason?: string;
 };
 
 export type LocalBest = {
@@ -302,6 +307,13 @@ export function takePendingRun(): RunResult | null {
       rivalHealth: typeof record.rivalHealth === "number" ? record.rivalHealth : 0,
       durationSeconds:
         typeof record.durationSeconds === "number" ? record.durationSeconds : 0,
+      finalTarget: typeof record.finalTarget === "string" ? record.finalTarget.slice(0, 80) : undefined,
+      finalCause: typeof record.finalCause === "string" ? record.finalCause.slice(0, 40) : undefined,
+      finalDamage:
+        typeof record.finalDamage === "number" && Number.isFinite(record.finalDamage)
+          ? Math.max(0, Math.floor(record.finalDamage))
+          : undefined,
+      finalReason: typeof record.finalReason === "string" ? record.finalReason.slice(0, 40) : undefined,
     };
   } catch {
     return null;
