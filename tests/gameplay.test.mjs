@@ -51,15 +51,15 @@ async function openGame(browser, difficulty) {
   );
   await page.goto(URL_UNDER_TEST, { waitUntil: "networkidle" });
 
-  // The launch flow runs through the ship-selection scene: confirm a ship,
-  // choose the difficulty in Mission Setup, then launch.
-  await page.waitForSelector(".detail-select", { timeout: 15_000 });
-  await page.locator(".detail-select").click();
-  await page.waitForTimeout(800);
-  await page.locator(".mission-setup [role=radio]", { hasText: difficulty }).first().click();
+  // The launch flow runs through the main menu: open Game Modes from the
+  // Play panel's difficulty summary, choose the difficulty, then launch.
+  await page.waitForSelector(".menu-screen[data-route='home']", { timeout: 15_000 });
+  await page.locator(".summary-action").first().click();
+  await page.waitForTimeout(400);
+  await page.locator(".option-choices [role=radio]", { hasText: difficulty }).first().click();
   await page.waitForTimeout(250);
-  await page.locator(".setup-launch").click();
-  await page.waitForTimeout(500);
+  await page.locator(".menu-footer .play-button").click();
+  await page.waitForTimeout(700);
   return { context, page };
 }
 
@@ -165,7 +165,7 @@ test("DIFFICULT: the same wall contact reaches hull, with no shield", { skip }, 
   const browser = await chromium.launch({ executablePath: CHROME });
   try {
     const { context, page } = await openGame(browser, "DIFFICULT");
-    assert.match(await badgeOf(page), /SHIELD DISABLED/, "difficult grants no shield");
+    assert.match(await badgeOf(page), /NO COLLISION SHIELD/, "difficult grants no shield");
 
     const startingHull = await hullOf(page);
     await hold(page);
@@ -205,10 +205,10 @@ test("HARD: the contact hazard is armed and the wormhole moves", { skip }, async
   try {
     const { context, page } = await openGame(browser, "HARD MODE");
     const badge = await badgeOf(page);
-    assert.match(badge, /HARD MODE/);
-    assert.match(badge, /WORMHOLE MOVING/);
-    assert.match(badge, /CONTACT ARMED/);
-    assert.match(badge, /SHIELD DISABLED/);
+    assert.match(badge, /HARD/);
+    assert.match(badge, /RIFT MOVING/);
+    assert.match(badge, /CONTACT HAZARD/);
+    assert.match(badge, /NO COLLISION SHIELD/);
     await context.close();
   } finally {
     await browser.close();
