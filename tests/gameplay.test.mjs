@@ -265,7 +265,9 @@ test("WASD and the arrows move the ship in world space", { skip }, async () => {
     await page.waitForTimeout(300);
 
     const drive = async (codes, ms = 1100) => {
-      await page.locator(".start-button").click();
+      // .start-button has no component rendering it; the shell's restart
+      // control is .top-start.
+      await page.locator(".top-start").click();
       await page.waitForTimeout(500);
       const before = await shipAt(page);
       for (const code of codes) await page.keyboard.down(code);
