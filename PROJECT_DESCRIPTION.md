@@ -1,9 +1,10 @@
 # Project Description
 
-**Working title:** Project Rift  
-**Final commercial title:** Pending clearance
+**Development project:** Project Rift  
+**Commercial game title:** Breach Runner  
+**Tagline:** Weaponize the rift.
 
-Project Rift is a fast-paced twin-stick space combat game built around a volatile central rift that functions as both the objective and the source of escalating danger. Players pilot distinct ships with different handling, durability, starting equipment, and special abilities while shooting the rift to generate weapons and upgrades. Collected attack payloads can be fired back through the rift to damage the opposing force or pressure another player.
+Project Rift is the development effort behind **Breach Runner**, a fast-paced twin-stick space combat game built around a volatile central rift that functions as both the objective and the source of escalating danger. Players pilot distinct ships with different handling, durability, starting equipment, and special abilities while shooting the rift to generate weapons and upgrades. Collected attack payloads can be fired back through the rift to damage the opposing force or pressure another player.
 
 The game is designed to feel immediate and arcade-like: no account is required to start playing, completed runs can be recorded with classic three-character initials, and the core loop is easy to understand while leaving room for mastery through movement, positioning, ship selection, weapon management, and survival under increasingly chaotic arena conditions.
 
