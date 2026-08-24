@@ -15,6 +15,15 @@ export const VICTORY_TOTAL_SECONDS =
   + VICTORY_TIMING.collapseSeconds
   + VICTORY_TIMING.blastSeconds;
 
+/** The rising cue covers every inward-motion frame and stops before blast. */
+export const VICTORY_SUCTION_SECONDS =
+  VICTORY_TIMING.pullSeconds + VICTORY_TIMING.collapseSeconds;
+
+export const VICTORY_SUCTION_FREQUENCY = {
+  startHz: 72,
+  endHz: 980,
+} as const;
+
 export type VictoryPhase = "freeze" | "pull" | "collapse" | "blast";
 
 export type VictoryVisualState = {
@@ -23,6 +32,13 @@ export type VictoryVisualState = {
   phaseProgress: number;
   portalScale: number;
   shake: number;
+};
+
+export type VictorySuctionState = {
+  active: boolean;
+  progress: number;
+  remainingSeconds: number;
+  frequencyHz: number;
 };
 
 export function victoryVisualState(remainingTicks: number, tickMs: number): VictoryVisualState {
@@ -54,6 +70,28 @@ export function victoryVisualState(remainingTicks: number, tickMs: number): Vict
     phaseProgress,
     portalScale: 0.02,
     shake: Math.max(0, (1 - phaseProgress) * 14),
+  };
+}
+
+/**
+ * Maps the visual sequence onto one continuous low-to-high audio sweep.
+ * Freeze is silent, pull and collapse are audible, and blast is silent.
+ */
+export function victorySuctionState(remainingTicks: number, tickMs: number): VictorySuctionState {
+  const visual = victoryVisualState(remainingTicks, tickMs);
+  const progress = visual.phase === "pull"
+    ? visual.phaseProgress * VICTORY_TIMING.pullSeconds / VICTORY_SUCTION_SECONDS
+    : visual.phase === "collapse"
+      ? (VICTORY_TIMING.pullSeconds + visual.phaseProgress * VICTORY_TIMING.collapseSeconds) / VICTORY_SUCTION_SECONDS
+      : visual.phase === "blast" ? 1 : 0;
+  const clampedProgress = Math.max(0, Math.min(1, progress));
+
+  return {
+    active: visual.phase === "pull" || visual.phase === "collapse",
+    progress: clampedProgress,
+    remainingSeconds: Math.max(0, (1 - clampedProgress) * VICTORY_SUCTION_SECONDS),
+    frequencyHz: VICTORY_SUCTION_FREQUENCY.startHz
+      * (VICTORY_SUCTION_FREQUENCY.endHz / VICTORY_SUCTION_FREQUENCY.startHz) ** clampedProgress,
   };
 }
 
