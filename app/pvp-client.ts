@@ -90,6 +90,7 @@ export type PvpSnapshot = {
     eliminatedName: string | null;
     youEliminated: boolean;
     cause: string;
+    finalDamage: number;
   } | null;
   rematch: { you: boolean; opponent: boolean; status: "waiting" | "starting"; expiresAt: number } | null;
   /** Last inbound attack, for the warning banner. */
@@ -390,6 +391,9 @@ export class PvpClient {
             eliminatedName: typeof message.eliminatedName === "string" ? message.eliminatedName : null,
             youEliminated: Boolean(message.youEliminated),
             cause: String(message.cause ?? "unknown"),
+            finalDamage: typeof message.finalDamage === "number" && Number.isFinite(message.finalDamage)
+              ? Math.max(0, Math.round(message.finalDamage))
+              : 0,
           },
         });
         return;

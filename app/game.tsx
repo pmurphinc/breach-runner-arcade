@@ -126,6 +126,14 @@ const DEFEAT_CAUSE_LABELS: Record<string, string> = {
 };
 const defeatCauseLabel = (cause: string) =>
   DEFEAT_CAUSE_LABELS[cause] ?? cause.replaceAll("_", " ").toUpperCase();
+
+function finalEventLabel(run: RunResult) {
+  const target = run.finalTarget ?? (run.outcome === "victory" ? "RIVAL WORMHOLE" : "YOUR PILOT");
+  if (run.finalReason === "forfeit") return `${target} LEFT THE MATCH`;
+  const verb = target.includes("WORMHOLE") ? "DESTROYED" : "ELIMINATED";
+  const damage = Math.max(0, Math.round(run.finalDamage ?? 0));
+  return `${target} ${verb} BY ${defeatCauseLabel(run.finalCause ?? "unknown")}${damage > 0 ? ` FOR ${damage} DAMAGE` : ""}`;
+}
 /** More than two nameplates at once is noise, not information. */
 const MAX_NAMEPLATES = 2;
 const ARENA_PALETTES: Record<DifficultyId, readonly [string, string, string]> = {
@@ -221,6 +229,10 @@ type Game = {
   mode: GameMode;
   /** Most recent hull-damaging hazard, used by every defeat screen. */
   lastDamageCause: string;
+  lastDamageAmount: number;
+  /** Final attack delivered to the rival wormhole. */
+  lastRivalCause: string;
+  lastRivalDamage: number;
   player: Player;
   /** Easy-mode collision shield. Null whenever the rules do not grant one. */
   collisionShield: CollisionShieldState | null;
@@ -293,6 +305,9 @@ type Hud = {
   paused: boolean;
   result: Game["result"];
   deathCause: string;
+  deathDamage: number;
+  rivalFinalCause: string;
+  rivalFinalDamage: number;
   incoming: PowerId | null;
   notice: string;
   coach: string;
@@ -361,6 +376,9 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
     rules,
     mode,
     lastDamageCause: "unknown",
+    lastDamageAmount: 0,
+    lastRivalCause: "unknown",
+    lastRivalDamage: 0,
     collisionShield: createCollisionShield(rules),
     contact: createContactHazard(),
     contactWarning: 0,
@@ -440,6 +458,9 @@ function hudFrom(game: Game): Hud {
     paused: game.paused,
     result: game.result,
     deathCause: game.lastDamageCause,
+    deathDamage: game.lastDamageAmount,
+    rivalFinalCause: game.lastRivalCause,
+    rivalFinalDamage: game.lastRivalDamage,
     incoming: game.incoming,
     notice: game.noticeLife > 0 ? game.notice : "",
     coach: coachLine(game),
@@ -2030,6 +2051,24 @@ export default function WormholeGame() {
       rivalHealth: hud.rivalHealth,
       durationSeconds: settlement.durationSeconds,
       practice,
+      finalTarget: hud.result === "victory"
+        ? hud.mode === "pve" || hud.mode === "coop"
+          ? "RIVAL WORMHOLE"
+          : netResult?.eliminatedName ?? "OPPONENT"
+        : hud.mode === "pve"
+          ? "YOUR PILOT"
+          : netResult?.youEliminated
+            ? "YOUR PILOT"
+            : hud.mode === "coop"
+              ? `ALLY ${netResult?.eliminatedName ?? "PILOT"}`
+              : netResult?.eliminatedName ?? "OPPONENT",
+      finalCause: hud.mode === "pve"
+        ? hud.result === "victory" ? hud.rivalFinalCause : hud.deathCause
+        : netResult?.cause ?? "unknown",
+      finalDamage: hud.mode === "pve"
+        ? hud.result === "victory" ? hud.rivalFinalDamage : hud.deathDamage
+        : netResult?.finalDamage ?? 0,
+      finalReason: hud.mode === "pve" ? (hud.result === "victory" ? "rival" : "pilot_hull") : netResult?.reason,
     };
 
     setInitialsEntry("");
@@ -2050,7 +2089,7 @@ export default function WormholeGame() {
       setSummary({ run, best: local.best, isBest: local.isBest, runs: local.runs, restored: false, awaitingInitials: false, deathCause: hud.deathCause });
     }
     setSaveState({ status: "idle" });
-  }, [hud.deathCause, hud.difficulty, hud.elapsedSeconds, hud.mode, hud.result, hud.rivalHealth, hud.score]);
+  }, [hud.deathCause, hud.deathDamage, hud.difficulty, hud.elapsedSeconds, hud.mode, hud.result, hud.rivalFinalCause, hud.rivalFinalDamage, hud.rivalHealth, hud.score, netResult]);
 
   // Signed-in players always save automatically, including when a run finishes
   // before the initial Murph Tournaments session request returns.
@@ -2482,11 +2521,12 @@ export default function WormholeGame() {
      */
     const damagePlayer = (game: Game, amount: number, cause = "hostile_projectile") => {
       const player = game.player;
-      if (player.invuln > 0 || player.shield > 0) return;
+      if (game.result || player.invuln > 0 || player.shield > 0) return;
       player.invuln = 24;
       burst(game, player.x, player.y, "#ff5570", 18, 7);
       play("explosion", 0.24);
       game.lastDamageCause = cause;
+      game.lastDamageAmount = Math.min(player.health, amount);
       report(game, "impact", amount, cause);
       applyHullDamage(game, amount);
     };
@@ -2500,7 +2540,7 @@ export default function WormholeGame() {
      */
     const damageCollision = (game: Game, amount: number, cause = "enemy_collision") => {
       const player = game.player;
-      if (player.invuln > 0 || player.shield > 0) return;
+      if (game.result || player.invuln > 0 || player.shield > 0) return;
 
       const shield = game.collisionShield;
       if (!shield) {
@@ -2528,6 +2568,7 @@ export default function WormholeGame() {
 
       player.invuln = 24;
       game.lastDamageCause = cause;
+      game.lastDamageAmount = Math.min(player.health, hit.toHull);
       burst(game, player.x, player.y, "#ff5570", 18, 7);
       play("explosion", 0.24);
       applyHullDamage(game, hit.toHull);
@@ -2538,10 +2579,11 @@ export default function WormholeGame() {
      * never applies; collectible defensive power-ups still do.
      */
     const damageContact = (game: Game, amount: number) => {
-      if (game.player.shield > 0) return;
+      if (game.result || game.player.shield > 0) return;
       burst(game, game.player.x, game.player.y, "#ff5ac8", 10, 6);
       play("explosion", 0.18);
       game.lastDamageCause = "wormhole_contact";
+      game.lastDamageAmount = Math.min(game.player.health, amount);
       report(game, "impact", amount, "wormhole_contact");
       applyHullDamage(game, amount);
     };
@@ -3123,6 +3165,8 @@ export default function WormholeGame() {
             game.noticeLife = 115;
           } else {
             const damage = rivalDamageFor(power.type);
+            game.lastRivalCause = power.type;
+            game.lastRivalDamage = Math.min(game.rivalHealth, damage);
             game.rivalHealth -= damage;
             game.score += 750 + damage * 10;
             game.notice = `${WEAPONS[power.type].short} SENT // RIVAL −${damage}`;
@@ -4416,25 +4460,10 @@ export default function WormholeGame() {
                       </div>
                     )}
 
-                    {summary.run.outcome === "defeat" ? (
-                      <div className="death-info" role="status">
-                        <strong>
-                          {mode === "pve"
-                            ? "YOUR PILOT WAS ELIMINATED"
-                            : netResult?.youEliminated
-                              ? "YOUR PILOT WAS ELIMINATED"
-                              : `${netResult?.eliminatedName ?? (mode === "coop" ? "YOUR ALLY" : "OPPONENT")} WAS ELIMINATED`}
-                        </strong>
-                        <span>
-                          DESTROYED BY {defeatCauseLabel(mode === "pve" ? summary.deathCause ?? "unknown" : netResult?.cause ?? "unknown")}
-                        </span>
-                      </div>
-                    ) : mode === "pvp" && netResult?.outcome === "victory" && netResult.eliminatedName ? (
-                      <div className="death-info victory" role="status">
-                        <strong>{netResult.eliminatedName} WAS ELIMINATED</strong>
-                        <span>DESTROYED BY {defeatCauseLabel(netResult.cause)}</span>
-                      </div>
-                    ) : null}
+                    <div className={`death-info ${summary.run.outcome === "victory" ? "victory" : ""}`} role="status">
+                      <strong>FINAL EVENT</strong>
+                      <span>{finalEventLabel(summary.run)}</span>
+                    </div>
 
                     <div className={`run-links ${summary.awaitingInitials ? "locked" : ""}`}>
                       {mode !== "pve" ? (
@@ -4462,7 +4491,7 @@ export default function WormholeGame() {
                             setLobbyOpen(false);
                             setStage("setup");
                           }}>
-                            LEAVE LOBBY
+                            CHANGE GAME MODE
                           </button>
                         </>
                       ) : (

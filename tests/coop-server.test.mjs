@@ -117,6 +117,8 @@ test("co-op defeat identifies the eliminated pilot and final damage source", () 
   assert.equal(allyResult.eliminatedName, a.player.name);
   assert.equal(ownResult.cause, "nuke_blast");
   assert.equal(allyResult.cause, "nuke_blast");
+  assert.equal(ownResult.finalDamage, 60);
+  assert.equal(allyResult.finalDamage, 60);
 });
 
 test("a co-op retry can store a new ship before both pilots accept", () => {
@@ -129,4 +131,23 @@ test("a co-op retry can store a new ship before both pilots accept", () => {
   assert.equal(second.starting, true);
   assert.equal(room.phase, "select");
   assert.equal(a.player.ship, "tank");
+});
+
+
+test("co-op victory reports the power-up and exact damage that destroyed the wormhole", () => {
+  const { server, a, b, room } = activeCoop("easy");
+  let seq = 1;
+  let now = 4000;
+  while (room.rivalHealth > 0 && seq < 20) {
+    server.transmit(a.player, { seq: seq++, weapon: "nuke" }, now);
+    now += 1100;
+  }
+  const hostResult = a.messages.findLast((message) => message.type === "result");
+  const allyResult = b.messages.findLast((message) => message.type === "result");
+  assert.equal(hostResult.outcome, "victory");
+  assert.equal(allyResult.outcome, "victory");
+  assert.equal(hostResult.cause, "nuke");
+  assert.equal(allyResult.cause, "nuke");
+  assert.equal(hostResult.finalDamage, 8);
+  assert.equal(allyResult.finalDamage, 8);
 });

@@ -282,6 +282,8 @@ test("victory identifies the eliminated pilot and final damage source for both p
   assert.equal(winner.eliminatedName, "ALPHA");
   assert.equal(defeated.cause, "hostile_projectile");
   assert.equal(winner.cause, "hostile_projectile");
+  assert.equal(defeated.finalDamage, winner.finalDamage);
+  assert.equal(defeated.finalDamage, 40, "only the remaining hull counts as final damage");
 });
 
 test("transmissions reach the opponent, tagged so duplicates can be dropped", () => {
