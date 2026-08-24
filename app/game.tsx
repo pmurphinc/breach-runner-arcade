@@ -2984,7 +2984,7 @@ export default function WormholeGame() {
             burst(game, game.portalX, game.portalY, "#68f2ff", 120, 18);
             burst(game, game.portalX, game.portalY, "#ff4fd8", 120, 14);
             playCue("wormhole-explosion", 0.24);
-            if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+            if (!reducedMotionRef.current && typeof navigator !== "undefined" && "vibrate" in navigator) {
               navigator.vibrate([120, 45, 180, 55, 320]);
             }
           }
@@ -3004,6 +3004,10 @@ export default function WormholeGame() {
           game.result = "victory";
           game.notice = "RIVAL ELIMINATED";
           game.noticeLife = 180;
+          // The victory branch returns before the normal end-of-tick HUD sync.
+          // Publish the terminal state immediately so touch/mobile clients render
+          // the end-game menu after the collapse animation.
+          sync();
         }
         return;
       }
