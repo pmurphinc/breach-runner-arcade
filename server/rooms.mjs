@@ -351,13 +351,15 @@ export class MatchServer {
     player.window.damageTotal += amount;
     player.lastDamageSeq = seq;
 
+    const hullBefore = player.combat.hull;
     const outcome = applyDamage(player.combat, source, amount, now);
+    const finalDamage = Math.min(hullBefore, outcome.toHull);
     room.touchedAt = now;
     this.broadcastState(room, now);
 
     if (outcome.destroyed) {
-      if (room.kind === "coop") this.finishCoop(room, "defeat", "pilot_hull", now, player, cause);
-      else this.finish(room, this.opponentOf(room, player), "hull", now, player, cause);
+      if (room.kind === "coop") this.finishCoop(room, "defeat", "pilot_hull", now, player, cause, finalDamage);
+      else this.finish(room, this.opponentOf(room, player), "hull", now, player, cause, finalDamage);
     }
     return { ok: true, ...outcome };
   }
@@ -381,12 +383,13 @@ export class MatchServer {
     // integrity and score snapshot.
     if (room.kind === "coop") {
       const damage = coopPowerDamage(weapon);
+      const finalDamage = Math.min(room.rivalHealth, damage);
       room.rivalHealth = Math.max(0, room.rivalHealth - damage);
       room.teamScore += 750 + damage * 10;
       const eventId = `${room.code}:${(room.transmitSeq += 1)}`;
       this.broadcast(room, { type: "state", sent: weapon, eventId, by: player.id });
       this.broadcastState(room, now);
-      if (room.rivalHealth <= 0) this.finishCoop(room, "victory", "rival", now);
+      if (room.rivalHealth <= 0) this.finishCoop(room, "victory", "rival", now, null, weapon, finalDamage);
       return { ok: true, eventId, damage };
     }
 
@@ -424,7 +427,7 @@ export class MatchServer {
     return { ok: true };
   }
 
-  finishCoop(room, outcome, reason, now = Date.now(), eliminated = null, cause = "unknown") {
+  finishCoop(room, outcome, reason, now = Date.now(), eliminated = null, cause = "unknown", finalDamage = 0) {
     if (room.phase === PHASES.FINISHED) return;
     room.phase = PHASES.FINISHED;
     room.touchedAt = now;
@@ -438,11 +441,12 @@ export class MatchServer {
         eliminatedName: eliminated?.name ?? null,
         youEliminated: Boolean(eliminated && player.id === eliminated.id),
         cause,
+        finalDamage,
       });
     }
   }
 
-  finish(room, winner, reason, now = Date.now(), eliminated = null, cause = "unknown") {
+  finish(room, winner, reason, now = Date.now(), eliminated = null, cause = "unknown", finalDamage = 0) {
     if (room.phase === PHASES.FINISHED) return;
     room.phase = PHASES.FINISHED;
     room.touchedAt = now;
@@ -456,6 +460,7 @@ export class MatchServer {
         eliminatedName: eliminated?.name ?? null,
         youEliminated: Boolean(eliminated && player.id === eliminated.id),
         cause,
+        finalDamage,
       });
     }
   }
