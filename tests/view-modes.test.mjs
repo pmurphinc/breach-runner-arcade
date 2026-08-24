@@ -10,6 +10,7 @@ test('view modes are explicit, typed, and versioned', () => {
   assert.match(settings, /type ViewMode = "touch" \| "pc" \| "hybrid"/);
   assert.match(settings, /wormhole-arcade:settings:v1/);
   assert.match(settings, /viewMode: null/);
+  assert.match(settings, /playerInitials: ""/);
   assert.doesNotMatch(game.slice(game.indexOf('label="VIEW MODE"'), game.indexOf('label="CAMERA LOCK"')), /AUTO/);
 });
 
@@ -30,6 +31,24 @@ test('menus expose only requested setting groups', () => {
   assert.match(game, /Available in Touch or Hybrid view/);
 });
 
+test('initials are a remembered device identity with no Discord prompt', () => {
+  const info = game.slice(game.indexOf('id="menu-panel-info"'), game.indexOf('</section>', game.indexOf('id="menu-panel-info"')));
+  const summary = game.slice(game.indexOf('{summary.awaitingInitials ? ('), game.indexOf('className={`death-info'));
+  assert.match(info, /PLAYER INITIALS/);
+  assert.match(info, /USED AUTOMATICALLY FOR FUTURE SCORES/);
+  assert.match(settings, /playerInitials: normalizePlayerInitials/);
+  assert.match(summary, /type="submit".*LOCK SCORE/);
+  assert.match(summary, /SCORE LOCKED/);
+  assert.doesNotMatch(game, /SAVE WITH DISCORD|discordSignInUrl|signInToSave/);
+});
+
+test('the initials keyboard cannot reclassify the touch layout', () => {
+  const measurement = game.slice(game.indexOf('const measure = () =>'), game.indexOf('coarsePointer.addEventListener'));
+  assert.match(measurement, /dataset\.initialsEditing === "true"/);
+  assert.match(game, /onFocus=\{beginInitialsEditing\}/);
+  assert.match(game, /onBlur=\{finishInitialsEditing\}/);
+});
+
 test('view profile owns HUD and canvas queue behavior', () => {
   assert.match(settings, /canvasQueue: false/);
   assert.match(settings, /pc: .*fullInventory: true.*canvasQueue: true/);
@@ -44,7 +63,7 @@ test('canvas renderer starts after first-launch view selection', () => {
     game.indexOf('const canvas = canvasRef.current'),
     game.indexOf('const currentShip = selectedShip')
   );
-  assert.match(renderer, /\[play, sync, viewMode\]/,
+  assert.match(renderer, /\[play, playCue, sync, viewMode\]/,
     'the render effect must rerun after the chooser mounts the canvas');
 });
 
@@ -89,7 +108,7 @@ test('touch frame reaches the viewport and health bars use fighting-game geometr
 });
 
 test('special remains radially between PUP and Pause', () => {
-  const radial = css.slice(css.indexOf('A true 9\/10\/11 o’clock arc'));
+  const radial = css.slice(css.indexOf("A true 9\/10\/11 o'clock arc"));
   assert.match(radial, /touch-pup[\s\S]*left:\s*0[\s\S]*top:\s*50%/);
   assert.match(radial, /touch-special[\s\S]*left:\s*-8%[\s\S]*top:\s*17%/);
   assert.match(radial, /touch-pause[\s\S]*left:\s*17%[\s\S]*top:\s*-8%/);
@@ -111,7 +130,10 @@ test('touch playfield starts below the complete HUD and removes canvas text pane
 
 
 test('landscape tablets reuse the full arena shell and corner controls', () => {
-  const tablet = css.slice(css.indexOf('Landscape tablets use the full existing arena shell'));
+  const tablet = css.slice(
+    css.indexOf('Landscape tablets use the full existing arena shell'),
+    css.indexOf('Mission Setup uses semantic color families')
+  );
   assert.match(tablet, /data-form="tablet"\]\[data-orientation="landscape"/);
   assert.match(tablet, /\.arena-stage\s*\{[\s\S]*?width:\s*100%/);
   assert.match(tablet, /\.touch-flight\s*\{[\s\S]*?bottom:\s*max\(12px,[\s\S]*?left:\s*max\(12px/);
