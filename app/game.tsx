@@ -25,16 +25,21 @@ import {
   DIFFICULTY_ORDER,
   TICK_MS,
   absorbCollisionDamage,
+  absorbEnrageShield,
+  activateEnrageRecovery,
   advanceWormholeAngle,
   createCollisionShield,
+  createEnrageRecovery,
   createContactHazard,
   pilotSpawn,
   rulesFor,
   secondsForTicks,
   tickCollisionShield,
   tickContactHazard,
+  tickEnrageRecovery,
   wormholePosition,
   type CollisionShieldState,
+  type EnrageRecoveryState,
   type ContactHazardState,
   type DifficultyId,
   type DifficultyRules,
@@ -272,6 +277,10 @@ type Game = {
   enrageActive: boolean;
   /** Ticks until the next automatic mixed enrage wave. */
   enrageTimer: number;
+  /** Heal-over-time and temporary shield state created by enrage. */
+  enrageRecovery: EnrageRecoveryState;
+  /** Ticks until Hard Mode's next dedicated mine pulse. */
+  enrageMineTimer: number;
   bullets: Bullet[];
   pickups: Pickup[];
   enemies: Enemy[];
@@ -426,6 +435,8 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
     victoryExplosionFired: false,
     enrageActive: false,
     enrageTimer: 0,
+    enrageRecovery: createEnrageRecovery(),
+    enrageMineTimer: 0,
     bullets: [],
     pickups: [],
     enemies: [],
@@ -3153,14 +3164,30 @@ export default function WormholeGame() {
       game.portalY = wormhole.y;
 
       if (game.enrageActive && game.rules.wormholeEnrage.enabled) {
+      const enrage = game.rules.wormholeEnrage;
+      const authority = game.mode !== "coop" || netRef.current?.state.you?.id === netRef.current?.state.hostId;
+      if (authority) {
+        const healed = tickEnrageRecovery(game.enrageRecovery, game.rivalHealth, game.rivalMaxHealth);
+        game.rivalHealth = Math.min(game.rivalMaxHealth, game.rivalHealth + healed);
         game.enrageTimer -= 1;
         if (game.enrageTimer <= 0) {
-          game.enrageTimer = game.rules.wormholeEnrage.waveIntervalTicks;
+          game.enrageTimer = enrage.waveIntervalTicks;
           spawnEnrageWave(game);
         }
+        if (enrage.minePulseIntervalTicks > 0) {
+          game.enrageMineTimer -= 1;
+          if (game.enrageMineTimer <= 0) {
+            game.enrageMineTimer = enrage.minePulseIntervalTicks;
+            const count = enrage.minePulseCount * (game.mode === "coop" ? 2 : 1);
+            for (let i = 0; i < count; i += 1) game.enemies.push(makeEnemy("mines", game.portalX, game.portalY, i, count));
+            pushSpawn(game, "hostile", "mines", game.portalX, game.portalY, count);
+            playCue("spawn:mines", 0.14);
+          }
+        }
       }
+    }
 
-      game.shieldRipple = Math.max(0, game.shieldRipple - 0.06);
+    game.shieldRipple = Math.max(0, game.shieldRipple - 0.06);
       game.shieldBreak = Math.max(0, game.shieldBreak - 0.04);
       game.shieldRestored = Math.max(0, game.shieldRestored - 1);
       game.contactWarning = Math.max(0, game.contactWarning - 1);
@@ -3363,14 +3390,18 @@ export default function WormholeGame() {
             game.noticeLife = 115;
           } else {
             const damage = rivalDamageFor(power.type);
-            game.lastRivalCause = power.type;
-            game.lastRivalDamage = Math.min(game.rivalHealth, damage);
-            game.rivalHealth -= damage;
-            game.score += 750 + damage * 10;
-            game.notice = `${WEAPONS[power.type].short} SENT // RIVAL −${damage}`;
-            game.noticeLife = 115;
+              const enrageHit = absorbEnrageShield(game.enrageRecovery, damage);
+              const integrityDamage = enrageHit.toIntegrity;
+              game.lastRivalCause = power.type;
+              game.lastRivalDamage = Math.min(game.rivalHealth, integrityDamage);
+              game.rivalHealth -= integrityDamage;
+              game.score += 750 + damage * 10;
+              game.notice = enrageHit.absorbed > 0
+                ? `${WEAPONS[power.type].short} SENT // RIFT SHIELD −${Math.round(enrageHit.absorbed)}${integrityDamage > 0 ? ` // RIVAL −${Math.round(integrityDamage)}` : ""}`
+                : `${WEAPONS[power.type].short} SENT // RIVAL −${damage}`;
+              game.noticeLife = 115;
 
-            const enrage = game.rules.wormholeEnrage;
+              const enrage = game.rules.wormholeEnrage;
             if (
               enrage.enabled
               && !game.enrageActive
@@ -3379,6 +3410,8 @@ export default function WormholeGame() {
             ) {
               game.enrageActive = true;
               game.enrageTimer = enrage.waveIntervalTicks;
+              game.enrageMineTimer = enrage.minePulseIntervalTicks;
+              activateEnrageRecovery(game.enrageRecovery, game.rules, game.rivalMaxHealth);
               spawnEnrageWave(game);
             }
 
@@ -3387,6 +3420,9 @@ export default function WormholeGame() {
               game.victorySequence = ticksForSeconds(VICTORY_TOTAL_SECONDS);
               game.victoryExplosionFired = false;
               game.enrageActive = false;
+              game.enrageTimer = 0;
+              game.enrageMineTimer = 0;
+              game.enrageRecovery = createEnrageRecovery();
               game.incoming = null;
               game.notice = "RIVAL ELIMINATED // REALITY LOCKED";
               game.noticeLife = game.victorySequence;

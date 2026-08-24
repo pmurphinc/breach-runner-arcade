@@ -84,6 +84,12 @@ export type WormholeEnrageRules =
       waveIntervalTicks: number;
       /** Mixed hostile wave emitted by the enraged wormhole. */
       wave: ReadonlyArray<{ enemy: EnrageEnemy; count: number }>;
+      healFraction: number;
+      healDurationTicks: number;
+      temporaryShieldFraction: number;
+      temporaryShieldDurationTicks: number;
+      minePulseIntervalTicks: number;
+      minePulseCount: number;
     };
 
 export type DifficultyRules = {
@@ -165,7 +171,7 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyRules> = {
     displayName: "DIFFICULT // MOVING VOID",
     shortName: "DIFFICULT",
     blurb:
-      "The wormhole orbits with 200 integrity and you have to lead it. At 15% integrity it enrages, turns red, and repeatedly spits out mines, UFOs, and power-up-eating Scarabs. No collision shield — impacts hit hull under the normal rules.",
+      "The rift orbits with 200 integrity and you have to lead it. At 15% integrity it enrages, turns red, restores 10% of its maximum integrity over 10 seconds, and repeatedly spits out mines, UFOs, and power-up-eating Scarabs. No collision shield — impacts hit hull under the normal rules.",
     wormhole: ORBIT,
     collisionShield: { enabled: false },
     contactHazard: { enabled: false },
@@ -175,6 +181,12 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyRules> = {
       enabled: true,
       thresholdFraction: 0.15,
       waveIntervalTicks: ticksForSeconds(10),
+      healFraction: 0.1,
+      healDurationTicks: ticksForSeconds(10),
+      temporaryShieldFraction: 0,
+      temporaryShieldDurationTicks: 0,
+      minePulseIntervalTicks: 0,
+      minePulseCount: 0,
       wave: [
         { enemy: "mines", count: 6 },
         { enemy: "ufo", count: 1 },
@@ -187,7 +199,7 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyRules> = {
     displayName: "HARD MODE // CONTACT HAZARD",
     shortName: "HARD MODE",
     blurb:
-      "The wormhole has 350 integrity, orbits, and touching it burns hull in visible ticks. At 30% integrity it enrages, turns red, and repeatedly spits out mines, UFOs, and power-up-eating Scarabs.",
+      "The rift has 350 integrity, orbits, and touching it burns hull in visible ticks. At 30% integrity it enrages, turns red, restores 20% of its maximum integrity over 10 seconds, gains a 10%-integrity shield for 10 seconds, keeps its mixed hostile waves, and launches extra mines every 3 seconds.",
     wormhole: ORBIT,
     collisionShield: { enabled: false },
     contactHazard: HARD_CONTACT,
@@ -197,6 +209,12 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyRules> = {
       enabled: true,
       thresholdFraction: 0.3,
       waveIntervalTicks: ticksForSeconds(10),
+      healFraction: 0.2,
+      healDurationTicks: ticksForSeconds(10),
+      temporaryShieldFraction: 0.1,
+      temporaryShieldDurationTicks: ticksForSeconds(10),
+      minePulseIntervalTicks: ticksForSeconds(3),
+      minePulseCount: 2,
       wave: [
         { enemy: "mines", count: 6 },
         { enemy: "ufo", count: 1 },
@@ -207,6 +225,48 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyRules> = {
 };
 
 /** Order the selector presents the four PvE choices in. */
+export type EnrageRecoveryState = {
+  healRemaining: number;
+  healTicksLeft: number;
+  shield: number;
+  shieldTicksLeft: number;
+};
+
+export function createEnrageRecovery(): EnrageRecoveryState {
+  return { healRemaining: 0, healTicksLeft: 0, shield: 0, shieldTicksLeft: 0 };
+}
+
+export function activateEnrageRecovery(state: EnrageRecoveryState, rules: DifficultyRules, maxIntegrity: number) {
+  const enrage = rules.wormholeEnrage;
+  if (!enrage.enabled) return;
+  state.healRemaining = maxIntegrity * enrage.healFraction;
+  state.healTicksLeft = enrage.healDurationTicks;
+  state.shield = maxIntegrity * enrage.temporaryShieldFraction;
+  state.shieldTicksLeft = enrage.temporaryShieldDurationTicks;
+}
+
+export function tickEnrageRecovery(state: EnrageRecoveryState, currentIntegrity: number, maxIntegrity: number) {
+  let healed = 0;
+  if (state.healTicksLeft > 0 && state.healRemaining > 0) {
+    const scheduled = state.healRemaining / state.healTicksLeft;
+    healed = Math.min(scheduled, Math.max(0, maxIntegrity - currentIntegrity));
+    state.healRemaining = Math.max(0, state.healRemaining - scheduled);
+    state.healTicksLeft -= 1;
+  }
+  if (state.shieldTicksLeft > 0) {
+    state.shieldTicksLeft -= 1;
+    if (state.shieldTicksLeft <= 0) state.shield = 0;
+  }
+  return healed;
+}
+
+export function absorbEnrageShield(state: EnrageRecoveryState, damage: number) {
+  const incoming = Math.max(0, damage);
+  const absorbed = Math.min(state.shield, incoming);
+  state.shield -= absorbed;
+  return { absorbed, toIntegrity: incoming - absorbed };
+}
+
 export const DIFFICULTY_ORDER: DifficultyId[] = ["practice", "easy", "difficult", "hard"];
 
 /**
