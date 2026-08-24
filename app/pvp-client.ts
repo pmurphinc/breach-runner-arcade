@@ -13,7 +13,7 @@
  */
 
 /** Must match server/protocol.mjs. `tests/pvp-protocol.test.mjs` asserts it. */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 export const PVP_PATH = "/pvp";
 export const CODE_LENGTH = 6;
 export const COUNTDOWN_SECONDS = 3;
@@ -51,6 +51,14 @@ export type PvpOpponent = {
 export type NetworkMode = "pvp" | "coop";
 export type TeammatePosition = { id: string; name: string; ship: string; x: number; y: number; angle: number };
 export type CoopRival = { hull: number; maxHull: number; score: number };
+export type CoopWorld = {
+  seq: number;
+  portalX: number;
+  portalY: number;
+  portalAngle: number;
+  enrageActive: boolean;
+  enemies: Array<Record<string, number | string | boolean | undefined>>;
+};
 
 export type PvpSnapshot = {
   phase: PvpPhase;
@@ -63,12 +71,14 @@ export type PvpSnapshot = {
   kind: NetworkMode;
   difficulty: string;
   code: string | null;
-  you: { ready: boolean; ship: string } | null;
+  you: { id: string; ready: boolean; ship: string } | null;
+  hostId: string | null;
   opponent: PvpOpponent | null;
   yourCombat: PvpCombat | null;
   opponentCombat: PvpCombat | null;
   rival: CoopRival | null;
   teammate: TeammatePosition | null;
+  world: CoopWorld | null;
   /** Milliseconds until the match goes live, during a countdown. */
   countdownMs: number;
   result: { outcome: "victory" | "defeat"; reason: string; opponent: string } | null;
@@ -88,11 +98,13 @@ const EMPTY: PvpSnapshot = {
   difficulty: "easy",
   code: null,
   you: null,
+  hostId: null,
   opponent: null,
   yourCombat: null,
   opponentCombat: null,
   rival: null,
   teammate: null,
+  world: null,
   countdownMs: 0,
   result: null,
   rematch: null,
@@ -130,6 +142,8 @@ export class PvpClient {
   private sessionKind: NetworkMode;
   private difficulty: string;
   private lastPositionAt = 0;
+  private lastWorldAt = 0;
+  private worldSeq = 0;
 
   constructor(kind: NetworkMode = "pvp", difficulty = "easy") {
     this.sessionKind = kind;
@@ -265,13 +279,14 @@ export class PvpClient {
         return;
       }
       case "match": {
-        const you = message.you as { ship?: string; ready?: boolean } | undefined;
+        const you = message.you as { id?: string; ship?: string; ready?: boolean } | undefined;
         this.update({
           phase: this.snapshot.phase === "active" ? "active" : "select",
           kind: message.kind === "coop" ? "coop" : "pvp",
           difficulty: typeof message.difficulty === "string" ? message.difficulty : this.difficulty,
           code: typeof message.code === "string" ? message.code : null,
-          you: { ship: you?.ship ?? "wing", ready: Boolean(you?.ready) },
+          you: { id: you?.id ?? "", ship: you?.ship ?? "wing", ready: Boolean(you?.ready) },
+          hostId: typeof message.hostId === "string" ? message.hostId : null,
           opponent: (message.opponent as PvpOpponent | null) ?? null,
           result: null,
           rematch: this.snapshot.rematch,
@@ -312,6 +327,10 @@ export class PvpClient {
       }
       case "teammate": {
         this.update({ teammate: message as unknown as TeammatePosition });
+        return;
+      }
+      case "world": {
+        this.update({ world: message as unknown as CoopWorld });
         return;
       }
       case "incoming": {
@@ -397,6 +416,14 @@ export class PvpClient {
     if (now - this.lastPositionAt < 66) return;
     this.lastPositionAt = now;
     this.send({ type: "position", x, y, angle });
+  }
+
+  reportWorld(world: Omit<CoopWorld, "seq">) {
+    const now = performance.now();
+    if (now - this.lastWorldAt < 90) return;
+    this.lastWorldAt = now;
+    this.worldSeq += 1;
+    this.send({ type: "world", seq: this.worldSeq, ...world });
   }
 
   transmit(weapon: string) {
