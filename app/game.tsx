@@ -4572,47 +4572,55 @@ export default function WormholeGame() {
                       <span>{finalEventLabel(summary.run)}</span>
                     </div>
 
-                    <div className={`run-links ${summary.awaitingInitials ? "locked" : ""}`}>
-                      {mode !== "pve" ? (
-                        <>
-                          <button
-                            type="button"
-                            className="run-action primary"
-                            disabled={Boolean(net?.rematch?.you)}
-                            onClick={() => netRef.current?.requestRematch()}
-                          >
-                            {net?.rematch?.you
-                              ? net.rematch.opponent ? "REMATCH STARTING" : mode === "coop" ? "WAITING FOR ALLY" : "WAITING FOR OPPONENT"
-                              : net?.rematch?.opponent ? "ACCEPT RETRY" : "RETRY ROUND"}
-                          </button>
-                          <button
-                            type="button"
-                            disabled={Boolean(net?.rematch?.you)}
-                            onClick={() => setStage("select")}
-                          >
-                            CHANGE SHIP
-                          </button>
-                          <button type="button" onClick={() => {
-                            netRef.current?.leave();
-                            setSummary(null);
-                            setLobbyOpen(false);
-                            setStage("setup");
-                          }}>
-                            CHANGE GAME MODE
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button type="button" onClick={start}>RUN AGAIN</button>
-                          <button type="button" onClick={() => { setSummary(null); setStage("select"); }}>
-                            CHANGE SHIP
-                          </button>
-                          <button type="button" onClick={() => { setSummary(null); setStage("setup"); }}>
-                            CHANGE MODE
-                          </button>
-                          <button type="button" onClick={() => setBoardOpen(true)}>GLOBAL BOARD</button>
-                        </>
-                      )}
+                    <div className="run-links" aria-label="End game actions">
+                      {summary.awaitingInitials ? (
+                        <p className="run-links-note" role="status">LOCK SCORE TO CONTINUE</p>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="run-action primary"
+                        disabled={summary.awaitingInitials || (mode !== "pve" && Boolean(net?.rematch?.you))}
+                        onClick={() => {
+                          if (mode === "pve") start();
+                          else netRef.current?.requestRematch();
+                        }}
+                      >
+                        {mode !== "pve" && net?.rematch?.you
+                          ? net.rematch.opponent ? "REMATCH STARTING" : mode === "coop" ? "WAITING FOR ALLY" : "WAITING FOR OPPONENT"
+                          : "RUN AGAIN"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={summary.awaitingInitials || (mode !== "pve" && Boolean(net?.rematch?.you))}
+                        onClick={() => {
+                          if (mode === "pve") setSummary(null);
+                          setStage("select");
+                        }}
+                      >
+                        CHANGE SHIP
+                      </button>
+                      <button
+                        type="button"
+                        disabled={summary.awaitingInitials}
+                        onClick={() => {
+                          if (mode !== "pve") netRef.current?.leave();
+                          setSummary(null);
+                          setLobbyOpen(false);
+                          setStage("setup");
+                        }}
+                      >
+                        CHANGE GAME MODE
+                      </button>
+                      {mode === "pve" ? (
+                        <button
+                          type="button"
+                          className="run-board-link"
+                          disabled={summary.awaitingInitials}
+                          onClick={() => setBoardOpen(true)}
+                        >
+                          GLOBAL BOARD
+                        </button>
+                      ) : null}
                     </div>
                   </section>
                 </div>

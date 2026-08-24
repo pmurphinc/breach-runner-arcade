@@ -42,6 +42,18 @@ test('initials are a remembered device identity with no Discord prompt', () => {
   assert.doesNotMatch(game, /SAVE WITH DISCORD|discordSignInUrl|signInToSave/);
 });
 
+test('all completed games expose the same core actions after score lock', () => {
+  const start = game.indexOf('aria-label="End game actions"');
+  const actions = game.slice(start, game.indexOf('</section>', start));
+  for (const label of ['RUN AGAIN', 'CHANGE SHIP', 'CHANGE GAME MODE']) {
+    assert.match(actions, new RegExp(label));
+  }
+  assert.match(actions, /LOCK SCORE TO CONTINUE/);
+  assert.match(actions, /disabled=\{summary\.awaitingInitials/);
+  assert.doesNotMatch(css, /\.run-links\.locked\s*\{\s*display:\s*none/);
+  assert.match(css, /\.run-links button:disabled/);
+});
+
 test('the initials keyboard cannot reclassify the touch layout', () => {
   const measurement = game.slice(game.indexOf('const measure = () =>'), game.indexOf('coarsePointer.addEventListener'));
   assert.match(measurement, /dataset\.initialsEditing === "true"/);
