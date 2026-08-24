@@ -1,0 +1,37 @@
+name: Apply Breach Runner Production Domain
+
+on:
+  push:
+    branches: [chore/breach-runner-production-domain]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout domain branch
+        uses: actions/checkout@v4
+        with:
+          ref: chore/breach-runner-production-domain
+      - name: Apply guarded domain cutover
+        run: |
+          if grep -q 'metadataBase: new URL("https://breachrunner.murphtournaments.com")' app/layout.tsx; then
+            echo "Production-domain cutover already applied."
+            exit 0
+          fi
+          node scripts/breach-runner-production-domain-cutover.mjs
+          git diff --check
+      - name: Commit cutover
+        run: |
+          git add app/layout.tsx README.md COMMERCIALIZATION.md server/pvp.mjs tests/pvp-server.test.mjs tests/pvp-socket.test.mjs
+          if git diff --cached --quiet; then
+            echo "No domain changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Move Breach Runner to production subdomain"
+          git push origin HEAD:chore/breach-runner-production-domain
