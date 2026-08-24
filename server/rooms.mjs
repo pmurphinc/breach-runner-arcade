@@ -333,7 +333,7 @@ export class MatchServer {
    * numbers make a replayed frame a no-op, and the sliding window caps both
    * how often and how much a client can claim.
    */
-  reportDamage(player, { seq, source, amount }, now = Date.now()) {
+  reportDamage(player, { seq, source, amount, cause = "unknown" }, now = Date.now()) {
     const room = player.room;
     if (!room || room.phase !== PHASES.ACTIVE || !player.combat) {
       return { ok: false, code: ERRORS.NOT_IN_MATCH };
@@ -356,7 +356,7 @@ export class MatchServer {
     this.broadcastState(room, now);
 
     if (outcome.destroyed) {
-      if (room.kind === "coop") this.finishCoop(room, "defeat", "pilot_hull", now);
+      if (room.kind === "coop") this.finishCoop(room, "defeat", "pilot_hull", now, player, cause);
       else this.finish(room, this.opponentOf(room, player), "hull", now);
     }
     return { ok: true, ...outcome };
@@ -424,12 +424,21 @@ export class MatchServer {
     return { ok: true };
   }
 
-  finishCoop(room, outcome, reason, now = Date.now()) {
+  finishCoop(room, outcome, reason, now = Date.now(), eliminated = null, cause = "unknown") {
     if (room.phase === PHASES.FINISHED) return;
     room.phase = PHASES.FINISHED;
     room.touchedAt = now;
     for (const player of room.players) {
-      this.sendTo(player, { type: "result", outcome, reason, opponent: outcome === "victory" ? "RIVAL WORMHOLE" : "CO-OP TEAM" });
+      this.sendTo(player, {
+        type: "result",
+        outcome,
+        reason,
+        opponent: outcome === "victory" ? "RIVAL WORMHOLE" : "CO-OP TEAM",
+        eliminatedId: eliminated?.id ?? null,
+        eliminatedName: eliminated?.name ?? null,
+        youEliminated: Boolean(eliminated && player.id === eliminated.id),
+        cause,
+      });
     }
   }
 
@@ -448,9 +457,10 @@ export class MatchServer {
   }
 
   /** A rematch starts only after both players explicitly accept. */
-  requestRematch(player, now = Date.now()) {
+  requestRematch(player, now = Date.now(), ship) {
     const room = player.room;
     if (!room || room.phase !== PHASES.FINISHED) return { ok: false, code: ERRORS.WRONG_PHASE };
+    if (ship && SHIP_HULL[ship]) player.ship = ship;
     if (room.rematchExpiresAt && now > room.rematchExpiresAt) room.rematchVotes.clear();
     if (room.rematchVotes.size === 0) room.rematchExpiresAt = now + REMATCH_TIMEOUT_MS;
     room.rematchVotes.add(player.id);
