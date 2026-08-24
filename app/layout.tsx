@@ -18,13 +18,11 @@ export const metadata: Metadata = {
     title: PRODUCT_TITLE,
     description: PRODUCT_TAGLINE,
     type: "website",
-    images: [{ url: "/og.png", width: 1731, height: 909, alt: `${PRODUCT_TITLE} — space combat` }],
   },
   twitter: {
-    card: "summary_large_image",
+    card: "summary",
     title: PRODUCT_TITLE,
     description: PRODUCT_TAGLINE,
-    images: ["/og.png"],
   },
   icons: {
     icon: "/favicon.svg",
