@@ -3163,6 +3163,8 @@ export default function WormholeGame() {
         game.portalAngle = world.portalAngle;
         game.enrageActive = world.enrageActive;
         game.enemies = world.enemies.map((enemy) => ({ ...enemy })) as unknown as Enemy[];
+        const localShots = game.bullets.filter((bullet) => !bullet.enemy);
+        game.bullets = localShots.concat(world.enemyBullets.map((bullet) => ({ ...bullet })) as unknown as Bullet[]);
       }
 
       if (game.mode === "pvp") {
@@ -3188,6 +3190,7 @@ export default function WormholeGame() {
           portalAngle: game.portalAngle,
           enrageActive: game.enrageActive,
           enemies: game.enemies.slice(0, 128).map((enemy) => ({ ...enemy })),
+          enemyBullets: game.bullets.filter((bullet) => bullet.enemy).slice(0, 256).map((bullet) => ({ ...bullet })),
         });
       }
       game.particles.forEach((particle) => {
