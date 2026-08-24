@@ -37,9 +37,27 @@ export function useScreenKeys(
         return;
       }
       if (event.key !== "Tab") return;
-      const focusable = [...(panel.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])].filter(
-        (element) => element.tabIndex >= 0 && element.offsetParent !== null
-      );
+      /*
+       * The trap spans the screen *and* the global system layer.
+       *
+       * Menu and Fullscreen live outside the dialog by design, so a trap
+       * scoped to the panel alone would make them unreachable by keyboard for
+       * as long as any menu is open — controls that are required to be
+       * available everywhere, to everyone. Including the layer keeps the
+       * keyboard inside the two things that are actually on screen.
+       */
+      const system = document.querySelector(".system-controls");
+      const focusable = [
+        ...(panel.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []),
+        ...(system?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []),
+      ]
+        .filter((element) => element.tabIndex >= 0 && element.offsetParent !== null)
+        // Sorted into document order, because the system layer is rendered
+        // before the screens. Concatenating the two lists would put the wrong
+        // element last, and the wrap would then hand focus to the page behind.
+        .sort((a, b) =>
+          a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1
+        );
       if (focusable.length === 0) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];

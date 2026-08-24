@@ -1632,6 +1632,20 @@ export default function WormholeGame() {
     return () => root.classList.remove("wh-playing");
   }, [immersive]);
 
+  /**
+   * A menu is modal, so the page behind it must not scroll.
+   *
+   * Without this the cockpit underneath still took the wheel and kept its own
+   * scrollbar: at a range of short viewports the document scrolled behind an
+   * open menu, which is both the classic scroll-bleed bug and the thing the
+   * brief rules out — the game's viewport should never scroll unexpectedly.
+   */
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle("wh-menu-open", menuOpen);
+    return () => root.classList.remove("wh-menu-open");
+  }, [menuOpen]);
+
   const stopVictorySuction = useCallback((fadeSeconds = 0.035) => {
     const active = victorySuctionAudio.current;
     if (!active) return;

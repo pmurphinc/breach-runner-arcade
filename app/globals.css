@@ -116,6 +116,8 @@ button, select { font: inherit; }
 /* Gesture suppression is scoped to active touch gameplay only, so scrolling,
    zooming, and text selection stay available everywhere else. */
 html.wh-playing, html.wh-playing body { overflow: hidden; overscroll-behavior: none; }
+/* An open menu is modal: the page behind it holds still. */
+html.wh-menu-open, html.wh-menu-open body { overflow: hidden; overscroll-behavior: none; }
 html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
 
 .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
@@ -167,6 +169,13 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
    layout-budget.ts via --arena-size; these rules only decide how much room
    the surrounding panels are allowed to take. The old Wide preset set a fixed
    2040px cockpit, which is how controls left the screen at 2048px wide. */
+/* The screen preset has no UI that sets it, but it is read from
+   localStorage, so these remain reachable and are covered by the preflight
+   sweep. Left in place rather than deleted with the menu work. */
+[data-preset="balanced"] .cockpit { width: min(1680px, 100%); }
+[data-preset="arena"] .cockpit { width: 100%; grid-template-columns: minmax(0, 1fr); }
+[data-preset="arena"] .ship-panel,
+[data-preset="arena"] .intel-panel { display: none; }
 [data-preset="fit"] .cockpit { width: min(1420px, 100%); grid-template-columns: clamp(240px, 17vw, 290px) minmax(0, 1fr) clamp(242px, 17vw, 296px); }
 /* Arena Focus drops the permanent panels entirely; they return as drawers. */
 [data-panels="drawer"] .ship-panel,
@@ -948,11 +957,9 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 [data-immersive="true"] .cockpit { width: 100%; height: calc(100dvh - 48px); display: block; padding: 0; overflow: hidden; }
 [data-immersive="true"] .ship-panel,
 [data-immersive="true"] .intel-panel,
-[data-immersive="true"] .pilot-transmission,
-[data-immersive="true"] .mobile-preflight,
 [data-immersive="true"] .coach-strip,
 [data-immersive="true"] .pilot-health,
-[data-immersive="true"] .vitals,
+[data-immersive="true"] .vitals { display: none; }
 [data-immersive="true"] .play-column { position: relative; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 6px 6px max(6px, env(safe-area-inset-bottom)); }
 [data-immersive="true"] .arena-stage { flex: 0 0 auto; width: var(--arena-size); margin: 0; }
 [data-immersive="true"] .match-bar { flex: 0 0 auto; width: var(--arena-size); min-height: 0; height: 40px; margin: 0; padding: 4px 10px; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }

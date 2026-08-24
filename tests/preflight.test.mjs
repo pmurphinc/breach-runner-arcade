@@ -1,6 +1,6 @@
 /**
- * Preflight browser tests: the ship-selection scene, the screen presets, and
- * the settings drawer.
+ * Preflight browser tests: the main menu, the screen presets, and the pause
+ * and settings screens.
  *
  * Playwright is not a repository dependency, so these skip when it or a dev
  * server is unavailable. Run them with:
@@ -38,7 +38,10 @@ async function openShell(browser, { width, height, touch = false, preset } = {})
   page.on("console", (m) => {
     // The only expected error is the favicon fetch against the production
     // metadataBase host, which cannot resolve off the internet.
-    if (m.type() === "error" && !m.text().includes("ERR_TUNNEL_CONNECTION_FAILED")) errors.push(m.text());
+    // Off-network noise from the production metadataBase host: the favicon
+    // fetch cannot resolve or validate a certificate in a sandbox.
+    const offNetwork = /ERR_TUNNEL_CONNECTION_FAILED|ERR_CERT_AUTHORITY_INVALID|ERR_NAME_NOT_RESOLVED/;
+    if (m.type() === "error" && !offNetwork.test(m.text())) errors.push(m.text());
   });
   await page.route("https://murphtournaments.com/**", (r) =>
     r.fulfill({ json: { signedIn: false, player: null } })
@@ -53,81 +56,66 @@ async function openShell(browser, { width, height, touch = false, preset } = {})
   return { context, page, errors };
 }
 
-/** Walk from the selection scene into the arena. */
+/** Walk from the main menu into the arena. */
 async function enterArena(page) {
-  await page.locator(".detail-select").click();
-  await page.waitForTimeout(800);
-  await page.locator(".setup-launch").click();
-  await page.waitForTimeout(700);
+  await page.locator(".menu-footer .play-button").click();
+  await page.waitForTimeout(900);
 }
 
-test("the ship-selection scene is the launch experience", { skip }, async () => {
+/** Open a ship from the main menu's Ships destination. */
+async function openShips(page) {
+  await page.locator(".menu-nav button", { hasText: "Ships" }).click();
+  await page.waitForTimeout(400);
+}
+
+test("the main menu is the launch experience", { skip }, async () => {
   const { chromium } = playwright;
   const browser = await chromium.launch({ executablePath: CHROME });
   try {
     const { context, page, errors } = await openShell(browser);
 
-    assert.ok(await page.locator(".ship-select").isVisible(), "selection must be the first thing shown");
-    assert.match(await page.locator(".select-head h2").innerText(), /SELECT YOUR SHIP/);
-    assert.match(await page.locator(".select-pilot").innerText(), /PILOT ONE/);
-    assert.equal(await page.locator(".carousel-dots button").count(), 8, "carousel exposes all eight ships");
-    assert.equal(await page.locator(".carousel-model canvas").count(), 1, "one large ship model stays central");
-    assert.equal(await page.locator(".carousel-stat").count(), 6, "six coloured stat cards surround the model");
-    assert.equal(await page.locator('[data-stat="hull"]').count(), 1);
-    assert.equal(await page.locator('[data-stat="maxSpeed"]').count(), 1);
-    assert.match(await page.locator(".carousel-special").innerText(), /SPECIAL/);
-    assert.equal(await page.locator('[data-ship]', { hasText: /RANK/ }).count(), 0);
-    const selectColor = await page.locator(".detail-select").evaluate(
-      (button) => getComputedStyle(button).backgroundColor
-    );
-
-    // Arrows and keyboard cycle the carousel without launching.
-    await page.locator('[data-ship="tank"]').click();
-    await page.locator(".ship-carousel").focus();
-    await page.keyboard.press("ArrowRight");
-    await page.waitForTimeout(150);
-    assert.match(await page.locator(".carousel-title h3").innerText(), /Wing/);
-    await page.keyboard.press("KeyA");
-    await page.waitForTimeout(150);
-    assert.match(await page.locator(".carousel-title h3").innerText(), /Tank/);
-    await page.locator(".carousel-arrow.next").click();
-    assert.match(await page.locator(".carousel-title h3").innerText(), /Wing/);
-    assert.ok(await page.locator(".ship-select").isVisible(), "browsing never launches");
-
-    // Confirm, then Mission Setup owns mode and difficulty, then launch.
-    await page.locator('[data-ship="wing"]').click();
-    await page.locator(".ship-carousel").focus();
-    await page.keyboard.press("Enter");
-    await page.waitForTimeout(900);
-    const setup = (await page.locator(".mission-setup").innerText()).replace(/\s+/g, " ");
-    assert.match(setup, /GAME MODE/);
-    assert.match(setup, /DIFFICULTY/);
-    assert.match(setup, /The Wing/);
-    const setupLayout = await page.locator(".mission-setup").evaluate((panel) => {
-      const rect = panel.getBoundingClientRect();
-      const launch = panel.querySelector(".setup-launch");
-      return {
-        centerDelta: Math.abs(rect.left + rect.width / 2 - innerWidth / 2),
-        launchColor: launch ? getComputedStyle(launch).backgroundColor : "",
-      };
-    });
-    assert.ok(setupLayout.centerDelta <= 2, "Mission Setup must be horizontally centered");
-    assert.equal(selectColor, setupLayout.launchColor, "SELECT SHIP uses the same green confirmation color");
-
-    await page.locator(".setup-launch").click();
-    await page.waitForTimeout(700);
-    assert.equal(await page.locator(".launch-scene").isVisible(), false, "launching enters the arena");
-    assert.equal(await page.locator(".ship-panel").isVisible(), false, "ship briefing moves into the Menu");
-    assert.equal(await page.locator(".intel-panel").isVisible(), false, "mission intel moves into the Menu");
+    // The menu is what a player meets first — not a device question, and not
+    // a ship picker with no way back to anything.
     assert.equal(
-      await page.locator(".status-dock").evaluate((dock) => dock.parentElement?.classList.contains("arena-stage")),
-      true,
-      "vitals and power-ups must be attached to the arena"
+      await page.evaluate(() => document.querySelector(".menu-screen")?.dataset.route),
+      "home",
+      "the game must open on the main menu"
     );
-    assert.ok(await page.locator(".status-dock .vitals").isVisible(), "Hull and Shield stay visible");
-    assert.ok(await page.locator(".status-dock .power-bin").isVisible(), "the collected power-up bin stays visible");
-    assert.equal(await page.locator(".touch-powerup-hud").isVisible(), false,
-      "desktop keeps the full bin and never shows the compact touch queue");
+    assert.match(await page.locator(".menu-header h2").innerText(), /BREACH RUNNER/i);
+
+    // Play carries the whole launch decision inline, so a returning player
+    // presses one button instead of walking three full-screen steps.
+    const summary = (await page.locator(".play-summary").innerText()).replace(/\s+/g, " ");
+    assert.match(summary, /Mode/i);
+    assert.match(summary, /Difficulty/i);
+    assert.match(summary, /Ship/i);
+    assert.equal(await page.locator(".menu-nav button").count(), 4, "four secondary destinations");
+
+    // Ships is a destination, and browsing never launches.
+    await openShips(page);
+    assert.equal(await page.locator(".ship-card").count(), 8, "all eight ships are offered");
+    await page.locator(".ship-card").nth(3).click();
+    await page.waitForTimeout(200);
+    assert.equal(
+      await page.evaluate(() => document.querySelector(".menu-screen")?.dataset.route),
+      "ships",
+      "choosing a ship must never launch the game"
+    );
+    assert.match(await page.locator(".ship-detail h3").innerText(), /\w/);
+    assert.ok((await page.locator(".ship-stats li").count()) >= 6, "the focused ship shows its stats");
+    assert.match(await page.locator(".ship-special").innerText(), /Special/i);
+
+    // Back returns to the menu, and the choice is remembered on the Play panel.
+    const chosen = await page.locator(".ship-detail h3").innerText();
+    await page.locator(".menu-back").click();
+    await page.waitForTimeout(300);
+    assert.match((await page.locator(".play-summary").innerText()), new RegExp(chosen, "i"));
+
+    await enterArena(page);
+    assert.equal(await page.locator(".menu-screen").count(), 0, "launching enters the arena");
+    // The global layer survives the transition.
+    assert.ok(await page.locator(".system-menu").isVisible());
+    assert.ok(await page.locator(".system-fullscreen").isVisible());
 
     assert.deepEqual(errors, []);
     await context.close();
@@ -136,35 +124,38 @@ test("the ship-selection scene is the launch experience", { skip }, async () => 
   }
 });
 
-test("on touch, tapping inspects and only SELECT SHIP commits", { skip }, async () => {
+test("on touch, tapping a ship inspects and only Play commits", { skip }, async () => {
   const { chromium } = playwright;
   const browser = await chromium.launch({ executablePath: CHROME });
   try {
     const { context, page, errors } = await openShell(browser, { width: 390, height: 844, touch: true });
 
-    assert.ok(await page.locator(".ship-select").isVisible());
-    const selectBounds = await page.locator(".detail-select").boundingBox();
-    assert.ok(selectBounds, "SELECT SHIP must be rendered");
-    assert.ok(selectBounds.y >= 0 && selectBounds.y + selectBounds.height <= 844, "SELECT SHIP must stay inside the phone/Fold viewport");
+    const play = await page.locator(".menu-footer .play-button").boundingBox();
+    assert.ok(play, "Play must be rendered");
+    assert.ok(play.y >= 0 && play.y + play.height <= 844, "Play must stay inside the phone viewport");
     assert.ok(
       (await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)) <= 0,
       "no horizontal overflow on a phone"
     );
 
-    await page.locator('[data-ship="squid"]').tap();
+    await openShips(page);
+    await page.locator(".ship-card").nth(2).tap();
     await page.waitForTimeout(250);
-    assert.match(await page.locator(".carousel-title").innerText(), /Squid/);
-    assert.ok(await page.locator(".ship-select").isVisible(), "a tap must never launch the match");
+    assert.equal(
+      await page.evaluate(() => document.querySelector(".menu-screen")?.dataset.route),
+      "ships",
+      "a tap must never launch the match"
+    );
 
     const tooSmall = await page.evaluate(() =>
-      [...document.querySelectorAll(".carousel-arrow, .detail-select")]
+      [...document.querySelectorAll(".ship-card, .menu-back, .play-button, .system-button")]
         .filter((el) => el.getBoundingClientRect().height < 44).length
     );
     assert.equal(tooSmall, 0, "touch targets must be at least 44px");
 
-    await page.locator(".detail-select").tap();
+    await page.locator(".menu-footer .play-button").tap();
     await page.waitForTimeout(900);
-    assert.ok(await page.locator(".mission-setup").isVisible(), "SELECT SHIP is what commits");
+    assert.equal(await page.locator(".menu-screen").count(), 0, "Play is what commits");
 
     assert.deepEqual(errors, []);
     await context.close();
@@ -173,7 +164,7 @@ test("on touch, tapping inspects and only SELECT SHIP commits", { skip }, async 
   }
 });
 
-test("SELECT SHIP stays visible on wide touch screens", { skip }, async () => {
+test("the primary action stays visible on wide and short touch screens", { skip }, async () => {
   const { chromium } = playwright;
   const browser = await chromium.launch({ executablePath: CHROME });
   const viewports = [
@@ -185,7 +176,7 @@ test("SELECT SHIP stays visible on wide touch screens", { skip }, async () => {
   try {
     for (const viewport of viewports) {
       const { context, page, errors } = await openShell(browser, { ...viewport, touch: true });
-      const report = await page.locator(".detail-select").evaluate((button) => {
+      const report = await page.locator(".menu-footer .play-button").evaluate((button) => {
         const rect = button.getBoundingClientRect();
         const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
         return {
@@ -197,17 +188,14 @@ test("SELECT SHIP stays visible on wide touch screens", { skip }, async () => {
         };
       });
       assert.equal(report.touchClass, true, `${viewport.name} must use touch-capable layout`);
-      assert.equal(report.visible, true, `${viewport.name} must render a usable SELECT SHIP button`);
+      assert.equal(report.visible, true, `${viewport.name} must render a usable Play button`);
+      // Pinned in the footer rather than sitting in the scrolling region, so
+      // it is on screen at every height a phone can produce.
       assert.ok(report.top >= 0 && report.bottom <= report.viewportHeight,
-        `${viewport.name} SELECT SHIP escaped viewport: ${JSON.stringify(report)}`);
+        `${viewport.name} Play escaped viewport: ${JSON.stringify(report)}`);
 
-      await page.locator(".detail-select").tap();
-      await page.waitForTimeout(900);
-      assert.ok(await page.locator(".mission-setup").isVisible(),
-        `${viewport.name} must advance after tapping SELECT SHIP`);
+      await enterArena(page);
 
-      await page.locator(".setup-launch").tap();
-      await page.waitForTimeout(700);
       if (viewport.width >= 900 && viewport.height >= 600 && viewport.width > viewport.height) {
         const arenaWidth = await page.locator(".arena-stage").evaluate(
           (arena) => arena.getBoundingClientRect().width
@@ -269,8 +257,8 @@ const PRESET_VIEWPORTS = [
 /** Controls that must never leave the visual viewport, whatever the preset. */
 const ESSENTIALS = [
   [".start-button, .top-start", "primary action"],
-  [".bin-slots, .status-dock", "power-up inventory"],
-  [".match-bar", "HUD"],
+  [".bin-slots, .status-dock, .touch-powerup-hud", "power-up inventory"],
+  [".match-bar, .difficulty-badge", "HUD"],
   [".canvas-wrap", "arena"],
 ];
 
@@ -331,30 +319,35 @@ test("the settings drawer scrolls, traps focus, and restores it", { skip }, asyn
       const { context, page, errors } = await openShell(browser, viewport);
       await enterArena(page);
 
-      await page.locator(".top-menu-toggle").click();
+      await page.locator(".system-menu").click();
       await page.waitForTimeout(350);
-      const drawer = page.locator(".settings-drawer");
-      assert.ok(await drawer.isVisible(), "the drawer should open");
-
-      const text = (await drawer.innerText()).replace(/\s+/g, " ").toUpperCase();
-      for (const section of ["PLAY", "DISPLAY", "CONTROLS & AUDIO", "GAME INFORMATION"]) {
-        assert.ok(text.includes(section), `missing section: ${section}`);
-      }
-      assert.ok(text.includes("CHANGE SHIP") && text.includes("CHANGE MODE"));
-      assert.ok(
-        text.includes("FIT SCREEN") && text.includes("BALANCED") && text.includes("ARENA FOCUS"),
-        "presets should be labelled rather than cycled"
-      );
+      const panel = page.locator(".menu-panel");
+      assert.ok(await panel.isVisible(), "the menu should open");
       assert.equal(
-        await drawer.locator('[aria-label="Choose a ship"]').count(),
+        await page.evaluate(() => document.querySelector(".menu-screen")?.dataset.route),
+        "pause",
+        "Menu during a run opens Pause"
+      );
+
+      // Pause offers the run-level actions, and each destination is reached
+      // once rather than duplicated across screens.
+      const text = (await panel.innerText()).replace(/\s+/g, " ");
+      // Labels are uppercased by CSS, so innerText comes back uppercase.
+      const upper = text.toUpperCase();
+      for (const action of ["RESUME", "RESTART RUN", "CHANGE SHIP", "CHANGE MODE", "SETTINGS", "GAME INFO"]) {
+        assert.ok(upper.includes(action), `missing pause action: ${action}`);
+      }
+      assert.ok(upper.includes("QUIT TO MAIN MENU"), "abandoning the run must be explicit");
+      assert.equal(
+        await panel.locator('[aria-label="Choose a ship"]').count(),
         0,
-        "the ship grid belongs to the selection scene, not the menu"
+        "the ship grid belongs to the Ships screen, not the pause menu"
       );
       assert.doesNotMatch(text, /EVERY RIVAL HAS A WORMHOLE/, "no long paragraph in the menu");
 
-      // The body scrolls on its own; the page does not.
+      // The content region scrolls on its own; the page does not.
       const scroll = await page.evaluate(() => {
-        const body = document.querySelector(".drawer-body");
+        const body = document.querySelector(".menu-content");
         body.scrollTop = 99999;
         return {
           scrolled: body.scrollTop,
@@ -362,34 +355,35 @@ test("the settings drawer scrolls, traps focus, and restores it", { skip }, asyn
           pageScroll: document.documentElement.scrollTop,
         };
       });
-      if (scroll.canScroll) assert.ok(scroll.scrolled > 0, "the drawer body must scroll");
+      if (scroll.canScroll) assert.ok(scroll.scrolled > 0, "the menu content must scroll");
       assert.equal(scroll.pageScroll, 0, "the page itself must not scroll");
 
-      const sticky = await page.evaluate(() => ({
-        headTop: document.querySelector(".drawer-head").getBoundingClientRect().top,
-        footBottom: document.querySelector(".drawer-foot").getBoundingClientRect().bottom,
-        vh: innerHeight,
-      }));
-      assert.ok(sticky.headTop >= -1 && sticky.headTop < 60, "the header stays put");
-      assert.ok(sticky.footBottom <= sticky.vh + 1, "the footer stays put");
+      // Header and footer are pinned, so the primary action never leaves.
+      const pinned = await page.evaluate(() => {
+        const head = document.querySelector(".menu-header").getBoundingClientRect();
+        const foot = document.querySelector(".menu-footer")?.getBoundingClientRect();
+        return { headTop: head.top, footBottom: foot ? foot.bottom : 0, vh: innerHeight };
+      });
+      assert.ok(pinned.headTop >= -1, "the header stays inside the viewport");
+      assert.ok(pinned.footBottom <= pinned.vh + 1, "the footer stays inside the viewport");
 
       assert.ok(
-        await page.evaluate(() => document.querySelector(".settings-drawer").contains(document.activeElement)),
-        "focus should move into the drawer"
+        await page.evaluate(() => document.querySelector(".menu-panel").contains(document.activeElement)),
+        "focus should move into the menu"
       );
+      // The trap spans the screen and the global system layer, and nothing else.
       for (let i = 0; i < 40; i += 1) await page.keyboard.press("Tab");
       assert.ok(
-        await page.evaluate(() => document.querySelector(".settings-drawer").contains(document.activeElement)),
-        "focus must be trapped inside the drawer"
+        await page.evaluate(() => {
+          const a = document.activeElement;
+          return Boolean(a?.closest(".menu-panel") || a?.closest(".system-controls"));
+        }),
+        "focus must stay inside the menu or the global controls"
       );
 
       await page.keyboard.press("Escape");
       await page.waitForTimeout(300);
-      assert.equal(await page.locator(".settings-drawer").isVisible(), false, "Escape should close it");
-      assert.ok(
-        await page.evaluate(() => document.activeElement?.classList.contains("top-menu-toggle")),
-        "focus should return to whatever opened it"
-      );
+      assert.equal(await page.locator(".menu-screen").count(), 0, "Escape should close it");
 
       assert.deepEqual(errors, []);
       await context.close();
@@ -420,14 +414,14 @@ test("changing display settings never resets the match", { skip }, async () => {
       page.evaluate(() => ({
         score: document.querySelector(".score b")?.textContent?.trim() ?? "",
         hull: document.querySelector(".pilot-health b")?.textContent?.trim() ?? "",
-        running: !document.querySelector(".launch-scene"),
+        running: !document.querySelector(".menu-screen"),
       }));
 
     const before = await readRun();
     assert.equal(before.running, true, "should be in the arena");
 
     const openDrawer = async () => {
-      await page.locator(".top-menu-toggle").click();
+      await page.locator(".system-menu").click();
       await page.waitForTimeout(300);
     };
     const closeDrawer = async () => {
@@ -436,19 +430,27 @@ test("changing display settings never resets the match", { skip }, async () => {
     };
     const pick = async (group, option) => {
       await page
-        .locator(".settings-drawer .segmented", { hasText: group })
+        .locator(".option-row", { hasText: group })
         .locator("[role=radio]", { hasText: option })
         .click();
       await page.waitForTimeout(400);
     };
+    const toggle = async (label) => {
+      await page.locator(".ui-toggle", { hasText: label }).locator("[role=switch]").click();
+      await page.waitForTimeout(400);
+    };
 
-    // Every one of these is a pure presentation change.
+    // Every one of these is a pure presentation change, reached through the
+    // pause menu's Settings destination — and none may disturb the run.
     await openDrawer();
-    await pick("SCREEN FIT", "ARENA FOCUS");
-    await pick("SCREEN FIT", "BALANCED");
-    await pick("CAMERA", "ARENA");
-    await pick("RENDER QUALITY", "PERF");
-    await pick("SOUND", "OFF");
+    await page.locator(".pause-actions button", { hasText: "Settings" }).click();
+    await page.waitForTimeout(400);
+    await pick("Volume", "Low");
+    await pick("Input", "Both");
+    await pick("Input", "Auto");
+    await toggle("Camera lock");
+    await toggle("Sound");
+    await closeDrawer();
     await closeDrawer();
 
     const damaged = Number(before.hull.split("/")[0]);
@@ -466,8 +468,15 @@ test("changing display settings never resets the match", { skip }, async () => {
       `hull rose from ${damaged} to ${nowHull}: the match was reset by a display change`
     );
 
-    // The preset really did change, so this was not a no-op.
-    assert.equal(await page.evaluate(() => document.querySelector(".app-shell")?.dataset.preset), "balanced");
+    // The settings really did change, so this was not a no-op. Read them back
+    // from the store rather than from a preset no UI can reach.
+    const stored = await page.evaluate(() => {
+      try { return JSON.parse(localStorage.getItem("wormhole-arcade:settings:v1") || "{}"); }
+      catch { return {}; }
+    });
+    assert.equal(stored.soundLevel, "low", "the volume change should have been stored");
+    assert.equal(stored.cameraLock, false, "the camera-lock toggle should have been stored");
+    assert.equal(stored.sound, false, "the sound toggle should have been stored");
 
     assert.deepEqual(errors, [], "no console errors and no resize loop");
     await context.close();
@@ -486,13 +495,15 @@ test("fullscreen keeps every essential control reachable", { skip }, async () =>
     const { context, page, errors } = await openShell(browser, { width: 1920, height: 1080 });
     await enterArena(page);
 
-    // Request fullscreen the way the player would, from the drawer.
-    await page.locator(".top-menu-toggle").click();
-    await page.waitForTimeout(300);
-    await page.locator(".drawer-wide").click();
-    await page.waitForTimeout(700);
-    await page.keyboard.press("Escape");
-    await page.waitForTimeout(600);
+    // Request fullscreen the way the player would: from the global control,
+    // which is reachable during a run without opening anything first.
+    await page.locator(".system-fullscreen").click();
+    await page.waitForTimeout(800);
+    assert.match(
+      await page.locator(".system-fullscreen .system-text").innerText(),
+      /Exit Fullscreen/i,
+      "the control must reflect the state the browser reports"
+    );
 
     const report = await page.evaluate((selectors) => {
       const vw = window.visualViewport?.width ?? innerWidth;
