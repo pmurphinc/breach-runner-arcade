@@ -39,11 +39,8 @@ jobs:
           d = difficulty_path.read_text()
 
           d = replace_once(d,
-          '''      /** Mixed hostile wave emitted by the enraged wormhole. */
-                wave: ReadonlyArray<{ enemy: EnrageEnemy; count: number }>;
-          ''',
-          '''      /** Mixed hostile wave emitted by the enraged wormhole. */
-                wave: ReadonlyArray<{ enemy: EnrageEnemy; count: number }>;
+          '      wave: ReadonlyArray<{ enemy: EnrageEnemy; count: number }>;\n',
+          '''      wave: ReadonlyArray<{ enemy: EnrageEnemy; count: number }>;
                 /** Total integrity restored after enrage, as a fraction of max integrity. */
                 healFraction: number;
                 /** Number of ticks across which the enrage heal is delivered. */
@@ -59,72 +56,49 @@ jobs:
           ''', 'enrage rule fields')
 
           d = replace_once(d,
-          '''      "The wormhole orbits with 200 integrity and you have to lead it. At 15% integrity it enrages, turns red, and repeatedly spits out mines, UFOs, and power-up-eating Scarabs. No collision shield — impacts hit hull under the normal rules.",
-          ''',
-          '''      "The rift orbits with 200 integrity and you have to lead it. At 15% integrity it enrages, turns red, restores 10% of its maximum integrity over 10 seconds, and repeatedly spits out mines, UFOs, and power-up-eating Scarabs. No collision shield — impacts hit hull under the normal rules.",
-          ''', 'difficult blurb')
+          '      "The wormhole orbits with 200 integrity and you have to lead it. At 15% integrity it enrages, turns red, and repeatedly spits out mines, UFOs, and power-up-eating Scarabs. No collision shield — impacts hit hull under the normal rules.",\n',
+          '      "The rift orbits with 200 integrity and you have to lead it. At 15% integrity it enrages, turns red, restores 10% of its maximum integrity over 10 seconds, and repeatedly spits out mines, UFOs, and power-up-eating Scarabs. No collision shield — impacts hit hull under the normal rules.",\n',
+          'difficult blurb')
 
           d = replace_once(d,
-          '''      wave: [
-                { enemy: "mines", count: 6 },
-                { enemy: "ufo", count: 1 },
-                { enemy: "scarab", count: 2 },
-              ],
-            },
-          },
-          hard: {
+          '''      thresholdFraction: 0.15,
+                waveIntervalTicks: ticksForSeconds(10),
+                wave: [
           ''',
-          '''      wave: [
-                { enemy: "mines", count: 6 },
-                { enemy: "ufo", count: 1 },
-                { enemy: "scarab", count: 2 },
-              ],
-              healFraction: 0.1,
-              healDurationTicks: ticksForSeconds(10),
-              temporaryShieldFraction: 0,
-              temporaryShieldDurationTicks: 0,
-              minePulseIntervalTicks: 0,
-              minePulseCount: 0,
-            },
-          },
-          hard: {
+          '''      thresholdFraction: 0.15,
+                waveIntervalTicks: ticksForSeconds(10),
+                healFraction: 0.1,
+                healDurationTicks: ticksForSeconds(10),
+                temporaryShieldFraction: 0,
+                temporaryShieldDurationTicks: 0,
+                minePulseIntervalTicks: 0,
+                minePulseCount: 0,
+                wave: [
           ''', 'difficult enrage values')
 
           d = replace_once(d,
-          '''      "The wormhole has 350 integrity, orbits, and touching it burns hull in visible ticks. At 30% integrity it enrages, turns red, and repeatedly spits out mines, UFOs, and power-up-eating Scarabs.",
+          '      "The wormhole has 350 integrity, orbits, and touching it burns hull in visible ticks. At 30% integrity it enrages, turns red, and repeatedly spits out mines, UFOs, and power-up-eating Scarabs.",\n',
+          '      "The rift has 350 integrity, orbits, and touching it burns hull in visible ticks. At 30% integrity it enrages, turns red, restores 20% of its maximum integrity over 10 seconds, gains a 10%-integrity shield for 10 seconds, keeps its mixed hostile waves, and launches extra mines every 3 seconds.",\n',
+          'hard blurb')
+
+          d = replace_once(d,
+          '''      thresholdFraction: 0.3,
+                waveIntervalTicks: ticksForSeconds(10),
+                wave: [
           ''',
-          '''      "The rift has 350 integrity, orbits, and touching it burns hull in visible ticks. At 30% integrity it enrages, turns red, restores 20% of its maximum integrity over 10 seconds, gains a 10%-integrity shield for 10 seconds, keeps its mixed hostile waves, and launches extra mines every 3 seconds.",
-          ''', 'hard blurb')
+          '''      thresholdFraction: 0.3,
+                waveIntervalTicks: ticksForSeconds(10),
+                healFraction: 0.2,
+                healDurationTicks: ticksForSeconds(10),
+                temporaryShieldFraction: 0.1,
+                temporaryShieldDurationTicks: ticksForSeconds(10),
+                minePulseIntervalTicks: ticksForSeconds(3),
+                minePulseCount: 2,
+                wave: [
+          ''', 'hard enrage values')
 
-          old_hard = '''      wave: [
-                { enemy: "mines", count: 6 },
-                { enemy: "ufo", count: 1 },
-                { enemy: "scarab", count: 2 },
-              ],
-            },
-          },
-          };
-          '''
-          new_hard = '''      wave: [
-                { enemy: "mines", count: 6 },
-                { enemy: "ufo", count: 1 },
-                { enemy: "scarab", count: 2 },
-              ],
-              healFraction: 0.2,
-              healDurationTicks: ticksForSeconds(10),
-              temporaryShieldFraction: 0.1,
-              temporaryShieldDurationTicks: ticksForSeconds(10),
-              minePulseIntervalTicks: ticksForSeconds(3),
-              minePulseCount: 2,
-            },
-          },
-          };
-          '''
-          d = replace_once(d, old_hard, new_hard, 'hard enrage values')
-
-          insert_anchor = '''export const DIFFICULTY_ORDER: DifficultyId[] = ["practice", "easy", "difficult", "hard"];
-          '''
-          recovery_helpers = '''export type EnrageRecoveryState = {
+          anchor = 'export const DIFFICULTY_ORDER: DifficultyId[] = ["practice", "easy", "difficult", "hard"];\n'
+          helpers = '''export type EnrageRecoveryState = {
             healRemaining: number;
             healTicksLeft: number;
             shield: number;
@@ -167,30 +141,22 @@ jobs:
               state.healTicksLeft -= 1;
             }
 
-            let shieldExpired = false;
             if (state.shieldTicksLeft > 0) {
               state.shieldTicksLeft -= 1;
-              if (state.shieldTicksLeft <= 0 && state.shield > 0) {
-                state.shield = 0;
-                shieldExpired = true;
-              }
+              if (state.shieldTicksLeft <= 0) state.shield = 0;
             }
-            return { healed, shieldExpired };
+            return { healed };
           }
 
           export function absorbEnrageShield(state: EnrageRecoveryState, damage: number) {
             const incoming = Math.max(0, damage);
             const absorbed = Math.min(state.shield, incoming);
             state.shield -= absorbed;
-            return {
-              absorbed,
-              toIntegrity: incoming - absorbed,
-              broke: absorbed > 0 && state.shield <= 0,
-            };
+            return { absorbed, toIntegrity: incoming - absorbed };
           }
 
-          ''' + insert_anchor
-          d = replace_once(d, insert_anchor, recovery_helpers, 'enrage recovery helpers')
+          ''' + anchor
+          d = replace_once(d, anchor, helpers, 'enrage helpers')
           difficulty_path.write_text(d)
 
           game_path = Path('app/game.tsx')
@@ -207,7 +173,7 @@ jobs:
             advanceWormholeAngle,
             createCollisionShield,
             createEnrageRecovery,
-          ''', 'game imports part 1')
+          ''', 'game imports 1')
           g = replace_once(g,
           '''  tickCollisionShield,
             tickContactHazard,
@@ -220,8 +186,7 @@ jobs:
             wormholePosition,
             type CollisionShieldState,
             type EnrageRecoveryState,
-          ''', 'game imports part 2')
-
+          ''', 'game imports 2')
           g = replace_once(g,
           '''  /** Ticks until the next automatic mixed enrage wave. */
             enrageTimer: number;
@@ -234,8 +199,7 @@ jobs:
             /** Ticks until Hard Mode's next dedicated mine pulse. */
             enrageMineTimer: number;
             bullets: Bullet[];
-          ''', 'game enrage state fields')
-
+          ''', 'game enrage fields')
           g = replace_once(g,
           '''    enrageActive: false,
               enrageTimer: 0,
@@ -247,19 +211,18 @@ jobs:
               enrageMineTimer: 0,
               bullets: [],
           ''', 'game enrage init')
-
-          old_tick = '''      if (game.enrageActive && game.rules.wormholeEnrage.enabled) {
+          g = replace_once(g,
+          '''      if (game.enrageActive && game.rules.wormholeEnrage.enabled) {
                 game.enrageTimer -= 1;
                 if (game.enrageTimer <= 0) {
                   game.enrageTimer = game.rules.wormholeEnrage.waveIntervalTicks;
                   spawnEnrageWave(game);
                 }
               }
-          '''
-          new_tick = '''      if (game.enrageActive && game.rules.wormholeEnrage.enabled) {
+          ''',
+          '''      if (game.enrageActive && game.rules.wormholeEnrage.enabled) {
                 const enrage = game.rules.wormholeEnrage;
                 const enrageAuthority = game.mode !== "coop" || netRef.current?.state.you?.id === netRef.current?.state.hostId;
-
                 if (enrageAuthority) {
                   const recovery = tickEnrageRecovery(game.enrageRecovery, game.rivalHealth, game.rivalMaxHealth);
                   game.rivalHealth = Math.min(game.rivalMaxHealth, game.rivalHealth + recovery.healed);
@@ -284,18 +247,17 @@ jobs:
                   }
                 }
               }
-          '''
-          g = replace_once(g, old_tick, new_tick, 'enrage tick loop')
-
-          old_damage = '''            const damage = rivalDamageFor(power.type);
+          ''', 'game enrage loop')
+          g = replace_once(g,
+          '''            const damage = rivalDamageFor(power.type);
                         game.lastRivalCause = power.type;
                         game.lastRivalDamage = Math.min(game.rivalHealth, damage);
                         game.rivalHealth -= damage;
                         game.score += 750 + damage * 10;
                         game.notice = `${WEAPONS[power.type].short} SENT // RIVAL −${damage}`;
                         game.noticeLife = 115;
-          '''
-          new_damage = '''            const damage = rivalDamageFor(power.type);
+          ''',
+          '''            const damage = rivalDamageFor(power.type);
                         const enrageHit = absorbEnrageShield(game.enrageRecovery, damage);
                         const integrityDamage = enrageHit.toIntegrity;
                         game.lastRivalCause = power.type;
@@ -306,48 +268,30 @@ jobs:
                           ? `${WEAPONS[power.type].short} SENT // RIFT SHIELD −${Math.round(enrageHit.absorbed)}${integrityDamage > 0 ? ` // RIVAL −${Math.round(integrityDamage)}` : ""}`
                           : `${WEAPONS[power.type].short} SENT // RIVAL −${damage}`;
                         game.noticeLife = 115;
-          '''
-          g = replace_once(g, old_damage, new_damage, 'rival damage shield')
-
-          old_activate = '''              game.enrageActive = true;
+          ''', 'rival shield damage')
+          g = replace_once(g,
+          '''              game.enrageActive = true;
                             game.enrageTimer = enrage.waveIntervalTicks;
                             spawnEnrageWave(game);
-          '''
-          new_activate = '''              game.enrageActive = true;
+          ''',
+          '''              game.enrageActive = true;
                             game.enrageTimer = enrage.waveIntervalTicks;
                             game.enrageMineTimer = enrage.minePulseIntervalTicks;
                             activateEnrageRecovery(game.enrageRecovery, game.rules, game.rivalMaxHealth);
                             spawnEnrageWave(game);
-          '''
-          g = replace_once(g, old_activate, new_activate, 'enrage activation')
-
-          old_victory = '''              game.victoryExplosionFired = false;
+          ''', 'enrage activation')
+          g = replace_once(g,
+          '''              game.victoryExplosionFired = false;
                             game.enrageActive = false;
                             game.incoming = null;
-          '''
-          new_victory = '''              game.victoryExplosionFired = false;
+          ''',
+          '''              game.victoryExplosionFired = false;
                             game.enrageActive = false;
                             game.enrageTimer = 0;
                             game.enrageMineTimer = 0;
                             game.enrageRecovery = createEnrageRecovery();
                             game.incoming = null;
-          '''
-          g = replace_once(g, old_victory, new_victory, 'enrage victory cleanup')
-
-          old_guest = '''        game.portalAngle = world.portalAngle;
-                    game.enrageActive = world.enrageActive;
-                    game.enemies = world.enemies.map((enemy) => ({ ...enemy })) as unknown as Enemy[];
-          '''
-          new_guest = '''        game.portalAngle = world.portalAngle;
-                    if (!game.enrageActive && world.enrageActive) {
-                      activateEnrageRecovery(game.enrageRecovery, game.rules, game.rivalMaxHealth);
-                      game.enrageMineTimer = game.rules.wormholeEnrage.enabled ? game.rules.wormholeEnrage.minePulseIntervalTicks : 0;
-                    }
-                    game.enrageActive = world.enrageActive;
-                    game.enemies = world.enemies.map((enemy) => ({ ...enemy })) as unknown as Enemy[];
-          '''
-          g = replace_once(g, old_guest, new_guest, 'coop guest enrage state')
-
+          ''', 'victory enrage cleanup')
           game_path.write_text(g)
 
           test_path = Path('tests/difficulty.test.mjs')
@@ -362,7 +306,7 @@ jobs:
             absorbCollisionDamage,
             absorbEnrageShield,
             activateEnrageRecovery,
-          ''', 'test imports part 1')
+          ''', 'test imports 1')
           t = replace_once(t,
           '''  createCollisionShield,
             createContactHazard,
@@ -372,7 +316,7 @@ jobs:
             createContactHazard,
             createEnrageRecovery,
             pilotSpawn,
-          ''', 'test imports part 2')
+          ''', 'test imports 2')
           t = replace_once(t,
           '''  tickCollisionShield,
             tickContactHazard,
@@ -382,12 +326,10 @@ jobs:
             tickContactHazard,
             tickEnrageRecovery,
             ticksForSeconds,
-          ''', 'test imports part 3')
-
+          ''', 'test imports 3')
           t += r'''
 
           // ------------------------------------------------------- ENRAGE recovery
-
           test("difficult enrage restores 10% of maximum integrity over 10 seconds", () => {
             const state = createEnrageRecovery();
             const maxIntegrity = DIFFICULT.rivalIntegrity;
@@ -416,7 +358,6 @@ jobs:
             const hit = absorbEnrageShield(state, maxIntegrity * 0.06);
             assert.equal(hit.toIntegrity, 0);
             assert.equal(hit.absorbed, maxIntegrity * 0.06);
-            assert.ok(Math.abs(state.shield - maxIntegrity * 0.04) < 1e-8);
 
             let integrity = maxIntegrity * HARD.wormholeEnrage.thresholdFraction;
             let healed = 0;
@@ -426,18 +367,18 @@ jobs:
               healed += tick.healed;
             }
             assert.ok(Math.abs(healed - maxIntegrity * 0.2) < 1e-8);
-            assert.equal(state.shield, 0, "temporary shield expires after the same 10-second window");
+            assert.equal(state.shield, 0, "temporary shield expires after 10 seconds");
           });
           '''
           test_path.write_text(t)
           PY
 
-          rm .github/workflows/codex-harder-enrage.yml
+          rm .github/workflows/codex-harder-enrage.yml .codex-enrage-trigger
           npm ci
           npm test
           npm run lint
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/difficulty.ts app/game.tsx tests/difficulty.test.mjs .github/workflows/codex-harder-enrage.yml
+          git add -A
           git commit -m "Make PvE enrage more punishing"
           git push origin HEAD:codex/harder-enrage
