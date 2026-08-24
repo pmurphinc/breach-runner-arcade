@@ -25,6 +25,7 @@ jobs:
         run: |
           node scripts/phase1-ui-cleanup.mjs
           node scripts/fix-phase1-stale-tests.mjs
+          node scripts/fix-phase1-lint.mjs
       - name: Upload patched Phase 1 source
         uses: actions/upload-artifact@v4
         with:
