@@ -1127,9 +1127,9 @@ function MultiplayerLobby({
                   <small>{net.you?.ship?.toUpperCase() ?? "—"}</small>
                   <i className={net.you?.ready ? "ok" : ""}>{net.you?.ready ? "READY" : "NOT READY"}</i>
                 </div>
-                <em aria-hidden="true">VS</em>
+                <em aria-hidden="true">{net?.kind === "coop" ? "+" : "VS"}</em>
                 <div>
-                  <span>OPPONENT</span>
+                  <span>{net?.kind === "coop" ? "ALLY" : "OPPONENT"}</span>
                   <b>{net.opponent.name}</b>
                   <small>{net.opponent.ship.toUpperCase()}</small>
                   <i className={net.opponent.ready ? "ok" : ""}>
@@ -1395,12 +1395,15 @@ function MissionSetup({
             {rules.collisionShield.enabled ? "collision shield" : "no collision shield"}
             {" · "}
             {rules.contactHazard.enabled ? "contact hazard" : "contact harmless"}
+            {mode === "coop" ? " · 2× rival integrity · 2× enemies" : ""}
             <button type="button" className="more-info" onClick={() => setMoreInfo((v) => !v)} aria-expanded={moreInfo}>
               {moreInfo ? "LESS" : "MORE INFO"}
             </button>
           </p>
           {moreInfo ? <p className="setup-blurb">{rules.blurb}</p> : null}
-          <button type="button" className="setup-launch" onClick={onLaunch}>LAUNCH MISSION</button>
+          <button type="button" className="setup-launch" onClick={mode === "coop" ? onOpenLobby : onLaunch}>
+            {mode === "coop" ? "OPEN CO-OP LOBBY" : "LAUNCH MISSION"}
+          </button>
         </>
       ) : (
         <>
@@ -2090,6 +2093,16 @@ export default function WormholeGame() {
     if (game.mode === "pve" || serverHull === null) return;
     game.player.health = serverHull;
   }, [serverHull]);
+
+  const coopRival = net?.rival ?? null;
+  useEffect(() => {
+    if (!coopRival) return;
+    const game = gameRef.current;
+    if (game.mode !== "coop") return;
+    game.rivalHealth = coopRival.hull;
+    game.rivalMaxHealth = coopRival.maxHull;
+    game.score = coopRival.score;
+  }, [coopRival]);
 
   useEffect(() => {
     if (!netResult) return;
@@ -2833,6 +2846,9 @@ export default function WormholeGame() {
 
       game.cycles += 1;
       game.elapsedTicks += 1;
+      if (game.mode === "coop" && game.cycles % 5 === 0) {
+        netRef.current?.reportPosition(player.x, player.y, player.angle);
+      }
       game.shotCycle -= 1;
       game.botTimer -= 1;
       game.noticeLife = Math.max(0, game.noticeLife - 1);
@@ -3608,6 +3624,28 @@ export default function WormholeGame() {
           ctx.stroke();
         }
         ctx.restore();
+
+        const teammate = netRef.current?.state.teammate;
+        if (game.mode === "coop" && teammate) {
+          ctx.save();
+          ctx.translate(teammate.x, teammate.y);
+          ctx.rotate(teammate.angle * DEG);
+          ctx.strokeStyle = "#b6ff57";
+          ctx.fillStyle = "rgba(182, 255, 87, .12)";
+          ctx.lineWidth = 2;
+          ctx.setLineDash([5, 4]);
+          drawShipShape(ctx, teammate.ship as ShipId, teammate.ship === "flagship" ? .82 : 1);
+          ctx.fill();
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.restore();
+          ctx.save();
+          ctx.fillStyle = "#b6ff57";
+          ctx.font = "700 12px monospace";
+          ctx.textAlign = "center";
+          ctx.fillText("ALLY", teammate.x, teammate.y - 30);
+          ctx.restore();
+        }
 
         if (player.wingOverdrive > 0) {
           ctx.save();
