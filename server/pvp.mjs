@@ -197,10 +197,10 @@ function handle(matches, player, message, now, send) {
       return;
     }
     case "queue":
-      matches.enqueue(player, now);
+      matches.enqueue(player, { kind: message.kind, difficulty: message.difficulty }, now);
       return;
     case "create":
-      matches.createPrivate(player, now);
+      matches.createPrivate(player, { kind: message.kind, difficulty: message.difficulty }, now);
       return;
     case "join": {
       const result = matches.join(player, message.code, now);
@@ -238,6 +238,11 @@ function handle(matches, player, message, now, send) {
     }
     case "transmit": {
       const result = matches.transmit(player, message, now);
+      if (!result.ok) send({ type: "error", code: result.code });
+      return;
+    }
+    case "position": {
+      const result = matches.updatePosition(player, message, now);
       if (!result.ok) send({ type: "error", code: result.code });
       return;
     }
