@@ -1,8 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  VICTORY_SUCTION_FREQUENCY,
+  VICTORY_SUCTION_SECONDS,
+  VICTORY_TIMING,
   VICTORY_TOTAL_SECONDS,
   pullVelocity,
+  victorySuctionState,
   victoryVisualState,
 } from "../app/victory-sequence.ts";
 
@@ -22,6 +26,27 @@ test("the portal becomes a tiny dot before the blast", () => {
   assert.ok(collapse.portalScale < 0.72);
   assert.equal(blast.portalScale, 0.02);
   assert.ok(blast.shake > 0);
+});
+
+test("the suction riser spans pull and collapse but stops before blast", () => {
+  const remainingAt = (elapsedSeconds) => totalTicks - Math.round(elapsedSeconds * 1000 / tickMs);
+  const pullStart = victorySuctionState(remainingAt(VICTORY_TIMING.freezeSeconds + tickMs / 1000), tickMs);
+  const lateCollapse = victorySuctionState(remainingAt(
+    VICTORY_TIMING.freezeSeconds + VICTORY_SUCTION_SECONDS - tickMs / 1000,
+  ), tickMs);
+  const blast = victorySuctionState(remainingAt(
+    VICTORY_TIMING.freezeSeconds + VICTORY_SUCTION_SECONDS + tickMs / 1000,
+  ), tickMs);
+
+  assert.equal(VICTORY_SUCTION_SECONDS, VICTORY_TIMING.pullSeconds + VICTORY_TIMING.collapseSeconds);
+  assert.equal(pullStart.active, true);
+  assert.equal(lateCollapse.active, true);
+  assert.equal(blast.active, false);
+  assert.ok(pullStart.frequencyHz >= VICTORY_SUCTION_FREQUENCY.startHz);
+  assert.ok(lateCollapse.frequencyHz > pullStart.frequencyHz);
+  assert.ok(lateCollapse.frequencyHz <= VICTORY_SUCTION_FREQUENCY.endHz);
+  assert.equal(blast.frequencyHz, VICTORY_SUCTION_FREQUENCY.endHz);
+  assert.equal(blast.remainingSeconds, 0);
 });
 
 test("pull velocity attracts objects without teleporting them", () => {

@@ -70,12 +70,23 @@ test('view profile owns HUD and canvas queue behavior', () => {
 });
 
 
+test('victory suction audio rises during pull and stops before the blast', () => {
+  const audio = game.slice(game.indexOf('const playVictorySuction'), game.indexOf('const sync'));
+  assert.match(audio, /remainingSeconds - 0\.06/);
+  assert.match(audio, /frequency\.exponentialRampToValueAtTime\(VICTORY_SUCTION_FREQUENCY\.endHz/);
+  assert.match(audio, /filter\.frequency\.exponentialRampToValueAtTime\(6200, end\)/);
+  const sequence = game.slice(game.indexOf('if \(game\.victorySequence > 0\)'), game.indexOf('game\.cycles \+= 1'));
+  assert.match(sequence, /victorySuctionState/);
+  assert.match(sequence, /suction\.active[\s\S]*playVictorySuction\(suction\.frequencyHz, suction\.remainingSeconds\)/);
+  assert.match(sequence, /!suction\.active[\s\S]*stopVictorySuction/);
+});
+
 test('canvas renderer starts after first-launch view selection', () => {
   const renderer = game.slice(
     game.indexOf('const canvas = canvasRef.current'),
     game.indexOf('const currentShip = selectedShip')
   );
-  assert.match(renderer, /\[play, playCue, sync, viewMode\]/,
+  assert.match(renderer, /\[play, playCue, playVictorySuction, stopVictorySuction, sync, viewMode\]/,
     'the render effect must rerun after the chooser mounts the canvas');
 });
 
