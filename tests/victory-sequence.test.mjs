@@ -12,12 +12,12 @@ const totalTicks = Math.round(VICTORY_TOTAL_SECONDS * 1000 / tickMs);
 test("victory progresses through freeze, pull, collapse, and blast", () => {
   assert.equal(victoryVisualState(totalTicks, tickMs).phase, "freeze");
   assert.equal(victoryVisualState(Math.round(totalTicks * 0.7), tickMs).phase, "pull");
-  assert.equal(victoryVisualState(Math.round(totalTicks * 0.2), tickMs).phase, "collapse");
+  assert.equal(victoryVisualState(Math.round(totalTicks * 0.3), tickMs).phase, "collapse");
   assert.equal(victoryVisualState(1, tickMs).phase, "blast");
 });
 
 test("the portal becomes a tiny dot before the blast", () => {
-  const collapse = victoryVisualState(Math.round(totalTicks * 0.15), tickMs);
+  const collapse = victoryVisualState(Math.round(totalTicks * 0.3), tickMs);
   const blast = victoryVisualState(1, tickMs);
   assert.ok(collapse.portalScale < 0.72);
   assert.equal(blast.portalScale, 0.02);
