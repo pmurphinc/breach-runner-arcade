@@ -288,6 +288,7 @@ export function parseClientMessage(raw) {
           age: Math.max(0, Math.min(1_000_000, enemy.age)),
           cooldown: Math.max(-10_000, Math.min(10_000, enemy.cooldown)),
           phase: enemy.phase,
+          rotationDir: enemy.rotationDir === -1 ? -1 : enemy.rotationDir === 1 ? 1 : undefined,
           armed: Boolean(enemy.armed),
           countdown: isFiniteNumber(enemy.countdown) ? enemy.countdown : undefined,
           blastRadius: isFiniteNumber(enemy.blastRadius) ? enemy.blastRadius : undefined,
