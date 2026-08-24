@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { WebSocket } from "ws";
 import { attachPvpServer } from "../server/pvp.mjs";
-import { PVP_PATH } from "../server/protocol.mjs";
+import { PROTOCOL_VERSION, PVP_PATH } from "../server/protocol.mjs";
 
 /** A bare HTTP server stands in for the vinext prod server. */
 function startHarness(env = {}) {
@@ -75,7 +75,7 @@ test("a guest connects, is named, and is offered the lobby", async () => {
     const welcome = await client.waitFor("welcome");
     assert.match(welcome.name, /^GUEST-\d{4}$/, "guests need no sign-in");
     assert.ok(welcome.resume, "a resume token is issued up front");
-    assert.equal(welcome.version, 1);
+    assert.equal(welcome.version, PROTOCOL_VERSION);
     client.close();
   } finally {
     await harness.close();

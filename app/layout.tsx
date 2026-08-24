@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { PRODUCT_DESCRIPTION, PRODUCT_TAGLINE, PRODUCT_TITLE } from "./product";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -11,19 +12,17 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://wormhole-arcade.pmurphinc.chatgpt.site"),
-  title: "Wormhole Arcade",
-  description: "A playable browser recreation of the fast-paced Centerfleet space-combat classic.",
+  title: PRODUCT_TITLE,
+  description: PRODUCT_DESCRIPTION,
   openGraph: {
-    title: "Wormhole Arcade",
-    description: "Shoot the wormhole. Collect the power. Send it back.",
+    title: PRODUCT_TITLE,
+    description: PRODUCT_TAGLINE,
     type: "website",
-    images: [{ url: "/og.png", width: 1731, height: 909, alt: "Wormhole Arcade — Survive the Void" }],
   },
   twitter: {
-    card: "summary_large_image",
-    title: "Wormhole Arcade",
-    description: "Shoot the wormhole. Collect the power. Send it back.",
-    images: ["/og.png"],
+    card: "summary",
+    title: PRODUCT_TITLE,
+    description: PRODUCT_TAGLINE,
   },
   icons: {
     icon: "/favicon.svg",

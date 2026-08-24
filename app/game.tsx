@@ -112,20 +112,24 @@ const ticksForSeconds = (seconds: number) => Math.round(seconds * 1000 / TICK_MS
 const wholeSecondsForTicks = (ticks: number) => Math.max(0, Math.ceil(ticks * TICK_MS / 1000));
 const DEFEAT_CAUSE_LABELS: Record<string, string> = {
   wall: "ARENA WALL",
-  wormhole_contact: "WORMHOLE CONTACT",
+  wormhole_contact: "RIFT CONTACT",
   hostile_projectile: "HOSTILE FIRE",
-  beam: "BEAM WEAPON",
-  nuke_blast: "NUKE BLAST",
-  mines_collision: "MINE COLLISION",
-  heatseeker_collision: "HEAT SEEKER COLLISION",
-  inflator_collision: "INFLATOR COLLISION",
-  ufo_collision: "UFO COLLISION",
-  turret_collision: "TURRET COLLISION",
-  gunship_collision: "GUNSHIP COLLISION",
-  scarab_collision: "SCARAB COLLISION",
-  wallcrawler_collision: "WALLCRAWLER COLLISION",
-  ghost_collision: "GHOST COLLISION",
-  artillery_collision: "ARTILLERY COLLISION",
+  beam: "SWEEP BEAM",
+  nuke_blast: "CORE BOMB BLAST",
+  mines_collision: "VOID MINE COLLISION",
+  heatseeker_collision: "TRACKER SWARM COLLISION",
+  inflator_collision: "PLASMA BLOOM COLLISION",
+  ufo_collision: "RAIDER DRONE COLLISION",
+  turret_collision: "ORBITAL SENTRY COLLISION",
+  gunship_collision: "ASSAULT FRIGATE COLLISION",
+  scarab_collision: "SCAVENGER COLLISION",
+  wallcrawler_collision: "RIM CRAWLER COLLISION",
+  ghost_collision: "PHASE SHADE COLLISION",
+  artillery_collision: "SIEGE BATTERY COLLISION",
+  minelayer_collision: "MINE CARRIER COLLISION",
+  emp_collision: "PULSE SCRAMBLER COLLISION",
+  beam_collision: "SWEEP BEAM COLLISION",
+  nuke_collision: "CORE BOMB COLLISION",
   enemy_collision: "HOSTILE COLLISION",
   unknown: "UNKNOWN DAMAGE",
 };
@@ -133,9 +137,9 @@ const defeatCauseLabel = (cause: string) =>
   DEFEAT_CAUSE_LABELS[cause] ?? cause.replaceAll("_", " ").toUpperCase();
 
 function finalEventLabel(run: RunResult) {
-  const target = run.finalTarget ?? (run.outcome === "victory" ? "RIVAL WORMHOLE" : "YOUR PILOT");
+  const target = run.finalTarget ?? (run.outcome === "victory" ? "RIVAL RIFT" : "YOUR PILOT");
   if (run.finalReason === "forfeit") return `${target} LEFT THE MATCH`;
-  const verb = target.includes("WORMHOLE") ? "DESTROYED" : "ELIMINATED";
+  const verb = target.includes("RIFT") ? "DESTROYED" : "ELIMINATED";
   const damage = Math.max(0, Math.round(run.finalDamage ?? 0));
   return `${target} ${verb} BY ${defeatCauseLabel(run.finalCause ?? "unknown")}${damage > 0 ? ` FOR ${damage} DAMAGE` : ""}`;
 }
@@ -364,10 +368,10 @@ function nextWeapon(stock: readonly PowerId[]) {
 function coachLine(game: Game) {
   if (!game.running || game.result) return "CHOOSE A SHIP, THEN START MISSION";
   if (game.paused) return "PAUSED // PRESS P TO RESUME";
-  if (game.stock.length > 0) return `AIM AT THE WORMHOLE // PRESS E OR PUP TO SEND ${WEAPONS[game.stock[game.stock.length - 1]].short}`;
+  if (game.stock.length > 0) return `AIM AT THE RIFT // PRESS E OR PUP TO SEND ${WEAPONS[game.stock[game.stock.length - 1]].short}`;
   if (game.pickups.length > 0) return "POWER-UP LOOSE // FLY OVER IT TO COLLECT";
   const remaining = Math.max(0, PORTAL_THRESHOLD - game.portalCharge);
-  return `SHOOT THE WORMHOLE // ${Math.ceil(remaining)} MORE DAMAGE GENERATES A POWER-UP`;
+  return `SHOOT THE RIFT // ${Math.ceil(remaining)} MORE DAMAGE GENERATES A POWER-UP`;
 }
 
 function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: DifficultyId = "difficult"): Game {
@@ -731,7 +735,7 @@ function WeaponCard({
       </ul>
       <p className="weapon-card-activate">
         {meta.sendable
-          ? "ACTIVATE — KEYBOARD E · TOUCH PUP. Aim at the rival wormhole before firing."
+          ? "ACTIVATE — KEYBOARD E · TOUCH PUP. Aim at the rival rift before firing."
           : "ACTIVATE — no key needed. Fly over the pickup and it applies at once."}
       </p>
     </div>
@@ -760,7 +764,7 @@ function WeaponCodex({ onClose, reducedMotion }: { onClose: () => void; reducedM
       >
         <div className="codex-head">
           <h2 id="codex-heading">WEAPON CODEX</h2>
-          <p>Every power-up the wormhole can produce. Select one to read what it does.</p>
+          <p>Every power-up the rift can produce. Select one to read what it does.</p>
           <button ref={closeRef} type="button" className="codex-close" onClick={onClose} aria-label="Close weapon codex">✕</button>
         </div>
         <div className="codex-body">
@@ -853,10 +857,13 @@ function Leaderboard({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     let cancelled = false;
     const localBest = loadLocalBest();
-    setBest(localBest);
-    if (boardLimit === 10) setEntries(null);
-    setFailed(false);
-    setLoading(true);
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setBest(localBest);
+      if (boardLimit === 10) setEntries(null);
+      setFailed(false);
+      setLoading(true);
+    });
     void fetchLeaderboard(boardLimit).then((rows) => {
       if (cancelled) return;
       setLoading(false);
@@ -1116,14 +1123,14 @@ function DifficultyBadge({
     : charge === null
       ? "NO COLLISION SHIELD"
       : `SHIELD ${shield}`;
-  const status = `${gameMode} · ${difficulty} | WORMHOLE ${wormhole} | ${shieldText} | CONTACT ${contact}${live && hud.enrageActive ? " | ENRAGED" : ""}`;
+  const status = `${gameMode} · ${difficulty} | RIFT ${wormhole} | ${shieldText} | CONTACT ${contact}${live && hud.enrageActive ? " | ENRAGED" : ""}`;
 
   return (
     <div className={`difficulty-badge ${contactActive ? "hazard" : ""}`} role="status" aria-live="polite" aria-label={`Score ${hud.score}. Active rules: ${status}`}>
       <span className="rule-score">SCORE {hud.score.toLocaleString().padStart(6, "0")}</span>
       <span className="rule-time">TIME {formatRunTime(hud.elapsedSeconds)}</span>
       <span className="rule-mode">{gameMode} · {difficulty}</span>
-      <span>WORMHOLE {wormhole}</span>
+      <span>RIFT {wormhole}</span>
       <span className={charge !== null && charge <= 0 ? "warn" : ""}>{shieldText}</span>
       <span className={hazardArmed ? "warn" : ""}>CONTACT {contact}</span>
       {live && hud.enrageActive ? <span className="warn">ENRAGED</span> : null}
@@ -1207,14 +1214,14 @@ function MultiplayerLobby({
                 <div>
                   <span>YOU</span>
                   <b>{net.name}</b>
-                  <small>{net.you?.ship?.toUpperCase() ?? "—"}</small>
+                  <small>{net.you?.ship ? selectedShip(net.you.ship as ShipId).name.toUpperCase() : "—"}</small>
                   <i className={net.you?.ready ? "ok" : ""}>{net.you?.ready ? "READY" : "NOT READY"}</i>
                 </div>
                 <em aria-hidden="true">{net?.kind === "coop" ? "+" : "VS"}</em>
                 <div>
                   <span>{net?.kind === "coop" ? "ALLY" : "OPPONENT"}</span>
                   <b>{net.opponent.name}</b>
-                  <small>{net.opponent.ship.toUpperCase()}</small>
+                  <small>{selectedShip(net.opponent.ship as ShipId).name.toUpperCase()}</small>
                   <i className={net.opponent.ready ? "ok" : ""}>
                     {net.opponent.connected ? (net.opponent.ready ? "READY" : "NOT READY") : "DISCONNECTED"}
                   </i>
@@ -1382,7 +1389,7 @@ function PvpHud({ net }: { net: PvpSnapshot }) {
 
       {fresh ? (
         <p className="pvp-incoming" role="status">
-          INCOMING {fresh.weapon.toUpperCase()} FROM {fresh.from}
+          INCOMING {WEAPONS[fresh.weapon as PowerId]?.short ?? fresh.weapon.toUpperCase()} FROM {fresh.from}
         </p>
       ) : null}
     </div>
@@ -1393,7 +1400,7 @@ function PvpHud({ net }: { net: PvpSnapshot }) {
 function difficultyHint(id: DifficultyId) {
   const rules = DIFFICULTIES[id];
   if (rules.unlimitedHull) return "UNLIMITED HULL · NO LEADERBOARD";
-  if (rules.wormhole.kind === "locked") return "WORMHOLE LOCKED";
+  if (rules.wormhole.kind === "locked") return "RIFT LOCKED";
   const parts = ["MOVING"];
   if (rules.contactHazard.enabled) parts.push("CONTACT");
   if (rules.wormholeEnrage.enabled) {
@@ -1473,7 +1480,7 @@ function MissionSetup({
             onChange={onDifficulty}
           />
           <p className="setup-summary">
-            {rules.wormhole.kind === "locked" ? "Wormhole locked centre" : "Wormhole moves"}
+            {rules.wormhole.kind === "locked" ? "Rift locked centre" : "Rift moves"}
             {" · "}
             {rules.collisionShield.enabled ? "collision shield" : "no collision shield"}
             {" · "}
@@ -1557,7 +1564,8 @@ function SettingsDrawer({
   const [initialsDraft, setInitialsDraft] = useState(initials);
 
   useEffect(() => {
-    if (open) setInitialsDraft(initials);
+    if (!open) return;
+    queueMicrotask(() => setInitialsDraft(initials));
   }, [initials, open]);
 
   useEffect(() => {
@@ -1643,7 +1651,7 @@ function SettingsDrawer({
               <p><span>Mode</span><b>{modeSummary}</b></p>
               {mode === "pve" ? (
                 <p className="drawer-note">
-                  {rules.wormhole.kind === "locked" ? "Wormhole locked centre" : "Wormhole moves"}
+                  {rules.wormhole.kind === "locked" ? "Rift locked centre" : "Rift moves"}
                   {rules.collisionShield.enabled ? " · collision shield" : ""}
                   {rules.contactHazard.enabled ? " · contact hazard" : ""}
                 </p>
@@ -2213,7 +2221,7 @@ export default function WormholeGame() {
       practice,
       finalTarget: hud.result === "victory"
         ? hud.mode === "pve" || hud.mode === "coop"
-          ? "RIVAL WORMHOLE"
+          ? "RIVAL RIFT"
           : netResult?.eliminatedName ?? "OPPONENT"
         : hud.mode === "pve"
           ? "YOUR PILOT"
@@ -2360,9 +2368,11 @@ export default function WormholeGame() {
 
   useEffect(() => {
     if (net?.rematch?.status !== "starting") return;
-    setSummary(null);
-    setStage("setup");
-    setLobbyOpen(true);
+    queueMicrotask(() => {
+      setSummary(null);
+      setStage("setup");
+      setLobbyOpen(true);
+    });
   }, [net?.rematch?.status]);
 
   const confirmInitials = useCallback(() => {
@@ -2774,7 +2784,7 @@ export default function WormholeGame() {
       }
 
       game.incoming = "ufo";
-      game.notice = "WORMHOLE ENRAGED // MINES · UFO · SCARABS";
+      game.notice = "RIFT ENRAGED // VOID MINES · RAIDER DRONES · SCAVENGERS";
       game.noticeLife = 180;
       game.portalPulse = 1;
       burst(game, game.portalX, game.portalY, "#ff263f", 52, 12);
@@ -2818,37 +2828,37 @@ export default function WormholeGame() {
       const ship = game.ship.id;
       if (ship === "tank") {
         player.invuln = Math.max(player.invuln, ticksForSeconds(3));
-        game.notice = "BULWARK // 3S IMMUNITY";
+        game.notice = "IMPACT GUARD // 3S IMMUNITY";
       } else if (ship === "wing") {
         player.wingOverdrive = ticksForSeconds(WING_OVERDRIVE_SECONDS);
-        game.notice = "VECTOR OVERDRIVE // 3S";
+        game.notice = "AFTERBURN // 3S";
       } else if (ship === "squid") {
         player.squidPhase = ticksForSeconds(SQUID_PHASE_SECONDS);
         player.invuln = Math.max(player.invuln, player.squidPhase);
         game.notice = "PHASE VEIL // TRACKING BROKEN";
       } else if (ship === "rabbit") {
         player.viperGuidance = ticksForSeconds(VIPER_GUIDANCE_SECONDS);
-        game.notice = "VIPER GUIDANCE // LAUNCH WITHIN 3S";
+        game.notice = "TARGET LINK // LAUNCH WITHIN 3S";
       } else if (ship === "turtle") {
         game.enemies.forEach((enemy) => {
           if (enemy.kind !== "ghost") destroyEnemy(game, enemy);
         });
         player.health = Math.max(1, player.health - (Math.random() < 0.75 ? 20 : 0));
-        game.notice = "TURTLE CANNON";
+        game.notice = "REACTOR BURST";
       } else if (ship === "flash") {
         player.flashMode = player.flashMode === "tank" ? "squid" : "tank";
-        game.notice = `FLASH // ${player.flashMode.toUpperCase()} FORM`;
+        game.notice = `FORM SHIFT // ${player.flashMode === "tank" ? "HEAVY" : "SCOUT"} FORM`;
       } else if (ship === "hunter") {
         for (let i = 0; i < 17; i += 1) {
           const angle = (player.angle + (i - 8) * 12) * DEG;
           game.bullets.push({ x: player.x, y: player.y, vx: Math.cos(angle) * 8, vy: Math.sin(angle) * 8, damage: 15, life: 105, enemy: false, color: "#ff5f70" });
           game.playerShots += 1;
         }
-        game.notice = "PIRANHA ARRAY";
+        game.notice = "MISSILE FAN";
         play("fire", 0.3);
       } else if (ship === "flagship") {
         player.flagshipField = ticksForSeconds(3);
-        game.notice = "A/R FIELD ACTIVE // 3S";
+        game.notice = "GRAVITY PULSE // 3S";
       }
 
       player.specialCooldown = ticksForSeconds(spec.cooldownSeconds);
@@ -2914,7 +2924,7 @@ export default function WormholeGame() {
           const pd = Math.max(1, Math.hypot(pdx, pdy));
           enemy.vx += (pdx / pd) * 0.2;
           enemy.vy += (pdy / pd) * 0.2;
-          if (pd < 18) { pickup.life = 0; game.notice = "SCARAB STOLE A POWERUP"; game.noticeLife = 70; }
+          if (pd < 18) { pickup.life = 0; game.notice = "SCAVENGER STOLE A POWER-UP"; game.noticeLife = 70; }
         }
       } else if (enemy.kind === "wallcrawler") {
         if (enemy.x <= 12) { enemy.x = 12; enemy.vx = 0; enemy.vy = 4; }
@@ -3022,7 +3032,7 @@ export default function WormholeGame() {
             burst(game, game.portalX, game.portalY, game.victorySequence % 10 === 0 ? "#ffffff" : "#ff4fd8", 8, 4);
           }
         } else if (visual.phase === "pull") {
-          game.notice = "WORMHOLE COLLAPSE // ARENA PURGE";
+          game.notice = "RIFT COLLAPSE // ARENA PURGE";
           const strength = 0.8 + visual.phaseProgress * 3.6;
           game.enemies = game.enemies.filter((item) => pullObject(item, strength));
           game.pickups = game.pickups.filter((item) => pullObject(item, strength));
@@ -3174,7 +3184,7 @@ export default function WormholeGame() {
       );
       if (contact.overlapping) game.contactWarning = 24;
       if (contact.entered) {
-        game.notice = "WORMHOLE CONTACT";
+        game.notice = "RIFT CONTACT";
         game.noticeLife = 110;
       }
       if (contact.damage > 0) damageContact(game, contact.damage);
@@ -3258,7 +3268,7 @@ export default function WormholeGame() {
         const angle = player.angle * DEG;
         const homing = game.ship.id === "rabbit" && player.viperGuidance > 0;
         game.powers.push({ x: player.x + Math.cos(angle) * 12, y: player.y + Math.sin(angle) * 12, vx: Math.cos(angle) * 10 + player.vx, vy: Math.sin(angle) * 10 + player.vy, type, life: homing ? 320 : 160, homing });
-        game.notice = homing ? `${WEAPONS[type].short} // VIPER LOCK` : `${WEAPONS[type].short} ARMED`;
+        game.notice = homing ? `${WEAPONS[type].short} // TARGET LINK` : `${WEAPONS[type].short} ARMED`;
         game.noticeLife = 75;
         burst(game, player.x, player.y, POWER_COLORS[type], 10, 4);
         play("fire", 0.2);
@@ -4257,7 +4267,7 @@ export default function WormholeGame() {
         ctx.font = mono(700, 11.5);
         ctx.textAlign = "center";
         ctx.fillStyle = "rgba(244,226,255,.9)";
-        ctx.fillText("RIVAL WORMHOLE", cap(portalX, 60, W - 60), cap(portalY + 82 * camera.camScale * (W / VIEW_WIDTH), 12, H - 12));
+        ctx.fillText("RIVAL RIFT", cap(portalX, 60, W - 60), cap(portalY + 82 * camera.camScale * (W / VIEW_WIDTH), 12, H - 12));
       }
 
       // Player-hit feedback: a brief red rim, never a full-screen wash.
@@ -4278,7 +4288,7 @@ export default function WormholeGame() {
         const title = game.paused ? "PAUSED"
           : game.result === "victory" ? "RIVAL ELIMINATED"
             : game.result === "defeat" ? "SHIP DESTROYED"
-              : "WORMHOLE ARCADE";
+              : "BREACH RUNNER";
         ctx.fillStyle = game.result === "victory" ? "#b8ff72" : game.result === "defeat" ? "#ff7285" : "#eafcff";
         const titleSize = cap(W * 0.072, 24, 46);
         ctx.font = `900 ${titleSize}px Arial, Helvetica, sans-serif`;
@@ -4415,9 +4425,9 @@ export default function WormholeGame() {
 
       <header className="topbar">
         <div className="brand">
-          <span className="brand-mark" aria-hidden="true">W/02</span>
+          <span className="brand-mark" aria-hidden="true">BR/01</span>
           <div>
-            <h1>WORMHOLE <em>ARCADE</em></h1>
+            <h1>BREACH <em>RUNNER</em></h1>
             <a className="brand-home" href={MURPH_SITE_URL} target="_blank" rel="noopener noreferrer">
               ← MURPH TOURNAMENTS
             </a>
@@ -4562,7 +4572,7 @@ export default function WormholeGame() {
                 onPointerCancel={handleArenaPointerUp}
                 onContextMenu={(event) => event.preventDefault()}
                 role="img"
-                aria-label={`Wormhole combat arena. Hull ${hud.health} of ${hud.maxHealth}. Wormhole charge ${hud.portalCharge} percent. Rival integrity ${hud.rivalHealth} percent. ${hud.enrageActive ? "Wormhole enraged. " : ""}${queued ? `Next power-up ${WEAPONS[queued].name}.` : "Power-up bin empty."}`}
+                aria-label={`Breach Runner combat arena. Hull ${hud.health} of ${hud.maxHealth}. Rift charge ${hud.portalCharge} percent. Rival integrity ${hud.rivalHealth} percent. ${hud.enrageActive ? "Rift enraged. " : ""}${queued ? `Next power-up ${WEAPONS[queued].name}.` : "Power-up bin empty."}`}
               />
               {viewProfile.verticalRails ? <div className="health-rails" aria-label={`Pilot hull ${hud.health} of ${hud.maxHealth}. Shield ${hud.shield ? `${hud.shield} percent${hud.shield < 100 ? ", recharging" : ", ready"}` : "disabled"}. ${mode === "pvp" ? `Opponent hull ${net?.opponentCombat ? Math.round(net.opponentCombat.hull) : "unavailable"}` : `Rival integrity ${hud.rivalCurrentHealth} of ${hud.rivalMaxHealth}`}.`}>
                 <div className="health-rail pilot-rail"><span>HULL {hud.health}/{hud.maxHealth}</span><i className="rail-fill hull-fill" style={{ width: `${healthPct}%` }} /><i className="rail-fill shield-fill" style={{ width: `${hud.shield}%` }} /><small>{hud.shield ? `SHIELD ${hud.shield}% ${hud.shield < 100 ? "RECHARGING" : "READY"}` : "SHIELD DISABLED"}</small></div>
@@ -4851,33 +4861,33 @@ export default function WormholeGame() {
         <aside className="panel intel-panel">
           <div className="eyebrow">MISSION INTEL</div>
           <h2>SURVIVE<br />THE VOID</h2>
-          <p>Every rival has a wormhole orbiting your arena. Shoot it with pulse cannons to generate power-ups, collect them, then send attack power-ups back through it.</p>
+          <p>Every rival projects a rift into your arena. Shoot it with pulse cannons to generate power-ups, collect them, then send attack payloads back through it.</p>
           <ol>
-            <li><span>01</span><div><b>CHARGE</b><small>Deal 150 cannon damage to the wormhole</small></div></li>
+            <li><span>01</span><div><b>CHARGE</b><small>Deal 150 cannon damage to the rift</small></div></li>
             <li><span>02</span><div><b>COLLECT</b><small>Fly over the generated power-up</small></div></li>
-            <li><span>03</span><div><b>TRANSMIT</b><small>Aim at the wormhole and press E (touch: PUP)</small></div></li>
+            <li><span>03</span><div><b>TRANSMIT</b><small>Aim at the rift and press E (touch: PUP)</small></div></li>
           </ol>
           <button type="button" className="codex-trigger" onClick={() => setCodexOpen(true)} aria-haspopup="dialog">OPEN WEAPON CODEX</button>
           <div className="intel-card">
             <div><span>GUN</span><b>MK {hud.gun + 1}/4</b></div>
             <div><span>THRUST</span><b>MK {hud.thrust}/3</b></div>
             <div><span>RETROS</span><b>{hud.retros ? "ONLINE" : "OFFLINE"}</b></div>
-            <div><span>WORMHOLE</span><b>{hud.portalCharge}%</b></div>
+            <div><span>RIFT</span><b>{hud.portalCharge}%</b></div>
           </div>
           <div className={`incoming-card ${hud.incoming ? "hot" : ""}`}>
             <span>THREAT MONITOR</span>
             <b>{hud.incoming ? POWER_LABELS[hud.incoming] : "SECTOR CLEAR"}</b>
-            <small>{hud.incoming ? `${CATEGORY_LABELS[WEAPONS[hud.incoming].category]} · THREAT ${threatBadge(WEAPONS[hud.incoming])}` : "SCANNING RIVAL WORMHOLE"}</small>
+            <small>{hud.incoming ? `${CATEGORY_LABELS[WEAPONS[hud.incoming].category]} · THREAT ${threatBadge(WEAPONS[hud.incoming])}` : "SCANNING RIVAL RIFT"}</small>
           </div>
           <div className="source-note">
-            <span>CLIENT-VERIFIED PROTOTYPE</span>
-            <p>Flight values, game tick, cannon levels, portal charge, power-up capacity, enemy counts, and sound effects were recovered from the supplied Redux client.</p>
+            <span>PROJECT RIFT // ORIGINAL BUILD</span>
+            <p>Breach Runner uses code-owned procedural visuals, original generated audio, and independently defined commercial fleet and weapon identities.</p>
           </div>
         </aside>
       </section>
 
       <footer>
-        <span>WORMHOLE ARCADE // PLAYABLE PROTOTYPE 0.4</span>
+        <span>BREACH RUNNER // WEB PROTOTYPE 0.4</span>
         <span>1504×940 FIELD // SHIP-LOCK + ARENA CAMERAS</span>
       </footer>
 

@@ -10,33 +10,33 @@ import {
   steerHomingVelocity,
 } from "../app/ship-specials.ts";
 
-test("Rabbit frame is reworked into the balanced MK1 Viper", () => {
-  const viper = SHIPS.find((ship) => ship.id === "rabbit");
-  assert.ok(viper);
-  assert.equal(viper.name, "The Viper");
-  assert.equal(viper.health, 150);
-  assert.equal(viper.maxSpeed, 3);
-  assert.equal(viper.gun, 1);
-  assert.equal(SHIP_SPECIALS.rabbit.name, "VIPER GUIDANCE");
+test("guided-strike frame keeps its gameplay while using the commercial identity", () => {
+  const needle = SHIPS.find((ship) => ship.id === "rabbit");
+  assert.ok(needle);
+  assert.equal(needle.name, "Needle");
+  assert.equal(needle.health, 150);
+  assert.equal(needle.maxSpeed, 3);
+  assert.equal(needle.gun, 1);
+  assert.equal(SHIP_SPECIALS.rabbit.name, "TARGET LINK");
   assert.equal(SHIP_SPECIALS.rabbit.cooldownSeconds, 20);
   assert.equal(VIPER_GUIDANCE_SECONDS, 3);
 });
 
-test("Wing overdrive is a controllable multiplier, not a teleport", () => {
+test("Starling afterburn is a controllable multiplier, not a teleport", () => {
   assert.equal(WING_OVERDRIVE_SECONDS, 3);
   assert.deepEqual(overdriveHandling(0.1, 3.2, false), { acceleration: 0.1, maxSpeed: 3.2 });
   assert.deepEqual(overdriveHandling(0.1, 3.2, true), { acceleration: 0.17500000000000002, maxSpeed: 5.28 });
-  assert.equal(SHIP_SPECIALS.wing.name, "VECTOR OVERDRIVE");
+  assert.equal(SHIP_SPECIALS.wing.name, "AFTERBURN");
 });
 
-test("Squid phase veil reverses hostile tracking vectors", () => {
+test("Phantom phase veil reverses hostile tracking vectors", () => {
   assert.equal(SQUID_PHASE_SECONDS, 2.5);
   assert.deepEqual(hostileTrackingVector(10, 10, 30, 40, false), { dx: 20, dy: 30 });
   assert.deepEqual(hostileTrackingVector(10, 10, 30, 40, true), { dx: -20, dy: -30 });
   assert.equal(SHIP_SPECIALS.squid.name, "PHASE VEIL");
 });
 
-test("Viper guidance turns toward a moving wormhole without teleporting", () => {
+test("Target Link turns toward a moving portal without teleporting", () => {
   const guided = steerHomingVelocity(0, 0, 10, 0, 0, 100);
   assert.ok(guided.vy > 0);
   assert.ok(guided.vx > 0);
