@@ -62,9 +62,9 @@ test("co-op teammate positions relay without becoming server movement authority"
 test("one destroyed pilot produces a shared defeat", () => {
   const { server, a, b } = activeCoop();
   server.reportDamage(a.player, { seq: 1, source: "impact", amount: 60 }, 6000);
-  server.reportDamage(a.player, { seq: 2, source: "impact", amount: 60 }, 6100);
-  server.reportDamage(a.player, { seq: 3, source: "impact", amount: 60 }, 6200);
-  server.reportDamage(a.player, { seq: 4, source: "impact", amount: 60 }, 6300);
+  server.reportDamage(a.player, { seq: 2, source: "impact", amount: 60 }, 7100);
+  server.reportDamage(a.player, { seq: 3, source: "impact", amount: 60 }, 8200);
+  server.reportDamage(a.player, { seq: 4, source: "impact", amount: 60 }, 9300);
   const aResult = a.messages.findLast((message) => message.type === "result");
   const bResult = b.messages.findLast((message) => message.type === "result");
   assert.equal(aResult.outcome, "defeat");
