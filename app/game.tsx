@@ -84,8 +84,10 @@ import {
   steerHomingVelocity,
 } from "./ship-specials";
 import {
+  VICTORY_SUCTION_FREQUENCY,
   VICTORY_TOTAL_SECONDS,
   pullVelocity,
+  victorySuctionState,
   victoryVisualState,
 } from "./victory-sequence";
 import {
@@ -1845,6 +1847,11 @@ export default function WormholeGame() {
    */
   const audioPool = useRef<Map<string, HTMLAudioElement[]>>(new Map());
   const cueAudio = useRef<AudioContext | null>(null);
+  const victorySuctionAudio = useRef<{
+    context: AudioContext;
+    master: GainNode;
+    oscillators: OscillatorNode[];
+  } | null>(null);
   /** The outcome already turned into a summary, so each run is recorded once. */
   const recordedResult = useRef<Game["result"]>(null);
   /** The summary object already submitted automatically for the signed-in player. */
@@ -1988,15 +1995,32 @@ export default function WormholeGame() {
     return () => root.classList.remove("wh-playing");
   }, [immersive]);
 
+  const stopVictorySuction = useCallback((fadeSeconds = 0.035) => {
+    const active = victorySuctionAudio.current;
+    if (!active) return;
+    victorySuctionAudio.current = null;
+    const now = active.context.currentTime;
+    const stopAt = now + Math.max(0.012, fadeSeconds);
+    try {
+      active.master.gain.cancelScheduledValues(now);
+      active.master.gain.setValueAtTime(Math.max(0.0001, active.master.gain.value), now);
+      active.master.gain.exponentialRampToValueAtTime(0.0001, stopAt);
+      active.oscillators.forEach((oscillator) => oscillator.stop(stopAt + 0.01));
+    } catch {
+      // Closing or suspended mobile audio contexts can reject late automation.
+    }
+  }, []);
+
   useEffect(() => {
     const pool = audioPool.current;
     return () => {
+      stopVictorySuction(0.012);
       pool.forEach((clips) => clips.forEach((clip) => { clip.pause(); clip.removeAttribute("src"); clip.load(); }));
       pool.clear();
       void cueAudio.current?.close().catch(() => undefined);
       cueAudio.current = null;
     };
-  }, []);
+  }, [stopVictorySuction]);
 
   /** Pooled playback: three reusable elements per clip instead of one per shot. */
   const play = useCallback((name: "fire" | "explosion" | "magic" | "thrust", volume = 0.22) => {
@@ -2061,6 +2085,63 @@ export default function WormholeGame() {
       oscillator.stop(noteEnd + 0.02);
     });
   }, []);
+
+  /**
+   * Continuous victory riser: audible from the first pull frame through the
+   * singularity collapse, then faded out just before the blast cue begins.
+   */
+  const playVictorySuction = useCallback((progress: number, remainingSeconds: number, volume = 0.085) => {
+    if (!soundRef.current || victorySuctionAudio.current || typeof window === "undefined") return;
+    const AudioContextClass = window.AudioContext
+      ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const context = cueAudio.current ?? new AudioContextClass();
+    cueAudio.current = context;
+    void context.resume().catch(() => undefined);
+
+    const start = context.currentTime + 0.01;
+    const duration = Math.max(0.08, remainingSeconds - 0.06);
+    const end = start + duration;
+    const fadeInEnd = Math.min(end - 0.02, start + 0.12);
+    const fadeOutStart = Math.max(fadeInEnd, end - 0.09);
+    const master = context.createGain();
+    const filter = context.createBiquadFilter();
+    master.gain.setValueAtTime(0.0001, start);
+    master.gain.exponentialRampToValueAtTime(volume, fadeInEnd);
+    master.gain.setValueAtTime(volume, fadeOutStart);
+    master.gain.exponentialRampToValueAtTime(0.0001, end);
+    filter.type = "lowpass";
+    filter.Q.setValueAtTime(5.5, start);
+    filter.frequency.setValueAtTime(240, start);
+    filter.frequency.exponentialRampToValueAtTime(6200, end);
+    filter.connect(master);
+    master.connect(context.destination);
+
+    const startFrequency = VICTORY_SUCTION_FREQUENCY.startHz
+      * (VICTORY_SUCTION_FREQUENCY.endHz / VICTORY_SUCTION_FREQUENCY.startHz) ** progress;
+    const voices = [
+      { type: "sawtooth" as OscillatorType, ratio: 1, level: 0.62 },
+      { type: "triangle" as OscillatorType, ratio: 1.5, level: 0.34 },
+    ];
+    const oscillators = voices.map((voice) => {
+      const oscillator = context.createOscillator();
+      const voiceGain = context.createGain();
+      oscillator.type = voice.type;
+      oscillator.frequency.setValueAtTime(startFrequency * voice.ratio, start);
+      oscillator.frequency.exponentialRampToValueAtTime(VICTORY_SUCTION_FREQUENCY.endHz * voice.ratio, end);
+      voiceGain.gain.setValueAtTime(voice.level, start);
+      oscillator.connect(voiceGain);
+      voiceGain.connect(filter);
+      oscillator.start(start);
+      oscillator.stop(end + 0.02);
+      return oscillator;
+    });
+    victorySuctionAudio.current = { context, master, oscillators };
+  }, []);
+
+  useEffect(() => {
+    if (!sound) stopVictorySuction();
+  }, [sound, stopVictorySuction]);
 
   const sync = useCallback(() => {
     const next = hudFrom(gameRef.current);
@@ -2208,6 +2289,7 @@ export default function WormholeGame() {
   }, [difficulty, mode, shipId]);
 
   const start = useCallback(() => {
+    stopVictorySuction();
     const game = createGame(selectedShip(shipId), mode, difficulty);
     game.running = true;
     game.notice = "ENTERING NEW GROUND";
@@ -2230,7 +2312,7 @@ export default function WormholeGame() {
     canvasWrapRef.current?.focus({ preventScroll: true });
     setStage("arena");
     play("magic", 0.28);
-  }, [difficulty, mode, play, shipId, sync]);
+  }, [difficulty, mode, play, shipId, stopVictorySuction, sync]);
 
   // The server decides when the match is live. When it says so, launch the
   // local arena; the client never starts a PvP run on its own timing.
@@ -2915,6 +2997,12 @@ export default function WormholeGame() {
       const player = game.player;
       if (game.victorySequence > 0) {
         const visual = victoryVisualState(game.victorySequence, TICK_MS);
+        const suction = victorySuctionState(game.victorySequence, TICK_MS);
+        if (suction.active && !victorySuctionAudio.current) {
+          playVictorySuction(suction.progress, suction.remainingSeconds);
+        } else if (!suction.active && victorySuctionAudio.current) {
+          stopVictorySuction(0.018);
+        }
         game.victorySequence -= 1;
         game.portalPulse = 1;
         player.vx = 0;
@@ -4255,7 +4343,7 @@ export default function WormholeGame() {
       window.removeEventListener("resize", onDprChange);
       window.removeEventListener("orientationchange", onDprChange);
     };
-  }, [play, playCue, sync, viewMode]);
+  }, [play, playCue, playVictorySuction, stopVictorySuction, sync, viewMode]);
 
   const currentShip = selectedShip(shipId);
   const pendingRules = rulesFor(mode, difficulty);
