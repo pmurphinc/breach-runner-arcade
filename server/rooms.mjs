@@ -357,7 +357,7 @@ export class MatchServer {
 
     if (outcome.destroyed) {
       if (room.kind === "coop") this.finishCoop(room, "defeat", "pilot_hull", now, player, cause);
-      else this.finish(room, this.opponentOf(room, player), "hull", now);
+      else this.finish(room, this.opponentOf(room, player), "hull", now, player, cause);
     }
     return { ok: true, ...outcome };
   }
@@ -442,7 +442,7 @@ export class MatchServer {
     }
   }
 
-  finish(room, winner, reason, now = Date.now()) {
+  finish(room, winner, reason, now = Date.now(), eliminated = null, cause = "unknown") {
     if (room.phase === PHASES.FINISHED) return;
     room.phase = PHASES.FINISHED;
     room.touchedAt = now;
@@ -452,6 +452,10 @@ export class MatchServer {
         outcome: player === winner ? "victory" : "defeat",
         reason,
         opponent: this.opponentOf(room, player)?.name ?? "OPPONENT",
+        eliminatedId: eliminated?.id ?? null,
+        eliminatedName: eliminated?.name ?? null,
+        youEliminated: Boolean(eliminated && player.id === eliminated.id),
+        cause,
       });
     }
   }
