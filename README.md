@@ -57,7 +57,7 @@ falls below the fleet band.
 The system changes no artwork, controls, weapon behavior, or special mechanics.
 For this pass, The Squid was the only over-budget frame: its scout identity is
 preserved while handling changes from 10 to 9, top speed from 4.5 to 4.0,
-acceleration from 0.19 to 0.13, and thrust from MK4 to MK3.
+acceleration from 0.19 to 0.13, and thrust from MK3 to MK2.
 
 ## Game modes
 
