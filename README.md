@@ -46,6 +46,16 @@ hostile tracking and collision contact. The background also includes sparse,
 non-colliding world-space rocks that move with the camera and remain visually
 subordinate to projectiles and enemies.
 
+## Wormhole victory sequence
+
+A PvE win now resolves through a staged 5.2-second collapse. The simulation and
+background freeze first; every enemy, loose pickup, projectile, spawn effect,
+and particle is then pulled into the wormhole while the pilot remains fixed and
+safe. Once the arena is clear, the wormhole contracts to a tiny singularity and
+detonates with screen shake, layered particles, a bright core flash, and three
+expanding shockwaves. Reduced-motion mode removes shake and limits wave travel
+without skipping the result.
+
 ## Ship balance budget
 
 Every frame must score between **90 and 100 points**, with 100 as a hard cap.

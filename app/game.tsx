@@ -88,6 +88,11 @@ import {
   overdriveHandling,
   steerHomingVelocity,
 } from "./ship-specials";
+import {
+  VICTORY_TOTAL_SECONDS,
+  pullVelocity,
+  victoryVisualState,
+} from "./victory-sequence";
 
 const VIEW_WIDTH = 1048;
 const VIEW_HEIGHT = 655;
@@ -214,8 +219,10 @@ type Game = {
   portalPulse: number;
   /** Simulation time that actually elapsed while the run was active. */
   elapsedTicks: number;
-  /** Remaining ticks in the wormhole-collapse victory sequence. */
+  /** Remaining ticks in the staged wormhole-collapse victory sequence. */
   victorySequence: number;
+  /** Ensures the central blast, sound, and particle payload fire exactly once. */
+  victoryExplosionFired: boolean;
   /** Hard Mode wormhole enrage, activated once at the configured integrity threshold. */
   enrageActive: boolean;
   /** Ticks until the next automatic mixed enrage wave. */
@@ -361,6 +368,7 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
     portalPulse: 0,
     elapsedTicks: 0,
     victorySequence: 0,
+    victoryExplosionFired: false,
     enrageActive: false,
     enrageTimer: 0,
     bullets: [],
@@ -2703,33 +2711,126 @@ export default function WormholeGame() {
       const game = gameRef.current;
       if (!game.running || game.paused || game.result) return;
       const player = game.player;
-      game.cycles += 1;
-
       if (game.victorySequence > 0) {
+        const visual = victoryVisualState(game.victorySequence, TICK_MS);
         game.victorySequence -= 1;
         game.portalPulse = 1;
-        if (game.victorySequence % 8 === 0) {
-          const radius = range(18, 95);
-          const angle = range(0, Math.PI * 2);
-          burst(game, game.portalX + Math.cos(angle) * radius, game.portalY + Math.sin(angle) * radius, game.victorySequence % 16 === 0 ? "#ffffff" : "#ff5ac8", 12, 8);
+        player.vx = 0;
+        player.vy = 0;
+
+        const freezeObject = (item: { vx: number; vy: number }) => {
+          item.vx = 0;
+          item.vy = 0;
+        };
+        function pullObject<T extends { x: number; y: number; vx: number; vy: number }>(item: T, strength: number) {
+          const pulled = pullVelocity(item.x, item.y, item.vx, item.vy, game.portalX, game.portalY, strength);
+          item.vx = pulled.vx;
+          item.vy = pulled.vy;
+          item.x += item.vx;
+          item.y += item.vy;
+          return pulled.distance > 16;
         }
-        for (const particle of game.particles) {
-          particle.x += particle.vx;
-          particle.y += particle.vy;
-          particle.vx *= 0.97;
-          particle.vy *= 0.97;
-          particle.life -= 1;
+
+        if (visual.phase === "freeze") {
+          game.notice = "RIVAL ELIMINATED // REALITY LOCKED";
+          for (const item of game.enemies) freezeObject(item);
+          for (const item of game.pickups) freezeObject(item);
+          for (const item of game.bullets) freezeObject(item);
+          for (const item of game.powers) freezeObject(item);
+          for (const item of game.particles) freezeObject(item);
+          if (game.victorySequence % 5 === 0) {
+            burst(game, game.portalX, game.portalY, game.victorySequence % 10 === 0 ? "#ffffff" : "#ff4fd8", 8, 4);
+          }
+        } else if (visual.phase === "pull") {
+          game.notice = "WORMHOLE COLLAPSE // ARENA PURGE";
+          const strength = 0.8 + visual.phaseProgress * 3.6;
+          game.enemies = game.enemies.filter((item) => pullObject(item, strength));
+          game.pickups = game.pickups.filter((item) => pullObject(item, strength));
+          game.bullets = game.bullets.filter((item) => pullObject(item, strength));
+          game.powers = game.powers.filter((item) => pullObject(item, strength));
+          game.particles = game.particles.filter((item) => {
+            const keep = pullObject(item, strength * 0.8);
+            item.life -= 1;
+            return keep && item.life > 0;
+          });
+          game.spawns = game.spawns.filter((item) => {
+            const dx = game.portalX - item.x;
+            const dy = game.portalY - item.y;
+            item.x += dx * (0.035 + visual.phaseProgress * 0.08);
+            item.y += dy * (0.035 + visual.phaseProgress * 0.08);
+            return Math.hypot(dx, dy) > 18;
+          });
+          if (game.victorySequence % 7 === 0) {
+            const radius = range(60, 180);
+            const angle = range(0, Math.PI * 2);
+            game.particles.push({
+              x: game.portalX + Math.cos(angle) * radius,
+              y: game.portalY + Math.sin(angle) * radius,
+              vx: -Math.cos(angle) * range(2, 5),
+              vy: -Math.sin(angle) * range(2, 5),
+              color: game.victorySequence % 14 === 0 ? "#ffffff" : "#ff5ac8",
+              size: range(1.5, 4),
+              life: 55,
+              maxLife: 55,
+            });
+          }
+        } else if (visual.phase === "collapse") {
+          game.notice = "SINGULARITY COLLAPSE // STAND CLEAR";
+          game.enemies.length = 0;
+          game.pickups.length = 0;
+          game.bullets.length = 0;
+          game.powers.length = 0;
+          game.spawns.length = 0;
+          game.particles = game.particles.filter((item) => {
+            const keep = pullObject(item, 5 + visual.phaseProgress * 5);
+            item.life -= 1;
+            return keep && item.life > 0;
+          });
+          if (game.victorySequence % 3 === 0) {
+            const radius = range(45, 150) * (1 - visual.phaseProgress * 0.6);
+            const angle = range(0, Math.PI * 2);
+            game.particles.push({
+              x: game.portalX + Math.cos(angle) * radius,
+              y: game.portalY + Math.sin(angle) * radius,
+              vx: -Math.cos(angle) * range(4, 9),
+              vy: -Math.sin(angle) * range(4, 9),
+              color: game.victorySequence % 9 === 0 ? "#68f2ff" : "#ffffff",
+              size: range(2, 5),
+              life: 40,
+              maxLife: 40,
+            });
+          }
+        } else {
+          game.notice = "RIVAL DESTROYED";
+          if (!game.victoryExplosionFired) {
+            game.victoryExplosionFired = true;
+            game.particles.length = 0;
+            burst(game, game.portalX, game.portalY, "#ffffff", 180, 24);
+            burst(game, game.portalX, game.portalY, "#68f2ff", 120, 18);
+            burst(game, game.portalX, game.portalY, "#ff4fd8", 120, 14);
+            play("explosion", 0.55);
+          }
+          for (const particle of game.particles) {
+            particle.x += particle.vx;
+            particle.y += particle.vy;
+            particle.vx *= 0.965;
+            particle.vy *= 0.965;
+            particle.life -= 1;
+          }
+          game.particles = game.particles.filter((particle) => particle.life > 0);
         }
-        game.particles = game.particles.filter((particle) => particle.life > 0);
+
+        game.noticeLife = game.victorySequence;
         if (game.victorySequence <= 0) {
-          burst(game, game.portalX, game.portalY, "#ffffff", 130, 20);
           game.running = false;
           game.result = "victory";
           game.notice = "RIVAL ELIMINATED";
-          play("explosion", 0.38);
+          game.noticeLife = 180;
         }
         return;
       }
+
+      game.cycles += 1;
       game.elapsedTicks += 1;
       game.shotCycle -= 1;
       game.botTimer -= 1;
@@ -2978,13 +3079,12 @@ export default function WormholeGame() {
 
             if (game.rivalHealth <= 0) {
               game.rivalHealth = 0;
-              game.victorySequence = ticksForSeconds(2.4);
-              game.notice = "WORMHOLE COLLAPSE // STAND CLEAR";
+              game.victorySequence = ticksForSeconds(VICTORY_TOTAL_SECONDS);
+              game.victoryExplosionFired = false;
+              game.enrageActive = false;
+              game.incoming = null;
+              game.notice = "RIVAL ELIMINATED // REALITY LOCKED";
               game.noticeLife = game.victorySequence;
-              game.enemies.length = 0;
-              game.bullets.length = 0;
-              game.powers.length = 0;
-              burst(game, game.portalX, game.portalY, "#ff5ac8", 90, 16);
             }
           }
         }
@@ -3091,9 +3191,12 @@ export default function WormholeGame() {
     const drawPortal = (game: Game, time: number, detail: number) => {
       const charge = cap(game.portalCharge / PORTAL_THRESHOLD, 0, 1);
       const swell = 1 + game.portalPulse * 0.18;
+      const victory = game.victorySequence > 0 ? victoryVisualState(game.victorySequence, TICK_MS) : null;
+      const collapseScale = victory ? victory.portalScale : 1;
       ctx.save();
       ctx.translate(game.portalX, game.portalY);
-      ctx.scale(swell, swell);
+      ctx.scale(swell * collapseScale, swell * collapseScale);
+      if (victory?.phase === "freeze") ctx.globalAlpha = 0.35 + Math.abs(Math.sin(time * 0.035)) * 0.65;
       ctx.globalCompositeOperation = "lighter";
       const step = detail >= 0.5 ? 4 : 8;
       for (let radius = 30; radius < 60; radius += step) {
@@ -3329,7 +3432,8 @@ export default function WormholeGame() {
       ctx.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
 
       for (const star of stars) {
-        const alpha = quiet || detail < 0.5 ? 0.3 : .22 + Math.sin(time * .001 + star.x) * .18;
+        const environmentTime = game.cycles * TICK_MS;
+        const alpha = quiet || detail < 0.5 ? 0.3 : .22 + Math.sin(environmentTime * .001 + star.x) * .18;
         ctx.fillStyle = star.cyan ? `rgba(103,232,255,${alpha})` : `rgba(255,255,255,${alpha})`;
         ctx.fillRect(star.x, star.y, star.size, star.size);
       }
@@ -3359,15 +3463,19 @@ export default function WormholeGame() {
       const visible = (x: number, y: number, r: number) =>
         x + r > viewLeft && x - r < viewRight && y + r > viewTop && y - r < viewBottom;
 
+      const victoryCamera = game.victorySequence > 0 ? victoryVisualState(game.victorySequence, TICK_MS) : null;
+      const shake = quiet ? 0 : victoryCamera?.shake ?? 0;
+      const shakeX = shake ? Math.sin(time * 0.071) * shake : 0;
+      const shakeY = shake ? Math.cos(time * 0.093) * shake * 0.72 : 0;
       ctx.save();
-      ctx.translate(camX, camY);
+      ctx.translate(camX + shakeX, camY + shakeY);
       ctx.scale(camScale, camScale);
 
       for (const rock of backgroundRocks) {
         if (!visible(rock.x, rock.y, rock.radius + 20)) continue;
         ctx.save();
         ctx.translate(rock.x, rock.y);
-        ctx.rotate(rock.rotation + time * rock.drift);
+        ctx.rotate(rock.rotation + game.cycles * TICK_MS * rock.drift);
         ctx.globalAlpha = detail < 0.5 ? 0.035 : 0.065;
         ctx.fillStyle = "#5a7180";
         ctx.strokeStyle = "rgba(112, 175, 190, .22)";
@@ -3693,23 +3801,58 @@ export default function WormholeGame() {
       const portalX = (game.portalX * camera.camScale + camera.camX) * (W / VIEW_WIDTH);
       const portalY = (game.portalY * camera.camScale + camera.camY) * (W / VIEW_WIDTH);
       if (game.victorySequence > 0) {
-        const total = ticksForSeconds(2.4);
-        const progress = 1 - game.victorySequence / total;
-        const pulse = 0.72 + Math.sin(time * 0.03) * 0.18;
+        const visual = victoryVisualState(game.victorySequence, TICK_MS);
+        const reduced = reducedMotionRef.current;
         ctx.save();
         ctx.translate(portalX, portalY);
         ctx.globalCompositeOperation = "lighter";
-        ctx.fillStyle = `rgba(255,255,255,${0.25 + progress * 0.7})`;
-        ctx.beginPath();
-        ctx.arc(0, 0, Math.max(4, (34 * (1 - progress)) * pulse), 0, Math.PI * 2);
-        ctx.fill();
-        for (let ring = 0; ring < 3; ring += 1) {
-          ctx.strokeStyle = ring === 1 ? "#ffffff" : "#ff4058";
-          ctx.globalAlpha = Math.max(0.12, 1 - progress) * (1 - ring * 0.18);
+
+        if (visual.phase === "freeze" || visual.phase === "pull") {
+          const flash = reduced ? 0.7 : 0.35 + Math.abs(Math.sin(time * 0.035)) * 0.65;
+          ctx.globalAlpha = flash;
+          ctx.strokeStyle = visual.phase === "freeze" ? "#ffffff" : "#ff4fd8";
           ctx.lineWidth = 3;
+          for (let ring = 0; ring < 3; ring += 1) {
+            ctx.beginPath();
+            ctx.arc(0, 0, (42 + ring * 22) * visual.portalScale, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+        } else if (visual.phase === "collapse") {
+          const dot = Math.max(2.5, 28 * visual.portalScale);
+          ctx.globalAlpha = 0.75 + visual.phaseProgress * 0.25;
+          ctx.fillStyle = "#ffffff";
+          ctx.shadowColor = "#ff4fd8";
+          ctx.shadowBlur = 26;
           ctx.beginPath();
-          ctx.arc(0, 0, 45 + progress * (80 + ring * 34), 0, Math.PI * 2);
+          ctx.arc(0, 0, dot, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = "#68f2ff";
+          ctx.globalAlpha = 1 - visual.phaseProgress;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(0, 0, 72 * (1 - visual.phaseProgress), 0, Math.PI * 2);
           ctx.stroke();
+        } else {
+          const p = visual.phaseProgress;
+          const coreLife = Math.max(0, 1 - p * 2.6);
+          ctx.globalAlpha = coreLife;
+          ctx.fillStyle = "#ffffff";
+          ctx.shadowColor = "#ffffff";
+          ctx.shadowBlur = 42;
+          ctx.beginPath();
+          ctx.arc(0, 0, 18 + p * 55, 0, Math.PI * 2);
+          ctx.fill();
+
+          const waveProgresses = [p, Math.max(0, p - 0.16) / 0.84, Math.max(0, p - 0.34) / 0.66];
+          waveProgresses.forEach((wave, index) => {
+            if (wave <= 0 || wave >= 1) return;
+            ctx.globalAlpha = (1 - wave) * (index === 1 ? 0.9 : 0.72);
+            ctx.strokeStyle = index === 0 ? "#ffffff" : index === 1 ? "#68f2ff" : "#ff4fd8";
+            ctx.lineWidth = Math.max(1, 7 - wave * 5);
+            ctx.beginPath();
+            ctx.arc(0, 0, 20 + wave * (reduced ? 150 : 310), 0, Math.PI * 2);
+            ctx.stroke();
+          });
         }
         ctx.restore();
       }
