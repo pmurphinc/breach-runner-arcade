@@ -10,7 +10,7 @@
  * `tests/pvp-protocol.test.mjs` asserts the two agree.
  */
 
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 /** WebSocket path. Shares the game's HTTP server and Railway's injected PORT. */
 export const PVP_PATH = "/pvp";
@@ -26,6 +26,7 @@ export const CLIENT_MESSAGES = [
   "damage",
   "transmit",
   "position",
+  "world",
   "pong",
   "leave",
   "rematch",
@@ -41,6 +42,7 @@ export const SERVER_MESSAGES = [
   "state",
   "incoming",
   "teammate",
+  "world",
   "result",
   "opponent",
   "error",
@@ -83,7 +85,7 @@ export const SHIP_IDS = [
 // ------------------------------------------------------------------ limits --
 
 /** Hard ceiling on a single frame. Anything larger is dropped unparsed. */
-export const MAX_PAYLOAD_BYTES = 4096;
+export const MAX_PAYLOAD_BYTES = 32768;
 
 /** Largest damage a single event may claim. The heaviest in-game hit is 40. */
 export const MAX_DAMAGE_EVENT = 60;
@@ -251,6 +253,46 @@ export function parseClientMessage(raw) {
           angle: ((parsed.angle % 360) + 360) % 360,
         },
       };
+    }
+    case "world": {
+      if (!Number.isInteger(parsed.seq) || parsed.seq < 0 || parsed.seq > 1_000_000_000) {
+        return { ok: false, code: ERRORS.BAD_MESSAGE, detail: "bad world seq" };
+      }
+      if (![parsed.portalX, parsed.portalY, parsed.portalAngle].every(isFiniteNumber)
+        || !Array.isArray(parsed.enemies) || parsed.enemies.length > 128) {
+        return { ok: false, code: ERRORS.BAD_MESSAGE, detail: "bad world snapshot" };
+      }
+      const enemies = [];
+      for (const enemy of parsed.enemies) {
+        if (!isPlainObject(enemy) || !SENDABLE_WEAPONS.includes(enemy.kind)
+          || ![enemy.x, enemy.y, enemy.vx, enemy.vy, enemy.hp, enemy.maxHp, enemy.radius,
+            enemy.age, enemy.cooldown, enemy.phase].every(isFiniteNumber)) {
+          return { ok: false, code: ERRORS.BAD_MESSAGE, detail: "bad enemy snapshot" };
+        }
+        enemies.push({
+          kind: enemy.kind,
+          x: Math.max(-100, Math.min(1604, enemy.x)),
+          y: Math.max(-100, Math.min(1040, enemy.y)),
+          vx: Math.max(-25, Math.min(25, enemy.vx)),
+          vy: Math.max(-25, Math.min(25, enemy.vy)),
+          hp: Math.max(0, Math.min(20_000, enemy.hp)),
+          maxHp: Math.max(1, Math.min(20_000, enemy.maxHp)),
+          radius: Math.max(1, Math.min(200, enemy.radius)),
+          age: Math.max(0, Math.min(1_000_000, enemy.age)),
+          cooldown: Math.max(-10_000, Math.min(10_000, enemy.cooldown)),
+          phase: enemy.phase,
+          armed: Boolean(enemy.armed),
+          countdown: isFiniteNumber(enemy.countdown) ? enemy.countdown : undefined,
+          blastRadius: isFiniteNumber(enemy.blastRadius) ? enemy.blastRadius : undefined,
+        });
+      }
+      return { ok: true, message: {
+        type, seq: parsed.seq, enemies,
+        portalX: Math.max(0, Math.min(1504, parsed.portalX)),
+        portalY: Math.max(0, Math.min(940, parsed.portalY)),
+        portalAngle: parsed.portalAngle,
+        enrageActive: Boolean(parsed.enrageActive),
+      } };
     }
     case "pong": {
       return { ok: true, message: { type, t: isFiniteNumber(parsed.t) ? parsed.t : 0 } };
