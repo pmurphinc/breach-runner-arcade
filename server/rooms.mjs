@@ -33,7 +33,7 @@ export const SHIP_HULL = {
   tank: 280,
   wing: 240,
   squid: 200,
-  rabbit: 180,
+  rabbit: 150,
   turtle: 250,
   flash: 190,
   hunter: 220,
@@ -152,7 +152,9 @@ export class MatchServer {
 
   // ----------------------------------------------------------- matchmaking --
 
-  enqueue(player, { kind = "pvp", difficulty = "easy" } = {}, now = Date.now()) {
+  enqueue(player, options = {}, now = Date.now()) {
+    if (typeof options === "number") { now = options; options = {}; }
+    const { kind = "pvp", difficulty = "easy" } = options;
     if (player.room) return;
     this.leaveQueue(player);
     const waiting = this.queue.find((entry) => entry.player.connected && entry.kind === kind && entry.difficulty === difficulty);
@@ -171,7 +173,9 @@ export class MatchServer {
     this.queue = this.queue.filter((entry) => entry.player !== player);
   }
 
-  createPrivate(player, { kind = "pvp", difficulty = "easy" } = {}, now = Date.now()) {
+  createPrivate(player, options = {}, now = Date.now()) {
+    if (typeof options === "number") { now = options; options = {}; }
+    const { kind = "pvp", difficulty = "easy" } = options;
     if (player.room) return null;
     this.leaveQueue(player);
 
@@ -503,7 +507,8 @@ export class MatchServer {
         for (const player of room.players) {
           if (player.connected) continue;
           if (now - player.disconnectedAt < RECONNECT_GRACE_MS) continue;
-          this.finish(room, this.opponentOf(room, player), "forfeit", now);
+          if (room.kind === "coop") this.finishCoop(room, "defeat", "forfeit", now);
+          else this.finish(room, this.opponentOf(room, player), "forfeit", now);
           break;
         }
       }
