@@ -1,8 +1,8 @@
-# Project Rift
+# Breach Runner
 
-Project Rift is the temporary development name for an original fast-paced twin-stick space combat game. The final commercial title is intentionally centralized in `app/product.ts` and will be selected only after store/name clearance.
+**Weaponize the rift.**
 
-The game is being polished first as a web release. Android/Google Play and Windows/Steam packaging are planned only after the core game, menus, balance, and presentation are considered release-ready.
+Breach Runner is an original fast-paced twin-stick space combat game developed under the internal project name **Project Rift**. The game is being polished first as a web release; Android/Google Play and Windows/Steam packaging are planned only after the core game, menus, balance, and presentation are considered release-ready.
 
 ## Current playable build
 
@@ -10,7 +10,7 @@ Development deployment:
 
 `https://wormhole.murphtournaments.com`
 
-The existing hostname is retained for development compatibility and is not the final commercial product name.
+The existing hostname and repository name are retained for development compatibility and are not the commercial product identity.
 
 ## Core loop
 
@@ -96,7 +96,7 @@ Rooms are currently held in memory, so a deploy ends matches in progress and mul
 
 Most special-event audio is synthesized at runtime with Web Audio. The four file-based effects (`fire.wav`, `explosion.wav`, `magic.wav`, and `thrust.wav`) were replaced during the commercial cleanup with newly generated original waveforms.
 
-Ships, pickups, projectiles, portal effects, particles, and much of the game presentation are drawn procedurally in application code rather than loaded from sprite sheets.
+Ships, pickups, projectiles, rift effects, particles, and much of the game presentation are drawn procedurally in application code rather than loaded from sprite sheets.
 
 See `ASSET_PROVENANCE.md` for the commercial-use record and `COMMERCIALIZATION.md` for the release cleanup checklist.
 
@@ -121,7 +121,7 @@ All are optional:
 | `PVP_EXTRA_ORIGINS` | Additional allowed browser origins for staging/testing. |
 | `NEXT_PUBLIC_PVP_URL` | Override the multiplayer socket URL. |
 | `NEXT_PUBLIC_MURPH_API_BASE` | Override the score API base. |
-| `NEXT_PUBLIC_GAME_TITLE` | Override the temporary/final commercial product title. |
+| `NEXT_PUBLIC_GAME_TITLE` | Override the commercial product title for staging or testing. |
 
 The current development domain remains allowed by the multiplayer origin policy. Installed Android and Steam client origins will be addressed during the later packaging/networking phase.
 
@@ -147,7 +147,7 @@ npm run lint
 
 ## Commercialization status
 
-Phase 1 separates the player-facing game identity from legacy naming and undocumented assets while intentionally preserving internal compatibility ids. The project is **not yet store-ready**. Before Google Play or Steam submission it still needs a cleared final title, final original fleet silhouettes and key art, store assets, dependency/license notices, installed-client packaging, controller work for PC, compliance review, and release testing.
+Phase 1 establishes **Breach Runner** as the player-facing commercial identity while separating it from legacy naming and undocumented assets and intentionally preserving internal compatibility ids. The project is **not yet store-ready**. Before Google Play or Steam submission it still needs final original fleet silhouettes and key art, store assets, dependency/license notices, installed-client packaging, controller work for PC, compliance review, and release testing.
 
 See:
 
