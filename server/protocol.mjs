@@ -10,7 +10,7 @@
  * `tests/pvp-protocol.test.mjs` asserts the two agree.
  */
 
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 /** WebSocket path. Shares the game's HTTP server and Railway's injected PORT. */
 export const PVP_PATH = "/pvp";
@@ -25,6 +25,7 @@ export const CLIENT_MESSAGES = [
   "ready",
   "damage",
   "transmit",
+  "position",
   "pong",
   "leave",
   "rematch",
@@ -39,6 +40,7 @@ export const SERVER_MESSAGES = [
   "countdown",
   "state",
   "incoming",
+  "teammate",
   "result",
   "opponent",
   "error",
@@ -63,6 +65,9 @@ export const SENDABLE_WEAPONS = [
   "ghost",
   "artillery",
 ];
+
+export const SESSION_KINDS = ["pvp", "coop"];
+export const DIFFICULTY_IDS = ["practice", "easy", "difficult", "hard"];
 
 export const SHIP_IDS = [
   "tank",
@@ -182,6 +187,12 @@ export function parseClientMessage(raw) {
         : null;
       return { ok: true, message: { type, name, resume } };
     }
+    case "queue":
+    case "create": {
+      const kind = SESSION_KINDS.includes(parsed.kind) ? parsed.kind : "pvp";
+      const difficulty = DIFFICULTY_IDS.includes(parsed.difficulty) ? parsed.difficulty : "easy";
+      return { ok: true, message: { type, kind, difficulty } };
+    }
     case "join": {
       if (!isValidCode(parsed.code)) {
         return { ok: false, code: ERRORS.BAD_MESSAGE, detail: "bad code" };
@@ -226,6 +237,20 @@ export function parseClientMessage(raw) {
         return { ok: false, code: ERRORS.INVALID_WEAPON };
       }
       return { ok: true, message: { type, seq: parsed.seq, weapon: parsed.weapon } };
+    }
+    case "position": {
+      if (![parsed.x, parsed.y, parsed.angle].every(isFiniteNumber)) {
+        return { ok: false, code: ERRORS.BAD_MESSAGE, detail: "bad position" };
+      }
+      return {
+        ok: true,
+        message: {
+          type,
+          x: Math.max(0, Math.min(1504, parsed.x)),
+          y: Math.max(0, Math.min(940, parsed.y)),
+          angle: ((parsed.angle % 360) + 360) % 360,
+        },
+      };
     }
     case "pong": {
       return { ok: true, message: { type, t: isFiniteNumber(parsed.t) ? parsed.t : 0 } };
