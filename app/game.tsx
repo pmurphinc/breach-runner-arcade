@@ -2108,6 +2108,15 @@ export default function WormholeGame() {
     if (!netResult) return;
     const game = gameRef.current;
     if (game.mode === "pve") return;
+    if (game.mode === "coop" && netResult.outcome === "victory") {
+      // Reuse the full Release C collapse/explosion sequence for a shared win.
+      game.rivalHealth = 0;
+      game.victorySequence = ticksForSeconds(VICTORY_TOTAL_SECONDS);
+      game.victoryExplosionFired = false;
+      game.notice = "CO-OP VICTORY // REALITY LOCKED";
+      game.noticeLife = 180;
+      return;
+    }
     game.running = false;
     game.result = netResult.outcome === "victory" ? "victory" : "defeat";
     game.notice =
@@ -2115,7 +2124,7 @@ export default function WormholeGame() {
         ? `${netResult.opponent} DID NOT RETURN`
         : netResult.outcome === "victory"
           ? `${netResult.opponent} DESTROYED`
-          : "SHIP DESTROYED";
+          : game.mode === "coop" ? "CO-OP TEAM DESTROYED" : "SHIP DESTROYED";
     game.noticeLife = 180;
   }, [netResult]);
 
@@ -2412,7 +2421,7 @@ export default function WormholeGame() {
         return;
       }
       player.health -= amount;
-      if (game.mode === "pvp") {
+      if (game.mode !== "pve") {
         player.health = Math.max(0, player.health);
         return;
       }
