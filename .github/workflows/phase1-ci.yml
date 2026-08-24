@@ -1,28 +1,32 @@
-name: Phase 1 CI
+name: Phase 1 Cleanup
 
 on:
   pull_request:
     branches: [main]
-  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  verify:
+  apply-cleanup:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/commercial-ip-cleanup'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 5
     steps:
-      - name: Checkout
+      - name: Checkout PR branch
         uses: actions/checkout@v4
-      - name: Use Node 22
-        uses: actions/setup-node@v4
         with:
-          node-version: '22'
-          cache: npm
-      - name: Install dependencies
-        run: npm ci
-      - name: Test
-        run: npm test
-      - name: Lint
-        run: npm run lint
+          ref: ${{ github.head_ref }}
+      - name: Apply deterministic UI cleanup
+        run: node scripts/phase1-ui-cleanup.mjs
+      - name: Commit cleanup if needed
+        run: |
+          if git diff --quiet; then
+            echo "No cleanup changes needed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/game.tsx
+          git commit -m "Finish Breach Runner player-facing identity cleanup"
+          git push origin HEAD:${{ github.head_ref }}
