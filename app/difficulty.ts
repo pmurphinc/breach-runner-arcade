@@ -24,7 +24,7 @@ export function secondsForTicks(ticks: number) {
   return Math.max(0, Math.round((ticks * TICK_MS) / 100) / 10);
 }
 
-export type GameMode = "pve" | "pvp";
+export type GameMode = "pve" | "coop" | "pvp";
 export type DifficultyId = "practice" | "easy" | "difficult" | "hard";
 
 /** How the rival wormhole behaves in the arena. */
