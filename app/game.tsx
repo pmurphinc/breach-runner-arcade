@@ -2722,14 +2722,14 @@ export default function WormholeGame() {
           item.vx = 0;
           item.vy = 0;
         };
-        const pullObject = <T extends { x: number; y: number; vx: number; vy: number }>(item: T, strength: number) => {
+        function pullObject<T extends { x: number; y: number; vx: number; vy: number }>(item: T, strength: number) {
           const pulled = pullVelocity(item.x, item.y, item.vx, item.vy, game.portalX, game.portalY, strength);
           item.vx = pulled.vx;
           item.vy = pulled.vy;
           item.x += item.vx;
           item.y += item.vy;
           return pulled.distance > 16;
-        };
+        }
 
         if (visual.phase === "freeze") {
           game.notice = "RIVAL ELIMINATED // REALITY LOCKED";
