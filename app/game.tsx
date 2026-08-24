@@ -93,6 +93,15 @@ import {
   pullVelocity,
   victoryVisualState,
 } from "./victory-sequence";
+import {
+  BEAM_HIT_WIDTH,
+  BEAM_LENGTH,
+  BEAM_PICKUP_WIDTH,
+  advanceBeamAngle,
+  pointTouchesBeam,
+  randomBeamDirection,
+  type BeamDirection,
+} from "./beam-motion";
 
 const VIEW_WIDTH = 1048;
 const VIEW_HEIGHT = 655;
@@ -189,6 +198,7 @@ type Enemy = {
   age: number;
   cooldown: number;
   phase: number;
+  rotationDir?: BeamDirection;
   armed?: boolean;
   countdown?: number;
   blastRadius?: number;
@@ -562,6 +572,7 @@ function makeEnemy(kind: PowerId, x: number, y: number, index: number, count: nu
     age: 0,
     cooldown: kind === "nuke" ? 600 : range(55, 130),
     phase: angle,
+    rotationDir: kind === "beam" ? randomBeamDirection() : undefined,
     countdown: kind === "nuke" ? 600 : undefined,
     blastRadius: kind === "nuke" ? 10 : undefined,
   };
@@ -1783,6 +1794,7 @@ export default function WormholeGame() {
    * it stays right when their contents or the type scale change.
    */
   const audioPool = useRef<Map<string, HTMLAudioElement[]>>(new Map());
+  const cueAudio = useRef<AudioContext | null>(null);
   /** The outcome already turned into a summary, so each run is recorded once. */
   const recordedResult = useRef<Game["result"]>(null);
   /** The summary object already submitted automatically for the signed-in player. */
@@ -1928,6 +1940,8 @@ export default function WormholeGame() {
     return () => {
       pool.forEach((clips) => clips.forEach((clip) => { clip.pause(); clip.removeAttribute("src"); clip.load(); }));
       pool.clear();
+      void cueAudio.current?.close().catch(() => undefined);
+      cueAudio.current = null;
     };
   }, []);
 
@@ -1947,6 +1961,52 @@ export default function WormholeGame() {
     clip.volume = volume;
     try { clip.currentTime = 0; } catch { /* Safari throws before metadata loads. */ }
     void clip.play().catch(() => undefined);
+  }, []);
+
+  /**
+   * Procedural event cues avoid a large audio download while giving every
+   * power-up a stable, recognizable two-note signature.
+   */
+  const playCue = useCallback((cue: string, volume = 0.16) => {
+    if (!soundRef.current || typeof window === "undefined") return;
+    const AudioContextClass = window.AudioContext
+      ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const context = cueAudio.current ?? new AudioContextClass();
+    cueAudio.current = context;
+    void context.resume().catch(() => undefined);
+
+    const hash = [...cue].reduce((value, character) => ((value * 33) ^ character.charCodeAt(0)) >>> 0, 5381);
+    const special = cue === "wormhole-explosion"
+      ? { frequencies: [72, 48, 34, 150], duration: 1.35, gap: 0.08, type: "sawtooth" as OscillatorType }
+      : cue === "shield-pickup"
+        ? { frequencies: [420, 680, 1020], duration: 0.46, gap: 0.07, type: "sine" as OscillatorType }
+        : cue === "shield-down"
+          ? { frequencies: [330, 210, 95], duration: 0.62, gap: 0.08, type: "square" as OscillatorType }
+          : {
+              frequencies: [180 + hash % 520, 260 + (hash >>> 5) % 720],
+              duration: 0.34,
+              gap: 0.055,
+              type: (["sine", "triangle", "square", "sawtooth"] as OscillatorType[])[hash % 4],
+            };
+
+    const start = context.currentTime;
+    special.frequencies.forEach((frequency, index) => {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      const noteStart = start + index * special.gap;
+      const noteEnd = noteStart + special.duration / special.frequencies.length;
+      oscillator.type = special.type;
+      oscillator.frequency.setValueAtTime(frequency, noteStart);
+      if (cue === "wormhole-explosion") oscillator.frequency.exponentialRampToValueAtTime(Math.max(24, frequency * 0.45), noteEnd);
+      gain.gain.setValueAtTime(0.0001, noteStart);
+      gain.gain.exponentialRampToValueAtTime(Math.max(0.001, volume), noteStart + 0.018);
+      gain.gain.exponentialRampToValueAtTime(0.0001, noteEnd);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start(noteStart);
+      oscillator.stop(noteEnd + 0.02);
+    });
   }, []);
 
   const sync = useCallback(() => {
@@ -2563,7 +2623,7 @@ export default function WormholeGame() {
         game.notice = "COLLISION SHIELD DOWN";
         game.noticeLife = 90;
         burst(game, player.x, player.y, "#64eaff", 26, 9);
-        play("explosion", 0.2);
+        playCue("shield-down", 0.2);
       }
       if (hit.toHull <= 0) return;
 
@@ -2597,7 +2657,7 @@ export default function WormholeGame() {
       game.noticeLife = 140;
       pushSpawn(game, "hostile", power, game.portalX, game.portalY, count);
       burst(game, game.portalX, game.portalY, POWER_COLORS[power], 26, 9);
-      play(power === "nuke" ? "explosion" : "magic", 0.28);
+      playCue(`spawn:${power}`, 0.15);
     };
 
     const spawnEnrageWave = (game: Game) => {
@@ -2611,6 +2671,7 @@ export default function WormholeGame() {
           game.enemies.push(makeEnemy(enemy, game.portalX, game.portalY, i, count));
         }
         pushSpawn(game, "hostile", enemy, game.portalX, game.portalY, count);
+        playCue(`spawn:${enemy}`, 0.14);
       }
 
       game.incoming = "ufo";
@@ -2771,13 +2832,25 @@ export default function WormholeGame() {
         if ((enemy.blastRadius ?? 0) > 0 && (enemy.blastRadius ?? 0) >= d) player.emp = 150;
         if ((enemy.blastRadius ?? 0) > 320) enemy.hp = 0;
       } else if (enemy.kind === "beam") {
-        enemy.phase += 0.006;
+        enemy.phase = advanceBeamAngle(enemy.phase, enemy.rotationDir ?? 1);
         enemy.x = game.portalX;
         enemy.y = game.portalY;
         if (enemy.age > 45 && enemy.age < 365) {
-          const angle = Math.atan2(player.y - game.portalY, player.x - game.portalX) + Math.sin(enemy.phase) * 0.3;
-          const lineDist = Math.abs(Math.sin(angle) * (player.x - game.portalX) - Math.cos(angle) * (player.y - game.portalY));
-          if (lineDist < 14 && enemy.age % 16 === 0) damagePlayer(game, 8, "beam");
+          if (
+            enemy.age % 16 === 0
+            && pointTouchesBeam(game.portalX, game.portalY, enemy.phase, player.x, player.y, BEAM_HIT_WIDTH)
+          ) {
+            damagePlayer(game, 8, "beam");
+          }
+          for (const pickup of game.pickups) {
+            if (
+              pickup.life > 0
+              && pointTouchesBeam(game.portalX, game.portalY, enemy.phase, pickup.x, pickup.y, BEAM_PICKUP_WIDTH)
+            ) {
+              pickup.life = 0;
+              burst(game, pickup.x, pickup.y, "#ffffff", 10, 4);
+            }
+          }
         }
         if (enemy.age >= 365) enemy.hp = 0;
       } else if (enemy.kind === "nuke") {
@@ -2910,7 +2983,10 @@ export default function WormholeGame() {
             burst(game, game.portalX, game.portalY, "#ffffff", 180, 24);
             burst(game, game.portalX, game.portalY, "#68f2ff", 120, 18);
             burst(game, game.portalX, game.portalY, "#ff4fd8", 120, 14);
-            play("explosion", 0.55);
+            playCue("wormhole-explosion", 0.24);
+            if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+              navigator.vibrate([120, 45, 180, 55, 320]);
+            }
           }
           for (const particle of game.particles) {
             particle.x += particle.vx;
@@ -2942,7 +3018,9 @@ export default function WormholeGame() {
       game.noticeLife = Math.max(0, game.noticeLife - 1);
       game.portalPulse = Math.max(0, game.portalPulse - 0.012);
       player.invuln = Math.max(0, player.invuln - 1);
+      const shieldWasActive = player.shield > 0;
       player.shield = Math.max(0, player.shield - 1);
+      if (shieldWasActive && player.shield === 0) playCue("shield-down", 0.18);
       player.specialCooldown = Math.max(0, player.specialCooldown - 1);
       player.wingOverdrive = Math.max(0, player.wingOverdrive - 1);
       player.squidPhase = Math.max(0, player.squidPhase - 1);
@@ -3127,7 +3205,7 @@ export default function WormholeGame() {
             game.notice = `${WEAPONS[type].short} READY TO COLLECT`;
             game.noticeLife = 100;
             pushSpawn(game, "friendly", type, game.portalX, game.portalY, 1);
-            play("magic", 0.22);
+            playCue(`spawn:${type}`, 0.17);
           }
         }
         for (const enemy of game.enemies) {
@@ -3224,7 +3302,8 @@ export default function WormholeGame() {
           game.notice = `${WEAPONS[type].short} COLLECTED`;
           game.noticeLife = 100;
           burst(game, pickup.x, pickup.y, POWER_COLORS[type], 16, 5);
-          play("magic", 0.25);
+          if (type === "shield") playCue("shield-pickup", 0.18);
+          else play("magic", 0.25);
         }
       });
 
@@ -3409,23 +3488,22 @@ export default function WormholeGame() {
       }
 
       if (enemy.kind === "beam" && enemy.age > 45) {
-        const angle = Math.atan2(game.player.y - game.portalY, game.player.x - game.portalX) + Math.sin(enemy.phase) * 0.3;
         ctx.save();
         ctx.translate(enemy.x, enemy.y);
-        ctx.rotate(angle);
+        ctx.rotate(enemy.phase);
         ctx.globalAlpha = 0.5;
         ctx.strokeStyle = color;
         ctx.lineWidth = 9;
         ctx.beginPath();
         ctx.moveTo(0, 0);
-        ctx.lineTo(900, 0);
+        ctx.lineTo(BEAM_LENGTH, 0);
         ctx.stroke();
         ctx.globalAlpha = 0.95;
         ctx.strokeStyle = "#ffffff";
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(0, 0);
-        ctx.lineTo(900, 0);
+        ctx.lineTo(BEAM_LENGTH, 0);
         ctx.stroke();
         ctx.restore();
       }
@@ -3450,7 +3528,7 @@ export default function WormholeGame() {
       }
       if (DIRECTIONAL.has(enemy.kind)) {
         const heading = enemy.kind === "beam"
-          ? Math.atan2(game.player.y - game.portalY, game.player.x - game.portalX)
+          ? enemy.phase
           : Math.atan2(enemy.vy, enemy.vx);
         ctx.rotate(heading);
       }
@@ -4146,7 +4224,7 @@ export default function WormholeGame() {
       window.removeEventListener("resize", onDprChange);
       window.removeEventListener("orientationchange", onDprChange);
     };
-  }, [play, sync, viewMode]);
+  }, [play, playCue, sync, viewMode]);
 
   const currentShip = selectedShip(shipId);
   const pendingRules = rulesFor(mode, difficulty);
