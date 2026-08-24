@@ -32,8 +32,8 @@ test("Viper rebalance is inside budget with MK1 represented by base gun points",
   const score = shipBalanceBreakdown(viper);
   assert.equal(viper.health, 150);
   assert.equal(viper.maxSpeed, 3);
-  assert.equal(viper.gun, 0);
-  assert.equal(score.gun, 6);
+  assert.equal(viper.gun, 1);
+  assert.equal(score.gun, 12);
   assert.equal(score.total, 99);
 });
 
