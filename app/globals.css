@@ -1653,7 +1653,7 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
 }
 
 
-.coop-defeat-info {
+.death-info {
   display: grid;
   gap: 5px;
   width: 100%;
@@ -1664,14 +1664,23 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
   text-align: center;
   font-family: var(--mono);
 }
-.coop-defeat-info strong {
+.death-info strong {
   color: #fff;
   font-size: var(--fs-sm);
   letter-spacing: .08em;
 }
-.coop-defeat-info span {
+.death-info span {
   color: #ff9cad;
   font-size: var(--fs-xs);
   font-weight: 900;
   letter-spacing: .06em;
+}
+
+.death-info.victory {
+  color: #e7ffd0;
+  border-color: var(--lime);
+  background: rgba(18, 48, 10, .94);
+}
+.death-info.victory span {
+  color: var(--lime);
 }

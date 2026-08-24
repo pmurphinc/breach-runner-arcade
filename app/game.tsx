@@ -219,6 +219,8 @@ type Game = {
   /** Rules in force for this run. Read by the loop; never re-derived from an id. */
   rules: DifficultyRules;
   mode: GameMode;
+  /** Most recent hull-damaging hazard, used by every defeat screen. */
+  lastDamageCause: string;
   player: Player;
   /** Easy-mode collision shield. Null whenever the rules do not grant one. */
   collisionShield: CollisionShieldState | null;
@@ -290,6 +292,7 @@ type Hud = {
   running: boolean;
   paused: boolean;
   result: Game["result"];
+  deathCause: string;
   incoming: PowerId | null;
   notice: string;
   coach: string;
@@ -357,6 +360,7 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
     ship,
     rules,
     mode,
+    lastDamageCause: "unknown",
     collisionShield: createCollisionShield(rules),
     contact: createContactHazard(),
     contactWarning: 0,
@@ -435,6 +439,7 @@ function hudFrom(game: Game): Hud {
     running: game.running,
     paused: game.paused,
     result: game.result,
+    deathCause: game.lastDamageCause,
     incoming: game.incoming,
     notice: game.noticeLife > 0 ? game.notice : "",
     coach: coachLine(game),
@@ -771,6 +776,8 @@ type RunSummary = {
   restored: boolean;
   /** Victory waits for classic arcade initials before any persistence. */
   awaitingInitials: boolean;
+  /** Final hull-damaging hazard for defeat screens. */
+  deathCause?: string;
 };
 
 type SaveState =
@@ -2034,15 +2041,16 @@ export default function WormholeGame() {
         runs: 0,
         restored: false,
         awaitingInitials: true,
+        deathCause: hud.deathCause,
       });
     } else if (practice) {
-      setSummary({ run, best: loadLocalBest(), isBest: false, runs: 0, restored: false, awaitingInitials: false });
+      setSummary({ run, best: loadLocalBest(), isBest: false, runs: 0, restored: false, awaitingInitials: false, deathCause: hud.deathCause });
     } else {
       const local = saveLocalRun(run);
-      setSummary({ run, best: local.best, isBest: local.isBest, runs: local.runs, restored: false, awaitingInitials: false });
+      setSummary({ run, best: local.best, isBest: local.isBest, runs: local.runs, restored: false, awaitingInitials: false, deathCause: hud.deathCause });
     }
     setSaveState({ status: "idle" });
-  }, [hud.difficulty, hud.elapsedSeconds, hud.mode, hud.result, hud.rivalHealth, hud.score]);
+  }, [hud.deathCause, hud.difficulty, hud.elapsedSeconds, hud.mode, hud.result, hud.rivalHealth, hud.score]);
 
   // Signed-in players always save automatically, including when a run finishes
   // before the initial Murph Tournaments session request returns.
@@ -2478,6 +2486,7 @@ export default function WormholeGame() {
       player.invuln = 24;
       burst(game, player.x, player.y, "#ff5570", 18, 7);
       play("explosion", 0.24);
+      game.lastDamageCause = cause;
       report(game, "impact", amount, cause);
       applyHullDamage(game, amount);
     };
@@ -2518,6 +2527,7 @@ export default function WormholeGame() {
       if (hit.toHull <= 0) return;
 
       player.invuln = 24;
+      game.lastDamageCause = cause;
       burst(game, player.x, player.y, "#ff5570", 18, 7);
       play("explosion", 0.24);
       applyHullDamage(game, hit.toHull);
@@ -2531,6 +2541,7 @@ export default function WormholeGame() {
       if (game.player.shield > 0) return;
       burst(game, game.player.x, game.player.y, "#ff5ac8", 10, 6);
       play("explosion", 0.18);
+      game.lastDamageCause = "wormhole_contact";
       report(game, "impact", amount, "wormhole_contact");
       applyHullDamage(game, amount);
     };
@@ -4405,10 +4416,23 @@ export default function WormholeGame() {
                       </div>
                     )}
 
-                    {mode === "coop" && netResult?.outcome === "defeat" ? (
-                      <div className="coop-defeat-info" role="status">
-                        <strong>{netResult.youEliminated ? "YOUR PILOT WAS ELIMINATED" : `${netResult.eliminatedName ?? "YOUR ALLY"} WAS ELIMINATED`}</strong>
-                        <span>ROUND ENDED BY {defeatCauseLabel(netResult.cause)}</span>
+                    {summary.run.outcome === "defeat" ? (
+                      <div className="death-info" role="status">
+                        <strong>
+                          {mode === "pve"
+                            ? "YOUR PILOT WAS ELIMINATED"
+                            : netResult?.youEliminated
+                              ? "YOUR PILOT WAS ELIMINATED"
+                              : `${netResult?.eliminatedName ?? (mode === "coop" ? "YOUR ALLY" : "OPPONENT")} WAS ELIMINATED`}
+                        </strong>
+                        <span>
+                          DESTROYED BY {defeatCauseLabel(mode === "pve" ? summary.deathCause ?? "unknown" : netResult?.cause ?? "unknown")}
+                        </span>
+                      </div>
+                    ) : mode === "pvp" && netResult?.outcome === "victory" && netResult.eliminatedName ? (
+                      <div className="death-info victory" role="status">
+                        <strong>{netResult.eliminatedName} WAS ELIMINATED</strong>
+                        <span>DESTROYED BY {defeatCauseLabel(netResult.cause)}</span>
                       </div>
                     ) : null}
 
