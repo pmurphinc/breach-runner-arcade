@@ -4,13 +4,17 @@ import {
   DIFFICULTIES,
   PVP_RULES,
   absorbCollisionDamage,
+  absorbEnrageShield,
+  activateEnrageRecovery,
   advanceWormholeAngle,
   createCollisionShield,
   createContactHazard,
+  createEnrageRecovery,
   pilotSpawn,
   rulesFor,
   tickCollisionShield,
   tickContactHazard,
+  tickEnrageRecovery,
   ticksForSeconds,
   wormholePosition,
 } from "../app/difficulty.ts";
@@ -415,4 +419,33 @@ test("practice is explicitly unlimited and excluded from combat assists", () => 
   assert.equal(practice.wormholeEnrage.enabled, false);
   assert.equal(rulesFor("pve", "practice"), practice);
   assert.notEqual(PVP_RULES, practice, "PvP must never inherit practice immunity");
+});
+
+
+test("difficult enrage heals 10% over 10 seconds", () => {
+  const state = createEnrageRecovery();
+  activateEnrageRecovery(state, DIFFICULT, 200);
+  let hp = 30, healed = 0;
+  for (let i = 0; i < DIFFICULT.wormholeEnrage.healDurationTicks; i += 1) {
+    const amount = tickEnrageRecovery(state, hp, 200); hp += amount; healed += amount;
+  }
+  assert.ok(Math.abs(healed - 20) < 1e-8);
+  assert.equal(state.shield, 0);
+});
+
+test("hard enrage heals 20%, shields 10% for 10 seconds, and pulses mines every 3 seconds", () => {
+  const state = createEnrageRecovery();
+  activateEnrageRecovery(state, HARD, 350);
+  assert.equal(state.shield, 35);
+  assert.equal(state.shieldTicksLeft, ticksForSeconds(10));
+  assert.equal(HARD.wormholeEnrage.minePulseIntervalTicks, ticksForSeconds(3));
+  const hit = absorbEnrageShield(state, 20);
+  assert.equal(hit.absorbed, 20);
+  assert.equal(hit.toIntegrity, 0);
+  let hp = 105, healed = 0;
+  for (let i = 0; i < HARD.wormholeEnrage.healDurationTicks; i += 1) {
+    const amount = tickEnrageRecovery(state, hp, 350); hp += amount; healed += amount;
+  }
+  assert.ok(Math.abs(healed - 70) < 1e-8);
+  assert.equal(state.shield, 0);
 });
