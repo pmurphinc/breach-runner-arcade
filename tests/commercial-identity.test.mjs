@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { SHIPS, WEAPONS } from "../app/game-data.ts";
+import { PRODUCT_TAGLINE, PRODUCT_TITLE } from "../app/product.ts";
 
 const layout = fs.readFileSync(new URL("../app/layout.tsx", import.meta.url), "utf8");
 const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
@@ -15,6 +16,13 @@ const legacyWeaponNames = [
   "SEND MINELAYER", "SEND GUNSHIP", "SEND SCARAB", "SEND NUKE", "SEND WALLCRAWLER",
   "WORMHOLE BEAM", "WORMHOLE EMP", "SEND GHOST-PUD", "SEND ARTILLERY",
 ];
+
+test("commercial product identity is Breach Runner", () => {
+  assert.equal(PRODUCT_TITLE, "Breach Runner");
+  assert.equal(PRODUCT_TAGLINE, "Weaponize the rift.");
+  assert.match(readme, /^# Breach Runner/m);
+  assert.match(readme, /Weaponize the rift\./i);
+});
 
 test("commercial fleet display names do not expose the legacy fleet identity", () => {
   const display = SHIPS.map((ship) => `${ship.name} ${ship.special}`).join("\n");
