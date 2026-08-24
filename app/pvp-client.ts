@@ -58,6 +58,7 @@ export type CoopWorld = {
   portalAngle: number;
   enrageActive: boolean;
   enemies: Array<Record<string, number | string | boolean | undefined>>;
+  enemyBullets: Array<Record<string, number | string | boolean | undefined>>;
 };
 
 export type PvpSnapshot = {
