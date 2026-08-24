@@ -82,7 +82,15 @@ export type PvpSnapshot = {
   world: CoopWorld | null;
   /** Milliseconds until the match goes live, during a countdown. */
   countdownMs: number;
-  result: { outcome: "victory" | "defeat"; reason: string; opponent: string } | null;
+  result: {
+    outcome: "victory" | "defeat";
+    reason: string;
+    opponent: string;
+    eliminatedId: string | null;
+    eliminatedName: string | null;
+    youEliminated: boolean;
+    cause: string;
+  } | null;
   rematch: { you: boolean; opponent: boolean; status: "waiting" | "starting"; expiresAt: number } | null;
   /** Last inbound attack, for the warning banner. */
   incoming: { weapon: string; from: string; at: number } | null;
@@ -378,6 +386,10 @@ export class PvpClient {
             outcome: message.outcome === "victory" ? "victory" : "defeat",
             reason: String(message.reason ?? ""),
             opponent: String(message.opponent ?? "OPPONENT"),
+            eliminatedId: typeof message.eliminatedId === "string" ? message.eliminatedId : null,
+            eliminatedName: typeof message.eliminatedName === "string" ? message.eliminatedName : null,
+            youEliminated: Boolean(message.youEliminated),
+            cause: String(message.cause ?? "unknown"),
           },
         });
         return;
@@ -403,13 +415,13 @@ export class PvpClient {
   cancel() { this.send({ type: "cancel" }); }
   chooseShip(ship: string) { this.send({ type: "ship", ship }); }
   setReady(ready: boolean) { this.send({ type: "ready", ready }); }
-  requestRematch() { this.send({ type: "rematch" }); }
+  requestRematch(ship?: string) { this.send({ type: "rematch", ...(ship ? { ship } : {}) }); }
 
   /** Reports damage taken locally. The server decides what it costs. */
-  reportDamage(source: "collision" | "impact", amount: number) {
+  reportDamage(source: "collision" | "impact", amount: number, cause = "unknown") {
     if (amount <= 0) return;
     this.damageSeq += 1;
-    this.send({ type: "damage", seq: this.damageSeq, source, amount: Math.round(amount) });
+    this.send({ type: "damage", seq: this.damageSeq, source, amount: Math.round(amount), cause });
   }
 
   reportPosition(x: number, y: number, angle: number) {

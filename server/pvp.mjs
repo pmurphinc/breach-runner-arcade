@@ -252,7 +252,7 @@ function handle(matches, player, message, now, send) {
       return;
     }
     case "rematch": {
-      const result = matches.requestRematch(player, now);
+      const result = matches.requestRematch(player, now, message.ship);
       if (!result.ok) send({ type: "error", code: result.code });
       return;
     }

@@ -101,3 +101,32 @@ test("stale co-op world revisions are ignored", () => {
   server.updateWorld(a.player, { ...world, seq: 3 }, 5200);
   assert.equal(b.messages.filter((message) => message.type === "world").length, 1);
 });
+
+
+test("co-op defeat identifies the eliminated pilot and final damage source", () => {
+  const { server, a, b } = activeCoop();
+  server.reportDamage(a.player, { seq: 1, source: "impact", amount: 60, cause: "nuke_blast" }, 6000);
+  server.reportDamage(a.player, { seq: 2, source: "impact", amount: 60, cause: "nuke_blast" }, 7100);
+  server.reportDamage(a.player, { seq: 3, source: "impact", amount: 60, cause: "nuke_blast" }, 8200);
+  server.reportDamage(a.player, { seq: 4, source: "impact", amount: 60, cause: "nuke_blast" }, 9300);
+  const ownResult = a.messages.findLast((message) => message.type === "result");
+  const allyResult = b.messages.findLast((message) => message.type === "result");
+  assert.equal(ownResult.youEliminated, true);
+  assert.equal(allyResult.youEliminated, false);
+  assert.equal(ownResult.eliminatedName, a.player.name);
+  assert.equal(allyResult.eliminatedName, a.player.name);
+  assert.equal(ownResult.cause, "nuke_blast");
+  assert.equal(allyResult.cause, "nuke_blast");
+});
+
+test("a co-op retry can store a new ship before both pilots accept", () => {
+  const { server, a, b, room } = activeCoop();
+  server.finishCoop(room, "defeat", "pilot_hull", 5000, a.player, "mines_collision");
+  const first = server.requestRematch(a.player, 5100, "tank");
+  assert.equal(first.starting, false);
+  assert.equal(a.player.ship, "tank");
+  const second = server.requestRematch(b.player, 5200);
+  assert.equal(second.starting, true);
+  assert.equal(room.phase, "select");
+  assert.equal(a.player.ship, "tank");
+});

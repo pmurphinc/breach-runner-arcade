@@ -228,7 +228,13 @@ export function parseClientMessage(raw) {
       }
       return {
         ok: true,
-        message: { type, seq: parsed.seq, source: parsed.source, amount: parsed.amount },
+        message: {
+          type,
+          seq: parsed.seq,
+          source: parsed.source,
+          amount: parsed.amount,
+          cause: typeof parsed.cause === "string" && /^[a-z0-9_]{1,32}$/.test(parsed.cause) ? parsed.cause : "unknown",
+        },
       };
     }
     case "transmit": {
@@ -313,11 +319,17 @@ export function parseClientMessage(raw) {
         enrageActive: Boolean(parsed.enrageActive),
       } };
     }
+    case "rematch": {
+      if (parsed.ship !== undefined && !SHIP_IDS.includes(parsed.ship)) {
+        return { ok: false, code: ERRORS.BAD_MESSAGE, detail: "unknown rematch ship" };
+      }
+      return { ok: true, message: { type, ship: parsed.ship } };
+    }
     case "pong": {
       return { ok: true, message: { type, t: isFiniteNumber(parsed.t) ? parsed.t : 0 } };
     }
     default:
-      // queue, create, cancel, leave and rematch carry no payload.
+      // queue, create, cancel and leave carry no payload.
       return { ok: true, message: { type } };
   }
 }

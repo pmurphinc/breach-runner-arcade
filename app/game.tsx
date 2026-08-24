@@ -105,6 +105,27 @@ const THRUST_SPEED_BONUS = 0.25;
 const STOCK_LIMIT = 10;
 const ticksForSeconds = (seconds: number) => Math.round(seconds * 1000 / TICK_MS);
 const wholeSecondsForTicks = (ticks: number) => Math.max(0, Math.ceil(ticks * TICK_MS / 1000));
+const DEFEAT_CAUSE_LABELS: Record<string, string> = {
+  wall: "ARENA WALL",
+  wormhole_contact: "WORMHOLE CONTACT",
+  hostile_projectile: "HOSTILE FIRE",
+  beam: "BEAM WEAPON",
+  nuke_blast: "NUKE BLAST",
+  mines_collision: "MINE COLLISION",
+  heatseeker_collision: "HEAT SEEKER COLLISION",
+  inflator_collision: "INFLATOR COLLISION",
+  ufo_collision: "UFO COLLISION",
+  turret_collision: "TURRET COLLISION",
+  gunship_collision: "GUNSHIP COLLISION",
+  scarab_collision: "SCARAB COLLISION",
+  wallcrawler_collision: "WALLCRAWLER COLLISION",
+  ghost_collision: "GHOST COLLISION",
+  artillery_collision: "ARTILLERY COLLISION",
+  enemy_collision: "HOSTILE COLLISION",
+  unknown: "UNKNOWN DAMAGE",
+};
+const defeatCauseLabel = (cause: string) =>
+  DEFEAT_CAUSE_LABELS[cause] ?? cause.replaceAll("_", " ").toUpperCase();
 /** More than two nameplates at once is noise, not information. */
 const MAX_NAMEPLATES = 2;
 const ARENA_PALETTES: Record<DifficultyId, readonly [string, string, string]> = {
@@ -2440,8 +2461,8 @@ export default function WormholeGame() {
      * `source` split matches the single-player one exactly, so the collision
      * shield covers impacts only on both sides of the wire.
      */
-    const report = (game: Game, source: "collision" | "impact", amount: number) => {
-      if (game.mode !== "pve") netRef.current?.reportDamage(source, amount);
+    const report = (game: Game, source: "collision" | "impact", amount: number, cause: string) => {
+      if (game.mode !== "pve") netRef.current?.reportDamage(source, amount, cause);
     };
 
     /**
@@ -2451,13 +2472,13 @@ export default function WormholeGame() {
      * covers impacts only, and routing weapon fire through it would quietly
      * turn it into blanket immunity.
      */
-    const damagePlayer = (game: Game, amount: number) => {
+    const damagePlayer = (game: Game, amount: number, cause = "hostile_projectile") => {
       const player = game.player;
       if (player.invuln > 0 || player.shield > 0) return;
       player.invuln = 24;
       burst(game, player.x, player.y, "#ff5570", 18, 7);
       play("explosion", 0.24);
-      report(game, "impact", amount);
+      report(game, "impact", amount, cause);
       applyHullDamage(game, amount);
     };
 
@@ -2468,20 +2489,20 @@ export default function WormholeGame() {
      * the collision shield is never spent while the pilot is already immune.
      * Whatever the collision shield cannot absorb overflows to hull.
      */
-    const damageCollision = (game: Game, amount: number) => {
+    const damageCollision = (game: Game, amount: number, cause = "enemy_collision") => {
       const player = game.player;
       if (player.invuln > 0 || player.shield > 0) return;
 
       const shield = game.collisionShield;
       if (!shield) {
-        damagePlayer(game, amount);
+        damagePlayer(game, amount, cause);
         return;
       }
 
       // Report the raw collision, not the post-shield remainder: the server
       // keeps its own shield and must be the one to decide how much of this
       // reaches hull.
-      report(game, "collision", amount);
+      report(game, "collision", amount, cause);
       const hit = absorbCollisionDamage(shield, amount, game.rules);
       if (hit.absorbed > 0) {
         game.shieldRipple = 1;
@@ -2510,6 +2531,7 @@ export default function WormholeGame() {
       if (game.player.shield > 0) return;
       burst(game, game.player.x, game.player.y, "#ff5ac8", 10, 6);
       play("explosion", 0.18);
+      report(game, "impact", amount, "wormhole_contact");
       applyHullDamage(game, amount);
     };
 
@@ -2701,7 +2723,7 @@ export default function WormholeGame() {
         if (enemy.age > 45 && enemy.age < 365) {
           const angle = Math.atan2(player.y - game.portalY, player.x - game.portalX) + Math.sin(enemy.phase) * 0.3;
           const lineDist = Math.abs(Math.sin(angle) * (player.x - game.portalX) - Math.cos(angle) * (player.y - game.portalY));
-          if (lineDist < 14 && enemy.age % 16 === 0) damagePlayer(game, 8);
+          if (lineDist < 14 && enemy.age % 16 === 0) damagePlayer(game, 8, "beam");
         }
         if (enemy.age >= 365) enemy.hp = 0;
       } else if (enemy.kind === "nuke") {
@@ -2709,7 +2731,7 @@ export default function WormholeGame() {
         if ((enemy.countdown ?? 0) <= 0) {
           const previousRadius = enemy.blastRadius ?? 10;
           enemy.blastRadius = previousRadius + 30;
-          if (d <= (enemy.blastRadius ?? 0) && d > previousRadius && player.shield <= 0) damagePlayer(game, Math.max(5, 40 * (1 - (enemy.blastRadius ?? 0) / 1000)));
+          if (d <= (enemy.blastRadius ?? 0) && d > previousRadius && player.shield <= 0) damagePlayer(game, Math.max(5, 40 * (1 - (enemy.blastRadius ?? 0) / 1000)), "nuke_blast");
           if ((enemy.blastRadius ?? 0) > 1000) enemy.hp = 0;
         }
       }
@@ -2726,7 +2748,7 @@ export default function WormholeGame() {
 
       const collisionRadius = enemy.kind === "nuke" && (enemy.countdown ?? 0) <= 0 ? 0 : enemy.radius;
       if (collisionRadius > 0 && d < collisionRadius + 12) {
-        damageCollision(game, enemy.kind === "mines" ? 20 : enemy.kind === "inflator" ? 18 : enemy.kind === "heatseeker" ? 10 : 8);
+        damageCollision(game, enemy.kind === "mines" ? 20 : enemy.kind === "inflator" ? 18 : enemy.kind === "heatseeker" ? 10 : 8, `${enemy.kind}_collision`);
         if (enemy.kind !== "ufo" && enemy.kind !== "ghost" && enemy.kind !== "wallcrawler" && enemy.kind !== "gunship") enemy.hp = 0;
         enemy.vx *= -1;
         enemy.vy *= -1;
@@ -2974,8 +2996,8 @@ export default function WormholeGame() {
       if (playerSpeed > maxSpeed) { player.vx = (player.vx / playerSpeed) * maxSpeed; player.vy = (player.vy / playerSpeed) * maxSpeed; }
       player.x += player.vx;
       player.y += player.vy;
-      if (player.x < 12 || player.x > game.worldWidth - 12) { player.x = cap(player.x, 12, game.worldWidth - 12); player.vx *= -0.55; damageCollision(game, 2); }
-      if (player.y < 12 || player.y > game.worldHeight - 12) { player.y = cap(player.y, 12, game.worldHeight - 12); player.vy *= -0.55; damageCollision(game, 2); }
+      if (player.x < 12 || player.x > game.worldWidth - 12) { player.x = cap(player.x, 12, game.worldWidth - 12); player.vx *= -0.55; damageCollision(game, 2, "wall"); }
+      if (player.y < 12 || player.y > game.worldHeight - 12) { player.y = cap(player.y, 12, game.worldHeight - 12); player.vy *= -0.55; damageCollision(game, 2, "wall"); }
 
       if (fire && game.shotCycle <= 0 && game.playerShots < SHOT_LEVELS[player.gun].maxShots) {
         const shot = SHOT_LEVELS[player.gun];
@@ -3036,7 +3058,7 @@ export default function WormholeGame() {
         bullet.y += bullet.vy;
         bullet.life -= 1;
         if (bullet.enemy) {
-          if (dist(bullet, player) < 13) { bullet.life = 0; damagePlayer(game, bullet.damage); }
+          if (dist(bullet, player) < 13) { bullet.life = 0; damagePlayer(game, bullet.damage, "hostile_projectile"); }
           return;
         }
         if (dist(bullet, { x: game.portalX, y: game.portalY }) < 43) {
@@ -4383,6 +4405,13 @@ export default function WormholeGame() {
                       </div>
                     )}
 
+                    {mode === "coop" && netResult?.outcome === "defeat" ? (
+                      <div className="coop-defeat-info" role="status">
+                        <strong>{netResult.youEliminated ? "YOUR PILOT WAS ELIMINATED" : `${netResult.eliminatedName ?? "YOUR ALLY"} WAS ELIMINATED`}</strong>
+                        <span>ROUND ENDED BY {defeatCauseLabel(netResult.cause)}</span>
+                      </div>
+                    ) : null}
+
                     <div className={`run-links ${summary.awaitingInitials ? "locked" : ""}`}>
                       {mode !== "pve" ? (
                         <>
@@ -4394,7 +4423,14 @@ export default function WormholeGame() {
                           >
                             {net?.rematch?.you
                               ? net.rematch.opponent ? "REMATCH STARTING" : mode === "coop" ? "WAITING FOR ALLY" : "WAITING FOR OPPONENT"
-                              : net?.rematch?.opponent ? "ACCEPT REMATCH" : "REQUEST REMATCH"}
+                              : net?.rematch?.opponent ? "ACCEPT RETRY" : "RETRY ROUND"}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={Boolean(net?.rematch?.you)}
+                            onClick={() => setStage("select")}
+                          >
+                            CHANGE SHIP
                           </button>
                           <button type="button" onClick={() => {
                             netRef.current?.leave();
@@ -4402,7 +4438,7 @@ export default function WormholeGame() {
                             setLobbyOpen(false);
                             setStage("setup");
                           }}>
-                            LEAVE MATCH
+                            LEAVE LOBBY
                           </button>
                         </>
                       ) : (
@@ -4607,7 +4643,16 @@ export default function WormholeGame() {
               selected={shipId}
               reducedMotion={reducedMotion}
               locked={mode !== "pve" && net?.phase === "countdown"}
-              onConfirm={(id) => { setShipId(id); netRef.current?.chooseShip(id); setStage("setup"); }}
+              onConfirm={(id) => {
+                setShipId(id);
+                if (mode !== "pve" && net?.phase === "finished") {
+                  netRef.current?.requestRematch(id);
+                  setStage("arena");
+                } else {
+                  netRef.current?.chooseShip(id);
+                  setStage("setup");
+                }
+              }}
             />
           ) : (
             <MissionSetup
