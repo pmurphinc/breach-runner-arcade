@@ -259,7 +259,8 @@ export function parseClientMessage(raw) {
         return { ok: false, code: ERRORS.BAD_MESSAGE, detail: "bad world seq" };
       }
       if (![parsed.portalX, parsed.portalY, parsed.portalAngle].every(isFiniteNumber)
-        || !Array.isArray(parsed.enemies) || parsed.enemies.length > 128) {
+        || !Array.isArray(parsed.enemies) || parsed.enemies.length > 128
+        || !Array.isArray(parsed.enemyBullets) || parsed.enemyBullets.length > 256) {
         return { ok: false, code: ERRORS.BAD_MESSAGE, detail: "bad world snapshot" };
       }
       const enemies = [];
@@ -286,8 +287,26 @@ export function parseClientMessage(raw) {
           blastRadius: isFiniteNumber(enemy.blastRadius) ? enemy.blastRadius : undefined,
         });
       }
+      const enemyBullets = [];
+      for (const bullet of parsed.enemyBullets) {
+        if (!isPlainObject(bullet)
+          || ![bullet.x, bullet.y, bullet.vx, bullet.vy, bullet.damage, bullet.life].every(isFiniteNumber)
+          || typeof bullet.color !== "string") {
+          return { ok: false, code: ERRORS.BAD_MESSAGE, detail: "bad enemy bullet snapshot" };
+        }
+        enemyBullets.push({
+          x: Math.max(-100, Math.min(1604, bullet.x)),
+          y: Math.max(-100, Math.min(1040, bullet.y)),
+          vx: Math.max(-30, Math.min(30, bullet.vx)),
+          vy: Math.max(-30, Math.min(30, bullet.vy)),
+          damage: Math.max(0, Math.min(100, bullet.damage)),
+          life: Math.max(0, Math.min(2000, bullet.life)),
+          enemy: true,
+          color: bullet.color.slice(0, 32),
+        });
+      }
       return { ok: true, message: {
-        type, seq: parsed.seq, enemies,
+        type, seq: parsed.seq, enemies, enemyBullets,
         portalX: Math.max(0, Math.min(1504, parsed.portalX)),
         portalY: Math.max(0, Math.min(940, parsed.portalY)),
         portalAngle: parsed.portalAngle,
