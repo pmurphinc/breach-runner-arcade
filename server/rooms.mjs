@@ -40,6 +40,10 @@ export const SHIP_HULL = {
   flagship: 300,
 };
 
+const COOP_RIVAL_HEALTH = { practice: 200, easy: 200, difficult: 400, hard: 700 };
+const COOP_POWER_DAMAGE = { nuke: 24, beam: 18, artillery: 18, gunship: 18 };
+const coopPowerDamage = (weapon) => COOP_POWER_DAMAGE[weapon] ?? 12;
+
 const PHASES = {
   LOBBY: "lobby",
   SELECT: "select",
@@ -65,6 +69,7 @@ export function createPlayer(send, { now = Date.now(), random = Math.random } = 
     combat: null,
     lastDamageSeq: -1,
     lastTransmitSeq: -1,
+    position: { x: 752, y: 470, angle: 270 },
     window: createRateWindow(),
   };
 }
@@ -147,26 +152,26 @@ export class MatchServer {
 
   // ----------------------------------------------------------- matchmaking --
 
-  enqueue(player, now = Date.now()) {
+  enqueue(player, { kind = "pvp", difficulty = "easy" } = {}, now = Date.now()) {
     if (player.room) return;
     this.leaveQueue(player);
-    const waiting = this.queue.find((entry) => entry.player.connected);
+    const waiting = this.queue.find((entry) => entry.player.connected && entry.kind === kind && entry.difficulty === difficulty);
 
     if (!waiting) {
-      this.queue.push({ player, at: now });
+      this.queue.push({ player, at: now, kind, difficulty });
       this.sendTo(player, { type: "lobby", state: "searching" });
       return;
     }
 
     this.queue = this.queue.filter((entry) => entry !== waiting);
-    this.startRoom(waiting.player, player, { now, isPrivate: false });
+    this.startRoom(waiting.player, player, { now, isPrivate: false, kind, difficulty });
   }
 
   leaveQueue(player) {
     this.queue = this.queue.filter((entry) => entry.player !== player);
   }
 
-  createPrivate(player, now = Date.now()) {
+  createPrivate(player, { kind = "pvp", difficulty = "easy" } = {}, now = Date.now()) {
     if (player.room) return null;
     this.leaveQueue(player);
 
@@ -177,6 +182,11 @@ export class MatchServer {
     const room = {
       code,
       isPrivate: true,
+      kind,
+      difficulty,
+      rivalHealth: kind === "coop" ? COOP_RIVAL_HEALTH[difficulty] : null,
+      rivalMaxHealth: kind === "coop" ? COOP_RIVAL_HEALTH[difficulty] : null,
+      teamScore: 0,
       phase: PHASES.LOBBY,
       players: [player],
       createdAt: now,
@@ -206,7 +216,7 @@ export class MatchServer {
     return { ok: true, room };
   }
 
-  startRoom(a, b, { now, isPrivate }) {
+  startRoom(a, b, { now, isPrivate, kind = "pvp", difficulty = "easy" }) {
     let code = randomCode(this.random);
     let guard = 0;
     while (this.rooms.has(code) && guard++ < 50) code = randomCode(this.random);
@@ -214,6 +224,11 @@ export class MatchServer {
     const room = {
       code,
       isPrivate,
+      kind,
+      difficulty,
+      rivalHealth: kind === "coop" ? COOP_RIVAL_HEALTH[difficulty] : null,
+      rivalMaxHealth: kind === "coop" ? COOP_RIVAL_HEALTH[difficulty] : null,
+      teamScore: 0,
       phase: PHASES.LOBBY,
       players: [a, b],
       createdAt: now,
@@ -333,7 +348,10 @@ export class MatchServer {
     room.touchedAt = now;
     this.broadcastState(room, now);
 
-    if (outcome.destroyed) this.finish(room, this.opponentOf(room, player), "hull", now);
+    if (outcome.destroyed) {
+      if (room.kind === "coop") this.finishCoop(room, "defeat", "pilot_hull", now);
+      else this.finish(room, this.opponentOf(room, player), "hull", now);
+    }
     return { ok: true, ...outcome };
   }
 
@@ -351,12 +369,46 @@ export class MatchServer {
     player.lastTransmitSeq = seq;
     room.touchedAt = now;
 
+    // Co-op power-ups damage one server-owned shared wormhole instead of
+    // attacking the teammate. Both clients receive the same authoritative
+    // integrity and score snapshot.
+    if (room.kind === "coop") {
+      const damage = coopPowerDamage(weapon);
+      room.rivalHealth = Math.max(0, room.rivalHealth - damage);
+      room.teamScore += 750 + damage * 10;
+      const eventId = `${room.code}:${(room.transmitSeq += 1)}`;
+      this.broadcast(room, { type: "state", sent: weapon, eventId, by: player.id });
+      this.broadcastState(room, now);
+      if (room.rivalHealth <= 0) this.finishCoop(room, "victory", "rival", now);
+      return { ok: true, eventId, damage };
+    }
+
     const opponent = this.opponentOf(room, player);
     // Server-issued id so the receiver can discard a duplicate delivery.
     const eventId = `${room.code}:${(room.transmitSeq += 1)}`;
     this.sendTo(opponent, { type: "incoming", eventId, weapon, from: player.name });
     this.sendTo(player, { type: "state", sent: weapon, eventId });
     return { ok: true, eventId };
+  }
+
+  updatePosition(player, position, now = Date.now()) {
+    const room = player.room;
+    if (!room || room.kind !== "coop" || room.phase !== PHASES.ACTIVE) return { ok: false, code: ERRORS.NOT_IN_MATCH };
+    player.position = { x: position.x, y: position.y, angle: position.angle };
+    room.touchedAt = now;
+    this.sendTo(this.opponentOf(room, player), {
+      type: "teammate", id: player.id, ship: player.ship, name: player.name, ...player.position,
+    });
+    return { ok: true };
+  }
+
+  finishCoop(room, outcome, reason, now = Date.now()) {
+    if (room.phase === PHASES.FINISHED) return;
+    room.phase = PHASES.FINISHED;
+    room.touchedAt = now;
+    for (const player of room.players) {
+      this.sendTo(player, { type: "result", outcome, reason, opponent: outcome === "victory" ? "RIVAL WORMHOLE" : "CO-OP TEAM" });
+    }
   }
 
   finish(room, winner, reason, now = Date.now()) {
@@ -502,6 +554,8 @@ export class MatchServer {
       this.sendTo(player, {
         type: "match",
         code: room.isPrivate ? room.code : null,
+        kind: room.kind,
+        difficulty: room.difficulty,
         phase: room.phase,
         you: { id: player.id, name: player.name, ship: player.ship, ready: player.ready },
         opponent: opponent
@@ -525,6 +579,7 @@ export class MatchServer {
         serverNow: now,
         you: player.combat ? snapshot(player.combat, now) : null,
         opponent: opponent?.combat ? snapshot(opponent.combat, now) : null,
+        rival: room.kind === "coop" ? { hull: room.rivalHealth, maxHull: room.rivalMaxHealth, score: room.teamScore } : null,
       });
     }
   }
