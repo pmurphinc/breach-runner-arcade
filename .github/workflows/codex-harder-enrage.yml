@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - codex/harder-enrage
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
@@ -93,7 +96,6 @@ jobs:
           '''      "The rift has 350 integrity, orbits, and touching it burns hull in visible ticks. At 30% integrity it enrages, turns red, restores 20% of its maximum integrity over 10 seconds, gains a 10%-integrity shield for 10 seconds, keeps its mixed hostile waves, and launches extra mines every 3 seconds.",
           ''', 'hard blurb')
 
-          # The hard wave block is the only remaining wave block without recovery fields.
           old_hard = '''      wave: [
                 { enemy: "mines", count: 6 },
                 { enemy: "ufo", count: 1 },
