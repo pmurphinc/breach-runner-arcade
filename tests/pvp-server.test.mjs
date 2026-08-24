@@ -390,7 +390,9 @@ test("origin policy is strict in production and permissive only on loopback", as
   const dev = { NODE_ENV: "development" };
   const origins = allowedOrigins(prod);
 
-  assert.equal(isOriginAllowed("https://wormhole.murphtournaments.com", origins, prod), true);
+  assert.equal(isOriginAllowed("https://breachrunner.murphtournaments.com", origins, prod), true);
+  assert.equal(isOriginAllowed("https://wormhole.murphtournaments.com", origins, prod), true,
+    "legacy custom domain stays accepted during the cutover");
   assert.equal(isOriginAllowed("https://evil.example", origins, prod), false);
   assert.equal(isOriginAllowed("http://localhost:5199", origins, prod), false,
     "production must never accept a localhost origin");

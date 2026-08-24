@@ -19,7 +19,8 @@ import {
 } from "./protocol.mjs";
 import { MatchServer, createPlayer } from "./rooms.mjs";
 
-const PRODUCTION_ORIGIN = "https://wormhole.murphtournaments.com";
+const PRODUCTION_ORIGIN = "https://breachrunner.murphtournaments.com";
+const LEGACY_PRODUCTION_ORIGIN = "https://wormhole.murphtournaments.com";
 
 /**
  * Browser origins allowed to open a match socket.
@@ -30,7 +31,8 @@ const PRODUCTION_ORIGIN = "https://wormhole.murphtournaments.com";
  * change; it is a comma-separated list.
  */
 export function allowedOrigins(env = process.env) {
-  const origins = new Set([PRODUCTION_ORIGIN]);
+  // Keep the former custom domain as a temporary migration alias while DNS propagates.
+  const origins = new Set([PRODUCTION_ORIGIN, LEGACY_PRODUCTION_ORIGIN]);
   for (const entry of (env.PVP_EXTRA_ORIGINS ?? "").split(",")) {
     const trimmed = entry.trim().replace(/\/+$/, "");
     if (trimmed) origins.add(trimmed);

@@ -8,9 +8,9 @@ Breach Runner is an original fast-paced twin-stick space combat game developed u
 
 Development deployment:
 
-`https://wormhole.murphtournaments.com`
+`https://breachrunner.murphtournaments.com`
 
-The existing hostname and repository name are retained for development compatibility and are not the commercial product identity.
+The canonical web deployment now uses the Breach Runner subdomain. Internal compatibility ids remain unchanged where renaming them would risk saves, networking, or score data.
 
 ## Core loop
 
@@ -123,7 +123,7 @@ All are optional:
 | `NEXT_PUBLIC_MURPH_API_BASE` | Override the score API base. |
 | `NEXT_PUBLIC_GAME_TITLE` | Override the commercial product title for staging or testing. |
 
-The current development domain remains allowed by the multiplayer origin policy. Installed Android and Steam client origins will be addressed during the later packaging/networking phase.
+The canonical Breach Runner web domain is allowed by the multiplayer origin policy; the former Wormhole subdomain remains a temporary backend-only migration alias during the DNS cutover. Installed Android and Steam client origins will be addressed during the later packaging/networking phase.
 
 ## Run locally
 
