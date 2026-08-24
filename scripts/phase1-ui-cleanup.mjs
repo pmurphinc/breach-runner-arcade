@@ -42,7 +42,6 @@ replaceRequired('"Wormhole moves"', '"Rift moves"');
 replaceRequired('"WORMHOLE ENRAGED // MINES · UFO · SCARABS"', '"RIFT ENRAGED // VOID MINES · RAIDER DRONES · SCAVENGERS"');
 replaceRequired('"WORMHOLE COLLAPSE // ARENA PURGE"', '"RIFT COLLAPSE // ARENA PURGE"');
 replaceRequired('game.notice = "WORMHOLE CONTACT";', 'game.notice = "RIFT CONTACT";');
-replaceRequired('ctx.fillText("RIVAL WORMHOLE",', 'ctx.fillText("RIVAL RIFT",');
 
 // Ship special notices must match the commercial fleet identity.
 replaceRequired('game.notice = "BULWARK // 3S IMMUNITY";', 'game.notice = "IMPACT GUARD // 3S IMMUNITY";');
