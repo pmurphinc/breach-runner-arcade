@@ -4423,7 +4423,7 @@ export default function WormholeGame() {
                             ? "YOUR PILOT WAS ELIMINATED"
                             : netResult?.youEliminated
                               ? "YOUR PILOT WAS ELIMINATED"
-                              : `${netResult?.eliminatedName ?? (mode === "coop" ? "YOUR ALLY" : "OPPONENT") } WAS ELIMINATED`}
+                              : `${netResult?.eliminatedName ?? (mode === "coop" ? "YOUR ALLY" : "OPPONENT")} WAS ELIMINATED`}
                         </strong>
                         <span>
                           DESTROYED BY {defeatCauseLabel(mode === "pve" ? summary.deathCause ?? "unknown" : netResult?.cause ?? "unknown")}
