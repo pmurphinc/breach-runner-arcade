@@ -64,16 +64,11 @@ import {
 } from "./movement";
 import {
   MURPH_SITE_URL,
-  discordSignInUrl,
   fetchArcadeSession,
   fetchLeaderboard,
-  hasSeenDiscordSavePrompt,
   loadLocalBest,
-  markDiscordSavePromptSeen,
   saveLocalRun,
   saveScoreToMurph,
-  stashPendingRun,
-  takePendingRun,
   type ArcadePlayer,
   type LeaderboardEntry,
   type LocalBest,
@@ -818,6 +813,21 @@ type SaveState =
   | { status: "saved"; rank: number | null; bestScore: number }
   | { status: "error"; message: string };
 
+const INITIALS_INPUT_SELECTOR = "#arcade-initials, #menu-player-initials";
+
+function beginInitialsEditing() {
+  document.documentElement.dataset.initialsEditing = "true";
+}
+
+function finishInitialsEditing() {
+  window.setTimeout(() => {
+    if (document.activeElement?.matches(INITIALS_INPUT_SELECTOR)) return;
+    delete document.documentElement.dataset.initialsEditing;
+    // Re-measure once the mobile keyboard has finished restoring the viewport.
+    window.dispatchEvent(new Event("resize"));
+  }, 450);
+}
+
 /**
  * Global board, read on open so it is never fetched for players who never
  * ask for it. A failed read is reported in place — the leaderboard is a bonus,
@@ -1498,6 +1508,7 @@ function SettingsDrawer({
   open, onClose, ship, mode, difficulty, gameActive, stage,
   viewMode, onViewMode, cameraLocked, onCamera, sound, onSound,
   thumbsticks, onThumbsticks, stickSize, onStickSize,
+  initials, onInitialsChange,
   onChangeShip, onChangeMode, onRunAgain, onCodex, onBoard, onLobby,
 }: {
   open: boolean;
@@ -1517,6 +1528,8 @@ function SettingsDrawer({
   onThumbsticks: (next: boolean) => void;
   stickSize: StickSizeName;
   onStickSize: (next: StickSizeName) => void;
+  initials: string;
+  onInitialsChange: (next: string) => void;
   onChangeShip: () => void;
   onChangeMode: () => void;
   onRunAgain: () => void;
@@ -1530,6 +1543,11 @@ function SettingsDrawer({
   const restoreRef = useRef<HTMLElement | null>(null);
   const profile = SHIP_PROFILES[ship];
   const rules = rulesFor(mode, difficulty);
+  const [initialsDraft, setInitialsDraft] = useState(initials);
+
+  useEffect(() => {
+    if (open) setInitialsDraft(initials);
+  }, [initials, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -1664,6 +1682,41 @@ function SettingsDrawer({
 
           <section role="tabpanel" id="menu-panel-info" aria-labelledby="menu-tab-info" hidden={activeTab !== "info"}>
             <h3>Game Information</h3>
+            <form
+              className="initials-entry menu-initials"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const next = normalizeInitials(initialsDraft);
+                if (next.length !== 3) return;
+                onInitialsChange(next);
+                setInitialsDraft(next);
+                (document.activeElement as HTMLElement | null)?.blur();
+              }}
+            >
+              <label htmlFor="menu-player-initials">PLAYER INITIALS</label>
+              <input
+                id="menu-player-initials"
+                value={initialsDraft}
+                maxLength={3}
+                inputMode="text"
+                enterKeyHint="done"
+                autoCapitalize="characters"
+                autoComplete="off"
+                spellCheck={false}
+                onFocus={beginInitialsEditing}
+                onBlur={finishInitialsEditing}
+                onChange={(event) => setInitialsDraft(normalizeInitials(event.target.value))}
+                aria-describedby="menu-initials-help"
+              />
+              <button
+                type="submit"
+                className="run-action primary"
+                disabled={initialsDraft.length !== 3 || initialsDraft === initials}
+              >
+                {initialsDraft === initials && initials ? "INITIALS SAVED" : "SAVE INITIALS"}
+              </button>
+              <small id="menu-initials-help">USED AUTOMATICALLY FOR FUTURE SCORES</small>
+            </form>
             <div className="drawer-actions">
               <button type="button" onClick={onCodex} aria-haspopup="dialog">WEAPON CODEX</button>
               <button type="button" onClick={onBoard} aria-haspopup="dialog">LEADERBOARD</button>
@@ -1772,11 +1825,8 @@ export default function WormholeGame() {
   const netResult = net?.result ?? null;
   /** Who Murph Tournaments says is playing. Null means guest or unavailable. */
   const [player, setPlayer] = useState<ArcadePlayer | null>(null);
-  const [sessionChecked, setSessionChecked] = useState(false);
   const [summary, setSummary] = useState<RunSummary | null>(null);
   const [initialsEntry, setInitialsEntry] = useState("");
-  /** The one specific result screen allowed to show the Discord invitation. */
-  const [discordPromptRun, setDiscordPromptRun] = useState<RunResult | null>(null);
   const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });
   const reducedMotion = useReducedMotion();
 
@@ -1831,6 +1881,9 @@ export default function WormholeGame() {
     let frame = 0;
     const measure = () => {
       frame = 0;
+      // A software keyboard changes visualViewport height. That must not
+      // reclassify the arena while the player is entering their initials.
+      if (document.documentElement.dataset.initialsEditing === "true") return;
       const viewport = readViewport(touchControlMode, STICK_SIZES[stickSizeName]);
       viewport.touch = viewProfile.touch;
       viewport.coarse = viewProfile.touch;
@@ -2015,8 +2068,8 @@ export default function WormholeGame() {
   }, []);
 
   /**
-   * Sends a finished run to Murph Tournaments. Only ever called for a player
-   * who is already signed in, or who has just signed in for this purpose.
+   * Sends a finished run to Murph Tournaments only when the browser already
+   * has an active session. Wormhole Arcade never asks a guest to sign in.
    */
   const saveRun = useCallback(async (run: RunResult) => {
     setSaveState({ status: "saving" });
@@ -2031,8 +2084,6 @@ export default function WormholeGame() {
     }
 
     if (result.status === "signed-out") {
-      // The session lapsed between the run and the save. Fall back to the
-      // guest path rather than pretending the score went anywhere.
       setPlayer(null);
       setSaveState({ status: "idle" });
       return;
@@ -2041,17 +2092,7 @@ export default function WormholeGame() {
     setSaveState({ status: "error", message: result.message });
   }, []);
 
-  /**
-   * Parks the run, sends the player to Discord, and returns them to this exact
-   * page. Nothing is lost if they abandon the sign-in — the run is already in
-   * this device's local best.
-   */
-  const signInToSave = useCallback((run: RunResult) => {
-    stashPendingRun(run);
-    window.location.href = discordSignInUrl(window.location.href);
-  }, []);
-
-  // Network modes share the proven WebSocket lobby. Solo PvE never opens a socket.
+  // Network modes share the proven WebSocket lobby. Solo PvE never opens a socket.  // Network modes share the proven WebSocket lobby. Solo PvE never opens a socket.
   useEffect(() => {
     if (mode === "pve") {
       netRef.current?.disconnect();
@@ -2074,26 +2115,19 @@ export default function WormholeGame() {
     difficultyPreference.set(next);
   }, []);
 
-  // Ask once, on load, who is playing — and finish saving a run that was
-  // waiting on a sign-in redirect. Never blocks or delays the game.
+  // Silently recognize an existing Murph Tournaments session. Guests keep
+  // playing locally and are never shown a login request.
   useEffect(() => {
     let cancelled = false;
-    const pending = takePendingRun();
-
-    const best = loadLocalBest();
 
     void fetchArcadeSession().then((session) => {
-      if (cancelled) return;
-      setPlayer(session?.signedIn ? session.player : null);
-      setSessionChecked(true);
-      if (!pending || !session?.signedIn) return;
-      setSummary({ run: pending, best, isBest: false, runs: 0, restored: true, awaitingInitials: false });
+      if (!cancelled) setPlayer(session?.signedIn ? session.player : null);
     });
 
     return () => { cancelled = true; };
-  }, [saveRun]);
+  }, []);
 
-  // A run just ended: record it on this device, then offer or perform the save.
+  // A run just ended: record it on this device, then offer or perform the save.  // A run just ended: record it on this device, then offer or perform the save.
   useEffect(() => {
     if (!hud.result) {
       recordedResult.current = null;
@@ -2133,8 +2167,10 @@ export default function WormholeGame() {
       finalReason: hud.mode === "pve" ? (hud.result === "victory" ? "rival" : "pilot_hull") : netResult?.reason,
     };
 
-    setInitialsEntry("");
-    if (hud.result === "victory" && hud.mode === "pve" && !practice) {
+    const storedInitials = settings.playerInitials;
+    const identifiedRun = storedInitials ? { ...run, initials: storedInitials } : run;
+    setInitialsEntry(storedInitials);
+    if (hud.result === "victory" && hud.mode === "pve" && !practice && !storedInitials) {
       setSummary({
         run,
         best: loadLocalBest(),
@@ -2145,15 +2181,15 @@ export default function WormholeGame() {
         deathCause: hud.deathCause,
       });
     } else if (practice) {
-      setSummary({ run, best: loadLocalBest(), isBest: false, runs: 0, restored: false, awaitingInitials: false, deathCause: hud.deathCause });
+      setSummary({ run: identifiedRun, best: loadLocalBest(), isBest: false, runs: 0, restored: false, awaitingInitials: false, deathCause: hud.deathCause });
     } else {
-      const local = saveLocalRun(run);
-      setSummary({ run, best: local.best, isBest: local.isBest, runs: local.runs, restored: false, awaitingInitials: false, deathCause: hud.deathCause });
+      const local = saveLocalRun(identifiedRun);
+      setSummary({ run: identifiedRun, best: local.best, isBest: local.isBest, runs: local.runs, restored: false, awaitingInitials: false, deathCause: hud.deathCause });
     }
     setSaveState({ status: "idle" });
-  }, [hud.deathCause, hud.deathDamage, hud.difficulty, hud.elapsedSeconds, hud.mode, hud.result, hud.rivalFinalCause, hud.rivalFinalDamage, hud.rivalHealth, hud.score, netResult]);
+  }, [hud.deathCause, hud.deathDamage, hud.difficulty, hud.elapsedSeconds, hud.mode, hud.result, hud.rivalFinalCause, hud.rivalFinalDamage, hud.rivalHealth, hud.score, netResult, settings.playerInitials]);
 
-  // Signed-in players always save automatically, including when a run finishes
+  // Signed-in players always save automatically, including when a run finishes  // Signed-in players always save automatically, including when a run finishes
   // before the initial Murph Tournaments session request returns.
   useEffect(() => {
     if (!player || !summary || summary.awaitingInitials || summary.run.practice || autoSavedRun.current === summary.run) return;
@@ -2161,16 +2197,7 @@ export default function WormholeGame() {
     void saveRun(summary.run);
   }, [player, saveRun, summary]);
 
-  // Offer Discord sign-in on one completed-run screen per device, never while
-  // the session request is still pending (which avoids flashing it to members).
-  useEffect(() => {
-    if (!sessionChecked || player || !summary || summary.awaitingInitials || summary.run.practice || discordPromptRun) return;
-    if (hasSeenDiscordSavePrompt()) return;
-    markDiscordSavePromptSeen();
-    setDiscordPromptRun(summary.run);
-  }, [discordPromptRun, player, sessionChecked, summary]);
-
-  // Before a run, keep the idle arena matching the selection so the preview
+  // Before a run, keep the idle arena matching the selection so the preview  // Before a run, keep the idle arena matching the selection so the preview
   // shows exactly what START will produce (EASY re-centres the wormhole at
   // once). Mutating the ref is enough: the canvas reads it every frame, so no
   // React state has to change for the preview to update.
@@ -2268,23 +2295,23 @@ export default function WormholeGame() {
 
   const confirmInitials = useCallback(() => {
     const initials = normalizeInitials(initialsEntry);
-    if (initials.length !== 3) return;
-    setSummary((current) => {
-      if (!current || !current.awaitingInitials) return current;
-      const run = { ...current.run, initials };
-      const local = saveLocalRun(run);
-      return {
-        ...current,
-        run,
-        best: local.best,
-        isBest: local.isBest,
-        runs: local.runs,
-        awaitingInitials: false,
-      };
-    });
-  }, [initialsEntry]);
+    if (initials.length !== 3 || !summary?.awaitingInitials) return;
 
-  const togglePause = useCallback(() => {
+    const run = { ...summary.run, initials };
+    const local = saveLocalRun(run);
+    setSetting("playerInitials", initials);
+    setSummary({
+      ...summary,
+      run,
+      best: local.best,
+      isBest: local.isBest,
+      runs: local.runs,
+      awaitingInitials: false,
+    });
+    (document.activeElement as HTMLElement | null)?.blur();
+  }, [initialsEntry, setSetting, summary]);
+
+  const togglePause = useCallback(() => {  const togglePause = useCallback(() => {
     const game = gameRef.current;
     if (!game.running || game.result) return;
     if (game.mode !== "pve") {
@@ -4340,6 +4367,8 @@ export default function WormholeGame() {
             onThumbsticks={(next) => setSetting("thumbsticks", next)}
             stickSize={stickSizeName}
             onStickSize={(next) => setSetting("touchControlSize", next)}
+            initials={settings.playerInitials}
+            onInitialsChange={(next) => setSetting("playerInitials", normalizeInitials(next))}
             onChangeShip={() => { setMenuOpen(false); setStage("select"); }}
             onChangeMode={() => { setMenuOpen(false); setStage("setup"); }}
             onRunAgain={() => { setMenuOpen(false); start(); }}
@@ -4489,61 +4518,56 @@ export default function WormholeGame() {
                     </p>
 
                     {summary.awaitingInitials ? (
-                      <div className="initials-entry">
+                      <form
+                        className="initials-entry"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          confirmInitials();
+                        }}
+                      >
                         <label htmlFor="arcade-initials">ENTER YOUR INITIALS</label>
                         <input
                           id="arcade-initials"
                           value={initialsEntry}
                           maxLength={3}
                           inputMode="text"
+                          enterKeyHint="done"
                           autoCapitalize="characters"
                           autoComplete="off"
                           spellCheck={false}
+                          onFocus={beginInitialsEditing}
+                          onBlur={finishInitialsEditing}
                           onChange={(event) => setInitialsEntry(normalizeInitials(event.target.value))}
-                          onKeyDown={(event) => {
-                            if (event.key !== "Enter") return;
-                            event.preventDefault();
-                            confirmInitials();
-                          }}
                           aria-describedby="initials-help"
                         />
                         <small id="initials-help">{initialsEntry.length}/3 · LETTERS OR NUMBERS</small>
-                        <button type="button" className="run-action primary" disabled={initialsEntry.length !== 3} onClick={confirmInitials}>LOCK SCORE</button>
-                      </div>
+                        <button type="submit" className="run-action primary" disabled={initialsEntry.length !== 3}>LOCK SCORE</button>
+                      </form>
                     ) : summary.run.practice ? (
                       <div className="run-save"><p className="run-status">PRACTICE RUN // NOT SAVED TO LEADERBOARDS</p></div>
-                    ) : !sessionChecked ? (
-                      <div className="run-save">
-                        <p className="run-status">CHECKING MURPH TOURNAMENTS SESSION…</p>
-                      </div>
-                    ) : player ? (
-                      <div className="run-save">
-                        {saveState.status === "saving" ? <p className="run-status">SAVING TO MURPH TOURNAMENTS…</p> : null}
-                        {saveState.status === "saved" ? (
-                          <p className="run-status ok">
-                            SAVED AS {player.displayName.toUpperCase()}
-                            {saveState.rank ? ` · GLOBAL #${saveState.rank}` : ""}
-                          </p>
-                        ) : null}
-                        {saveState.status === "error" ? (
-                          <>
-                            <p className="run-status warn">{saveState.message}</p>
-                            <button type="button" className="run-action" onClick={() => void saveRun(summary.run)}>TRY SAVING AGAIN</button>
-                          </>
-                        ) : null}
-                      </div>
                     ) : (
                       <div className="run-save">
-                        <p className="run-status">Saved on this device only.{discordPromptRun === summary.run ? " Sign in to put it on the global board." : ""}</p>
-                        {discordPromptRun === summary.run ? (
-                          <button type="button" className="run-action primary" onClick={() => signInToSave(summary.run)}>
-                            SAVE WITH DISCORD
-                          </button>
+                        <p className="run-status ok">
+                          {summary.run.initials
+                            ? `SCORE LOCKED // ${summary.run.initials} · SAVED ON THIS DEVICE`
+                            : "RUN SAVED ON THIS DEVICE"}
+                        </p>
+                        {player && saveState.status === "saving" ? <p className="run-status">SYNCING GLOBAL BOARD…</p> : null}
+                        {player && saveState.status === "saved" ? (
+                          <p className="run-status ok">
+                            GLOBAL BOARD SYNCED{saveState.rank ? ` · #${saveState.rank}` : ""}
+                          </p>
+                        ) : null}
+                        {player && saveState.status === "error" ? (
+                          <>
+                            <p className="run-status warn">{saveState.message}</p>
+                            <button type="button" className="run-action" onClick={() => void saveRun(summary.run)}>TRY SYNC AGAIN</button>
+                          </>
                         ) : null}
                       </div>
                     )}
 
-                    <div className={`death-info ${summary.run.outcome === "victory" ? "victory" : ""}`} role="status">
+                    <div className={`death-info ${summary.run.outcome === "victory" ? "victory" : ""}`} role="status">                    <div className={`death-info ${summary.run.outcome === "victory" ? "victory" : ""}`} role="status">
                       <strong>FINAL EVENT</strong>
                       <span>{finalEventLabel(summary.run)}</span>
                     </div>
