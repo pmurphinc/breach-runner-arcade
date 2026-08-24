@@ -1757,6 +1757,8 @@ export default function WormholeGame() {
   const [stage, setStage] = useState<"select" | "setup" | "arena">("select");
   const [lobbyOpen, setLobbyOpen] = useState(false);
   const [net, setNet] = useState<PvpSnapshot | null>(null);
+  // Derived beside its state so every later effect can safely reference it.
+  const netResult = net?.result ?? null;
   /** Who Murph Tournaments says is playing. Null means guest or unavailable. */
   const [player, setPlayer] = useState<ArcadePlayer | null>(null);
   const [sessionChecked, setSessionChecked] = useState(false);
@@ -2157,7 +2159,6 @@ export default function WormholeGame() {
   // Hull is reconciled from the server, never trusted from local arithmetic,
   // and only the server's result ends a PvP match.
   const serverHull = net?.yourCombat?.hull ?? null;
-  const netResult = net?.result ?? null;
   useEffect(() => {
     const game = gameRef.current;
     if (game.mode === "pve" || serverHull === null) return;
