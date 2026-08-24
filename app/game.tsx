@@ -379,8 +379,8 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
     spawns: [],
     stock: [],
     score: 0,
-    rivalHealth: rules.rivalIntegrity,
-    rivalMaxHealth: rules.rivalIntegrity,
+    rivalHealth: rules.rivalIntegrity * (mode === "coop" ? 2 : 1),
+    rivalMaxHealth: rules.rivalIntegrity * (mode === "coop" ? 2 : 1),
     cycles: 0,
     botTimer: 330,
     shotCycle: 0,
@@ -900,7 +900,7 @@ const shipPreference = createPreference<ShipId>(
 
 const modePreference = createPreference<GameMode>(
   "wormhole-arcade:mode",
-  ["pve", "pvp"],
+  ["pve", "coop", "pvp"],
   "pve"
 );
 /** Only the PvE difficulty is remembered; PvP is always Easy rules. */
@@ -1108,7 +1108,7 @@ function MultiplayerLobby({
       >
         <div className="codex-head">
           <h2 id="lobby-heading">MULTIPLAYER LOBBY</h2>
-          <p>Real-time 1v1 under Easy rules. No sign-in — guests get a callsign.</p>
+          <p>{net?.kind === "coop" ? "Two pilots share one PvE objective and win or lose together." : "Real-time 1v1 under Easy rules."} No sign-in — guests get a callsign.</p>
           <button ref={closeRef} type="button" className="codex-close" onClick={onClose} aria-label="Close lobby">✕</button>
         </div>
 
@@ -1369,13 +1369,14 @@ function MissionSetup({
         label="GAME MODE"
         value={mode}
         options={[
-          { id: "pve", label: "PVE" },
+          { id: "pve", label: "PVE SOLO" },
+          { id: "coop", label: "PVE CO-OP" },
           { id: "pvp", label: "PVP 1V1" },
         ] as const}
         onChange={onMode}
       />
 
-      {mode === "pve" ? (
+      {mode !== "pvp" ? (
         <>
           <SegmentedChoice
             label="DIFFICULTY"
@@ -1506,7 +1507,7 @@ function SettingsDrawer({
     ["play", "Play"], ["display", "Display"],
     ["controls", "Controls & Audio"], ["info", "Game Info"],
   ] as const;
-  const modeSummary = mode === "pvp" ? "PVP 1V1" : DIFFICULTIES[difficulty].shortName;
+  const modeSummary = mode === "pvp" ? "PVP 1V1" : mode === "coop" ? `PVE CO-OP · ${DIFFICULTIES[difficulty].shortName}` : DIFFICULTIES[difficulty].shortName;
 
   return (
     <div className="drawer-backdrop" role="presentation" onClick={onClose}>
@@ -1934,15 +1935,14 @@ export default function WormholeGame() {
     window.location.href = discordSignInUrl(window.location.href);
   }, []);
 
-  // The socket exists only while PvP is the chosen mode. A PvE player never
-  // opens one, so single-player is untouched by the match service entirely.
+  // Network modes share the proven WebSocket lobby. Solo PvE never opens a socket.
   useEffect(() => {
-    if (mode !== "pvp") {
+    if (mode === "pve") {
       netRef.current?.disconnect();
       netRef.current = null;
       return;
     }
-    const client = new PvpClient();
+    const client = new PvpClient(mode === "coop" ? "coop" : "pvp", difficulty);
     netRef.current = client;
     const unsubscribe = client.subscribe(setNet);
     client.connect();
@@ -1951,7 +1951,7 @@ export default function WormholeGame() {
       client.disconnect();
       netRef.current = null;
     };
-  }, [mode]);
+  }, [difficulty, mode]);
 
   const chooseMode = useCallback((next: GameMode) => { modePreference.set(next); }, []);
   const chooseDifficulty = useCallback((next: DifficultyId) => {
@@ -2076,7 +2076,7 @@ export default function WormholeGame() {
   useEffect(() => {
     if (netPhase !== "active") return;
     const game = gameRef.current;
-    if (game.mode === "pvp" && game.running && !game.result) return;
+    if (game.mode !== "pve" && game.running && !game.result) return;
     start();
     setLobbyOpen(false);
   }, [netPhase, start]);
@@ -2087,14 +2087,14 @@ export default function WormholeGame() {
   const netResult = net?.result ?? null;
   useEffect(() => {
     const game = gameRef.current;
-    if (game.mode !== "pvp" || serverHull === null) return;
+    if (game.mode === "pve" || serverHull === null) return;
     game.player.health = serverHull;
   }, [serverHull]);
 
   useEffect(() => {
     if (!netResult) return;
     const game = gameRef.current;
-    if (game.mode !== "pvp") return;
+    if (game.mode === "pve") return;
     game.running = false;
     game.result = netResult.outcome === "victory" ? "victory" : "defeat";
     game.notice =
@@ -2134,8 +2134,8 @@ export default function WormholeGame() {
   const togglePause = useCallback(() => {
     const game = gameRef.current;
     if (!game.running || game.result) return;
-    if (game.mode === "pvp") {
-      // A live match cannot be paused: the opponent keeps playing. P opens the
+    if (game.mode !== "pve") {
+      // A live network match cannot be paused: the opponent keeps playing. P opens the
       // menu instead, and the match visibly continues behind it.
       game.notice = "PVP // MATCH CONTINUES, NO PAUSE";
       game.noticeLife = 90;
@@ -2417,7 +2417,7 @@ export default function WormholeGame() {
      * shield covers impacts only on both sides of the wire.
      */
     const report = (game: Game, source: "collision" | "impact", amount: number) => {
-      if (game.mode === "pvp") netRef.current?.reportDamage(source, amount);
+      if (game.mode !== "pve") netRef.current?.reportDamage(source, amount);
     };
 
     /**
@@ -2490,7 +2490,7 @@ export default function WormholeGame() {
     };
 
     const addIncoming = (game: Game, power: PowerId) => {
-      const count = ENEMY_COUNTS[power];
+      const count = ENEMY_COUNTS[power] * (game.mode === "coop" ? 2 : 1);
       for (let i = 0; i < count; i += 1) game.enemies.push(makeEnemy(power, game.portalX, game.portalY, i, count));
       game.incoming = power;
       game.notice = `INCOMING // ${WEAPONS[power].short}`;
@@ -2502,9 +2502,10 @@ export default function WormholeGame() {
 
     const spawnEnrageWave = (game: Game) => {
       const enrage = game.rules.wormholeEnrage;
-      if (!enrage.enabled || game.mode !== "pve" || game.result) return;
+      if (!enrage.enabled || game.mode === "pvp" || game.result) return;
 
-      for (const { enemy, count } of enrage.wave) {
+      for (const { enemy, count: baseCount } of enrage.wave) {
+        const count = baseCount * (game.mode === "coop" ? 2 : 1);
         for (let i = 0; i < count; i += 1) {
           game.enemies.push(makeEnemy(enemy, game.portalX, game.portalY, i, count));
         }
@@ -3051,12 +3052,13 @@ export default function WormholeGame() {
           burst(game, game.portalX, game.portalY, POWER_COLORS[power.type], 38, 11);
           play("magic", 0.32);
 
-          if (game.mode === "pvp") {
-            // The wormhole is the delivery route to the other arena. Rival
-            // integrity is a PvE objective and plays no part here: PvP is
-            // decided by the opponent's pilot hull, which only the server sets.
+          if (game.mode !== "pve") {
+            // PvP transmits to the opponent; co-op applies the same power-up
+            // to the server-owned shared wormhole.
             netRef.current?.transmit(power.type);
-            game.notice = `${WEAPONS[power.type].short} SENT TO OPPONENT`;
+            game.notice = game.mode === "coop"
+              ? `${WEAPONS[power.type].short} SENT // TEAM HIT`
+              : `${WEAPONS[power.type].short} SENT TO OPPONENT`;
             game.noticeLife = 115;
           } else {
             const damage = rivalDamageFor(power.type);
@@ -4083,7 +4085,7 @@ export default function WormholeGame() {
           <div className="mission-summary">
             <p>
               <span>MODE</span>
-              <b>{mode === "pvp" ? "PVP 1V1" : DIFFICULTIES[difficulty].shortName}</b>
+              <b>{mode === "pvp" ? "PVP 1V1" : mode === "coop" ? `PVE CO-OP · ${DIFFICULTIES[difficulty].shortName}` : DIFFICULTIES[difficulty].shortName}</b>
             </p>
             <div>
               <button type="button" onClick={() => setStage("select")}>CHANGE SHIP</button>
