@@ -117,11 +117,11 @@ the player. A victory subtracts **10 points per completed second** from the raw
 score, never below zero. The results card shows base score, elapsed time,
 penalty, and final score separately.
 
-PvE victories ask for three classic arcade initials before the run is written
-to device history or submitted for an authenticated player. Practice runs show
-the same completion feedback but are never stored or submitted. The global
-leaderboard continues to identify authenticated players by their Murph
-Tournaments/Discord identity; initials are retained with the local run record.
+The first qualifying PvE victory asks for three classic arcade initials before
+the run is written to device history. Those initials become the remembered
+identity for later scores on that device and can be changed from **Menu → Game
+Info**. Practice runs show the same completion feedback but are never stored or
+submitted. Wormhole Arcade never asks a player to sign in with Discord.
 
 ### PvP 1v1
 
@@ -220,12 +220,12 @@ Every power-up has its own canvas silhouette, projectile, and spawn animation, a
 Nothing here asks for an account. Play starts the moment the page loads, and it
 stays that way whether or not Murph Tournaments is reachable.
 
-- **Guests.** Your best run is kept in this browser's `localStorage`, under
-  `wormhole-arcade:best`. It is never uploaded and never leaves the device.
-- **Signed in.** When a run ends you can sign in with Discord to save that score
-  to Murph Tournaments, which is what puts you on the global board. The run is
-  parked in local storage across the sign-in redirect, so nothing is lost on the
-  way there and back. Once signed in, later runs save automatically.
+- **Every player.** Your initials and best run are kept in this browser's
+  `localStorage`. The first initials entry is reused automatically until you
+  change it in **Menu → Game Info**.
+- **Existing Murph Tournaments sessions.** Scores may also sync to the global
+  board in the background. Wormhole Arcade never shows a Discord login request;
+  guests simply keep the device-local score.
 - **The board.** `BOARD` in the top bar shows the top saved runs plus your own
   device best. It lists one row per player — their best run — so a long session
   cannot crowd anyone out.
@@ -275,7 +275,7 @@ and restores focus to whatever opened it.
 | Play | Current ship and mode, Change Ship, Change Mode, Run Again, lobby |
 | Display | Screen fit, camera, render quality, shell, fullscreen |
 | Controls & Audio | Sound, touch controls Auto/Show/Hide, touch size, key reference |
-| Game Information | Weapon Codex, Leaderboard, View All Ships, Murph Tournaments |
+| Game Information | Player Initials, Weapon Codex, Leaderboard, View All Ships, Murph Tournaments |
 
 The drawer never contains the ship grid or a second copy of the mode and
 difficulty controls: the selection scene owns the ship, Mission Setup owns
