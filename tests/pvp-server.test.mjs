@@ -14,6 +14,7 @@ import {
   ERRORS,
   MAX_DAMAGE_EVENT,
   MAX_DAMAGE_TOTAL_PER_WINDOW,
+  MAX_PAYLOAD_BYTES,
   RECONNECT_GRACE_MS,
   SENDABLE_WEAPONS,
   SHIP_IDS,
@@ -87,7 +88,7 @@ test("only sendable weapons may be transmitted", () => {
 });
 
 test("oversized frames are refused without parsing", () => {
-  const huge = JSON.stringify({ type: "hello", name: "x".repeat(9000) });
+  const huge = JSON.stringify({ type: "hello", name: "x".repeat(MAX_PAYLOAD_BYTES + 1) });
   const result = parseClientMessage(huge);
   assert.equal(result.ok, false);
   assert.equal(result.code, ERRORS.TOO_LARGE);
