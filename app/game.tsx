@@ -230,6 +230,8 @@ type Game = {
   bullets: Bullet[];
   pickups: Pickup[];
   enemies: Enemy[];
+  /** Last host world revision applied by a co-op guest. */
+  lastWorldSeq?: number;
   powers: PowerShot[];
   particles: Particle[];
   spawns: SpawnFx[];
@@ -2525,6 +2527,7 @@ export default function WormholeGame() {
     const spawnEnrageWave = (game: Game) => {
       const enrage = game.rules.wormholeEnrage;
       if (!enrage.enabled || game.mode === "pvp" || game.result) return;
+      if (game.mode === "coop" && netRef.current?.state.you?.id !== netRef.current?.state.hostId) return;
 
       for (const { enemy, count: baseCount } of enrage.wave) {
         const count = baseCount * (game.mode === "coop" ? 2 : 1);
@@ -3147,6 +3150,21 @@ export default function WormholeGame() {
         }
       });
 
+      const coopNetwork = netRef.current?.state;
+      const coopIsHost = game.mode === "coop"
+        && Boolean(coopNetwork?.you?.id)
+        && coopNetwork?.you?.id === coopNetwork?.hostId;
+      if (game.mode === "coop" && !coopIsHost && coopNetwork?.world
+        && coopNetwork.world.seq !== game.lastWorldSeq) {
+        const world = coopNetwork.world;
+        game.lastWorldSeq = world.seq;
+        game.portalX = world.portalX;
+        game.portalY = world.portalY;
+        game.portalAngle = world.portalAngle;
+        game.enrageActive = world.enrageActive;
+        game.enemies = world.enemies.map((enemy) => ({ ...enemy })) as unknown as Enemy[];
+      }
+
       if (game.mode === "pvp") {
         // No bot in PvP: every hostile wave is something the opponent chose to
         // send. The server tags deliveries, so a resend never spawns twice.
@@ -3155,7 +3173,7 @@ export default function WormholeGame() {
           game.notice = `${WEAPONS[attack.weapon as PowerId].short} FROM ${attack.from}`;
           game.noticeLife = 140;
         }
-      } else if (game.botTimer <= 0 && game.running) {
+      } else if ((game.mode !== "coop" || coopIsHost) && game.botTimer <= 0 && game.running) {
         const pool: PowerId[] = game.cycles < 1800 ? ["heatseeker", "mines", "ufo", "inflator"] : SENDABLE_POWERUPS;
         const attack = pool[Math.floor(Math.random() * pool.length)];
         addIncoming(game, attack);
@@ -3163,6 +3181,15 @@ export default function WormholeGame() {
       }
 
       game.enemies.forEach((enemy) => { if (enemy.hp > 0) updateEnemy(game, enemy); });
+      if (coopIsHost && game.cycles % 6 === 0) {
+        netRef.current?.reportWorld({
+          portalX: game.portalX,
+          portalY: game.portalY,
+          portalAngle: game.portalAngle,
+          enrageActive: game.enrageActive,
+          enemies: game.enemies.slice(0, 128).map((enemy) => ({ ...enemy })),
+        });
+      }
       game.particles.forEach((particle) => {
         particle.x += particle.vx;
         particle.y += particle.vy;
@@ -3636,23 +3663,50 @@ export default function WormholeGame() {
 
         const teammate = netRef.current?.state.teammate;
         if (game.mode === "coop" && teammate) {
+          const allyPulse = 32 + Math.sin(time * 0.01) * 4;
+          const allyAngle = teammate.angle * DEG;
           ctx.save();
+          ctx.strokeStyle = "rgba(182,255,87,.38)";
+          ctx.lineWidth = 3;
+          ctx.setLineDash([7, 9]);
+          ctx.beginPath();
+          ctx.moveTo(player.x, player.y);
+          ctx.lineTo(teammate.x, teammate.y);
+          ctx.stroke();
+          ctx.setLineDash([]);
           ctx.translate(teammate.x, teammate.y);
-          ctx.rotate(teammate.angle * DEG);
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineWidth = 7;
+          ctx.shadowColor = "#b6ff57";
+          ctx.shadowBlur = 18;
+          ctx.beginPath();
+          ctx.arc(0, 0, allyPulse, 0, Math.PI * 2);
+          ctx.stroke();
           ctx.strokeStyle = "#b6ff57";
-          ctx.fillStyle = "rgba(182, 255, 87, .12)";
-          ctx.lineWidth = 2;
-          ctx.setLineDash([5, 4]);
+          ctx.lineWidth = 4;
+          ctx.beginPath();
+          ctx.arc(0, 0, allyPulse, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.rotate(allyAngle);
+          ctx.strokeStyle = "#ffffff";
+          ctx.fillStyle = "rgba(182,255,87,.42)";
+          ctx.lineWidth = 4;
           drawShipShape(ctx, teammate.ship as ShipId, teammate.ship === "flagship" ? .82 : 1);
           ctx.fill();
           ctx.stroke();
-          ctx.setLineDash([]);
           ctx.restore();
           ctx.save();
-          ctx.fillStyle = "#b6ff57";
-          ctx.font = "700 12px monospace";
+          ctx.fillStyle = "#06110a";
+          ctx.strokeStyle = "#b6ff57";
+          ctx.lineWidth = 2;
+          const label = `ALLY · ${teammate.name}`;
+          ctx.font = "900 13px monospace";
           ctx.textAlign = "center";
-          ctx.fillText("ALLY", teammate.x, teammate.y - 30);
+          const labelWidth = ctx.measureText(label).width + 16;
+          ctx.fillRect(teammate.x - labelWidth / 2, teammate.y - 49, labelWidth, 22);
+          ctx.strokeRect(teammate.x - labelWidth / 2, teammate.y - 49, labelWidth, 22);
+          ctx.fillStyle = "#b6ff57";
+          ctx.fillText(label, teammate.x, teammate.y - 33);
           ctx.restore();
         }
 
