@@ -1,44 +1,27 @@
-name: Phase 1 Commit Source
+name: PR CI
 
 on:
   pull_request:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  commit-cleanup:
-    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/commercial-ip-cleanup'
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
-      - name: Checkout PR branch
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
       - name: Use Node 22
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Apply validated Phase 1 source cleanup
-        run: |
-          if ! grep -q '<h1>WORMHOLE <em>ARCADE</em></h1>' app/game.tsx; then
-            echo "Phase 1 source cleanup is already committed."
-            exit 0
-          fi
-          node scripts/phase1-ui-cleanup.mjs
-          node scripts/fix-phase1-stale-tests.mjs
-          node scripts/fix-phase1-lint.mjs
-          git diff --check
-      - name: Commit source cleanup
-        run: |
-          git add app/game.tsx tests/pvp-server.test.mjs tests/pvp-socket.test.mjs
-          if git diff --cached --quiet; then
-            echo "No source cleanup changes to commit."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Finish Breach Runner Phase 1 source cleanup"
-          git push origin HEAD:${{ github.head_ref }}
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Test
+        run: npm test
+      - name: Lint
+        run: npm run lint
