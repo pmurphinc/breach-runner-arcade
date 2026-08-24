@@ -203,7 +203,8 @@ test("HARD: the contact hazard is armed and the wormhole moves", { skip }, async
   const { chromium } = playwright;
   const browser = await chromium.launch({ executablePath: CHROME });
   try {
-    const { context, page } = await openGame(browser, "HARD MODE");
+    // The difficulty option reads HARD; the badge still says HARD MODE.
+    const { context, page } = await openGame(browser, "HARD");
     const badge = await badgeOf(page);
     assert.match(badge, /HARD/);
     assert.match(badge, /RIFT MOVING/);
@@ -246,18 +247,19 @@ test("WASD and the arrows move the ship in world space", { skip }, async () => {
   try {
     const { context, page } = await openGame(browser, "DIFFICULT");
 
-    // Arena camera, so screen movement maps to world movement. The settings
-    // panel is collapsed on every device, so open the menu to reach it.
-    // Arena camera, so screen movement maps to world movement. It lives in
-    // the settings drawer now.
-    await page.locator(".top-menu-toggle").click();
+    // Arena camera, so screen movement maps to world movement. Releasing the
+    // camera lock is what selects it, and it lives in Settings, reached from
+    // the pause menu via the global Menu control.
+    await page.locator(".system-menu").click();
     await page.waitForTimeout(300);
-    // Scope to the camera group: "ARENA FOCUS" in the screen-preset group
-    // also contains "ARENA", and matching that would change the preset.
+    await page.locator(".pause-actions button", { hasText: "Settings" }).click();
+    await page.waitForTimeout(300);
     await page
-      .locator('.settings-drawer .segmented', { hasText: "CAMERA" })
-      .locator('[role=radio]', { hasText: "ARENA" })
+      .locator(".ui-toggle", { hasText: "Camera lock" })
+      .locator("[role=switch]")
       .click();
+    await page.waitForTimeout(200);
+    await page.keyboard.press("Escape");
     await page.waitForTimeout(200);
     await page.keyboard.press("Escape");
     await page.waitForTimeout(300);
