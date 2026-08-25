@@ -2,6 +2,8 @@ export type ViewMode = "touch" | "pc" | "hybrid";
 export type TouchControlSize = "small" | "medium" | "large";
 /** How loud the effects bus plays. Music is not implemented, so it is absent. */
 export type SoundLevel = "low" | "medium" | "high";
+export type ZoomLevel = "wide" | "standard" | "close" | "closer";
+export type CombatHaptics = "off" | "gun" | "hull" | "both";
 
 export type DeviceSettings = {
   version: 1;
@@ -17,8 +19,13 @@ export type DeviceSettings = {
    */
   viewMode: ViewMode | null;
   cameraLock: boolean;
+  /** Follow-ship camera magnification. Full Arena always fits the whole world. */
+  zoom: ZoomLevel;
   sound: boolean;
   soundLevel: SoundLevel;
+  /** Combat-only vibration. Control-press and victory haptics remain separate. */
+  combatHaptics: CombatHaptics;
+  cannonHitSound: boolean;
   thumbsticks: boolean;
   touchControlSize: TouchControlSize;
   /** Three-character arcade identity remembered on this device. */
@@ -32,8 +39,11 @@ export const DEFAULT_SETTINGS: DeviceSettings = {
   version: SETTINGS_VERSION,
   viewMode: null,
   cameraLock: true,
+  zoom: "standard",
   sound: true,
   soundLevel: "medium",
+  combatHaptics: "both",
+  cannonHitSound: true,
   thumbsticks: true,
   touchControlSize: "medium",
   playerInitials: "",
@@ -48,6 +58,8 @@ export const VIEW_PROFILES = {
 const isViewMode = (value: unknown): value is ViewMode => value === "touch" || value === "pc" || value === "hybrid";
 const isSize = (value: unknown): value is TouchControlSize => value === "small" || value === "medium" || value === "large";
 const isLevel = (value: unknown): value is SoundLevel => value === "low" || value === "medium" || value === "high";
+const isZoom = (value: unknown): value is ZoomLevel => value === "wide" || value === "standard" || value === "close" || value === "closer";
+const isCombatHaptics = (value: unknown): value is CombatHaptics => value === "off" || value === "gun" || value === "hull" || value === "both";
 const normalizePlayerInitials = (value: unknown) => {
   if (typeof value !== "string") return "";
   const normalized = value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 3);
@@ -61,8 +73,11 @@ export function migrateSettings(value: unknown): DeviceSettings {
     version: SETTINGS_VERSION,
     viewMode: isViewMode(candidate.viewMode) ? candidate.viewMode : null,
     cameraLock: typeof candidate.cameraLock === "boolean" ? candidate.cameraLock : true,
+    zoom: isZoom(candidate.zoom) ? candidate.zoom : "standard",
     sound: typeof candidate.sound === "boolean" ? candidate.sound : true,
     soundLevel: isLevel(candidate.soundLevel) ? candidate.soundLevel : "medium",
+    combatHaptics: isCombatHaptics(candidate.combatHaptics) ? candidate.combatHaptics : "both",
+    cannonHitSound: typeof candidate.cannonHitSound === "boolean" ? candidate.cannonHitSound : true,
     thumbsticks: typeof candidate.thumbsticks === "boolean" ? candidate.thumbsticks : true,
     touchControlSize: isSize(candidate.touchControlSize) ? candidate.touchControlSize : "medium",
     playerInitials: normalizePlayerInitials(candidate.playerInitials),
@@ -91,6 +106,13 @@ export const settingsStore = {
 };
 
 /** Relative gain applied to every effect, so the level means something real. */
+export const ZOOM_SCALE: Record<ZoomLevel, number> = {
+  wide: 0.85,
+  standard: 1,
+  close: 1.15,
+  closer: 1.3,
+};
+
 export const SOUND_GAIN: Record<SoundLevel, number> = {
   low: 0.45,
   medium: 1,

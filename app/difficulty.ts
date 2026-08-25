@@ -148,10 +148,10 @@ const HARD_CONTACT: ContactHazardRules = {
 export const DIFFICULTIES: Record<DifficultyId, DifficultyRules> = {
   practice: {
     id: "practice",
-    displayName: "PRACTICE // UNLIMITED HULL",
-    shortName: "PRACTICE",
+    displayName: "SIMULATION // HULL LOCKED",
+    shortName: "SIMULATION",
     blurb:
-      "Learn the flight controls, weapons, and wormhole loop without taking hull damage. Practice runs are never submitted to the leaderboard.",
+      "Learn the flight controls, weapons, and rift loop without taking hull damage. Practice runs are never submitted to the leaderboard.",
     wormhole: { kind: "locked" },
     collisionShield: { enabled: false },
     contactHazard: { enabled: false },
@@ -161,10 +161,10 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyRules> = {
   },
   easy: {
     id: "easy",
-    displayName: "EASY // COLLISION SHIELD",
-    shortName: "EASY",
+    displayName: "STABLE // COLLISION SHIELD",
+    shortName: "STABLE",
     blurb:
-      "The wormhole is locked dead centre and never moves. You fly with a collision shield that fully absorbs impact damage from walls and hostile bodies, then recharges four seconds after the last hit — anywhere in the arena.",
+      "The rift is locked dead centre and never moves. You fly with a collision shield that fully absorbs impact damage from walls and hostile bodies, then recharges four seconds after the last hit — anywhere in the arena.",
     wormhole: { kind: "locked" },
     collisionShield: {
       enabled: true,
@@ -178,8 +178,8 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyRules> = {
   },
   difficult: {
     id: "difficult",
-    displayName: "DIFFICULT // MOVING VOID",
-    shortName: "DIFFICULT",
+    displayName: "VOLATILE // MOVING RIFT",
+    shortName: "VOLATILE",
     blurb:
       "The rift orbits with 200 integrity and you have to lead it. At 15% integrity it enrages, turns red, restores 10% of its maximum integrity over 10 seconds, and repeatedly spits out mines, UFOs, and power-up-eating Scarabs. No collision shield — impacts hit hull under the normal rules.",
     wormhole: ORBIT,
@@ -206,8 +206,8 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyRules> = {
   },
   hard: {
     id: "hard",
-    displayName: "HARD MODE // CONTACT HAZARD",
-    shortName: "HARD MODE",
+    displayName: "CRITICAL // CONTACT HAZARD",
+    shortName: "CRITICAL",
     blurb:
       "The rift has 350 integrity, orbits, and touching it burns hull in visible ticks. At 30% integrity it enrages, turns red, restores 20% of its maximum integrity over 10 seconds, gains a 10%-integrity shield for 10 seconds, keeps its mixed hostile waves, and launches extra mines every 3 seconds.",
     wormhole: ORBIT,
