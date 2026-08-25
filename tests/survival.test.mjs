@@ -401,8 +401,9 @@ test("survival is launched from Challenges, not from the difficulty list", () =>
 test("the result card reports what survival actually asked of the player", () => {
   assert.match(gameCode, /riftLevel: survivalRun \? hud\.riftLevel : undefined/);
   assert.match(gameCode, /breaches: survivalRun \? hud\.breaches : undefined/);
-  // Time, not score, and its own device record rather than the arcade one.
-  assert.match(gameCode, /saveSurvivalRun\(identifiedRun\)/);
+  // Time, not score, and its own device board rather than the arcade record.
+  // The board's own rules are covered in `survival-board.test.mjs`.
+  assert.match(gameCode, /recordSurvivalRun\(identifiedRun\)/);
   assert.match(gameCode, /<span>SURVIVED<\/span>/);
   assert.match(gameCode, /RIFT LEVEL <b>\{summary\.run\.riftLevel \?\? 1\}<\/b>/);
 });

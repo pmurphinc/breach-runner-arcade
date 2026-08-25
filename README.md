@@ -95,7 +95,11 @@ A qualifying solo PvE score can be locked using three-character arcade initials.
 
 The global board is designed like a classic arcade leaderboard: no account is required merely to enter initials and compete. Local bests are also retained on-device.
 
-Rift Survival is ranked by time rather than by a settled score, so it keeps its own on-device record and is deliberately excluded from the arcade global board. A dedicated survival board is planned separately.
+Rift Survival is ranked by **time survived** rather than by a settled score, so it has its own board rather than sharing the arcade one — a single merged list would be sorted wrongly for one of them. The leaderboard screen carries both, switchable, and the Survival board can be filtered to a single ship.
+
+The device keeps a top-25 Survival board (`wormhole-arcade:survival-board`) ranked by time, then score, then whoever got there first. A run that places prompts for initials exactly as an arcade victory does.
+
+The public Survival board reads and writes `/api/arcade/survival-leaderboard` and `/api/arcade/survival-scores`. **Those endpoints are not built on the score service yet**, so the client currently falls back to the device board and says the global board is not open — a supported state rather than a failure. `docs/SURVIVAL_LEADERBOARD_API.md` is the contract the client was written against; nothing here needs to change when the service ships.
 
 ## Multiplayer architecture
 

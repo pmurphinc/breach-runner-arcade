@@ -61,7 +61,6 @@ export type LeaderboardEntry = {
 
 const LOCAL_BEST_KEY = "wormhole-arcade:best";
 const LOCAL_RUNS_KEY = "wormhole-arcade:runs";
-const LOCAL_SURVIVAL_KEY = "wormhole-arcade:survival-best";
 
 function readStorage(key: string) {
   try {
@@ -139,78 +138,118 @@ export function saveLocalRun(run: RunResult) {
   return { best, isBest: true, runs };
 }
 
+export type SaveScoreResult =
+  | { status: "saved"; rank: number | null }
+  | { status: "failed"; message: string };
+
 /**
- * The device's best Rift Survival run.
+ * One row of the public Rift Survival board.
  *
- * Kept apart from `LOCAL_BEST_KEY` on purpose. That record is ranked by score,
- * and Survival's score climbs with every minute survived, so a single long
- * Survival run would take the arcade device best and never give it back —
- * comparing two records that measure different things. Survival is ranked by
- * the thing it actually asks of the player: time.
+ * Survival ranks on time, so `durationSeconds` is the rank metric here and
+ * `score` is supporting detail — the reverse of the arcade board above. They
+ * are separate endpoints for that reason rather than one board with a mode
+ * column: mixing two different orderings into one list produces a ranking that
+ * is wrong for both.
  */
-export type SurvivalBest = {
-  durationSeconds: number;
-  riftLevel: number;
-  breaches: number;
-  score: number;
+export type SurvivalLeaderboardEntry = {
+  id: number;
+  rank: number;
+  initials: string;
   ship: string;
-  initials?: string;
-  achievedAt: number;
+  durationSeconds: number;
+  score: number;
+  riftLevel: number;
+  achievedAt: string;
 };
 
-function readNumber(record: Record<string, unknown>, key: string) {
-  const value = record[key];
-  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+function isSurvivalRow(value: unknown): value is SurvivalLeaderboardEntry {
+  if (typeof value !== "object" || value === null) return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.durationSeconds === "number" && typeof row.initials === "string";
 }
 
-export function loadSurvivalBest(): SurvivalBest | null {
-  const raw = readStorage(LOCAL_SURVIVAL_KEY);
-  if (!raw) return null;
-
+/**
+ * Reads the public Survival board, optionally for one ship.
+ *
+ * Returns null for every failure — unreachable, non-JSON, or an endpoint that
+ * does not exist yet — because the caller's job is the same in all three
+ * cases: show the device board and say the global one is unavailable. The
+ * survival endpoints are not live on the score service yet, so today this
+ * returns null in production, and that is a supported state rather than a bug.
+ * See `docs/SURVIVAL_LEADERBOARD_API.md` for the contract it expects.
+ */
+export async function fetchSurvivalLeaderboard(
+  limit = 10,
+  ship?: string
+): Promise<SurvivalLeaderboardEntry[] | null> {
   try {
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null) return null;
-    const record = parsed as Record<string, unknown>;
-    if (typeof record.durationSeconds !== "number" || !Number.isFinite(record.durationSeconds)) {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (ship) query.set("ship", ship);
+    const response = await murphFetch(`/api/arcade/survival-leaderboard?${query}`, {
+      cache: "no-store",
+    });
+    if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) {
       return null;
     }
-    return {
-      durationSeconds: readNumber(record, "durationSeconds"),
-      riftLevel: Math.max(1, readNumber(record, "riftLevel")),
-      breaches: readNumber(record, "breaches"),
-      score: readNumber(record, "score"),
-      ship: typeof record.ship === "string" ? record.ship : "Unknown",
-      initials: typeof record.initials === "string" ? record.initials.slice(0, 3) : undefined,
-      achievedAt: typeof record.achievedAt === "number" ? record.achievedAt : 0,
-    };
+    const body = (await response.json()) as { entries?: unknown };
+    if (!Array.isArray(body.entries)) return null;
+    return body.entries.filter(isSurvivalRow);
   } catch {
     return null;
   }
 }
 
 /**
- * Records a finished Survival run against this device.
+ * Submits one completed Survival run to the public board.
  *
- * Ties keep the standing record: a run that only equals the best has not
- * beaten it, and re-stamping it would make the card claim a new best for a
- * repeat performance.
+ * Deliberately not routed through `saveScoreToMurph`: that endpoint ranks a
+ * settled score for a *victory*, and Survival has neither. Sending a run with
+ * no outcome to a board that sorts by score would rank it against a number
+ * that means something else.
  */
-export function saveSurvivalRun(run: RunResult) {
-  const previous = loadSurvivalBest();
-  const isBest = !previous || run.durationSeconds > previous.durationSeconds;
-  if (!isBest) return { best: previous, isBest: false };
+export async function saveSurvivalScoreToMurph(run: RunResult): Promise<SaveScoreResult> {
+  if (
+    run.difficulty !== "survival" ||
+    run.practice ||
+    !run.initials ||
+    !/^[A-Z0-9]{3}$/.test(run.initials) ||
+    !Number.isFinite(run.durationSeconds) ||
+    run.durationSeconds <= 0
+  ) {
+    return { status: "failed", message: "Only a completed Survival run can be ranked." };
+  }
 
-  const best: SurvivalBest = {
-    durationSeconds: Math.max(0, Math.floor(run.durationSeconds)),
-    riftLevel: Math.max(1, Math.floor(run.riftLevel ?? 1)),
-    breaches: Math.max(0, Math.floor(run.breaches ?? 0)),
-    score: Math.max(0, Math.floor(run.score)),
-    ship: run.ship,
-    initials: run.initials,
-    achievedAt: Date.now(),
-  };
-  writeStorage(LOCAL_SURVIVAL_KEY, JSON.stringify(best));
-  return { best, isBest: true };
+  try {
+    const response = await murphFetch("/api/arcade/survival-scores", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        runId: run.runId,
+        initials: run.initials,
+        ship: run.ship,
+        durationSeconds: Math.max(0, Math.floor(run.durationSeconds)),
+        score: Math.max(0, Math.floor(run.score)),
+        riftLevel: Math.max(1, Math.floor(run.riftLevel ?? 1)),
+        breaches: Math.max(0, Math.floor(run.breaches ?? 0)),
+      }),
+    });
+
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as { error?: string } | null;
+      return {
+        status: "failed",
+        message: body?.error ?? "That run could not be added to the Survival board.",
+      };
+    }
+
+    const body = (await response.json()) as { rank?: number | null };
+    return { status: "saved", rank: body.rank ?? null };
+  } catch {
+    return {
+      status: "failed",
+      message: "The Survival board could not be reached. Your device board is safe.",
+    };
+  }
 }
 
 async function murphFetch(path: string, init?: RequestInit) {
@@ -235,10 +274,6 @@ export async function fetchLeaderboard(limit = 10): Promise<LeaderboardEntry[] |
     return null;
   }
 }
-
-export type SaveScoreResult =
-  | { status: "saved"; rank: number | null }
-  | { status: "failed"; message: string };
 
 /** Submit one completed classic-arcade victory. No account cookie is sent. */
 export async function saveScoreToMurph(run: RunResult): Promise<SaveScoreResult> {
