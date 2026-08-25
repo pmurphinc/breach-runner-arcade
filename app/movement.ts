@@ -1,10 +1,10 @@
 /**
- * Shared movement intent.
+ * Shared movement intent and inertia.
  *
- * Desktop keys and the touch stick both resolve to the same directional intent.
- * The game loop can then preserve the original immediate thumbstick response
- * while giving keyboard thrust its newer inertial steering. Both paths retain
- * the selected ship's acceleration and top speed.
+ * Desktop keys and the touch stick resolve to the same directional intent and
+ * are then flown through the same physics, so Touch, PC and Hybrid all feel
+ * identical. Every hull keeps its own acceleration and top speed on top of
+ * that shared model.
  *
  * Pure and dependency-free so the whole model is testable without a canvas.
  */
@@ -70,42 +70,67 @@ export function resolveIntent(stick: MovementIntent, keyboard: MovementIntent) {
 export type Velocity = { vx: number; vy: number };
 
 /**
+ * The shared arcade inertia model.
+ *
+ * These numbers are the whole feel — light momentum, quick stops, sharp
+ * direction changes — and they are deliberately ship-agnostic. They scrub
+ * momentum the pilot is not asking for; they never touch the acceleration or
+ * top speed a hull was tuned with, so the ships stay as different from one
+ * another as they were.
+ */
+/** Fraction of the remaining drift shed each tick once the input is released. */
+export const IDLE_DRAG = 0.12;
+/** The same, with retro thrusters fitted: the power-up brakes twice as hard. */
+export const RETRO_DRAG = 0.24;
+/** Fraction of sideways momentum scrubbed each tick while thrusting. */
+export const LATERAL_DRAG = 0.18;
+/** Fraction shed each tick from momentum running against the requested heading. */
+export const REVERSE_DRAG = 0.35;
+/** A coasting ship below this speed is simply parked rather than left crawling. */
+export const STOP_SPEED = 0.02;
+
+/**
  * Applies one tick of movement intent to a velocity.
  *
- * The default path preserves the original immediate twin-stick redirection.
- * The inertial option adds thrust to existing momentum for desktop keyboard
- * flight. Both paths use the same ship acceleration and maximum speed.
- * Returns a new velocity rather than mutating, so it is trivially testable.
+ * One model serves every control mode. Returns a new velocity rather than
+ * mutating, so it is trivially testable.
  */
 export function applyIntent(
   velocity: Velocity,
   intent: MovementIntent,
   ship: { acceleration: number; maxSpeed: number },
-  options: { retros?: boolean; inertial?: boolean } = {}
+  options: { retros?: boolean } = {}
 ): Velocity {
   if (!intent.active || intent.heading === null) {
-    // Retro thrusters bleed off drift when nothing is held. Without them the
-    // ship coasts, exactly as it did before.
-    if (options.retros) return { vx: velocity.vx * 0.995, vy: velocity.vy * 0.995 };
-    return { vx: velocity.vx, vy: velocity.vy };
+    // Nothing held: bleed the drift off fast and park the hull once what is
+    // left would only be a crawl. A couple of ship-lengths of coast remain, so
+    // letting go still reads as a glide rather than hitting a wall.
+    const drag = options.retros ? RETRO_DRAG : IDLE_DRAG;
+    const vx = velocity.vx * (1 - drag);
+    const vy = velocity.vy * (1 - drag);
+    if (Math.hypot(vx, vy) < STOP_SPEED) return { vx: 0, vy: 0 };
+    return { vx, vy };
   }
 
   const radians = (intent.heading * Math.PI) / 180;
-  const current = Math.hypot(velocity.vx, velocity.vy);
+  const ux = Math.cos(radians);
+  const uy = Math.sin(radians);
 
-  if (!options.inertial) {
-    // Original twin-stick response: pointing the stick immediately redirects
-    // the ship while its speed ramps by the ship's unchanged acceleration.
-    // Keeping this branch numerically identical prevents desktop steering work
-    // from changing touch sensitivity, speed, or response.
-    const speed = Math.min(ship.maxSpeed, current + ship.acceleration) * intent.magnitude;
-    return { vx: Math.cos(radians) * speed, vy: Math.sin(radians) * speed };
-  }
+  // Split momentum into the part already heading where the pilot is pointing
+  // and the part that is not. Only the second part is scrubbed, so a straight
+  // burn still ramps by the ship's own acceleration to the ship's own top
+  // speed, exactly as before.
+  const along = velocity.vx * ux + velocity.vy * uy;
+  const lateralX = velocity.vx - along * ux;
+  const lateralY = velocity.vy - along * uy;
 
-  // Keyboard thrusters add force to existing momentum. WASD therefore bends
-  // the flight path instead of replacing velocity with a grid direction.
-  let vx = velocity.vx + Math.cos(radians) * ship.acceleration * intent.magnitude;
-  let vy = velocity.vy + Math.sin(radians) * ship.acceleration * intent.magnitude;
+  // Momentum pointing the wrong way is killed hardest: that is what makes a
+  // right-to-left flick bite instead of skating onward through the turn.
+  const carried = along < 0 ? along * (1 - REVERSE_DRAG) : along;
+  const thrust = carried + ship.acceleration * intent.magnitude;
+
+  let vx = lateralX * (1 - LATERAL_DRAG) + thrust * ux;
+  let vy = lateralY * (1 - LATERAL_DRAG) + thrust * uy;
   const speed = Math.hypot(vx, vy);
   if (speed > ship.maxSpeed) {
     const scale = ship.maxSpeed / speed;
