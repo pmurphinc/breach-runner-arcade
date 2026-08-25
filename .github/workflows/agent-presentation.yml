@@ -18,6 +18,8 @@ jobs:
         with:
           node-version: "22"
           cache: npm
+      - name: Adapt patch helper
+        run: python .github/fix-presentation-agent.py
       - name: Apply presentation patch
         run: python .github/agent-presentation.py
       - name: Install dependencies
