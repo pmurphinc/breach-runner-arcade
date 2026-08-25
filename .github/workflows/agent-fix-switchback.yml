@@ -26,63 +26,67 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
 
           game_path = Path('app/game.tsx')
           source = game_path.read_text()
-          old = '''      if (player.health > 0) {
-                ctx.save();
-                ctx.translate(player.x, player.y);
-                ctx.rotate(player.angle * DEG);'''
-          new = '''      if (player.health > 0) {
-                ctx.save();
-                // A player hull must never inherit destructive/transparent canvas
-                // state from an earlier arena effect. Switchback can Form Shift
-                // repeatedly during long runs, so make the player draw an explicit
-                // render-state boundary instead of trusting whatever the previous
-                // entity happened to leave behind.
-                ctx.globalAlpha = 1;
-                ctx.globalCompositeOperation = "source-over";
-                ctx.shadowBlur = 0;
-                ctx.setLineDash([]);
-                ctx.lineDashOffset = 0;
-                ctx.translate(player.x, player.y);
-                ctx.rotate(player.angle * DEG);'''
-          if old not in source:
-              raise SystemExit('player draw anchor not found; refusing broad patch')
-          source = source.replace(old, new, 1)
+          pattern = re.compile(
+              r'(?m)^(?P<i>\s*)if \(player\.health > 0\) \{\n'
+              r'(?P=i)  ctx\.save\(\);\n'
+              r'(?P=i)  ctx\.translate\(player\.x, player\.y\);\n'
+              r'(?P=i)  ctx\.rotate\(player\.angle \* DEG\);'
+          )
+          matches = list(pattern.finditer(source))
+          if len(matches) != 1:
+              raise SystemExit(f'expected one player render anchor, found {len(matches)}; refusing broad patch')
+          match = matches[0]
+          indent = match.group('i')
+          replacement = '\n'.join([
+              f'{indent}if (player.health > 0) {{',
+              f'{indent}  ctx.save();',
+              f'{indent}  // A player hull must never inherit transparent or destructive canvas',
+              f'{indent}  // state from an earlier arena effect. Form Shift can be triggered',
+              f'{indent}  // repeatedly during long Switchback runs, so the player draw owns',
+              f'{indent}  // an explicit visible render-state boundary every frame.',
+              f'{indent}  ctx.globalAlpha = 1;',
+              f'{indent}  ctx.globalCompositeOperation = "source-over";',
+              f'{indent}  ctx.shadowBlur = 0;',
+              f'{indent}  ctx.setLineDash([]);',
+              f'{indent}  ctx.lineDashOffset = 0;',
+              f'{indent}  ctx.translate(player.x, player.y);',
+              f'{indent}  ctx.rotate(player.angle * DEG);',
+          ])
+          source = source[:match.start()] + replacement + source[match.end():]
           game_path.write_text(source)
 
-          test = r'''import test from "node:test";
-          import assert from "node:assert/strict";
-          import { readFileSync } from "node:fs";
+          test = '''import test from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
-          const source = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
+const source = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
 
-          test("live player draw starts from an explicit visible canvas state", () => {
-            const start = source.indexOf("if (player.health > 0)");
-            assert.notEqual(start, -1);
-            const draw = source.slice(start, start + 900);
-            assert.match(draw, /ctx\.globalAlpha = 1/);
-            assert.match(draw, /ctx\.globalCompositeOperation = "source-over"/);
-            assert.match(draw, /ctx\.setLineDash\(\[\]\)/);
-            assert.match(draw, /drawShipShape\(ctx, game\.ship\.id/);
-          });
+test("live player draw starts from an explicit visible canvas state", () => {
+  const sceneStart = source.indexOf("const drawScene");
+  assert.notEqual(sceneStart, -1);
+  const start = source.indexOf("if (player.health > 0)", sceneStart);
+  assert.notEqual(start, -1);
+  const draw = source.slice(start, start + 1100);
+  assert.match(draw, /ctx\\.globalAlpha = 1/);
+  assert.match(draw, /ctx\\.globalCompositeOperation = "source-over"/);
+  assert.match(draw, /ctx\\.setLineDash\\(\\[\\]\\)/);
+  assert.match(draw, /drawShipShape\\(ctx, game\\.ship\\.id/);
+});
 
-          test("Switchback Form Shift remains a handling-only state toggle", () => {
-            const start = source.indexOf('ship === "flash"');
-            assert.notEqual(start, -1);
-            const branch = source.slice(start, start + 420);
-            assert.match(branch, /player\.flashMode = player\.flashMode === "tank" \? "squid" : "tank"/);
-            assert.doesNotMatch(branch, /globalAlpha|opacity|visible|health\s*=|ship\s*=/);
-          });
-          '''
-          # Strip indentation introduced by the workflow heredoc while preserving code.
-          lines = test.splitlines()
-          cleaned = '\n'.join(line[10:] if line.startswith('          ') else line for line in lines).lstrip() + '\n'
-          Path('tests/switchback-visibility.test.mjs').write_text(cleaned)
-
-          workflow = Path('.github/workflows/agent-fix-switchback.yml')
-          workflow.unlink()
+test("Switchback Form Shift remains a handling-only state toggle", () => {
+  const start = source.indexOf('ship === "flash"');
+  assert.notEqual(start, -1);
+  const branch = source.slice(start, start + 420);
+  assert.match(branch, /player\\.flashMode = player\\.flashMode === "tank" \\? "squid" : "tank"/);
+  assert.doesNotMatch(branch, /globalAlpha|opacity|visible|health\\s*=|game\\.ship\\s*=/);
+});
+'''
+          Path('tests/switchback-visibility.test.mjs').write_text(test)
+          Path('.github/workflows/agent-fix-switchback.yml').unlink()
           PY
 
       - name: Install dependencies
