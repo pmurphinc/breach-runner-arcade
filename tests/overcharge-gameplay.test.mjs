@@ -49,7 +49,7 @@ const OVERCHARGED = SHIPS.filter((ship) => overchargeFor(ship.id));
  * boot, which is how one test can cover PC, touch and hybrid without needing
  * three different devices.
  */
-async function launch(browser, { ship, difficulty = "DIFFICULT", view = "pc", cameraLock = true }) {
+async function launch(browser, { ship, difficulty = "difficult", view = "pc", cameraLock = true }) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await context.newPage();
   await page.route("https://murphtournaments.com/**", (route) =>
@@ -74,7 +74,10 @@ async function launch(browser, { ship, difficulty = "DIFFICULT", view = "pc", ca
   // own summary row; the back control returns to home.
   await page.locator(".summary-row", { hasText: "Difficulty" }).locator(".summary-action").click();
   await page.waitForSelector(".menu-screen[data-route='modes']", { timeout: 10_000 });
-  await page.locator(".option-choices [role=radio]", { hasText: difficulty }).first().click();
+  // Selected by difficulty id, not by its display label: the labels are
+  // themed copy that has already been renamed once (EASY became STABLE), and
+  // matching on them silently broke every browser test in the repository.
+  await page.locator(`.option-choices [data-choice="${difficulty}"]`).first().click();
   await page.waitForTimeout(250);
   await page.locator(".menu-screen[data-route='modes'] .menu-back").click();
   await page.waitForSelector(".menu-screen[data-route='home']", { timeout: 10_000 });
@@ -143,7 +146,7 @@ for (const ship of OVERCHARGED) {
       // PRACTICE, because this waits out a whole cooldown parked in the open
       // and the point is the timer, not whether a 170-hull frame survives
       // being left stationary for twenty seconds.
-      const { context, page } = await launch(browser, { ship, difficulty: "PRACTICE" });
+      const { context, page } = await launch(browser, { ship, difficulty: "practice" });
 
       const idle = await specialReadout(page);
       assert.match(idle, new RegExp(SHIP_SPECIALS[ship.id].name), "the HUD names this ship's special");
@@ -205,7 +208,7 @@ for (const ship of OVERCHARGED) {
       // visible arena, so aiming at it is just pointing at the canvas centre.
       const { context, page } = await launch(browser, {
         ship,
-        difficulty: "PRACTICE",
+        difficulty: "practice",
         cameraLock: false,
       });
 
@@ -255,11 +258,15 @@ test("the SPEC control fires the special on touch and hybrid alike", { skip }, a
       await button.locator(":scope:not([disabled])").waitFor({ timeout: 10_000 });
       assert.match(await button.innerText(), /READY/);
 
-      // Pointer events, not a click: this is the path a thumb actually takes.
-      await button.dispatchEvent("pointerdown", { pointerId: 1, isPrimary: true });
+      // Driven through real pointer input rather than a synthetic dispatch.
+      // The control captures the pointer on press, and `setPointerCapture`
+      // rejects an id that no live pointer owns, so a dispatched event can
+      // abort the handler before the press ever registers.
+      const box = await button.boundingBox();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
       await page.waitForTimeout(120);
-      await button.dispatchEvent("pointerup", { pointerId: 1, isPrimary: true });
-      await page.waitForTimeout(400);
+      await page.mouse.up();
 
       const fired = await noticeShows(page, /SPECIAL \/\//);
       assert.equal(fired, true, `${view}: SPEC did not fire the special (${fired})`);
@@ -274,7 +281,7 @@ test("the SPEC control fires the special on touch and hybrid alike", { skip }, a
 test("specials fire under every difficulty's rules", { skip }, async () => {
   const browser = await playwright.chromium.launch({ executablePath: CHROME });
   try {
-    for (const difficulty of ["EASY", "DIFFICULT", "HARD"]) {
+    for (const difficulty of ["easy", "difficult", "hard"]) {
       for (const ship of OVERCHARGED) {
         const { context, page } = await launch(browser, { ship, difficulty });
         await page.keyboard.press("KeyQ");
@@ -297,7 +304,7 @@ test("movement, aim and the power-up launcher still work alongside the special",
   try {
     const { context, page } = await launch(browser, {
       ship: OVERCHARGED[0],
-      difficulty: "PRACTICE",
+      difficulty: "practice",
       cameraLock: false,
     });
 

@@ -52,8 +52,6 @@ export type ShipProfile = {
      * the ship does not actually have.
      */
     derivedFrom: string | null;
-    /** How the overcharged build differs from the ordinary pickup. */
-    differences: string[];
   };
   /** Exactly how to use the special on each input method. */
   specialInput: { keyboard: string; touch: string };
@@ -262,7 +260,6 @@ export const SHIP_PROFILES: Record<ShipId, ShipProfile> = Object.fromEntries(
           cooldownSeconds: SHIP_SPECIALS[spec.id].cooldownSeconds,
           description: specialDescription(spec),
           derivedFrom: overcharge ? overchargeSource(overcharge) : null,
-          differences: overcharge ? overcharge.differences : [],
         },
         specialInput: { keyboard: "Q", touch: "SPEC" },
         experience,
