@@ -28,6 +28,8 @@ export type DeviceSettings = {
   cannonHitSound: boolean;
   thumbsticks: boolean;
   touchControlSize: TouchControlSize;
+  /** Duplicate PUP, SPEC, and Pause around the movement stick for either-hand access. */
+  mirrorTouchActions: boolean;
   /** Three-character arcade identity remembered on this device. */
   playerInitials: string;
 };
@@ -46,6 +48,7 @@ export const DEFAULT_SETTINGS: DeviceSettings = {
   cannonHitSound: true,
   thumbsticks: true,
   touchControlSize: "medium",
+  mirrorTouchActions: false,
   playerInitials: "",
 };
 
@@ -80,6 +83,7 @@ export function migrateSettings(value: unknown): DeviceSettings {
     cannonHitSound: typeof candidate.cannonHitSound === "boolean" ? candidate.cannonHitSound : true,
     thumbsticks: typeof candidate.thumbsticks === "boolean" ? candidate.thumbsticks : true,
     touchControlSize: isSize(candidate.touchControlSize) ? candidate.touchControlSize : "medium",
+    mirrorTouchActions: typeof candidate.mirrorTouchActions === "boolean" ? candidate.mirrorTouchActions : false,
     playerInitials: normalizePlayerInitials(candidate.playerInitials),
   };
 }
