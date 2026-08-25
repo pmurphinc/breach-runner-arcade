@@ -53,7 +53,10 @@ import {
   settingsStore,
   SOUND_GAIN,
   VIEW_PROFILES,
+  ZOOM_SCALE,
+  type CombatHaptics,
   type SoundLevel,
+  type ZoomLevel,
 } from "./view-settings";
 import GlobalSystemControls, { useFullscreen } from "./system-controls";
 import {
@@ -86,6 +89,8 @@ import {
   type LayoutBudget,
   type ScreenPreset,
 } from "./layout-budget";
+import { cannonPlaybackRate, hapticsAllow } from "./combat-feedback";
+import { RICOCHET_BOUNCES, RICOCHET_DURATION_SECONDS, reflectRicochet } from "./ricochet";
 import {
   MOVEMENT_CODES,
   applyIntent,
@@ -232,6 +237,8 @@ type Bullet = {
    * Missile Fan disable Talon's own cannon for the whole flight of the volley.
    */
   special?: boolean;
+  /** Wall reflections remaining from Bankshot Matrix. Normal cannon only. */
+  bouncesLeft?: number;
   /** Steering authority in radians per tick. Absent means it flies straight. */
   turnRadians?: number;
 };
@@ -319,6 +326,8 @@ type Player = {
   retros: boolean;
   specialCooldown: number;
   emp: number;
+  /** Ticks remaining on the temporary Bankshot Matrix utility. */
+  ricochetTicks: number;
   /**
    * Handling rider left by an overcharge, in ticks, with its multipliers.
    *
@@ -540,6 +549,7 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
       retros: ship.thrust > 0,
       specialCooldown: 0,
       emp: 0,
+      ricochetTicks: 0,
       riderTicks: 0,
       riderTotal: 0,
       riderAcceleration: 1,
@@ -693,7 +703,7 @@ function spawnParticles(game: Game, x: number, y: number, color: string, count: 
 
 function randomPower(): PickupId {
   if (Math.random() < 1 / 3) {
-    const defensive: PickupId[] = ["gun", "thrust", "retros", "shield", "clear", "health"];
+    const defensive: PickupId[] = ["gun", "thrust", "retros", "shield", "clear", "health", "ricochet"];
     return defensive[Math.floor(Math.random() * defensive.length)];
   }
   return SENDABLE_POWERUPS[Math.floor(Math.random() * SENDABLE_POWERUPS.length)];
@@ -1770,7 +1780,10 @@ export default function WormholeGame() {
   const codexOpenRef = useRef(false);
   const soundRef = useRef(true);
   const soundLevelRef = useRef<SoundLevel>("medium");
+  const combatHapticsRef = useRef<CombatHaptics>("both");
+  const cannonHitSoundRef = useRef(true);
   const cameraRef = useRef(true);
+  const zoomRef = useRef<ZoomLevel>("standard");
   const qualityRef = useRef<QualityMode>("auto");
   const reducedMotionRef = useRef(false);
   const viewProfileRef = useRef(viewProfile);
@@ -1806,7 +1819,10 @@ export default function WormholeGame() {
   useEffect(() => { codexOpenRef.current = codexOpen; }, [codexOpen]);
   useEffect(() => { soundRef.current = sound; }, [sound]);
   useEffect(() => { soundLevelRef.current = settings.soundLevel; }, [settings.soundLevel]);
+  useEffect(() => { combatHapticsRef.current = settings.combatHaptics; }, [settings.combatHaptics]);
+  useEffect(() => { cannonHitSoundRef.current = settings.cannonHitSound; }, [settings.cannonHitSound]);
   useEffect(() => { cameraRef.current = cameraLocked; }, [cameraLocked]);
+  useEffect(() => { zoomRef.current = settings.zoom; }, [settings.zoom]);
   useEffect(() => { qualityRef.current = quality; }, [quality]);
   useEffect(() => { reducedMotionRef.current = reducedMotion; }, [reducedMotion]);
   useEffect(() => { viewProfileRef.current = viewProfile; }, [viewProfile]);
@@ -1963,7 +1979,7 @@ export default function WormholeGame() {
   }, [stopVictorySuction]);
 
   /** Pooled playback: three reusable elements per clip instead of one per shot. */
-  const play = useCallback((name: "fire" | "explosion" | "magic" | "thrust", volume = 0.22) => {
+  const play = useCallback((name: "fire" | "explosion" | "magic" | "thrust", volume = 0.22, playbackRate = 1) => {
     if (!soundRef.current) return;
     let clips = audioPool.current.get(name);
     if (!clips) {
@@ -1977,6 +1993,7 @@ export default function WormholeGame() {
     const clip = clips.find((item) => item.paused || item.ended) ?? clips[0];
     // The volume setting is a real gain on every effect, not a label.
     clip.volume = cap(volume * SOUND_GAIN[soundLevelRef.current], 0, 1);
+    clip.playbackRate = cap(playbackRate, 0.5, 2);
     try { clip.currentTime = 0; } catch { /* Safari throws before metadata loads. */ }
     void clip.play().catch(() => undefined);
   }, []);
@@ -2009,6 +2026,12 @@ export default function WormholeGame() {
         ? { frequencies: [640, 400, 250, 155], duration: 0.9, gap: 0.075, type: "sine" as OscillatorType }
       : cue === "overcharge:core"
         ? { frequencies: [110, 74, 52, 190], duration: 1.05, gap: 0.085, type: "sawtooth" as OscillatorType }
+      : cue === "ricochet"
+        ? { frequencies: [720, 980], duration: 0.09, gap: 0.018, type: "triangle" as OscillatorType }
+      : cue === "cannon-hit"
+        ? { frequencies: [185, 122], duration: 0.075, gap: 0.012, type: "square" as OscillatorType }
+      : cue === "emp-hit"
+        ? { frequencies: [920, 510, 260], duration: 0.34, gap: 0.035, type: "sawtooth" as OscillatorType }
       : cue === "shield-pickup"
         ? { frequencies: [420, 680, 1020], duration: 0.46, gap: 0.07, type: "sine" as OscillatorType }
         : cue === "shield-down"
@@ -2598,9 +2621,9 @@ export default function WormholeGame() {
     const game = gameRef.current;
     const player = game.player;
     const locked = cameraRef.current;
-    const camScale = locked ? 1 : Math.min(VIEW_WIDTH / game.worldWidth, VIEW_HEIGHT / game.worldHeight);
-    const camX = locked ? cap(VIEW_WIDTH / 2 - player.x, VIEW_WIDTH - game.worldWidth, 0) : (VIEW_WIDTH - game.worldWidth * camScale) / 2;
-    const camY = locked ? cap(VIEW_HEIGHT / 2 - player.y, VIEW_HEIGHT - game.worldHeight, 0) : (VIEW_HEIGHT - game.worldHeight * camScale) / 2;
+    const camScale = locked ? ZOOM_SCALE[zoomRef.current] : Math.min(VIEW_WIDTH / game.worldWidth, VIEW_HEIGHT / game.worldHeight);
+    const camX = locked ? cap(VIEW_WIDTH / 2 - player.x * camScale, VIEW_WIDTH - game.worldWidth * camScale, 0) : (VIEW_WIDTH - game.worldWidth * camScale) / 2;
+    const camY = locked ? cap(VIEW_HEIGHT / 2 - player.y * camScale, VIEW_HEIGHT - game.worldHeight * camScale, 0) : (VIEW_HEIGHT - game.worldHeight * camScale) / 2;
     const worldX = (screenX - camX) / camScale;
     const worldY = (screenY - camY) / camScale;
     aimHeading.current = (Math.atan2(worldY - player.y, worldX - player.x) * 180) / Math.PI;
@@ -2700,6 +2723,20 @@ export default function WormholeGame() {
     let previous = performance.now();
     let accumulator = 0;
     let hudDelay = 0;
+    let lastGunFeedbackTick = -999;
+
+    const vibrateCombat = (event: "gun" | "hull") => {
+      if (reducedMotionRef.current || !hapticsAllow(combatHapticsRef.current, event)) return;
+      if (typeof navigator === "undefined" || !("vibrate" in navigator)) return;
+      navigator.vibrate(event === "gun" ? 9 : 24);
+    };
+
+    const cannonImpactFeedback = (game: Game, bullet: Bullet) => {
+      if (bullet.enemy || bullet.special || game.cycles - lastGunFeedbackTick < 2) return;
+      lastGunFeedbackTick = game.cycles;
+      vibrateCombat("gun");
+      if (cannonHitSoundRef.current) playCue("cannon-hit", 0.075);
+    };
 
     // Rendering geometry. The 1048 × 655 viewport is the same 1.6:1
     // shape as the authoritative 1504 × 940 world.
@@ -2776,10 +2813,11 @@ export default function WormholeGame() {
       const player = game.player;
       if (game.rules.unlimitedHull) {
         player.health = player.maxHealth;
-        game.notice = "PRACTICE // HULL LOCKED";
+        game.notice = "SIMULATION // HULL LOCKED";
         game.noticeLife = 55;
         return;
       }
+      if (amount > 0) vibrateCombat("hull");
       player.health -= amount;
       if (game.mode !== "pve") {
         player.health = Math.max(0, player.health);
@@ -3308,7 +3346,15 @@ export default function WormholeGame() {
         enemy.blastRadius = (enemy.blastRadius ?? 0) + (!scrambled && enemy.age > 65 ? 8 : 0);
         enemy.x = player.x;
         enemy.y = player.y;
-        if ((enemy.blastRadius ?? 0) > 0 && (enemy.blastRadius ?? 0) >= d) player.emp = 150;
+        if ((enemy.blastRadius ?? 0) > 0 && (enemy.blastRadius ?? 0) >= d) {
+          const newlyScrambled = player.emp <= 0;
+          player.emp = 150;
+          if (newlyScrambled) {
+            game.notice = "SCRAMBLED // CONTROLS REVERSED";
+            game.noticeLife = 150;
+            playCue("emp-hit", 0.15);
+          }
+        }
         if ((enemy.blastRadius ?? 0) > 320) enemy.hp = 0;
       } else if (enemy.kind === "beam") {
         enemy.phase = advanceBeamAngle(enemy.phase, enemy.rotationDir ?? 1);
@@ -3517,6 +3563,7 @@ export default function WormholeGame() {
       player.overchargeFlash = Math.max(0, player.overchargeFlash - 1);
       player.viperGuidance = Math.max(0, player.viperGuidance - 1);
       player.emp = Math.max(0, player.emp - 1);
+      player.ricochetTicks = Math.max(0, player.ricochetTicks - 1);
       // Wormhole motion is a rule, not a constant: EASY locks it dead centre
       // while DIFFICULT and HARD MODE keep the original orbit.
       game.portalAngle = advanceWormholeAngle(game.rules, game.portalAngle);
@@ -3662,11 +3709,11 @@ export default function WormholeGame() {
         const offsets = shot.shots === 2 ? [-0.05, 0.05] : [0];
         offsets.forEach((offset) => {
           const angle = player.angle * DEG + offset;
-          game.bullets.push({ x: player.x + Math.cos(angle) * 12, y: player.y + Math.sin(angle) * 12, vx: Math.cos(angle) * 10 + player.vx, vy: Math.sin(angle) * 10 + player.vy, damage: shot.damage, life: 110, enemy: false, color: shot.color });
+          game.bullets.push({ x: player.x + Math.cos(angle) * 12, y: player.y + Math.sin(angle) * 12, vx: Math.cos(angle) * 10 + player.vx, vy: Math.sin(angle) * 10 + player.vy, damage: shot.damage, life: 110, enemy: false, color: shot.color, bouncesLeft: player.ricochetTicks > 0 ? RICOCHET_BOUNCES : 0 });
           game.playerShots += 1;
         });
         game.shotCycle = shot.delay;
-        play("fire", 0.12);
+        play("fire", 0.12, cannonPlaybackRate(player.gun));
       }
 
       if (launch && game.stock.length > 0 && !keys.current.__launchLatch) {
@@ -3731,6 +3778,26 @@ export default function WormholeGame() {
         bullet.x += bullet.vx;
         bullet.y += bullet.vy;
         bullet.life -= 1;
+        if (!bullet.enemy && !bullet.special && (bullet.bouncesLeft ?? 0) > 0) {
+          const reflected = reflectRicochet(
+            bullet.x,
+            bullet.y,
+            bullet.vx,
+            bullet.vy,
+            game.worldWidth,
+            game.worldHeight,
+            bullet.bouncesLeft ?? 0,
+          );
+          if (reflected.bounced) {
+            bullet.x = reflected.x;
+            bullet.y = reflected.y;
+            bullet.vx = reflected.vx;
+            bullet.vy = reflected.vy;
+            bullet.bouncesLeft = reflected.bouncesLeft;
+            burst(game, bullet.x, bullet.y, "#73f6b0", 5, 3);
+            playCue("ricochet", 0.065);
+          }
+        }
         if (bullet.enemy) {
           if (dist(bullet, player) < 13) { bullet.life = 0; damagePlayer(game, bullet.damage, "hostile_projectile"); }
           return;
@@ -3740,6 +3807,7 @@ export default function WormholeGame() {
           game.portalCharge += bullet.damage;
           game.portalPulse = Math.max(game.portalPulse, 0.4);
           burst(game, bullet.x, bullet.y, "#ff5ac8", 4, 2.5);
+          cannonImpactFeedback(game, bullet);
           if (game.portalCharge > game.portalThreshold) {
             game.portalCharge = 0;
             const type = randomPower();
@@ -3756,6 +3824,7 @@ export default function WormholeGame() {
             bullet.life = 0;
             enemy.hp -= scrambledDamage(bullet.damage, (enemy.scrambled ?? 0) > 0);
             burst(game, bullet.x, bullet.y, POWER_COLORS[enemy.kind], 4, 2.5);
+            cannonImpactFeedback(game, bullet);
             if (enemy.hp <= 0) destroyEnemy(game, enemy);
           }
         }
@@ -3852,6 +3921,7 @@ export default function WormholeGame() {
           else if (type === "shield") player.shield = Math.max(450, player.shield + 200);
           else if (type === "clear") game.enemies.forEach((enemy) => destroyEnemy(game, enemy));
           else if (type === "health") player.health = Math.min(player.maxHealth, player.health + 30);
+          else if (type === "ricochet") player.ricochetTicks = ticksForSeconds(RICOCHET_DURATION_SECONDS);
           else if (game.stock.length < STOCK_LIMIT) game.stock.push(type);
           else { game.notice = "POWERUP BIN FULL"; game.noticeLife = 75; return; }
           game.notice = `${WEAPONS[type].short} COLLECTED`;
@@ -4298,9 +4368,9 @@ export default function WormholeGame() {
       ctx.stroke();
 
       const locked = cameraRef.current;
-      const camScale = locked ? 1 : Math.min(VIEW_WIDTH / game.worldWidth, VIEW_HEIGHT / game.worldHeight);
-      const camX = locked ? cap(VIEW_WIDTH / 2 - player.x, VIEW_WIDTH - game.worldWidth, 0) : (VIEW_WIDTH - game.worldWidth * camScale) / 2;
-      const camY = locked ? cap(VIEW_HEIGHT / 2 - player.y, VIEW_HEIGHT - game.worldHeight, 0) : (VIEW_HEIGHT - game.worldHeight * camScale) / 2;
+      const camScale = locked ? ZOOM_SCALE[zoomRef.current] : Math.min(VIEW_WIDTH / game.worldWidth, VIEW_HEIGHT / game.worldHeight);
+      const camX = locked ? cap(VIEW_WIDTH / 2 - player.x * camScale, VIEW_WIDTH - game.worldWidth * camScale, 0) : (VIEW_WIDTH - game.worldWidth * camScale) / 2;
+      const camY = locked ? cap(VIEW_HEIGHT / 2 - player.y * camScale, VIEW_HEIGHT - game.worldHeight * camScale, 0) : (VIEW_HEIGHT - game.worldHeight * camScale) / 2;
       const viewLeft = -camX / camScale;
       const viewTop = -camY / camScale;
       const viewRight = (VIEW_WIDTH - camX) / camScale;
@@ -4398,8 +4468,9 @@ export default function WormholeGame() {
           ctx.fill();
         } else {
           if (profile.shadows) { ctx.shadowColor = bullet.color; ctx.shadowBlur = bullet.special ? 13 : 7; }
-          ctx.strokeStyle = bullet.color;
-          ctx.lineWidth = bullet.special ? 4.4 : 2.6;
+          const bankshot = !bullet.special && (bullet.bouncesLeft ?? 0) > 0;
+          ctx.strokeStyle = bankshot ? "#73f6b0" : bullet.color;
+          ctx.lineWidth = bullet.special ? 4.4 : bankshot ? 3.4 : 2.6;
           ctx.lineCap = "round";
           ctx.beginPath();
           ctx.moveTo(bullet.x, bullet.y);
@@ -4438,6 +4509,15 @@ export default function WormholeGame() {
 
       if (player.health > 0) {
         ctx.save();
+        // A player hull must never inherit transparent or destructive canvas
+        // state from an earlier arena effect. Form Shift can be triggered
+        // repeatedly during long Switchback runs, so the player draw owns
+        // an explicit visible render-state boundary every frame.
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = "source-over";
+        ctx.shadowBlur = 0;
+        ctx.setLineDash([]);
+        ctx.lineDashOffset = 0;
         ctx.translate(player.x, player.y);
         ctx.rotate(player.angle * DEG);
         // Phantom's pulse phases the hull out while it lands, so the frame
@@ -4449,7 +4529,7 @@ export default function WormholeGame() {
         ctx.fillStyle = "rgba(86, 226, 255, .12)";
         if (profile.shadows) { ctx.shadowColor = "#62eaff"; ctx.shadowBlur = 10; }
         ctx.lineWidth = 2;
-        drawShipShape(ctx, game.ship.id, game.ship.id === "flagship" ? .82 : 1);
+        drawShipShape(ctx, game.ship.id, (game.ship.id === "flagship" ? .82 : 1) * 1.15);
         ctx.fill();
         ctx.stroke();
         if (player.shield > 0 || player.invuln > 0) {
@@ -4460,6 +4540,45 @@ export default function WormholeGame() {
           ctx.stroke();
         }
         ctx.restore();
+
+        if (player.emp > 0) {
+          ctx.save();
+          ctx.translate(player.x, player.y);
+          const pulse = 0.55 + Math.sin(time * 0.025) * 0.2;
+          ctx.strokeStyle = "#7fb6ff";
+          ctx.lineWidth = 2.4;
+          ctx.globalAlpha = pulse;
+          ctx.setLineDash([5, 5]);
+          ctx.beginPath();
+          ctx.arc(0, 0, 31 + Math.sin(time * 0.018) * 3, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.globalAlpha = 0.95;
+          ctx.fillStyle = "#dce8ff";
+          ctx.font = "800 12px ui-monospace, monospace";
+          ctx.textAlign = "center";
+          ctx.fillText(`SCRAMBLED ${(player.emp * TICK_MS / 1000).toFixed(1)}s`, 0, -38);
+          ctx.restore();
+        }
+
+        if (player.ricochetTicks > 0) {
+          ctx.save();
+          ctx.translate(player.x, player.y);
+          ctx.strokeStyle = "#73f6b0";
+          ctx.globalAlpha = 0.42;
+          ctx.lineWidth = 2;
+          ctx.setLineDash([3, 7]);
+          ctx.beginPath();
+          ctx.arc(0, 0, 36 + Math.sin(time * 0.014) * 2, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.globalAlpha = 0.92;
+          ctx.fillStyle = "#c8ffe5";
+          ctx.font = "800 12px ui-monospace, monospace";
+          ctx.textAlign = "center";
+          ctx.fillText(`BANKSHOT ${(player.ricochetTicks * TICK_MS / 1000).toFixed(1)}s`, 0, player.emp > 0 ? 52 : 44);
+          ctx.restore();
+        }
 
         const teammate = netRef.current?.state.teammate;
         if (game.mode === "coop" && teammate) {
@@ -4491,7 +4610,7 @@ export default function WormholeGame() {
           ctx.strokeStyle = "#ffffff";
           ctx.fillStyle = "rgba(182,255,87,.42)";
           ctx.lineWidth = 4;
-          drawShipShape(ctx, teammate.ship as ShipId, teammate.ship === "flagship" ? .82 : 1);
+          drawShipShape(ctx, teammate.ship as ShipId, (teammate.ship === "flagship" ? .82 : 1) * 1.15);
           ctx.fill();
           ctx.stroke();
           ctx.restore();
@@ -5523,8 +5642,14 @@ export default function WormholeGame() {
           onSound={(next) => setSetting("sound", next)}
           soundLevel={settings.soundLevel}
           onSoundLevel={(next) => setSetting("soundLevel", next)}
+          combatHaptics={settings.combatHaptics}
+          onCombatHaptics={(next) => setSetting("combatHaptics", next)}
+          cannonHitSound={settings.cannonHitSound}
+          onCannonHitSound={(next) => setSetting("cannonHitSound", next)}
           cameraLock={cameraLocked}
           onCameraLock={(next) => setSetting("cameraLock", next)}
+          zoom={settings.zoom}
+          onZoom={(next) => setSetting("zoom", next)}
           initials={settings.playerInitials}
           onInitials={(next) => setSetting("playerInitials", normalizeInitials(next))}
           go={go}

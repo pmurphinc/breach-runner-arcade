@@ -493,6 +493,25 @@ const healthIcon: GlyphFn = (ctx, { r, detail }) => {
   core(ctx, r * 0.8, 0.25, detail);
 };
 
+const bankshotIcon: GlyphFn = (ctx, { r, detail }) => {
+  const s = r / 14;
+  // A hard zig-zag trajectory with two bright wall contacts reads as
+  // "bank shot" even in the smallest inventory chip.
+  ctx.beginPath();
+  ctx.moveTo(-12 * s, 8 * s);
+  ctx.lineTo(-3 * s, -8 * s);
+  ctx.lineTo(5 * s, 8 * s);
+  ctx.lineTo(12 * s, -5 * s);
+  ctx.stroke();
+  if (detail >= 0.35) {
+    for (const [x, y] of [[-3, -8], [5, 8]] as const) {
+      ctx.beginPath();
+      ctx.arc(x * s, y * s, 2.2 * s, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+};
+
 const GLYPHS: Record<PickupId, GlyphFn> = {
   heatseeker, turret, mines, ufo, inflator, minelayer, gunship, scarab, nuke,
   wallcrawler, beam, emp, ghost, artillery,
@@ -502,6 +521,7 @@ const GLYPHS: Record<PickupId, GlyphFn> = {
   shield: shieldIcon,
   clear: zapIcon,
   health: healthIcon,
+  ricochet: bankshotIcon,
 };
 
 /** Weapons whose silhouette points along its direction of travel. */
