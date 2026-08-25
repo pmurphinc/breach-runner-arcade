@@ -90,6 +90,7 @@ import {
   type ScreenPreset,
 } from "./layout-budget";
 import { cannonPlaybackRate, hapticsAllow } from "./combat-feedback";
+import { RICOCHET_BOUNCES, RICOCHET_DURATION_SECONDS, reflectRicochet } from "./ricochet";
 import {
   MOVEMENT_CODES,
   applyIntent,
@@ -227,6 +228,8 @@ type Bullet = {
    * Missile Fan disable Talon's own cannon for the whole flight of the volley.
    */
   special?: boolean;
+  /** Wall reflections remaining from Bankshot Matrix. Normal cannon only. */
+  bouncesLeft?: number;
   /** Steering authority in radians per tick. Absent means it flies straight. */
   turnRadians?: number;
 };
@@ -314,6 +317,8 @@ type Player = {
   retros: boolean;
   specialCooldown: number;
   emp: number;
+  /** Ticks remaining on the temporary Bankshot Matrix utility. */
+  ricochetTicks: number;
   /**
    * Handling rider left by an overcharge, in ticks, with its multipliers.
    *
@@ -535,6 +540,7 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
       retros: ship.thrust > 0,
       specialCooldown: 0,
       emp: 0,
+      ricochetTicks: 0,
       riderTicks: 0,
       riderTotal: 0,
       riderAcceleration: 1,
@@ -688,7 +694,7 @@ function spawnParticles(game: Game, x: number, y: number, color: string, count: 
 
 function randomPower(): PickupId {
   if (Math.random() < 1 / 3) {
-    const defensive: PickupId[] = ["gun", "thrust", "retros", "shield", "clear", "health"];
+    const defensive: PickupId[] = ["gun", "thrust", "retros", "shield", "clear", "health", "ricochet"];
     return defensive[Math.floor(Math.random() * defensive.length)];
   }
   return SENDABLE_POWERUPS[Math.floor(Math.random() * SENDABLE_POWERUPS.length)];
@@ -1848,6 +1854,8 @@ export default function WormholeGame() {
         ? { frequencies: [640, 400, 250, 155], duration: 0.9, gap: 0.075, type: "sine" as OscillatorType }
       : cue === "overcharge:core"
         ? { frequencies: [110, 74, 52, 190], duration: 1.05, gap: 0.085, type: "sawtooth" as OscillatorType }
+      : cue === "ricochet"
+        ? { frequencies: [720, 980], duration: 0.09, gap: 0.018, type: "triangle" as OscillatorType }
       : cue === "cannon-hit"
         ? { frequencies: [185, 122], duration: 0.075, gap: 0.012, type: "square" as OscillatorType }
       : cue === "emp-hit"
@@ -3327,6 +3335,7 @@ export default function WormholeGame() {
       player.overchargeFlash = Math.max(0, player.overchargeFlash - 1);
       player.viperGuidance = Math.max(0, player.viperGuidance - 1);
       player.emp = Math.max(0, player.emp - 1);
+      player.ricochetTicks = Math.max(0, player.ricochetTicks - 1);
       // Wormhole motion is a rule, not a constant: EASY locks it dead centre
       // while DIFFICULT and HARD MODE keep the original orbit.
       game.portalAngle = advanceWormholeAngle(game.rules, game.portalAngle);
@@ -3472,7 +3481,7 @@ export default function WormholeGame() {
         const offsets = shot.shots === 2 ? [-0.05, 0.05] : [0];
         offsets.forEach((offset) => {
           const angle = player.angle * DEG + offset;
-          game.bullets.push({ x: player.x + Math.cos(angle) * 12, y: player.y + Math.sin(angle) * 12, vx: Math.cos(angle) * 10 + player.vx, vy: Math.sin(angle) * 10 + player.vy, damage: shot.damage, life: 110, enemy: false, color: shot.color });
+          game.bullets.push({ x: player.x + Math.cos(angle) * 12, y: player.y + Math.sin(angle) * 12, vx: Math.cos(angle) * 10 + player.vx, vy: Math.sin(angle) * 10 + player.vy, damage: shot.damage, life: 110, enemy: false, color: shot.color, bouncesLeft: player.ricochetTicks > 0 ? RICOCHET_BOUNCES : 0 });
           game.playerShots += 1;
         });
         game.shotCycle = shot.delay;
@@ -3541,6 +3550,26 @@ export default function WormholeGame() {
         bullet.x += bullet.vx;
         bullet.y += bullet.vy;
         bullet.life -= 1;
+        if (!bullet.enemy && !bullet.special && (bullet.bouncesLeft ?? 0) > 0) {
+          const reflected = reflectRicochet(
+            bullet.x,
+            bullet.y,
+            bullet.vx,
+            bullet.vy,
+            game.worldWidth,
+            game.worldHeight,
+            bullet.bouncesLeft ?? 0,
+          );
+          if (reflected.bounced) {
+            bullet.x = reflected.x;
+            bullet.y = reflected.y;
+            bullet.vx = reflected.vx;
+            bullet.vy = reflected.vy;
+            bullet.bouncesLeft = reflected.bouncesLeft;
+            burst(game, bullet.x, bullet.y, "#73f6b0", 5, 3);
+            playCue("ricochet", 0.065);
+          }
+        }
         if (bullet.enemy) {
           if (dist(bullet, player) < 13) { bullet.life = 0; damagePlayer(game, bullet.damage, "hostile_projectile"); }
           return;
@@ -3664,6 +3693,7 @@ export default function WormholeGame() {
           else if (type === "shield") player.shield = Math.max(450, player.shield + 200);
           else if (type === "clear") game.enemies.forEach((enemy) => destroyEnemy(game, enemy));
           else if (type === "health") player.health = Math.min(player.maxHealth, player.health + 30);
+          else if (type === "ricochet") player.ricochetTicks = ticksForSeconds(RICOCHET_DURATION_SECONDS);
           else if (game.stock.length < STOCK_LIMIT) game.stock.push(type);
           else { game.notice = "POWERUP BIN FULL"; game.noticeLife = 75; return; }
           game.notice = `${WEAPONS[type].short} COLLECTED`;
@@ -4210,8 +4240,9 @@ export default function WormholeGame() {
           ctx.fill();
         } else {
           if (profile.shadows) { ctx.shadowColor = bullet.color; ctx.shadowBlur = bullet.special ? 13 : 7; }
-          ctx.strokeStyle = bullet.color;
-          ctx.lineWidth = bullet.special ? 4.4 : 2.6;
+          const bankshot = !bullet.special && (bullet.bouncesLeft ?? 0) > 0;
+          ctx.strokeStyle = bankshot ? "#73f6b0" : bullet.color;
+          ctx.lineWidth = bullet.special ? 4.4 : bankshot ? 3.4 : 2.6;
           ctx.lineCap = "round";
           ctx.beginPath();
           ctx.moveTo(bullet.x, bullet.y);
@@ -4299,6 +4330,25 @@ export default function WormholeGame() {
           ctx.font = "800 12px ui-monospace, monospace";
           ctx.textAlign = "center";
           ctx.fillText(`SCRAMBLED ${(player.emp * TICK_MS / 1000).toFixed(1)}s`, 0, -38);
+          ctx.restore();
+        }
+
+        if (player.ricochetTicks > 0) {
+          ctx.save();
+          ctx.translate(player.x, player.y);
+          ctx.strokeStyle = "#73f6b0";
+          ctx.globalAlpha = 0.42;
+          ctx.lineWidth = 2;
+          ctx.setLineDash([3, 7]);
+          ctx.beginPath();
+          ctx.arc(0, 0, 36 + Math.sin(time * 0.014) * 2, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.globalAlpha = 0.92;
+          ctx.fillStyle = "#c8ffe5";
+          ctx.font = "800 12px ui-monospace, monospace";
+          ctx.textAlign = "center";
+          ctx.fillText(`BANKSHOT ${(player.ricochetTicks * TICK_MS / 1000).toFixed(1)}s`, 0, player.emp > 0 ? 52 : 44);
           ctx.restore();
         }
 

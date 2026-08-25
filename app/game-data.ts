@@ -71,7 +71,7 @@ export const SHIP_SPECIALS: Record<ShipId, ShipSpecial> = {
 };
 
 export type PowerId = "heatseeker" | "turret" | "mines" | "ufo" | "inflator" | "minelayer" | "gunship" | "scarab" | "nuke" | "wallcrawler" | "beam" | "emp" | "ghost" | "artillery";
-export type PickupId = PowerId | "gun" | "thrust" | "retros" | "shield" | "clear" | "health";
+export type PickupId = PowerId | "gun" | "thrust" | "retros" | "shield" | "clear" | "health" | "ricochet";
 
 /** Broad gameplay role, used for colour-independent grouping in the HUD. */
 export type WeaponCategory = "attack" | "hazard" | "defense" | "utility";
@@ -152,6 +152,13 @@ export const WEAPONS: Record<PickupId, WeaponMeta> = {
     summary: "Hull-repair canister collected on contact.",
     behavior: "Applies immediately; nothing is stored in the bin.",
     role: "Restores 30 hull, never above your frame maximum.",
+  },
+  ricochet: {
+    id: "ricochet", name: "BANKSHOT MATRIX", short: "BANKSHOT", abbr: "BM", color: "#73f6b0",
+    category: "utility", sendable: false, threat: 1,
+    summary: "Temporary pulse-cannon ricochet matrix collected on contact.",
+    behavior: "Activates immediately for 10 seconds; normal cannon rounds can reflect from arena walls twice.",
+    role: "Turns walls into firing angles without changing cannon damage or affecting enemy and special fire.",
   },
   heatseeker: {
     id: "heatseeker", name: "TRACKER SWARM", short: "TRACKERS", abbr: "TS", color: "#ff7a70",
