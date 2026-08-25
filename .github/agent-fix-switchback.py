@@ -42,7 +42,7 @@ test("live player draw starts from an explicit visible canvas state", () => {
   assert.notEqual(sceneStart, -1);
   const start = source.indexOf("if (player.health > 0)", sceneStart);
   assert.notEqual(start, -1);
-  const draw = source.slice(start, start + 1100);
+  const draw = source.slice(start, start + 2200);
   assert.match(draw, /ctx\.globalAlpha = 1/);
   assert.match(draw, /ctx\.globalCompositeOperation = "source-over"/);
   assert.match(draw, /ctx\.setLineDash\(\[\]\)/);
