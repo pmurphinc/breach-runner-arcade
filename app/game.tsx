@@ -1394,7 +1394,6 @@ export default function WormholeGame() {
   const shellRef = useRef<HTMLElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const canvasWrapRef = useRef<HTMLDivElement>(null);
-  const topActionsRef = useRef<HTMLDivElement>(null);
   const moveStickRef = useRef<HTMLDivElement>(null);
   const aimStickRef = useRef<HTMLDivElement>(null);
   const moveStickPointer = useRef<number | null>(null);
@@ -4174,14 +4173,17 @@ export default function WormholeGame() {
             </a>
           </div>
         </div>
-        {/* Menu and Fullscreen are NOT here. They live in the global system
-            layer, which no screen can cover. Duplicating them per screen is
-            exactly how they went missing before. */}
-        <div className="top-actions" ref={topActionsRef}>
-          <button className="top-start" type="button" onClick={start}>
-            {gameActive ? "RESTART" : hud.result ? "RUN AGAIN" : "START"}
-          </button>
-        </div>
+        {/*
+          Nothing else lives in this bar.
+
+          Menu and Fullscreen belong to the global system layer, which no
+          screen can cover — duplicating them per screen is exactly how they
+          went missing before. RESTART used to sit here too, styled as the
+          brightest control on screen despite being the one that throws the
+          run away; it now lives where it belongs, in the pause menu and on
+          the end-game card. It also sat underneath the global layer, which
+          intercepted its clicks.
+        */}
       </header>
 
       <section className="cockpit">

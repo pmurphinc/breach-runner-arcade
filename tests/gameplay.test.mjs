@@ -264,10 +264,17 @@ test("WASD and the arrows move the ship in world space", { skip }, async () => {
     await page.keyboard.press("Escape");
     await page.waitForTimeout(300);
 
+    // Restart lives in the pause menu now: the top bar no longer carries a
+    // control that throws the run away.
+    const restart = async () => {
+      await page.locator(".system-menu").click();
+      await page.waitForTimeout(300);
+      await page.locator(".pause-actions button", { hasText: "Restart Run" }).click();
+      await page.waitForTimeout(500);
+    };
+
     const drive = async (codes, ms = 1100) => {
-      // .start-button has no component rendering it; the shell's restart
-      // control is .top-start.
-      await page.locator(".top-start").click();
+      await restart();
       await page.waitForTimeout(500);
       const before = await shipAt(page);
       for (const code of codes) await page.keyboard.down(code);

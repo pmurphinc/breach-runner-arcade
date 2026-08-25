@@ -256,7 +256,7 @@ const PRESET_VIEWPORTS = [
 
 /** Controls that must never leave the visual viewport, whatever the preset. */
 const ESSENTIALS = [
-  [".start-button, .top-start", "primary action"],
+  [".system-menu", "global menu control"],
   [".bin-slots, .status-dock, .touch-powerup-hud", "power-up inventory"],
   [".match-bar, .difficulty-badge", "HUD"],
   [".canvas-wrap", "arena"],
