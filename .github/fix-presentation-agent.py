@@ -8,9 +8,8 @@ if old not in text:
     raise SystemExit('camera helper block not found')
 text = text.replace(old, new, 1)
 
-# The old menu regression asserted the exact label we are intentionally replacing.
 needle = '''# Temporary automation must never appear in the final PR diff.\n'''
-patch = '''# Keep the existing view-settings regression aligned with the renamed display controls.\nview_modes = Path("tests/view-modes.test.mjs")\nview_text = view_modes.read_text()\nold_assert = "  assert.match(settingsCode, /Camera lock/);"\nnew_assert = "  assert.match(settingsCode, /Perspective/);\\n  assert.match(settingsCode, /Zoom/);"\nif old_assert not in view_text:\n    raise SystemExit("stale Camera lock assertion not found")\nview_modes.write_text(view_text.replace(old_assert, new_assert, 1))\n\n'''
+patch = '''# Keep the existing settings regression aligned with the renamed display controls.\nview_modes = Path("tests/view-modes.test.mjs")\nview_text = view_modes.read_text()\nold_labels = "  for (const label of ['Thumbsticks', 'Touch control size', 'Sound', 'Volume', 'Camera lock']) {"\nnew_labels = "  for (const label of ['Thumbsticks', 'Touch control size', 'Sound', 'Volume', 'Perspective', 'Zoom']) {"\nif old_labels not in view_text:\n    raise SystemExit("stale Camera lock label list not found")\nview_modes.write_text(view_text.replace(old_labels, new_labels, 1))\n\n'''
 if needle not in text:
     raise SystemExit('cleanup anchor not found')
 p.write_text(text.replace(needle, patch + needle, 1))
