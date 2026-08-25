@@ -11,7 +11,7 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://wormhole-arcade.pmurphinc.chatgpt.site"),
+  metadataBase: new URL("https://breachrunner.murphtournaments.com"),
   title: PRODUCT_TITLE,
   description: PRODUCT_DESCRIPTION,
   openGraph: {

@@ -19,7 +19,7 @@ Goal: establish **Breach Runner** as the commercial game identity while separati
 
 Internal implementation ids such as `tank`, `wing`, `squid`, `rabbit`, `turtle`, `flash`, `hunter`, `flagship`, `heatseeker`, `scarab`, and similar values may remain in code, saved settings, tests, and multiplayer payloads. They are not intended as player-facing branding. Renaming those ids would create migration risk without materially improving the commercial presentation.
 
-The current web hostname, repository name, and internal **Project Rift** development label also remain unchanged during Phase 1. Store packaging and final domains belong to later release phases.
+The repository and Railway project have now been renamed **Breach Runner Arcade**, and the canonical web hostname is `breachrunner.murphtournaments.com`. The internal **Project Rift** development label and compatibility ids remain available where they protect saves, networking, or score data.
 
 ### Remaining before a commercial store submission
 

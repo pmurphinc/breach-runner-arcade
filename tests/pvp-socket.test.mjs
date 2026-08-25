@@ -113,7 +113,7 @@ test("a disallowed browser origin is refused", async () => {
 test("the production origin is accepted in production", async () => {
   const harness = await startHarness({ NODE_ENV: "production" });
   try {
-    const client = connect(harness.url, { origin: "https://wormhole.murphtournaments.com" });
+    const client = connect(harness.url, { origin: "https://breachrunner.murphtournaments.com" });
     await client.open();
     await client.waitFor("welcome");
     client.close();
