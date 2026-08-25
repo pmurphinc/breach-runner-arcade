@@ -1,0 +1,37 @@
+/*
+ * Arena HUD placement and stacking
+ * --------------------------------
+ * Imported after globals.css so this file owns the final placement of the
+ * touch power-up inventory and the end-of-run dialog without duplicating the
+ * rest of the arena styling.
+ */
+
+/* Keep the compact Touch/Hybrid inventory with the other critical combat
+   readouts: centered at the top of the arena, directly below the health bars
+   (including the pilot shield status line). */
+.touch-capable .touch-controls > .touch-powerup-hud {
+  top: calc(var(--rules-bottom, 52px) + 64px);
+  bottom: auto;
+  z-index: var(--z-hud-float);
+}
+
+/* Disabling the sticks must not send the inventory back to the bottom edge. */
+.touch-capable[data-touch-controls="off"] .touch-powerup-hud {
+  top: calc(var(--rules-bottom, 52px) + 64px);
+  bottom: auto;
+}
+
+/* The landscape-tablet rule in globals.css previously pinned this HUD to the
+   lower safe area. Keep the same top-center cluster in that layout too. */
+@media (orientation: landscape) and (min-width: 700px) and (min-height: 430px) {
+  .touch-capable[data-immersive="true"][data-form="tablet"][data-orientation="landscape"] .touch-powerup-hud {
+    top: calc(var(--rules-bottom, 52px) + 64px);
+    bottom: auto;
+  }
+}
+
+/* End-of-run UI is a dialog, not ordinary HUD. It must paint above the power
+   inventory, sticks, health bars, and every other arena overlay. */
+.run-summary-layer {
+  z-index: var(--z-dialog);
+}
