@@ -9,7 +9,7 @@
 /* Keep the compact Touch/Hybrid inventory with the other critical combat
    readouts: centered at the top of the arena, directly below the health bars
    (including the pilot shield status line). */
-.touch-capable .touch-controls > .touch-powerup-hud {
+.touch-capable .canvas-wrap > .touch-powerup-hud {
   top: calc(var(--rules-bottom, 52px) + 64px);
   bottom: auto;
   z-index: var(--z-hud-float);

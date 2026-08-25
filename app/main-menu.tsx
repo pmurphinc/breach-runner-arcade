@@ -238,6 +238,7 @@ export function ModesScreen({
         <MenuSection title="Difficulty">
           <OptionRow
             label="Difficulty"
+            hideLabel
             columns="stack"
             value={difficulty}
             options={DIFFICULTY_ORDER.map((id) => ({

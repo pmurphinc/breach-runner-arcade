@@ -27,14 +27,14 @@ export type ShipSpec = {
  * somewhere else on the sheet.
  */
 export const SHIPS: ShipSpec[] = [
-  { id: "tank", name: "Ironclad", role: "Heavy brawler", turn: 5, maxSpeed: 2.7, acceleration: 0.04, health: 280, gun: 2, thrust: 0, special: "Q: Impact Guard grants three seconds of collision immunity.", unlock: "OPEN" },
+  { id: "tank", name: "Ironclad", role: "Heavy brawler", turn: 5, maxSpeed: 2.7, acceleration: 0.04, health: 280, gun: 2, thrust: 0, special: "Q: Grants three seconds of collision immunity.", unlock: "OPEN" },
   { id: "wing", name: "Starling", role: "Strike skirmisher", turn: 9, maxSpeed: 3.5, acceleration: 0.13, health: 175, gun: 1, thrust: 1, special: "Q: Launches twelve homing trackers, then afterburns for three seconds.", unlock: "OPEN" },
   { id: "squid", name: "Phantom", role: "Disruption scout", turn: 8, maxSpeed: 3.8, acceleration: 0.12, health: 170, gun: 1, thrust: 1, special: "Q: Reverses and disarms every hostile it sweeps for four seconds.", unlock: "OPEN" },
-  { id: "rabbit", name: "Needle", role: "Guided-strike corvette", turn: 12, maxSpeed: 3, acceleration: 0.14, health: 150, gun: 1, thrust: 2, special: "Q: Target Link makes power-ups launched during the next three seconds steer toward the rival portal.", unlock: "OPEN" },
-  { id: "turtle", name: "Rampart", role: "Defensive bruiser", turn: 4.5, maxSpeed: 2.4, acceleration: 0.06, health: 250, gun: 1, thrust: 1, special: "Q: Reactor Burst clears nearby threats at a health cost.", unlock: "OPEN" },
-  { id: "flash", name: "Switchback", role: "Shape-shifter", turn: 1, maxSpeed: 1, acceleration: 0.1, health: 190, gun: 3, thrust: 3, special: "Q: Form Shift swaps between heavy and scout handling profiles.", unlock: "OPEN" },
+  { id: "rabbit", name: "Needle", role: "Guided-strike corvette", turn: 12, maxSpeed: 3, acceleration: 0.14, health: 150, gun: 1, thrust: 2, special: "Q: Steers every power-up launched in the next three seconds into the rival rift.", unlock: "OPEN" },
+  { id: "turtle", name: "Rampart", role: "Defensive bruiser", turn: 4.5, maxSpeed: 2.4, acceleration: 0.06, health: 250, gun: 1, thrust: 1, special: "Q: Clears nearby threats at a cost to your own hull.", unlock: "OPEN" },
+  { id: "flash", name: "Switchback", role: "Shape-shifter", turn: 1, maxSpeed: 1, acceleration: 0.1, health: 190, gun: 3, thrust: 3, special: "Q: Swaps between heavy and scout handling profiles.", unlock: "OPEN" },
   { id: "hunter", name: "Talon", role: "Siege brawler", turn: 5.5, maxSpeed: 2.9, acceleration: 0.08, health: 220, gun: 2, thrust: 1, special: "Q: Detonates on your hull, gutting hostiles within 340 units.", unlock: "OPEN" },
-  { id: "flagship", name: "Leviathan", role: "Command vessel", turn: 2, maxSpeed: 1.8, acceleration: 0.04, health: 300, gun: 0, thrust: 2, special: "Q: Gravity Pulse projects a three-second field that pulls in pickups and repels nearby enemies.", unlock: "OPEN" },
+  { id: "flagship", name: "Leviathan", role: "Command vessel", turn: 2, maxSpeed: 1.8, acceleration: 0.04, health: 300, gun: 0, thrust: 2, special: "Q: Projects a three-second field that pulls in pickups and shoves enemies away.", unlock: "OPEN" },
 ];
 
 /**

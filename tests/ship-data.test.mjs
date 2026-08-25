@@ -181,3 +181,19 @@ test("no ship's selection copy dwarfs the rest of the fleet", () => {
     assert.equal("differences" in SHIP_PROFILES[id].special, false, `${id} must not carry unrendered panel copy`);
   }
 });
+
+/**
+ * The panel already prints the ability name in bold immediately above the
+ * description, so a description that opens by repeating it spends its first
+ * few words saying nothing. Every frame leads with what the ability does.
+ */
+test("no special description repeats the ability name printed above it", () => {
+  for (const id of SHIP_ORDER) {
+    const { name, description } = SHIP_PROFILES[id].special;
+    assert.doesNotMatch(
+      description.toLowerCase(),
+      new RegExp(`^${name.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`),
+      `${id} opens by restating "${name}"`
+    );
+  }
+});
