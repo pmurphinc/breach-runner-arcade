@@ -1,33 +1,32 @@
 /**
- * Pure helpers for Release C's reworked ship specials.
+ * Pure helpers shared by the ship specials.
  *
  * Keeping the flight and guidance math outside the render loop makes the
  * abilities testable without a browser and prevents touch/keyboard input from
  * receiving different handling.
+ *
+ * Starling, Phantom and Talon now declare their abilities as overcharged
+ * power-ups in `app/overcharge.ts`, which owns their durations and handling
+ * riders. What is left here is the geometry the whole fleet shares.
  */
 
-export const WING_OVERDRIVE_SECONDS = 3;
-export const SQUID_PHASE_SECONDS = 2.5;
 export const VIPER_GUIDANCE_SECONDS = 3;
 
-export function overdriveHandling(
-  acceleration: number,
-  maxSpeed: number,
-  active: boolean,
-) {
-  return active
-    ? { acceleration: acceleration * 1.75, maxSpeed: maxSpeed * 1.65 }
-    : { acceleration, maxSpeed };
-}
-
+/**
+ * Steering vector for a hostile, reversed while it is scrambled.
+ *
+ * The reversal used to belong to Phantom's old Phase Veil, which flipped every
+ * hostile in the arena at once. It is now per-hostile state, so a scrambler
+ * pulse only turns around what it actually reached.
+ */
 export function hostileTrackingVector(
   enemyX: number,
   enemyY: number,
   playerX: number,
   playerY: number,
-  phaseVeilActive: boolean,
+  scrambled: boolean,
 ) {
-  const direction = phaseVeilActive ? -1 : 1;
+  const direction = scrambled ? -1 : 1;
   return {
     dx: (playerX - enemyX) * direction,
     dy: (playerY - enemyY) * direction,

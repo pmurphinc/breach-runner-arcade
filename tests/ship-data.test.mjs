@@ -111,9 +111,9 @@ test("comparison reports exact values on both sides, not just a direction", () =
   }
 
   const hull = rows.find((r) => r.key === "hull");
-  assert.equal(hull.value, 200);
+  assert.equal(hull.value, 170);
   assert.equal(hull.againstValue, 280);
-  assert.equal(hull.delta, -80);
+  assert.equal(hull.delta, -110);
   assert.equal(hull.direction, "worse");
 
   const speed = rows.find((r) => r.key === "maxSpeed");
@@ -140,4 +140,19 @@ test("comparison bars share one fleet-wide scale", () => {
   const fastest = SHIPS.reduce((a, b) => (a.maxSpeed >= b.maxSpeed ? a : b));
   const stat = SHIP_PROFILES[fastest.id].stats.find((s) => s.key === "maxSpeed");
   assert.equal(stat.fraction, 1);
+});
+
+test("only the overcharge frames advertise a power-up derivation", () => {
+  const derived = SHIP_ORDER.filter((id) => SHIP_PROFILES[id].special.derivedFrom);
+  assert.deepEqual(derived, ["wing", "squid", "hunter"]);
+
+  for (const id of SHIP_ORDER) {
+    const special = SHIP_PROFILES[id].special;
+    if (special.derivedFrom) {
+      assert.match(special.derivedFrom, /^Overcharged /);
+      assert.ok(special.differences.length > 0, `${id} claims a derivation but explains nothing`);
+    } else {
+      assert.deepEqual(special.differences, [], `${id} has no derivation to differ from`);
+    }
+  }
 });

@@ -67,3 +67,28 @@ test("co-op world snapshots preserve rotating beam direction", () => {
   assert.equal(parsed.ok, true);
   assert.equal(parsed.message.enemies[0].rotationDir, -1);
 });
+
+test("co-op world snapshots carry scramble, so a host's pulse reaches the guest", () => {
+  const enemy = {
+    kind: "gunship", x: 700, y: 400, vx: 1, vy: 1,
+    hp: 80, maxHp: 80, radius: 25, age: 5, cooldown: 10, phase: 0,
+  };
+  const world = (scrambled) => JSON.parse(JSON.stringify({
+    type: "world", seq: 1, portalX: 752, portalY: 470, portalAngle: 0,
+    enemies: [{ ...enemy, scrambled }], enemyBullets: [],
+  }));
+
+  const scrambled = parseClientMessage(JSON.stringify(world(240)));
+  assert.equal(scrambled.ok, true);
+  assert.equal(scrambled.message.enemies[0].scrambled, 240);
+
+  // Absent stays absent rather than becoming a zero the client has to guard.
+  const plain = parseClientMessage(JSON.stringify(world(undefined)));
+  assert.equal(plain.ok, true);
+  assert.equal(plain.message.enemies[0].scrambled, undefined);
+
+  // A client cannot claim a scramble that outlives any real pulse.
+  const absurd = parseClientMessage(JSON.stringify(world(99_999)));
+  assert.equal(absurd.ok, true);
+  assert.equal(absurd.message.enemies[0].scrambled, 1000);
+});

@@ -30,8 +30,8 @@ import { applyDamage, createCombatState, snapshot } from "./rules.mjs";
 /** Hull by ship, mirroring app/game-data.ts. Asserted by the protocol test. */
 export const SHIP_HULL = {
   tank: 280,
-  wing: 240,
-  squid: 200,
+  wing: 175,
+  squid: 170,
   rabbit: 150,
   turtle: 250,
   flash: 190,

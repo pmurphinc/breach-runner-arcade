@@ -143,14 +143,14 @@ function fakePlayer(server, name) {
   return { player, inbox, last: (type) => [...inbox].reverse().find((m) => m.type === type) };
 }
 
-function readiedMatch(now = 1000) {
+function readiedMatch(now = 1000, shipA = "wing", shipB = "tank") {
   const server = new MatchServer();
   const a = fakePlayer(server, "ALPHA");
   const b = fakePlayer(server, "BRAVO");
   server.enqueue(a.player, now);
   server.enqueue(b.player, now);
-  server.setShip(a.player, "wing");
-  server.setShip(b.player, "tank");
+  server.setShip(a.player, shipA);
+  server.setShip(b.player, shipB);
   server.setReady(a.player, true, now);
   server.setReady(b.player, true, now);
   server.sweep(now + 4000);
@@ -241,7 +241,11 @@ test("a replayed damage event is applied only once", () => {
 });
 
 test("a client cannot claim unlimited damage in one window", () => {
-  const { server, a } = readiedMatch();
+  // Flown in the heaviest frame on purpose: the per-window damage cap is worth
+  // more than several hulls, so a lighter ship dies before the limiter is ever
+  // reached and the test would pass without testing anything.
+  const { server, a } = readiedMatch(1000, "flagship");
+  assert.ok(SHIP_HULL.flagship > MAX_DAMAGE_TOTAL_PER_WINDOW, "cap must be reachable alive");
   let rejected = 0;
   for (let i = 0; i < 40; i += 1) {
     const result = server.reportDamage(
@@ -252,7 +256,7 @@ test("a client cannot claim unlimited damage in one window", () => {
     if (!result.ok && result.code === ERRORS.RATE_LIMITED) rejected += 1;
   }
   assert.ok(rejected > 0, "flood should be rate limited");
-  const lost = SHIP_HULL.wing - a.player.combat.hull;
+  const lost = SHIP_HULL.flagship - a.player.combat.hull;
   assert.ok(
     lost <= MAX_DAMAGE_TOTAL_PER_WINDOW,
     `applied ${lost} damage in one window, over the ${MAX_DAMAGE_TOTAL_PER_WINDOW} cap`
@@ -284,7 +288,12 @@ test("victory identifies the eliminated pilot and final damage source for both p
   assert.equal(defeated.cause, "hostile_projectile");
   assert.equal(winner.cause, "hostile_projectile");
   assert.equal(defeated.finalDamage, winner.finalDamage);
-  assert.equal(defeated.finalDamage, 40, "only the remaining hull counts as final damage");
+  const remainder = SHIP_HULL.wing % 50;
+  assert.equal(
+    defeated.finalDamage,
+    remainder === 0 ? 50 : remainder,
+    "only the remaining hull counts as final damage"
+  );
 });
 
 test("transmissions reach the opponent, tagged so duplicates can be dropped", () => {
