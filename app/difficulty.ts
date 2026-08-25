@@ -25,7 +25,17 @@ export function secondsForTicks(ticks: number) {
 }
 
 export type GameMode = "pve" | "coop" | "pvp";
-export type DifficultyId = "practice" | "easy" | "difficult" | "hard";
+/**
+ * Every ruleset a run can be flown under.
+ *
+ * Not all of them are difficulties in the "pick how hard this is" sense —
+ * `practice` and `survival` are whole play styles, and both are chosen
+ * somewhere other than the difficulty selector. What they share, and the
+ * reason they live in one union, is that the game loop reads their behaviour
+ * out of one `DifficultyRules` object instead of branching on which mode it is
+ * running.
+ */
+export type DifficultyId = "practice" | "easy" | "difficult" | "hard" | "survival";
 
 /** How the rival wormhole behaves in the arena. */
 export type WormholeMotion =
@@ -222,6 +232,32 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyRules> = {
       ],
     },
   },
+  /**
+   * Rift Survival at Rift Level 1.
+   *
+   * Only the opening minute is described here. Survival re-derives its rules
+   * every minute from this baseline — see `survivalRulesFor` in
+   * `app/survival.ts` — so this entry is the floor of the escalation curve
+   * rather than the whole of it. It lives beside the other rulesets because
+   * the loop must be able to look a run's rules up by id like any other.
+   */
+  survival: {
+    id: "survival",
+    displayName: "RIFT SURVIVAL // STABLE",
+    shortName: "SURVIVAL",
+    blurb:
+      "Endless. The rift cannot be outlasted — it gains a Rift Level every minute, and each level moves it, arms it, and crowds the arena harder. Time survived is the score.",
+    wormhole: { kind: "locked" },
+    collisionShield: {
+      enabled: true,
+      capacity: 40,
+      rechargeDelayTicks: ticksForSeconds(4),
+    },
+    contactHazard: { enabled: false },
+    unlimitedHull: false,
+    rivalIntegrity: 150,
+    wormholeEnrage: { enabled: false },
+  },
 };
 
 /** Order the selector presents the four PvE choices in. */
@@ -267,7 +303,17 @@ export function absorbEnrageShield(state: EnrageRecoveryState, damage: number) {
   return { absorbed, toIntegrity: incoming - absorbed };
 }
 
+/**
+ * The four choices the difficulty selector offers.
+ *
+ * Survival is deliberately absent: it is launched from Challenges and sets its
+ * own difficulty from elapsed time, so listing it here would produce exactly
+ * the "Survival Easy / Survival Hard" menu the roadmap rules out.
+ */
 export const DIFFICULTY_ORDER: DifficultyId[] = ["practice", "easy", "difficult", "hard"];
+
+/** Every ruleset id, including the ones the selector does not offer. */
+export const RULESET_IDS: DifficultyId[] = [...DIFFICULTY_ORDER, "survival"];
 
 /**
  * PvP always runs Easy rules: centred wormhole, collision shield, no contact
@@ -277,7 +323,18 @@ export const DIFFICULTY_ORDER: DifficultyId[] = ["practice", "easy", "difficult"
 export const PVP_RULES: DifficultyRules = DIFFICULTIES.easy;
 
 export function rulesFor(mode: GameMode, difficulty: DifficultyId): DifficultyRules {
-  return mode === "pvp" ? PVP_RULES : DIFFICULTIES[difficulty];
+  if (mode === "pvp") return PVP_RULES;
+  // Survival is a solo challenge and has no co-op balance behind it. A
+  // survival preference carried into a co-op match falls back to the standard
+  // co-op difficulty rather than escalating a shared arena that was never
+  // tuned for it.
+  if (mode === "coop" && difficulty === "survival") return DIFFICULTIES.difficult;
+  return DIFFICULTIES[difficulty];
+}
+
+/** True when this ruleset is the endless Rift Survival challenge. */
+export function isSurvival(rules: DifficultyRules) {
+  return rules.id === "survival";
 }
 
 export type ArenaDimensions = number | { width: number; height: number };

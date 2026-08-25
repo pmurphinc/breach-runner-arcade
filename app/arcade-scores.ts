@@ -13,7 +13,7 @@ export const MURPH_API_BASE =
   process.env.NEXT_PUBLIC_MURPH_API_BASE?.replace(/\/+$/, "") || MURPH_SITE_URL;
 
 export type RunOutcome = "victory" | "defeat";
-export type ArcadeDifficulty = "easy" | "difficult" | "hard" | "practice";
+export type ArcadeDifficulty = "easy" | "difficult" | "hard" | "practice" | "survival";
 
 export type RunResult = {
   /** Unique per completed run so a retry cannot create a duplicate row. */
@@ -33,6 +33,10 @@ export type RunResult = {
   finalCause?: string;
   finalDamage?: number;
   finalReason?: string;
+  /** Highest Rift Level reached. Survival runs only. */
+  riftLevel?: number;
+  /** Times the rift was collapsed and reformed. Survival runs only. */
+  breaches?: number;
 };
 
 export type LocalBest = {
@@ -50,13 +54,14 @@ export type LeaderboardEntry = {
   initials: string;
   score: number;
   ship: string;
-  difficulty: Exclude<ArcadeDifficulty, "practice">;
+  difficulty: Exclude<ArcadeDifficulty, "practice" | "survival">;
   durationSeconds: number;
   achievedAt: string;
 };
 
 const LOCAL_BEST_KEY = "wormhole-arcade:best";
 const LOCAL_RUNS_KEY = "wormhole-arcade:runs";
+const LOCAL_SURVIVAL_KEY = "wormhole-arcade:survival-best";
 
 function readStorage(key: string) {
   try {
@@ -134,6 +139,80 @@ export function saveLocalRun(run: RunResult) {
   return { best, isBest: true, runs };
 }
 
+/**
+ * The device's best Rift Survival run.
+ *
+ * Kept apart from `LOCAL_BEST_KEY` on purpose. That record is ranked by score,
+ * and Survival's score climbs with every minute survived, so a single long
+ * Survival run would take the arcade device best and never give it back —
+ * comparing two records that measure different things. Survival is ranked by
+ * the thing it actually asks of the player: time.
+ */
+export type SurvivalBest = {
+  durationSeconds: number;
+  riftLevel: number;
+  breaches: number;
+  score: number;
+  ship: string;
+  initials?: string;
+  achievedAt: number;
+};
+
+function readNumber(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+}
+
+export function loadSurvivalBest(): SurvivalBest | null {
+  const raw = readStorage(LOCAL_SURVIVAL_KEY);
+  if (!raw) return null;
+
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return null;
+    const record = parsed as Record<string, unknown>;
+    if (typeof record.durationSeconds !== "number" || !Number.isFinite(record.durationSeconds)) {
+      return null;
+    }
+    return {
+      durationSeconds: readNumber(record, "durationSeconds"),
+      riftLevel: Math.max(1, readNumber(record, "riftLevel")),
+      breaches: readNumber(record, "breaches"),
+      score: readNumber(record, "score"),
+      ship: typeof record.ship === "string" ? record.ship : "Unknown",
+      initials: typeof record.initials === "string" ? record.initials.slice(0, 3) : undefined,
+      achievedAt: typeof record.achievedAt === "number" ? record.achievedAt : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Records a finished Survival run against this device.
+ *
+ * Ties keep the standing record: a run that only equals the best has not
+ * beaten it, and re-stamping it would make the card claim a new best for a
+ * repeat performance.
+ */
+export function saveSurvivalRun(run: RunResult) {
+  const previous = loadSurvivalBest();
+  const isBest = !previous || run.durationSeconds > previous.durationSeconds;
+  if (!isBest) return { best: previous, isBest: false };
+
+  const best: SurvivalBest = {
+    durationSeconds: Math.max(0, Math.floor(run.durationSeconds)),
+    riftLevel: Math.max(1, Math.floor(run.riftLevel ?? 1)),
+    breaches: Math.max(0, Math.floor(run.breaches ?? 0)),
+    score: Math.max(0, Math.floor(run.score)),
+    ship: run.ship,
+    initials: run.initials,
+    achievedAt: Date.now(),
+  };
+  writeStorage(LOCAL_SURVIVAL_KEY, JSON.stringify(best));
+  return { best, isBest: true };
+}
+
 async function murphFetch(path: string, init?: RequestInit) {
   return fetch(`${MURPH_API_BASE}${path}`, {
     ...init,
@@ -167,6 +246,9 @@ export async function saveScoreToMurph(run: RunResult): Promise<SaveScoreResult>
     run.outcome !== "victory" ||
     run.practice ||
     run.difficulty === "practice" ||
+    // Survival has no victory and is scored on time, not on a settled score.
+    // Its board is Phase 2 of the roadmap and is not this endpoint.
+    run.difficulty === "survival" ||
     !run.initials ||
     !/^[A-Z0-9]{3}$/.test(run.initials)
   ) {
