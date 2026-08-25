@@ -3115,12 +3115,10 @@ export default function WormholeGame() {
       let fire = keys.current.Space || keys.current.MousePrimary;
       const launch = keys.current.KeyE || keys.current.MouseSecondary;
 
-      // Resolve the input source before combining it. The left thumbstick keeps
-      // the exact immediate response it shipped with, while only WASD/arrows
-      // opt into the newer momentum-preserving flight model.
+      // Resolve the input source before combining it. Stick and keys feed one
+      // intent and one flight model, so Touch, PC and Hybrid fly identically.
       const stickIntent = intentFromStick(moveHeading.current);
       const keyboardIntent = intentFromKeys(keysFrom(keys.current));
-      const usingTouchThrust = stickIntent.active;
       let intent = resolveIntent(stickIntent, keyboardIntent);
       if (player.emp > 0) {
         // EMP still scrambles the pilot: the requested direction is inverted
@@ -3152,7 +3150,7 @@ export default function WormholeGame() {
         { vx: player.vx, vy: player.vy },
         intent,
         { acceleration, maxSpeed },
-        { retros: player.retros, inertial: !usingTouchThrust }
+        { retros: player.retros }
       );
       player.vx = moved.vx;
       player.vy = moved.vy;

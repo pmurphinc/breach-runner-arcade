@@ -8,7 +8,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { SHIPS } from "../app/game-data.ts";
 import {
+  IDLE_DRAG,
   NO_INTENT,
+  STOP_SPEED,
   applyIntent,
   facingFor,
   intentFromKeys,
@@ -154,14 +156,17 @@ test("thrust upgrades still raise acceleration and top speed", () => {
   assert.ok(speedOf(boosted) > speedOf(plain), "upgraded thrust must reach a higher top speed");
 });
 
-test("touch steering keeps its original immediate response and acceleration", () => {
+test("touch, PC and hybrid all fly the one shared model", () => {
   const ship = { acceleration: 0.5, maxSpeed: 4 };
   const movingRight = { vx: 3, vy: 0 };
-  const touchUp = applyIntent(movingRight, intentFromStick(-90), ship);
 
-  assert.ok(Math.abs(touchUp.vx) < 1e-9, "touch direction should take effect immediately");
-  assert.ok(Math.abs(touchUp.vy + 3.5) < 1e-9,
-    "touch speed must remain current speed plus the unchanged ship acceleration");
+  // The stick and the keys only differ in how they name a heading. Once they
+  // agree on one, the physics underneath must be identical in every mode.
+  assert.deepEqual(
+    applyIntent(movingRight, intentFromStick(-90), ship),
+    applyIntent(movingRight, intentFromKeys(keys({ up: true })), ship),
+    "a stick pointed up must fly exactly like W held"
+  );
 
   const firstTouchTick = applyIntent(still, intentFromStick(37), ship);
   assert.ok(Math.abs(speedOf(firstTouchTick) - ship.acceleration) < 1e-9,
@@ -171,12 +176,7 @@ test("touch steering keeps its original immediate response and acceleration", ()
 test("changing direction bends momentum instead of snapping to a grid axis", () => {
   const ship = { acceleration: 0.5, maxSpeed: 4 };
   const movingRight = { vx: 3, vy: 0 };
-  const turningUp = applyIntent(
-    movingRight,
-    intentFromKeys(keys({ up: true })),
-    ship,
-    { inertial: true }
-  );
+  const turningUp = applyIntent(movingRight, intentFromKeys(keys({ up: true })), ship);
 
   assert.ok(turningUp.vx > 0, "existing rightward momentum should survive the first upward thrust tick");
   assert.ok(turningUp.vy < 0, "upward thrust should begin curving the flight path");
@@ -184,15 +184,73 @@ test("changing direction bends momentum instead of snapping to a grid axis", () 
   assert.ok(speedOf(turningUp) <= ship.maxSpeed, "curved flight must still respect top speed");
 });
 
-test("releasing the keys coasts, and retros bleed the drift off", () => {
+test("releasing the input stops the ship quickly but not instantly", () => {
   const ship = { acceleration: 0.5, maxSpeed: 4 };
   const moving = { vx: 3, vy: 0 };
 
-  const coasting = applyIntent(moving, NO_INTENT, ship);
-  assert.deepEqual(coasting, moving, "without retros the ship keeps its momentum");
+  const firstIdleTick = applyIntent(moving, NO_INTENT, ship);
+  assert.ok(firstIdleTick.vx < moving.vx, "momentum must start bleeding the tick the input ends");
+  assert.ok(firstIdleTick.vx > 0, "a little inertia survives, so letting go is not a dead stop");
 
+  // A second of arena drift is the ice-skating we are removing: the hull has
+  // to be parked well inside that.
+  let velocity = moving;
+  let ticks = 0;
+  let coasted = 0;
+  while (speedOf(velocity) > 0 && ticks < 600) {
+    velocity = applyIntent(velocity, NO_INTENT, ship);
+    coasted += speedOf(velocity);
+    ticks += 1;
+  }
+  assert.ok(ticks < 60, `the ship must be stopped inside a second, took ${ticks} ticks`);
+  assert.ok(coasted < 30, `coast distance must stay short, got ${coasted}`);
+  assert.deepEqual(velocity, { vx: 0, vy: 0 }, "a crawl is parked rather than left drifting");
+});
+
+test("retro thrusters still brake harder than the shared drag", () => {
+  const ship = { acceleration: 0.5, maxSpeed: 4 };
+  const moving = { vx: 3, vy: 0 };
+
+  const plain = applyIntent(moving, NO_INTENT, ship);
   const braking = applyIntent(moving, NO_INTENT, ship, { retros: true });
-  assert.ok(braking.vx < moving.vx && braking.vx > 0, "retros slow the ship without stopping it dead");
+  assert.ok(braking.vx < plain.vx, "retros must beat the baseline drag");
+  assert.ok(braking.vx > 0, "retros slow the ship without stopping it dead");
+});
+
+test("reversing direction bites instead of sliding on", () => {
+  const intent = intentFromKeys(keys({ left: true }));
+  for (const ship of SHIPS) {
+    // Worst case: flat out one way, then the opposite direction is requested.
+    let velocity = { vx: ship.maxSpeed, vy: 0 };
+    let ticks = 0;
+    while (velocity.vx > 0 && ticks < 600) {
+      velocity = applyIntent(velocity, intent, ship);
+      ticks += 1;
+    }
+    assert.ok(ticks <= 12,
+      `${ship.id} should stop carrying its old direction within a fifth of a second, took ${ticks}`);
+  }
+});
+
+test("sideways drift is scrubbed while thrusting, not carried through the turn", () => {
+  const ship = { acceleration: 0.5, maxSpeed: 4 };
+  const intent = intentFromKeys(keys({ up: true }));
+  let velocity = { vx: 3, vy: 0 };
+  const lateral = [];
+  for (let i = 0; i < 6; i += 1) {
+    velocity = applyIntent(velocity, intent, ship);
+    lateral.push(velocity.vx);
+  }
+  for (let i = 1; i < lateral.length; i += 1) {
+    assert.ok(lateral[i] < lateral[i - 1], "the old sideways momentum must shrink every tick");
+  }
+  assert.ok(lateral.at(-1) < 3 * 0.5, `sideways drift should more than halve quickly, got ${lateral.at(-1)}`);
+});
+
+test("the shared drag constants stay in the light-inertia band", () => {
+  assert.ok(IDLE_DRAG > 0.05 && IDLE_DRAG < 0.3,
+    "idle drag must stop the ship without making movement feel digital");
+  assert.ok(STOP_SPEED > 0 && STOP_SPEED < 0.05, "the park threshold must stay below a slow ship's acceleration");
 });
 
 test("the hull faces travel, aim overrides it, and the last heading is kept", () => {
