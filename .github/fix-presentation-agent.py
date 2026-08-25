@@ -6,5 +6,12 @@ old = '''old_camera = \'\'\'    const locked = cameraRef.current;\n    const cam
 new = '''game = Path("app/game.tsx").read_text()\ncamera_lines = [\n    (\n        "const camScale = locked ? 1 : Math.min(VIEW_WIDTH / game.worldWidth, VIEW_HEIGHT / game.worldHeight);",\n        "const camScale = locked ? ZOOM_SCALE[zoomRef.current] : Math.min(VIEW_WIDTH / game.worldWidth, VIEW_HEIGHT / game.worldHeight);",\n    ),\n    (\n        "const camX = locked ? cap(VIEW_WIDTH / 2 - player.x, VIEW_WIDTH - game.worldWidth, 0) : (VIEW_WIDTH - game.worldWidth * camScale) / 2;",\n        "const camX = locked ? cap(VIEW_WIDTH / 2 - player.x * camScale, VIEW_WIDTH - game.worldWidth * camScale, 0) : (VIEW_WIDTH - game.worldWidth * camScale) / 2;",\n    ),\n    (\n        "const camY = locked ? cap(VIEW_HEIGHT / 2 - player.y, VIEW_HEIGHT - game.worldHeight, 0) : (VIEW_HEIGHT - game.worldHeight * camScale) / 2;",\n        "const camY = locked ? cap(VIEW_HEIGHT / 2 - player.y * camScale, VIEW_HEIGHT - game.worldHeight * camScale, 0) : (VIEW_HEIGHT - game.worldHeight * camScale) / 2;",\n    ),\n]\nfor old_line, new_line in camera_lines:\n    if game.count(old_line) != 2:\n        raise SystemExit(f"expected two camera-line matches, found {game.count(old_line)}: {old_line}")\n    game = game.replace(old_line, new_line)\nPath("app/game.tsx").write_text(game)\n'''
 if old not in text:
     raise SystemExit('camera helper block not found')
-p.write_text(text.replace(old, new, 1))
+text = text.replace(old, new, 1)
+
+# The old menu regression asserted the exact label we are intentionally replacing.
+needle = '''# Temporary automation must never appear in the final PR diff.\n'''
+patch = '''# Keep the existing view-settings regression aligned with the renamed display controls.\nview_modes = Path("tests/view-modes.test.mjs")\nview_text = view_modes.read_text()\nold_assert = "  assert.match(settingsCode, /Camera lock/);"\nnew_assert = "  assert.match(settingsCode, /Perspective/);\\n  assert.match(settingsCode, /Zoom/);"\nif old_assert not in view_text:\n    raise SystemExit("stale Camera lock assertion not found")\nview_modes.write_text(view_text.replace(old_assert, new_assert, 1))\n\n'''
+if needle not in text:
+    raise SystemExit('cleanup anchor not found')
+p.write_text(text.replace(needle, patch + needle, 1))
 Path('.github/fix-presentation-agent.py').unlink()
