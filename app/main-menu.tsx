@@ -261,6 +261,7 @@ export function ModesScreen({
         <MenuSection title="Difficulty">
           <OptionRow
             label="Difficulty"
+            hideLabel
             columns="stack"
             value={difficulty}
             options={DIFFICULTY_ORDER.map((id) => ({
@@ -368,13 +369,6 @@ export function ShipsScreen({
               <em className="ship-special-source">{profile.special.derivedFrom}</em>
             ) : null}
             <p>{profile.special.description}</p>
-            {profile.special.differences.length > 0 ? (
-              <ul className="ship-special-diff">
-                {profile.special.differences.map((line) => (
-                  <li key={line}>{line}</li>
-                ))}
-              </ul>
-            ) : null}
           </div>
         </section>
       </div>

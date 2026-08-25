@@ -147,12 +147,53 @@ test("only the overcharge frames advertise a power-up derivation", () => {
   assert.deepEqual(derived, ["wing", "squid", "hunter"]);
 
   for (const id of SHIP_ORDER) {
-    const special = SHIP_PROFILES[id].special;
-    if (special.derivedFrom) {
-      assert.match(special.derivedFrom, /^Overcharged /);
-      assert.ok(special.differences.length > 0, `${id} claims a derivation but explains nothing`);
-    } else {
-      assert.deepEqual(special.differences, [], `${id} has no derivation to differ from`);
-    }
+    const { derivedFrom } = SHIP_PROFILES[id].special;
+    if (derivedFrom) assert.match(derivedFrom, /^Overcharged /);
+  }
+});
+
+/**
+ * Panel copy has to stay comparable across the fleet.
+ *
+ * The overcharge frames once carried a six-line breakdown of what their
+ * enhanced build changes, which made their panel roughly four times the height
+ * of every other ship's and was the only thing forcing a scroll on desktop.
+ * The breakdown still exists as the design record in `app/overcharge.ts`; what
+ * this guards is that it never comes back into the selection screen, and that
+ * no single ship's description runs away from the rest.
+ */
+test("no ship's selection copy dwarfs the rest of the fleet", () => {
+  const lengths = SHIP_ORDER.map((id) => SHIP_PROFILES[id].special.description.length);
+  const longest = Math.max(...lengths);
+  const shortest = Math.min(...lengths);
+
+  assert.ok(longest <= 120, `longest special description is ${longest} characters`);
+  assert.ok(
+    longest <= shortest * 2.5,
+    `special descriptions range ${shortest}-${longest} characters, which is too uneven`
+  );
+
+  // The derivation is one short line, and it is the only extra a derived frame
+  // is allowed to add to the panel.
+  for (const id of SHIP_ORDER) {
+    const { derivedFrom } = SHIP_PROFILES[id].special;
+    if (derivedFrom) assert.ok(derivedFrom.length <= 40, `${id} derivation line is too long`);
+    assert.equal("differences" in SHIP_PROFILES[id].special, false, `${id} must not carry unrendered panel copy`);
+  }
+});
+
+/**
+ * The panel already prints the ability name in bold immediately above the
+ * description, so a description that opens by repeating it spends its first
+ * few words saying nothing. Every frame leads with what the ability does.
+ */
+test("no special description repeats the ability name printed above it", () => {
+  for (const id of SHIP_ORDER) {
+    const { name, description } = SHIP_PROFILES[id].special;
+    assert.doesNotMatch(
+      description.toLowerCase(),
+      new RegExp(`^${name.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`),
+      `${id} opens by restating "${name}"`
+    );
   }
 });

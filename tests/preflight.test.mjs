@@ -442,8 +442,11 @@ test("changing display settings never resets the match", { skip }, async () => {
         .click();
       await page.waitForTimeout(400);
     };
+    // Matched on the exact accessible name: several switches share a word now
+    // ("Sound" also appears in "Cannon Hit Sound"), and a substring match picks
+    // up more than one of them.
     const toggle = async (label) => {
-      await page.locator(".ui-toggle", { hasText: label }).locator("[role=switch]").click();
+      await page.getByRole("switch", { name: label, exact: true }).click();
       await page.waitForTimeout(400);
     };
 
@@ -455,7 +458,10 @@ test("changing display settings never resets the match", { skip }, async () => {
     await pick("Volume", "Low");
     await pick("Input", "Both");
     await pick("Input", "Auto");
-    await toggle("Camera lock");
+    // The camera is a Perspective choice now; it used to be a Camera lock
+    // switch. Full Arena is the one that clears cameraLock, which is what the
+    // stored-settings assertion below reads back.
+    await pick("Perspective", "Full Arena");
     await toggle("Sound");
     await closeDrawer();
     await closeDrawer();

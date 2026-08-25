@@ -16,6 +16,10 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
+import { DIFFICULTIES } from "../app/difficulty.ts";
+
+/** The badge shows themed copy, so read the expected name rather than spell it. */
+const badgeName = (id) => DIFFICULTIES[id].shortName;
 
 const URL_UNDER_TEST = process.env.WORMHOLE_TEST_URL;
 const CHROME = process.env.WORMHOLE_TEST_CHROME
@@ -56,7 +60,10 @@ async function openGame(browser, difficulty) {
   await page.waitForSelector(".menu-screen[data-route='home']", { timeout: 15_000 });
   await page.locator(".summary-action").first().click();
   await page.waitForTimeout(400);
-  await page.locator(".option-choices [role=radio]", { hasText: difficulty }).first().click();
+  // Selected by difficulty id rather than display label. The labels are themed
+  // copy and have already been renamed once, which broke every test in this
+  // file at once without CI noticing, because these skip without a server.
+  await page.locator(`.option-choices [data-choice="${difficulty}"]`).first().click();
   await page.waitForTimeout(250);
   await page.locator(".menu-footer .play-button").click();
   await page.waitForTimeout(700);
@@ -101,7 +108,7 @@ test("EASY: the shield takes wall damage before the hull does", { skip }, async 
   const { chromium } = playwright;
   const browser = await chromium.launch({ executablePath: CHROME });
   try {
-    const { context, page } = await openGame(browser, "EASY");
+    const { context, page } = await openGame(browser, "easy");
     const startingHull = await hullOf(page);
     assert.match(await badgeOf(page), /SHIELD FULL/, "should launch with a full shield");
 
@@ -130,7 +137,7 @@ test("EASY: the shield restores four seconds after the last collision", { skip }
   const { chromium } = playwright;
   const browser = await chromium.launch({ executablePath: CHROME });
   try {
-    const { context, page } = await openGame(browser, "EASY");
+    const { context, page } = await openGame(browser, "easy");
     await hold(page);
     const worn = await waitFor(page, ({ badge }) => !/SHIELD FULL/.test(badge));
     assert.ok(worn, "ship never reached the wall");
@@ -164,7 +171,7 @@ test("DIFFICULT: the same wall contact reaches hull, with no shield", { skip }, 
   const { chromium } = playwright;
   const browser = await chromium.launch({ executablePath: CHROME });
   try {
-    const { context, page } = await openGame(browser, "DIFFICULT");
+    const { context, page } = await openGame(browser, "difficult");
     assert.match(await badgeOf(page), /NO COLLISION SHIELD/, "difficult grants no shield");
 
     const startingHull = await hullOf(page);
@@ -186,13 +193,13 @@ test("PRACTICE: repeated wall contact never reduces hull", { skip }, async () =>
   const { chromium } = playwright;
   const browser = await chromium.launch({ executablePath: CHROME });
   try {
-    const { context, page } = await openGame(browser, "PRACTICE");
+    const { context, page } = await openGame(browser, "practice");
     const startingHull = await hullOf(page);
     await hold(page);
     await page.waitForTimeout(5000);
     await release(page);
     assert.equal(await hullOf(page), startingHull, "practice hull must remain locked");
-    assert.match(await badgeOf(page), /PRACTICE/);
+    assert.ok((await badgeOf(page)).includes(badgeName("practice")));
     await context.close();
   } finally {
     await browser.close();
@@ -203,10 +210,9 @@ test("HARD: the contact hazard is armed and the wormhole moves", { skip }, async
   const { chromium } = playwright;
   const browser = await chromium.launch({ executablePath: CHROME });
   try {
-    // The difficulty option reads HARD; the badge still says HARD MODE.
-    const { context, page } = await openGame(browser, "HARD");
+    const { context, page } = await openGame(browser, "hard");
     const badge = await badgeOf(page);
-    assert.match(badge, /HARD/);
+    assert.ok(badge.includes(badgeName("hard")));
     assert.match(badge, /RIFT MOVING/);
     assert.match(badge, /CONTACT HAZARD/);
     assert.match(badge, /NO COLLISION SHIELD/);
@@ -245,18 +251,18 @@ test("WASD and the arrows move the ship in world space", { skip }, async () => {
   const { chromium } = playwright;
   const browser = await chromium.launch({ executablePath: CHROME });
   try {
-    const { context, page } = await openGame(browser, "DIFFICULT");
+    const { context, page } = await openGame(browser, "difficult");
 
-    // Arena camera, so screen movement maps to world movement. Releasing the
-    // camera lock is what selects it, and it lives in Settings, reached from
-    // the pause menu via the global Menu control.
+    // Arena camera, so screen movement maps to world movement. The camera is a
+    // Perspective choice in Settings — it used to be a Camera lock switch —
+    // reached from the pause menu via the global Menu control.
     await page.locator(".system-menu").click();
     await page.waitForTimeout(300);
     await page.locator(".pause-actions button", { hasText: "Settings" }).click();
     await page.waitForTimeout(300);
     await page
-      .locator(".ui-toggle", { hasText: "Camera lock" })
-      .locator("[role=switch]")
+      .locator(".option-row", { hasText: "Perspective" })
+      .locator('[data-choice="arena"]')
       .click();
     await page.waitForTimeout(200);
     await page.keyboard.press("Escape");
@@ -338,11 +344,14 @@ test("a run cannot be resumed after its ship or mode is changed", { skip }, asyn
   const { chromium } = playwright;
   const browser = await chromium.launch({ executablePath: CHROME });
   try {
-    const { context, page } = await openGame(browser, "EASY");
+    const { context, page } = await openGame(browser, "easy");
 
     // A run is live and the badge reports the rules it is actually running.
     const startingBadge = await badgeOf(page);
-    assert.match(startingBadge, /PVE · EASY/, `expected an EASY run, got ${startingBadge}`);
+    assert.ok(
+      startingBadge.includes(`PVE · ${badgeName("easy")}`),
+      `expected an easy run, got ${startingBadge}`
+    );
     assert.equal(
       await page.evaluate(() => document.querySelector(".menu-screen") === null),
       true,

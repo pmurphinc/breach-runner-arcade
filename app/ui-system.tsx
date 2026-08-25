@@ -193,6 +193,7 @@ export function OptionRow<T extends string>({
   onChange,
   disabled = false,
   columns = "auto",
+  hideLabel = false,
 }: {
   label: string;
   value: T;
@@ -200,6 +201,12 @@ export function OptionRow<T extends string>({
   onChange: (next: T) => void;
   disabled?: boolean;
   columns?: "auto" | "stack";
+  /**
+   * Hide the row's own label when the surrounding section already carries the
+   * same heading. The label stays in the accessibility tree either way, since
+   * it is what names the radio group.
+   */
+  hideLabel?: boolean;
 }) {
   const groupId = `opt-${label.replace(/\W+/g, "-").toLowerCase()}`;
 
@@ -230,8 +237,11 @@ export function OptionRow<T extends string>({
   };
 
   return (
-    <div className="option-row" data-columns={columns}>
-      <span className="option-label" id={groupId}>
+    // `data-option` names the group, so a stylesheet can accent one row's
+    // choices (difficulty) without reaching every other row that happens to
+    // share a choice id.
+    <div className="option-row" data-columns={columns} data-option={groupId.replace(/^opt-/, "")}>
+      <span className={hideLabel ? "sr-only" : "option-label"} id={groupId}>
         {label}
       </span>
       <div

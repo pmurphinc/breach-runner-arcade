@@ -75,7 +75,12 @@ for (const device of DEVICES) {
       const errors = [];
       page.on("pageerror", (e) => errors.push(String(e)));
       page.on("console", (m) => {
-        if (m.type() === "error" && !m.text().includes("ERR_TUNNEL_CONNECTION_FAILED")) {
+        // Off-network noise from the production metadataBase host: the favicon
+        // fetch cannot resolve, tunnel, or validate a certificate in a sandbox.
+        // Same allowance preflight.test.mjs makes; it covers the transport
+        // only, so a real application error still fails the test.
+        const offNetwork = /ERR_TUNNEL_CONNECTION_FAILED|ERR_CERT_AUTHORITY_INVALID|ERR_NAME_NOT_RESOLVED/;
+        if (m.type() === "error" && !offNetwork.test(m.text())) {
           errors.push(m.text());
         }
       });
