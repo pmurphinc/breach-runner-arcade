@@ -9,7 +9,7 @@
  * phone and an ultrawide render the same markup and the same words.
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { MenuScreen, MenuSection, OptionRow, SummaryRow, Toggle } from "./ui-system";
 import { MenuSectionNav } from "./menu-nav";
 import { SHIPS, type ShipId } from "./game-data";
@@ -17,7 +17,7 @@ import { SHIP_ORDER, SHIP_PROFILES } from "./ship-data";
 import { DIFFICULTIES, DIFFICULTY_ORDER, type DifficultyId, type GameMode } from "./difficulty";
 import { PRODUCT_TAGLINE, PRODUCT_TITLE } from "./product";
 import type { MenuRoute } from "./menu-routes";
-import type { CombatHaptics, SoundLevel, TouchControlSize, ViewMode, ZoomLevel } from "./view-settings";
+import { settingsStore, type CombatHaptics, type SoundLevel, type TouchControlSize, type ViewMode, type ZoomLevel } from "./view-settings";
 
 /** One line each. A mode a player cannot summarise is a mode they will not pick. */
 export const MODE_INFO: Record<GameMode, { label: string; blurb: string }> = {
@@ -61,6 +61,28 @@ export type MenuCallbacks = {
   close: () => void;
 };
 
+/**
+ * Keep the persistent setting reflected on the document root so the gameplay
+ * control layer can mirror the existing right-stick action targets with CSS
+ * without creating a second input implementation.
+ */
+function useMirroredTouchActionsSetting() {
+  const deviceSettings = useSyncExternalStore(
+    settingsStore.subscribe,
+    settingsStore.getSnapshot,
+    settingsStore.getServerSnapshot,
+  );
+
+  useEffect(() => {
+    document.documentElement.dataset.mirrorTouchActions = deviceSettings.mirrorTouchActions ? "on" : "off";
+  }, [deviceSettings.mirrorTouchActions]);
+
+  return [
+    deviceSettings.mirrorTouchActions,
+    (next: boolean) => settingsStore.update({ mirrorTouchActions: next }),
+  ] as const;
+}
+
 /* ------------------------------------------------------------------ home -- */
 
 /**
@@ -87,6 +109,7 @@ export function HomeScreen({
   running: boolean;
   onLaunch: () => void;
 }) {
+  useMirroredTouchActionsSetting();
   const profile = SHIP_PROFILES[ship];
   const network = mode !== "pve";
   // A challenge runs solo, so it rides on the PvE mode and replaces the labels
@@ -407,6 +430,14 @@ export function SettingsScreen({
   initials: string;
   onInitials: (next: string) => void;
 }) {
+  const [mirrorTouchActions, onMirrorTouchActions] = useMirroredTouchActionsSetting();
+  const mirrorDisabled = viewMode === "pc" || !thumbsticks;
+  const mirrorHint = viewMode === "pc"
+    ? "Touch or Both only"
+    : !thumbsticks
+      ? "Turn Thumbsticks on first"
+      : "Duplicates PUP, SPEC, and Pause around the movement stick";
+
   return (
     <MenuScreen route="settings" title="Settings" onBack={back}>
       <MenuSection title="Controls">
@@ -427,6 +458,13 @@ export function SettingsScreen({
           onChange={onThumbsticks}
           disabled={viewMode === "pc"}
           hint={viewMode === "pc" ? "Touch or Both only" : undefined}
+        />
+        <Toggle
+          label="Left-side action buttons"
+          value={mirrorTouchActions}
+          onChange={onMirrorTouchActions}
+          disabled={mirrorDisabled}
+          hint={mirrorHint}
         />
         <OptionRow
           label="Touch control size"
