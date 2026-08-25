@@ -333,3 +333,121 @@ test("WASD and the arrows move the ship in world space", { skip }, async () => {
     await browser.close();
   }
 });
+
+test("a run cannot be resumed after its ship or mode is changed", { skip }, async () => {
+  const { chromium } = playwright;
+  const browser = await chromium.launch({ executablePath: CHROME });
+  try {
+    const { context, page } = await openGame(browser, "EASY");
+
+    // A run is live and the badge reports the rules it is actually running.
+    const startingBadge = await badgeOf(page);
+    assert.match(startingBadge, /PVE · EASY/, `expected an EASY run, got ${startingBadge}`);
+    assert.equal(
+      await page.evaluate(() => document.querySelector(".menu-screen") === null),
+      true,
+      "the run should be unobstructed before we open the menu"
+    );
+
+    // Menu during a run opens Pause, and Pause offers no way to change the
+    // configuration without saying it ends the run.
+    await page.locator(".system-menu").click();
+    await page.waitForTimeout(300);
+    assert.equal(
+      await page.evaluate(() => document.querySelector(".menu-screen")?.dataset.route ?? null),
+      "pause",
+      "Menu during a run must open Pause"
+    );
+    const pauseText = (await page.locator(".menu-panel").innerText()).toUpperCase();
+    assert.ok(pauseText.includes("END RUN & CHANGE SHIP"), "changing ship must be labelled destructive");
+    assert.ok(pauseText.includes("END RUN & CHANGE MODE"), "changing mode must be labelled destructive");
+
+    // Take the destructive action.
+    await page.locator(".pause-actions button", { hasText: "End Run & Change Ship" }).click();
+    await page.waitForTimeout(500);
+    assert.equal(
+      await page.evaluate(() => document.querySelector(".menu-screen")?.dataset.route ?? null),
+      "ships",
+      "ending the run should land on Ships"
+    );
+
+    // Pick a different ship from the one the run was flying.
+    const chosen = await page.evaluate(() => {
+      const current = document.querySelector(".ship-card.active");
+      const next = [...document.querySelectorAll(".ship-card")].find((card) => card !== current);
+      next.click();
+      return next.querySelector("b").textContent.trim();
+    });
+    await page.waitForTimeout(300);
+    assert.match(await page.locator(".ship-detail h3").innerText(), new RegExp(chosen, "i"));
+
+    // The old run must be gone, not merely hidden behind the menu. Pressing
+    // Menu resolves to Home rather than Pause precisely because no run exists.
+    await page.locator(".system-menu").click();
+    await page.waitForTimeout(400);
+    assert.equal(
+      await page.evaluate(() => document.querySelector(".menu-screen")?.dataset.route ?? null),
+      "home",
+      "with the run ended, Menu must resolve to Home rather than Pause"
+    );
+
+    // And Home describes the newly chosen ship, so nothing is left resumable
+    // under a label that does not match it.
+    assert.match(await page.locator(".play-summary").innerText(), new RegExp(chosen, "i"));
+
+    // Escape must not smuggle the player back into the dead simulation.
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(400);
+    assert.equal(
+      await page.evaluate(() => document.querySelector(".menu-screen")?.dataset.route ?? null),
+      "home",
+      "there is no run to escape back into"
+    );
+
+    await context.close();
+  } finally {
+    await browser.close();
+  }
+});
+
+test("with no run, Menu returns to Home instead of an empty cockpit", { skip }, async () => {
+  const { chromium } = playwright;
+  const browser = await chromium.launch({ executablePath: CHROME });
+  try {
+    const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const page = await context.newPage();
+    await page.route("https://murphtournaments.com/**", (route) =>
+      route.fulfill({ json: { signedIn: false, player: null } })
+    );
+    await page.goto(URL_UNDER_TEST, { waitUntil: "networkidle" });
+    await page.waitForSelector(".menu-screen[data-route='home']", { timeout: 15_000 });
+
+    const routeNow = () =>
+      page.evaluate(() => document.querySelector(".menu-screen")?.dataset.route ?? null);
+
+    // Fresh launch, no run: Menu on Home is a no-op, not an exit.
+    await page.locator(".system-menu").click();
+    await page.waitForTimeout(400);
+    assert.equal(await routeNow(), "home", "Menu on Home with no run must stay on Home");
+
+    // From a deeper screen it returns to the root rather than closing.
+    await page.locator(".menu-nav button", { hasText: "Settings" }).click();
+    await page.waitForTimeout(300);
+    assert.equal(await routeNow(), "settings");
+    await page.locator(".system-menu").click();
+    await page.waitForTimeout(400);
+    assert.equal(await routeNow(), "home", "Menu from a screen with no run must return Home");
+
+    // Same from Ships.
+    await page.locator(".menu-nav button", { hasText: "Ships" }).click();
+    await page.waitForTimeout(300);
+    assert.equal(await routeNow(), "ships");
+    await page.locator(".system-menu").click();
+    await page.waitForTimeout(400);
+    assert.equal(await routeNow(), "home", "Menu from Ships with no run must return Home");
+
+    await context.close();
+  } finally {
+    await browser.close();
+  }
+});

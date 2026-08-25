@@ -518,14 +518,20 @@ export function PauseScreen({
   mode,
   onRestart,
   onQuit,
+  onEndRunAndChangeShip,
+  onEndRunAndChangeMode,
   pausable,
 }: MenuCallbacks & {
+  /** The mode the live run is actually being played in, not the preference. */
   mode: GameMode;
   onRestart: () => void;
   onQuit: () => void;
+  onEndRunAndChangeShip: () => void;
+  onEndRunAndChangeMode: () => void;
   /** Network matches keep running behind the menu; say so rather than lying. */
   pausable: boolean;
 }) {
+  const network = mode !== "pve";
   return (
     <MenuScreen
       route="pause"
@@ -541,14 +547,26 @@ export function PauseScreen({
     >
       <MenuSection>
         <div className="pause-actions">
-          <button type="button" onClick={onRestart}>
-            Restart Run
+          {/*
+            Restart is a client-side start() and belongs to solo play only. In
+            a live match the server owns the session, so restarting locally
+            would desync the two clients rather than begin anything.
+          */}
+          {network ? null : (
+            <button type="button" onClick={onRestart}>
+              Restart Run
+            </button>
+          )}
+          {/*
+            Named for what they do. Both end the current run before opening the
+            next screen, so the player cannot change the configuration and then
+            resume the old simulation under the new labels.
+          */}
+          <button type="button" onClick={onEndRunAndChangeShip}>
+            End Run &amp; Change Ship
           </button>
-          <button type="button" onClick={() => go("ships")}>
-            Change Ship
-          </button>
-          <button type="button" onClick={() => go("modes")}>
-            Change Mode
+          <button type="button" onClick={onEndRunAndChangeMode}>
+            End Run &amp; Change Mode
           </button>
           <button type="button" onClick={() => go("settings")}>
             Settings
@@ -564,9 +582,11 @@ export function PauseScreen({
 
       <MenuSection>
         <button type="button" className="danger-button" onClick={onQuit}>
-          Quit to Main Menu
+          {network ? "Leave Match" : "Quit to Main Menu"}
         </button>
-        <p className="menu-section-hint">This ends the current run.</p>
+        <p className="menu-section-hint">
+          {network ? "This leaves the match and returns to the main menu." : "This ends the current run."}
+        </p>
       </MenuSection>
     </MenuScreen>
   );

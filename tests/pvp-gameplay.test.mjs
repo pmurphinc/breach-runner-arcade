@@ -171,6 +171,27 @@ test("two guests play a PvP match end to end", { skip, timeout: 240_000 }, async
       /NO PAUSE|MATCH CONTINUES/,
       "a live match cannot be paused"
     );
+
+    // Restart is a client-side start(). In a live match the server owns the
+    // session, so restarting locally would desync the two clients rather than
+    // begin anything: the action must not be on offer at all.
+    const livePause = (await alpha.locator(".menu-panel").innerText()).toUpperCase();
+    assert.ok(
+      !livePause.includes("RESTART RUN"),
+      `a live match must not offer Restart Run: ${livePause}`
+    );
+    assert.equal(
+      await alpha.locator('.pause-actions button:text-is("Restart Run")').count(),
+      0,
+      "Restart Run must not be rendered during a live match"
+    );
+    // Leaving is named for a match rather than a solo run, and the actions a
+    // live match can legitimately offer are still present.
+    assert.ok(livePause.includes("LEAVE MATCH"), "a live match leaves rather than quits a run");
+    for (const action of ["RESUME", "SETTINGS", "GAME INFO", "LEADERBOARD"]) {
+      assert.ok(livePause.includes(action), `live pause is missing ${action}`);
+    }
+
     // Resume before flying again: an open menu owns the keyboard, so movement
     // keys must not reach the ship behind it.
     await alpha.keyboard.press("KeyP");

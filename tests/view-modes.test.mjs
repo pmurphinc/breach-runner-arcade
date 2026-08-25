@@ -259,3 +259,41 @@ test('arena world and viewport use the shared 1504 by 940 ratio', () => {
   assert.match(css, /aspect-ratio:\s*1504\/940/);
   assert.doesNotMatch(game, /worldSize:/);
 });
+
+test('the pause menu cannot mutate a run the player can resume into', () => {
+  const pause = menu.slice(menu.indexOf('export function PauseScreen'));
+  // Ship and mode changes are destructive by name and by handler: they end the
+  // run before opening the next screen. A plain go("ships") / go("modes") here
+  // would leave the old game object alive and resumable while the labels
+  // described a different one.
+  assert.match(pause, /End Run &amp; Change Ship/);
+  assert.match(pause, /End Run &amp; Change Mode/);
+  assert.match(pause, /onClick=\{onEndRunAndChangeShip\}/);
+  assert.match(pause, /onClick=\{onEndRunAndChangeMode\}/);
+  assert.doesNotMatch(pause, /go\("ships"\)/, 'ships must not be reachable without ending the run');
+  assert.doesNotMatch(pause, /go\("modes"\)/, 'modes must not be reachable without ending the run');
+
+  // Both funnel through endRun, which tears the run down before navigating.
+  assert.match(gameCode, /onEndRunAndChangeShip=\{\(\) => endRun\("ships"\)\}/);
+  assert.match(gameCode, /onEndRunAndChangeMode=\{\(\) => endRun\("modes"\)\}/);
+  const endRun = gameCode.slice(gameCode.indexOf('const endRun = useCallback'), gameCode.indexOf('const quitRun'));
+  assert.match(endRun, /game\.running = false/);
+  assert.match(endRun, /setLaunched\(false\)/);
+  assert.match(endRun, /gameRef\.current = createGame/);
+  // The match is left through the client that owns it, chosen by the running
+  // game's mode rather than by the stored preference.
+  assert.match(endRun, /game\.mode !== "pve"[\s\S]*?netRef\.current\?\.leave\(\)/);
+
+  // Pause describes the live run, not the preference.
+  assert.match(gameCode, /mode=\{hud\.mode\}/);
+  assert.match(gameCode, /pausable=\{hud\.mode === "pve"\}/);
+});
+
+test('Restart Run is solo-only, because the server owns a live match', () => {
+  const pause = menu.slice(menu.indexOf('export function PauseScreen'));
+  assert.match(pause, /const network = mode !== "pve"/);
+  // Restart is rendered only when the run is not a network match.
+  assert.match(pause, /\{network \? null : \([\s\S]*?Restart Run[\s\S]*?\)\}/);
+  // Leaving is named for what it does in each mode.
+  assert.match(pause, /network \? "Leave Match" : "Quit to Main Menu"/);
+});

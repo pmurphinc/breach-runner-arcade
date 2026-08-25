@@ -2098,10 +2098,23 @@ export default function WormholeGame() {
     setMenu(resetRoute("home"));
   }, [closeMenu, setPaused]);
 
-  /** Abandon the current run and return to the main menu. */
-  const quitRun = useCallback(() => {
+  /**
+   * End the current run, then go somewhere.
+   *
+   * Every exit from a live run funnels through here, which is what keeps the
+   * interface honest. Changing ship or mode used to write the new preference
+   * while the old game object stayed alive and resumable: the menu would then
+   * describe one ship and the simulation run another, and switching mode tore
+   * down and rebuilt the match client underneath a run the player could still
+   * Back into. Ending the run first makes that state unreachable.
+   *
+   * The leave decision reads the *running game's* mode rather than the stored
+   * preference, so a network match is always left through the client that
+   * actually owns it.
+   */
+  const endRun = useCallback((next: MenuRoute) => {
     const game = gameRef.current;
-    if (mode !== "pve") netRef.current?.leave();
+    if (game.mode !== "pve") netRef.current?.leave();
     game.running = false;
     game.paused = false;
     stopVictorySuction();
@@ -2109,8 +2122,11 @@ export default function WormholeGame() {
     setLaunched(false);
     gameRef.current = createGame(selectedShip(shipId), mode, difficulty);
     sync();
-    setMenu(resetRoute("home"));
+    setMenu(resetRoute(next));
   }, [difficulty, mode, shipId, stopVictorySuction, sync]);
+
+  /** Abandon the current run and return to the main menu. */
+  const quitRun = useCallback(() => endRun("home"), [endRun]);
 
   const renderShip = useCallback(
     (id: ShipId, size: number) => <MenuShip id={id} size={size} />,
@@ -4598,10 +4614,14 @@ export default function WormholeGame() {
 
       {route === "pause" ? (
         <PauseScreen
-          mode={mode}
-          pausable={mode === "pve"}
+          // The live run's own mode, not the stored preference: the pause
+          // screen must describe the simulation actually running.
+          mode={hud.mode}
+          pausable={hud.mode === "pve"}
           onRestart={start}
           onQuit={quitRun}
+          onEndRunAndChangeShip={() => endRun("ships")}
+          onEndRunAndChangeMode={() => endRun("modes")}
           go={go}
           back={back}
           close={resumeOrClose}

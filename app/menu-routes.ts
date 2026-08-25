@@ -111,13 +111,20 @@ export function reset(route: MenuRoute): MenuStack {
 /**
  * What the Menu button does, given whether a run is in progress.
  *
- * One rule, so the button means the same thing on every screen: if a menu is
- * open it closes; during a run it opens Pause; otherwise it opens Home. This
- * is the whole reason Menu never needs a per-screen copy.
+ * One rule, so the button means the same thing on every screen.
+ *
+ * The `running` check comes first, and that ordering is the point: with no run
+ * there is nothing to close *to*. Closing the menu used to drop the player
+ * into an inert cockpit with no game in it and no obvious way back, so Home is
+ * the root state whenever no run exists — pressing Menu from any other screen
+ * returns there, and pressing it on Home is a no-op rather than an exit.
+ *
+ * During a run the button is a straight toggle: open Pause, or close back into
+ * the game.
  */
 export function menuButtonTarget(stack: MenuStack, running: boolean): MenuStack {
-  if (isOpen(stack)) return CLOSED;
-  return [running ? "pause" : "home"];
+  if (!running) return reset("home");
+  return isOpen(stack) ? CLOSED : reset("pause");
 }
 
 /**
