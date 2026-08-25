@@ -23,7 +23,7 @@ import {
 import { DIRECTIONAL, drawPowerProjectile, drawShipShape, drawWeaponGlyph } from "./weapon-art";
 import {
   DIFFICULTIES,
-  DIFFICULTY_ORDER,
+  RULESET_IDS,
   TICK_MS,
   absorbCollisionDamage,
   absorbEnrageShield,
@@ -32,6 +32,7 @@ import {
   createCollisionShield,
   createEnrageRecovery,
   createContactHazard,
+  isSurvival,
   pilotSpawn,
   rulesFor,
   secondsForTicks,
@@ -101,9 +102,11 @@ import {
   loadLocalBest,
   saveLocalRun,
   saveScoreToMurph,
+  saveSurvivalRun,
   type LeaderboardEntry,
   type LocalBest,
   type RunResult,
+  type SurvivalBest,
 } from "./arcade-scores";
 import { formatRunTime, normalizeInitials, settleScore } from "./run-scoring";
 import {
@@ -134,6 +137,16 @@ import {
   victoryVisualState,
 } from "./victory-sequence";
 import {
+  SURVIVAL_HOSTILE_CAP,
+  SURVIVAL_PALETTES,
+  advanceSurvival,
+  createSurvivalState,
+  escalationForLevel,
+  survivalBreachBonus,
+  survivalBreachIntegrity,
+  type SurvivalState,
+} from "./survival";
+import {
   BEAM_HIT_WIDTH,
   BEAM_LENGTH,
   BEAM_PICKUP_WIDTH,
@@ -147,6 +160,7 @@ const VIEW_WIDTH = 1048;
 const VIEW_HEIGHT = 655;
 const WORLD_WIDTH = 1504;
 const WORLD_HEIGHT = 940;
+/** Cannon damage the rift absorbs per power-up, before any escalation. */
 const PORTAL_THRESHOLD = 150;
 const DEG = Math.PI / 180;
 const THRUST_ACCEL_BONUS = 0.035;
@@ -194,6 +208,9 @@ const ARENA_PALETTES: Record<DifficultyId, readonly [string, string, string]> = 
   easy: ["#0b1d22", "#061016", "#020409"],
   difficult: ["#171127", "#090917", "#020409"],
   hard: ["#241014", "#0d080f", "#030305"],
+  // Survival repaints itself per stage from SURVIVAL_PALETTES; this is the
+  // opening one, and what the idle pre-run arena shows.
+  survival: SURVIVAL_PALETTES.stable,
 };
 
 type Bullet = {
@@ -347,6 +364,16 @@ type Game = {
   portalPulse: number;
   /** Simulation time that actually elapsed while the run was active. */
   elapsedTicks: number;
+  /**
+   * Cannon damage the rift absorbs before it sheds a power-up.
+   *
+   * A field rather than the old constant because Survival raises it every Rift
+   * Level: the pilot's supply line is one of the things the escalation is
+   * allowed to squeeze.
+   */
+  portalThreshold: number;
+  /** Rift Survival bookkeeping. Null in every other ruleset. */
+  survival: SurvivalState | null;
   /** Remaining ticks in the staged wormhole-collapse victory sequence. */
   victorySequence: number;
   /** Ensures the central blast, sound, and particle payload fire exactly once. */
@@ -426,6 +453,12 @@ type Hud = {
   contactActive: boolean;
   /** True while the Hard Mode rival wormhole is enraged. */
   enrageActive: boolean;
+  /** Current Rift Level, or 0 when this run is not a Survival run. */
+  riftLevel: number;
+  /** Escalation stage name, empty outside Survival. */
+  riftStage: string;
+  /** Times the rift has been collapsed and reformed this Survival run. */
+  breaches: number;
 };
 
 function cap(value: number, min: number, max: number) {
@@ -458,7 +491,7 @@ function coachLine(game: Game) {
   if (game.paused) return "PAUSED // PRESS P TO RESUME";
   if (game.stock.length > 0) return `AIM AT THE RIFT // PRESS E OR PUP TO SEND ${WEAPONS[game.stock[game.stock.length - 1]].short}`;
   if (game.pickups.length > 0) return "POWER-UP LOOSE // FLY OVER IT TO COLLECT";
-  const remaining = Math.max(0, PORTAL_THRESHOLD - game.portalCharge);
+  const remaining = Math.max(0, game.portalThreshold - game.portalCharge);
   return `SHOOT THE RIFT // ${Math.ceil(remaining)} MORE DAMAGE GENERATES A POWER-UP`;
 }
 
@@ -513,6 +546,8 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
     portalY: wormhole.y,
     portalPulse: 0,
     elapsedTicks: 0,
+    portalThreshold: PORTAL_THRESHOLD,
+    survival: isSurvival(rules) ? createSurvivalState() : null,
     victorySequence: 0,
     victoryExplosionFired: false,
     enrageActive: false,
@@ -556,7 +591,7 @@ function hudFrom(game: Game): Hud {
     rivalHealth: Math.max(0, Math.round((game.rivalHealth / game.rivalMaxHealth) * 100)),
     rivalCurrentHealth: Math.max(0, Math.round(game.rivalHealth)),
     rivalMaxHealth: game.rivalMaxHealth,
-    portalCharge: Math.round((game.portalCharge / PORTAL_THRESHOLD) * 100),
+    portalCharge: Math.round((game.portalCharge / game.portalThreshold) * 100),
     stock: [...game.stock],
     running: game.running,
     paused: game.paused,
@@ -581,6 +616,9 @@ function hudFrom(game: Game): Hud {
     specialCooldown: wholeSecondsForTicks(game.player.specialCooldown),
     contactActive: game.contactWarning > 0,
     enrageActive: game.enrageActive,
+    riftLevel: game.survival?.level ?? 0,
+    riftStage: game.survival?.escalation.stage.name ?? "",
+    breaches: game.survival?.breaches ?? 0,
   };
 }
 
@@ -614,6 +652,9 @@ function hudEqual(a: Hud, b: Hud) {
     && a.specialCooldown === b.specialCooldown
     && a.contactActive === b.contactActive
     && a.enrageActive === b.enrageActive
+    && a.riftLevel === b.riftLevel
+    && a.riftStage === b.riftStage
+    && a.breaches === b.breaches
     && a.stock.length === b.stock.length
     && a.stock.every((item, index) => item === b.stock[index]);
 }
@@ -904,6 +945,13 @@ type RunSummary = {
   awaitingInitials: boolean;
   /** Final hull-damaging hazard for defeat screens. */
   deathCause?: string;
+  /**
+   * This device's longest Survival run after the run just finished.
+   *
+   * Survival is ranked by time rather than score, so it cannot share `best`
+   * without the card comparing two different measurements.
+   */
+  survivalBest?: SurvivalBest | null;
 };
 
 type SaveState =
@@ -1087,10 +1135,16 @@ const modePreference = createPreference<GameMode>(
   ["pve", "coop", "pvp"],
   "pve"
 );
-/** Only the PvE difficulty is remembered; PvP is always Easy rules. */
+/**
+ * The remembered solo ruleset. PvP is always Easy rules and never reads this.
+ *
+ * Survival is an allowed value even though it is not in the difficulty
+ * selector: it is a ruleset the player chose, and a returning player should
+ * find the challenge they left, not the difficulty underneath it.
+ */
 const difficultyPreference = createPreference<DifficultyId>(
   "wormhole-arcade:difficulty",
-  DIFFICULTY_ORDER,
+  RULESET_IDS,
   "difficult"
 );
 
@@ -1137,19 +1191,24 @@ function DifficultyBadge({
 
   const gameMode = (live ? hud.mode : pendingMode) === "pvp" ? "PVP" : "PVE";
   const difficulty = gameMode === "PVP" ? "EASY" : activeRules.shortName.replace(/ MODE$/i, "");
+  // Survival's Rift Level is the run's difficulty, its clock and its score all
+  // at once, so it earns a slot of its own on the badge.
+  const riftLevel = live ? hud.riftLevel : activeRules.id === "survival" ? 1 : 0;
+  const riftStage = live && hud.riftStage ? hud.riftStage : escalationForLevel(1).stage.name;
   const contact = hazardArmed ? "HAZARD" : "SAFE";
   const shieldText = unlimitedHull
     ? "HULL UNLIMITED"
     : charge === null
       ? "NO COLLISION SHIELD"
       : `SHIELD ${shield}`;
-  const status = `${gameMode} · ${difficulty} | RIFT ${wormhole} | ${shieldText} | CONTACT ${contact}${live && hud.enrageActive ? " | ENRAGED" : ""}`;
+  const status = `${gameMode} · ${difficulty}${riftLevel > 0 ? ` | RIFT LEVEL ${riftLevel} · ${riftStage}` : ""} | RIFT ${wormhole} | ${shieldText} | CONTACT ${contact}${live && hud.enrageActive ? " | ENRAGED" : ""}`;
 
   return (
     <div className={`difficulty-badge ${contactActive ? "hazard" : ""}`} role="status" aria-live="polite" aria-label={`Score ${hud.score}. Active rules: ${status}`}>
       <span className="rule-score">SCORE {hud.score.toLocaleString().padStart(6, "0")}</span>
       <span className="rule-time">TIME {formatRunTime(hud.elapsedSeconds)}</span>
       <span className="rule-mode">{gameMode} · {difficulty}</span>
+      {riftLevel > 0 ? <span className="rule-rift-level">LEVEL {riftLevel} · {riftStage}</span> : null}
       <span>RIFT {wormhole}</span>
       <span className={charge !== null && charge <= 0 ? "warn" : ""}>{shieldText}</span>
       <span className={hazardArmed ? "warn" : ""}>CONTACT {contact}</span>
@@ -1766,7 +1825,11 @@ export default function WormholeGame() {
     const hash = [...cue].reduce((value, character) => ((value * 33) ^ character.charCodeAt(0)) >>> 0, 5381);
     // Overcharges get a longer, lower, four-note signature than any pickup
     // cue, so a special is identifiable with the screen covered by a thumb.
-    const special = cue === "wormhole-explosion"
+    const special = cue === "rift-level"
+      // Short and rising: the roadmap asks for a pulse that marks the level
+      // without interrupting the fight.
+      ? { frequencies: [300, 460, 700], duration: 0.38, gap: 0.05, type: "triangle" as OscillatorType }
+      : cue === "wormhole-explosion"
       ? { frequencies: [72, 48, 34, 150], duration: 1.35, gap: 0.08, type: "sawtooth" as OscillatorType }
       : cue === "overcharge:swarm"
         ? { frequencies: [520, 700, 940, 1240], duration: 0.78, gap: 0.055, type: "triangle" as OscillatorType }
@@ -1897,9 +1960,20 @@ export default function WormholeGame() {
     };
   }, [difficulty, mode]);
 
-  const chooseMode = useCallback((next: GameMode) => { modePreference.set(next); }, []);
+  const chooseMode = useCallback((next: GameMode) => {
+    modePreference.set(next);
+    // Picking an arcade mode leaves the challenge. Survival has no co-op or
+    // PvP balance behind it, and leaving the preference set would make the
+    // Modes screen show a ticked challenge next to a ticked arcade mode.
+    if (difficultyPreference.get() === "survival") difficultyPreference.set("difficult");
+  }, []);
   const chooseDifficulty = useCallback((next: DifficultyId) => {
     difficultyPreference.set(next);
+  }, []);
+  /** Rift Survival is a solo challenge, so choosing it also returns to PvE. */
+  const chooseSurvival = useCallback(() => {
+    modePreference.set("pve");
+    difficultyPreference.set("survival");
   }, []);
 
   // A run just ended: record it on this device and prepare leaderboard data.
@@ -1913,6 +1987,11 @@ export default function WormholeGame() {
 
     const settlement = settleScore(hud.score, hud.elapsedSeconds, hud.result);
     const practice = hud.difficulty === "practice";
+    // Survival's score already grew with every second survived, and
+    // `settleScore` only charges the time penalty on a victory — which
+    // Survival, having no win condition, can never produce. So the roadmap's
+    // "the normal PvE time penalty does not apply" needs no exception here.
+    const survivalRun = hud.difficulty === "survival";
     const run: RunResult = {
       runId: createArcadeRunId(),
       score: settlement.finalScore,
@@ -1942,12 +2021,27 @@ export default function WormholeGame() {
         ? hud.result === "victory" ? hud.rivalFinalDamage : hud.deathDamage
         : netResult?.finalDamage ?? 0,
       finalReason: hud.mode === "pve" ? (hud.result === "victory" ? "rival" : "pilot_hull") : netResult?.reason,
+      riftLevel: survivalRun ? hud.riftLevel : undefined,
+      breaches: survivalRun ? hud.breaches : undefined,
     };
 
     const storedInitials = settings.playerInitials;
     const identifiedRun = storedInitials ? { ...run, initials: storedInitials } : run;
     setInitialsEntry(storedInitials);
-    if (hud.result === "victory" && hud.mode === "pve" && !practice && !storedInitials) {
+    if (survivalRun) {
+      // Survival keeps its own device record and stays out of the arcade one.
+      const survival = saveSurvivalRun(identifiedRun);
+      setSummary({
+        run: identifiedRun,
+        best: null,
+        isBest: survival.isBest,
+        runs: 0,
+        restored: false,
+        awaitingInitials: false,
+        deathCause: hud.deathCause,
+        survivalBest: survival.best,
+      });
+    } else if (hud.result === "victory" && hud.mode === "pve" && !practice && !storedInitials) {
       setSummary({
         run,
         best: loadLocalBest(),
@@ -1964,7 +2058,7 @@ export default function WormholeGame() {
       setSummary({ run: identifiedRun, best: local.best, isBest: local.isBest, runs: local.runs, restored: false, awaitingInitials: false, deathCause: hud.deathCause });
     }
     setSaveState({ status: "idle" });
-  }, [hud.deathCause, hud.deathDamage, hud.difficulty, hud.elapsedSeconds, hud.mode, hud.result, hud.rivalFinalCause, hud.rivalFinalDamage, hud.rivalHealth, hud.score, netResult, settings.playerInitials]);
+  }, [hud.breaches, hud.deathCause, hud.deathDamage, hud.difficulty, hud.elapsedSeconds, hud.mode, hud.result, hud.riftLevel, hud.rivalFinalCause, hud.rivalFinalDamage, hud.rivalHealth, hud.score, netResult, settings.playerInitials]);
 
   // Every initials-tagged, non-Practice solo victory joins the public board.
   useEffect(() => {
@@ -2556,8 +2650,8 @@ export default function WormholeGame() {
       applyHullDamage(game, amount);
     };
 
-    const addIncoming = (game: Game, power: PowerId) => {
-      const count = ENEMY_COUNTS[power] * (game.mode === "coop" ? 2 : 1);
+    const addIncoming = (game: Game, power: PowerId, sizeBonus = 0) => {
+      const count = ENEMY_COUNTS[power] * (game.mode === "coop" ? 2 : 1) + Math.max(0, sizeBonus);
       for (let i = 0; i < count; i += 1) game.enemies.push(makeEnemy(power, game.portalX, game.portalY, i, count));
       game.incoming = power;
       game.notice = `INCOMING // ${WEAPONS[power].short}`;
@@ -2589,6 +2683,118 @@ export default function WormholeGame() {
       play("explosion", 0.36);
     };
 
+    /**
+     * One extra hazard burst from the rift, outside the ordinary wave cycle.
+     *
+     * Survival's mine storms and sweep beams are not new hostiles — they are
+     * the existing ones on their own schedule, which is the whole reason the
+     * mode needed no new combat code.
+     */
+    const spawnSurvivalHostiles = (game: Game, kind: PowerId, count: number, label: string) => {
+      if (count <= 0) return;
+      for (let i = 0; i < count; i += 1) {
+        game.enemies.push(makeEnemy(kind, game.portalX, game.portalY, i, count));
+      }
+      pushSpawn(game, "hostile", kind, game.portalX, game.portalY, count);
+      game.notice = `${label} // ${WEAPONS[kind].short} ×${count}`;
+      game.noticeLife = 110;
+      burst(game, game.portalX, game.portalY, POWER_COLORS[kind], 22, 8);
+      playCue(`spawn:${kind}`, 0.14);
+    };
+
+    /**
+     * One tick of Rift Survival.
+     *
+     * Everything here is scheduling: the level clock, the three hazard
+     * cadences and the survived-second score. What those cadences produce is
+     * ordinary — `addIncoming`, `makeEnemy`, and a rules object the loop was
+     * already reading every tick — so raising the difficulty means handing the
+     * loop different numbers, not running it down a second code path.
+     */
+    const tickSurvival = (game: Game) => {
+      const survival = game.survival;
+      if (!survival || game.result) return;
+
+      // What a level-up means is decided in `advanceSurvival`, as data. All
+      // that happens here is applying it.
+      const levelUp = advanceSurvival(survival, game.elapsedTicks * TICK_MS / 1000);
+      if (levelUp) {
+        game.rules = levelUp.rules;
+        game.portalThreshold = levelUp.escalation.powerUpCharge;
+
+        // Enrage arrives on the clock here rather than at an integrity
+        // threshold, and every later level refreshes the rift's regeneration
+        // and its temporary shield.
+        if (game.rules.wormholeEnrage.enabled) {
+          game.enrageActive = true;
+          game.enrageTimer = game.rules.wormholeEnrage.waveIntervalTicks;
+          activateEnrageRecovery(game.enrageRecovery, game.rules, game.rivalMaxHealth);
+        }
+
+        game.notice = levelUp.notice;
+        game.noticeLife = levelUp.stageChanged ? 170 : 120;
+        game.portalPulse = 1;
+        burst(
+          game,
+          game.portalX,
+          game.portalY,
+          levelUp.stageChanged ? "#ff4fd8" : "#68f2ff",
+          levelUp.stageChanged ? 44 : 22,
+          10
+        );
+        playCue("rift-level", levelUp.stageChanged ? 0.26 : 0.18);
+      }
+
+      const escalation = survival.escalation;
+
+      // Time survived is the score, so it is paid by the second while the run
+      // is alive rather than settled at the end — and a minute deep in the run
+      // is worth more than the first one.
+      survival.secondIn -= 1;
+      if (survival.secondIn <= 0) {
+        survival.secondIn = ticksForSeconds(1);
+        game.score += escalation.secondScore;
+      }
+
+      // A full arena skips the wave it was about to spawn instead of queuing
+      // another one behind it. An endless mode has no other brake.
+      const crowded = game.enemies.length >= SURVIVAL_HOSTILE_CAP;
+
+      survival.waveIn -= 1;
+      if (survival.waveIn <= 0) {
+        survival.waveIn = escalation.waveIntervalTicks;
+        if (!crowded) {
+          const pool = escalation.wavePool;
+          addIncoming(game, pool[Math.floor(Math.random() * pool.length)], escalation.waveSizeBonus);
+        }
+      }
+
+      if (escalation.mineStormIntervalTicks > 0) {
+        survival.mineStormIn -= 1;
+        if (survival.mineStormIn <= 0) {
+          survival.mineStormIn = escalation.mineStormIntervalTicks;
+          if (!crowded) spawnSurvivalHostiles(game, "mines", escalation.mineStormCount, "MINE STORM");
+        }
+      }
+
+      // Beams are exempt from the crowding skip on purpose. There are only ever
+      // one or two of them, they are anchored to the rift rather than chasing
+      // the pilot, and they are the stage's signature threat: the cap exists to
+      // stop swarms, not to hide the hazard the player is meant to be dodging.
+      if (escalation.beamIntervalTicks > 0) {
+        survival.beamIn -= 1;
+        if (survival.beamIn <= 0) {
+          survival.beamIn = escalation.beamIntervalTicks;
+          spawnSurvivalHostiles(
+            game,
+            "beam",
+            escalation.beamCount,
+            escalation.beamCount > 1 ? "DOUBLE SWEEP" : "SWEEP BEAM"
+          );
+        }
+      }
+    };
+
     const destroyEnemy = (game: Game, enemy: Enemy, guaranteedDrop = false) => {
       enemy.hp = 0;
       game.score += enemy.kind === "nuke" ? 600 : enemy.kind === "gunship" ? 300 : 100;
@@ -2597,6 +2803,38 @@ export default function WormholeGame() {
       if (enemy.kind !== "ghost" && enemy.kind !== "beam" && enemy.kind !== "emp" && enemy.kind !== "mines" && (guaranteedDrop || Math.random() < 0.48)) {
         game.pickups.push({ x: enemy.x, y: enemy.y, vx: range(-0.7, 0.7), vy: range(-0.7, 0.7), type: randomPower(), life: 900, phase: range(0, 6) });
       }
+    };
+
+    /**
+     * The rift has been driven to zero integrity in Survival.
+     *
+     * There is no victory to award — the mode is endless — so a breach is a
+     * reward instead: the arena is swept, the run banks a bonus that scales
+     * with how deep it has gone, and the rift reforms tougher. It is the one
+     * thing a Survival pilot can do to the rift rather than merely survive.
+     */
+    const breachRift = (game: Game) => {
+      const survival = game.survival;
+      if (!survival) return;
+
+      survival.breaches += 1;
+      game.score += survivalBreachBonus(survival.level, survival.breaches - 1);
+      game.rivalMaxHealth = survivalBreachIntegrity(survival.breaches);
+      game.rivalHealth = game.rivalMaxHealth;
+      game.enrageRecovery = createEnrageRecovery();
+      if (game.rules.wormholeEnrage.enabled) {
+        activateEnrageRecovery(game.enrageRecovery, game.rules, game.rivalMaxHealth);
+      }
+
+      for (const enemy of game.enemies) destroyEnemy(game, enemy);
+      game.bullets = game.bullets.filter((bullet) => !bullet.enemy);
+      game.incoming = null;
+      game.portalPulse = 1;
+      game.notice = `RIFT BREACHED ×${survival.breaches} // IT REFORMS STRONGER`;
+      game.noticeLife = 180;
+      burst(game, game.portalX, game.portalY, "#ffffff", 70, 14);
+      burst(game, game.portalX, game.portalY, "#ff4fd8", 50, 11);
+      playCue("wormhole-explosion", 0.2);
     };
 
     const spawnEnemyBullet = (game: Game, enemy: Enemy, speed = 5, damage = 10) => {
@@ -3058,6 +3296,10 @@ export default function WormholeGame() {
       game.portalX = wormhole.x;
       game.portalY = wormhole.y;
 
+      // Survival re-derives `game.rules` on every Rift Level, so its clock has
+      // to run before anything that reads them this tick.
+      tickSurvival(game);
+
       if (game.enrageActive && game.rules.wormholeEnrage.enabled) {
       const enrage = game.rules.wormholeEnrage;
       const authority = game.mode !== "coop" || netRef.current?.state.you?.id === netRef.current?.state.hostId;
@@ -3154,6 +3396,18 @@ export default function WormholeGame() {
       );
       player.vx = moved.vx;
       player.vy = moved.vy;
+
+      // Rift Collapse opens a gravity well. It is applied as acceleration
+      // before the speed clamp, so it can drag a pilot off course but can
+      // never carry them faster than their own frame flies.
+      const gravity = game.survival?.escalation.gravityPull ?? 0;
+      if (gravity > 0) {
+        const dx = game.portalX - player.x;
+        const dy = game.portalY - player.y;
+        const pull = Math.max(1, Math.hypot(dx, dy));
+        player.vx += (dx / pull) * gravity;
+        player.vy += (dy / pull) * gravity;
+      }
 
       if (intent.active && intent.heading !== null && game.cycles % 3 === 0) {
         const exhaust = intent.heading * DEG;
@@ -3258,7 +3512,7 @@ export default function WormholeGame() {
           game.portalCharge += bullet.damage;
           game.portalPulse = Math.max(game.portalPulse, 0.4);
           burst(game, bullet.x, bullet.y, "#ff5ac8", 4, 2.5);
-          if (game.portalCharge > PORTAL_THRESHOLD) {
+          if (game.portalCharge > game.portalThreshold) {
             game.portalCharge = 0;
             const type = randomPower();
             game.pickups.push({ x: game.portalX + range(-28, 28), y: game.portalY + range(-28, 28), vx: range(-1.2, 1.2), vy: range(-1.2, 1.2), type, life: 900, phase: range(0, 6) });
@@ -3329,7 +3583,11 @@ export default function WormholeGame() {
               spawnEnrageWave(game);
             }
 
-            if (game.rivalHealth <= 0) {
+            if (game.rivalHealth <= 0 && game.survival) {
+              // Survival has no win condition, so a collapsed rift is a reward
+              // rather than an ending: the arena clears and the rift reforms.
+              breachRift(game);
+            } else if (game.rivalHealth <= 0) {
               game.rivalHealth = 0;
               game.victorySequence = ticksForSeconds(VICTORY_TOTAL_SECONDS);
               game.victoryExplosionFired = false;
@@ -3401,7 +3659,14 @@ export default function WormholeGame() {
           game.notice = `${WEAPONS[attack.weapon as PowerId].short} FROM ${attack.from}`;
           game.noticeLife = 140;
         }
-      } else if ((game.mode !== "coop" || coopIsHost) && game.botTimer <= 0 && game.running) {
+      } else if (
+        // Survival schedules its own waves from the escalation table, so the
+        // PvE scheduler stands down rather than spawning alongside it.
+        !game.survival
+        && (game.mode !== "coop" || coopIsHost)
+        && game.botTimer <= 0
+        && game.running
+      ) {
         const pool: PowerId[] = game.cycles < 1800 ? ["heatseeker", "mines", "ufo", "inflator"] : SENDABLE_POWERUPS;
         const attack = pool[Math.floor(Math.random() * pool.length)];
         addIncoming(game, attack);
@@ -3474,7 +3739,7 @@ export default function WormholeGame() {
     }));
 
     const drawPortal = (game: Game, time: number, detail: number) => {
-      const charge = cap(game.portalCharge / PORTAL_THRESHOLD, 0, 1);
+      const charge = cap(game.portalCharge / game.portalThreshold, 0, 1);
       const swell = 1 + game.portalPulse * 0.18;
       const victory = game.victorySequence > 0 ? victoryVisualState(game.victorySequence, TICK_MS) : null;
       const collapseScale = victory ? victory.portalScale : 1;
@@ -3771,7 +4036,11 @@ export default function WormholeGame() {
       const shipOvercharge = overchargeFor(game.ship.id);
 
       ctx.setTransform(worldScale, 0, 0, worldScale, 0, 0);
-      const palette = ARENA_PALETTES[game.rules.id];
+      // Survival repaints the arena as it escalates, so the stage a run has
+      // reached is legible before a single word of HUD is read.
+      const palette = game.survival
+        ? SURVIVAL_PALETTES[game.survival.escalation.stage.id]
+        : ARENA_PALETTES[game.rules.id];
       const gradient = ctx.createRadialGradient(VIEW_WIDTH / 2, VIEW_HEIGHT / 2, 10, VIEW_WIDTH / 2, VIEW_HEIGHT / 2, VIEW_WIDTH * .58);
       gradient.addColorStop(0, palette[0]);
       gradient.addColorStop(.58, palette[1]);
@@ -4334,7 +4603,7 @@ export default function WormholeGame() {
         ctx.textAlign = "center";
         const title = game.paused ? "PAUSED"
           : game.result === "victory" ? "RIVAL ELIMINATED"
-            : game.result === "defeat" ? "SHIP DESTROYED"
+            : game.result === "defeat" ? game.survival ? "RUN ENDED" : "SHIP DESTROYED"
               : "BREACH RUNNER";
         ctx.fillStyle = game.result === "victory" ? "#b8ff72" : game.result === "defeat" ? "#ff7285" : "#eafcff";
         const titleSize = cap(W * 0.072, 24, 46);
@@ -4343,8 +4612,10 @@ export default function WormholeGame() {
         ctx.fillStyle = "#c6e3ea";
         ctx.font = mono(700, 13.5);
         const line = game.paused ? "PRESS P TO RESUME"
-          : game.result ? `SCORE ${game.score.toLocaleString()}  ·  PRESS ENTER OR RUN AGAIN`
-            : "CHOOSE A SHIP, THEN START MISSION";
+          : game.result && game.survival
+            ? `SURVIVED ${formatRunTime(Math.floor(game.elapsedTicks * TICK_MS / 1000))}  ·  RIFT LEVEL ${game.survival.peakLevel}`
+            : game.result ? `SCORE ${game.score.toLocaleString()}  ·  PRESS ENTER OR RUN AGAIN`
+              : "CHOOSE A SHIP, THEN START MISSION";
         ctx.fillText(fit(line, W - 32), W / 2, W / 2 + fs(13.5) * 0.6);
         ctx.fillStyle = "#8bacb5";
         ctx.font = mono(700, 12);
@@ -4589,17 +4860,45 @@ export default function WormholeGame() {
                   <section className="run-summary" aria-live="polite" aria-label="Run result">
                     {!summary.awaitingInitials ? <button className="run-close" type="button" onClick={() => setSummary(null)} aria-label="Dismiss run summary">✕</button> : null}
                     <p className="run-outcome" data-outcome={summary.run.outcome}>
-                      {summary.restored ? "LAST RUN" : summary.run.practice ? "PRACTICE COMPLETE" : summary.run.outcome === "victory" ? "RIVAL ELIMINATED" : "SHIP DESTROYED"}
+                      {summary.restored ? "LAST RUN"
+                        : summary.run.difficulty === "survival" ? `RIFT LEVEL ${summary.run.riftLevel ?? 1} REACHED`
+                          : summary.run.practice ? "PRACTICE COMPLETE"
+                            : summary.run.outcome === "victory" ? "RIVAL ELIMINATED" : "SHIP DESTROYED"}
                     </p>
-                    <p className="run-score"><span>FINAL SCORE</span><b>{summary.run.score.toLocaleString()}</b></p>
-                    <div className="score-settlement">
-                      <span>BASE <b>{(summary.run.baseScore ?? summary.run.score).toLocaleString()}</b></span>
-                      <span>TIME <b>{formatRunTime(summary.run.durationSeconds)}</b></span>
-                      <span>PENALTY <b>−{(summary.run.timePenalty ?? 0).toLocaleString()}</b></span>
-                    </div>
-                    <p className="run-meta">
-                      {summary.isBest ? "NEW DEVICE BEST" : summary.best ? `DEVICE BEST ${summary.best.score.toLocaleString()}` : "FIRST RUN ON THIS DEVICE"}
-                    </p>
+                    {/*
+                      Survival is scored on time, so time is what the card
+                      leads with. The base/penalty settlement below it belongs
+                      to the arcade modes and would only ever read as zero here.
+                    */}
+                    {summary.run.difficulty === "survival" ? (
+                      <>
+                        <p className="run-score"><span>SURVIVED</span><b>{formatRunTime(summary.run.durationSeconds)}</b></p>
+                        <div className="score-settlement">
+                          <span>RIFT LEVEL <b>{summary.run.riftLevel ?? 1}</b></span>
+                          <span>BREACHES <b>{summary.run.breaches ?? 0}</b></span>
+                          <span>SCORE <b>{summary.run.score.toLocaleString()}</b></span>
+                        </div>
+                        <p className="run-meta">
+                          {summary.isBest
+                            ? "NEW DEVICE BEST"
+                            : summary.survivalBest
+                              ? `DEVICE BEST ${formatRunTime(summary.survivalBest.durationSeconds)} · RIFT LEVEL ${summary.survivalBest.riftLevel}`
+                              : "FIRST SURVIVAL RUN ON THIS DEVICE"}
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="run-score"><span>FINAL SCORE</span><b>{summary.run.score.toLocaleString()}</b></p>
+                        <div className="score-settlement">
+                          <span>BASE <b>{(summary.run.baseScore ?? summary.run.score).toLocaleString()}</b></span>
+                          <span>TIME <b>{formatRunTime(summary.run.durationSeconds)}</b></span>
+                          <span>PENALTY <b>−{(summary.run.timePenalty ?? 0).toLocaleString()}</b></span>
+                        </div>
+                        <p className="run-meta">
+                          {summary.isBest ? "NEW DEVICE BEST" : summary.best ? `DEVICE BEST ${summary.best.score.toLocaleString()}` : "FIRST RUN ON THIS DEVICE"}
+                        </p>
+                      </>
+                    )}
 
                     {summary.awaitingInitials ? (
                       <form
@@ -4629,6 +4928,8 @@ export default function WormholeGame() {
                       </form>
                     ) : summary.run.practice ? (
                       <div className="run-save"><p className="run-status">PRACTICE RUN // NOT SAVED TO LEADERBOARDS</p></div>
+                    ) : summary.run.difficulty === "survival" ? (
+                      <div className="run-save"><p className="run-status ok">SURVIVAL TIME SAVED ON THIS DEVICE</p></div>
                     ) : (
                       <div className="run-save">
                         <p className="run-status ok">
@@ -4694,7 +4995,13 @@ export default function WormholeGame() {
                       >
                         CHANGE GAME MODE
                       </button>
-                      {mode === "pve" ? (
+                      {/*
+                        The global board ranks settled arcade scores. A survival
+                        run has none to compare against, so offering the link
+                        here would send the player to look for a result that was
+                        never sent.
+                      */}
+                      {mode === "pve" && summary.run.difficulty !== "survival" ? (
                         <button
                           type="button"
                           className="run-board-link"
@@ -4925,6 +5232,7 @@ export default function WormholeGame() {
           difficulty={difficulty}
           onMode={chooseMode}
           onDifficulty={chooseDifficulty}
+          onSurvival={chooseSurvival}
           onLaunch={launchFromMenu}
           go={go}
           back={back}

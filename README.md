@@ -29,6 +29,26 @@ The existing hostname and repository name are retained for development compatibi
 
 Difficulty rules include a stationary-rift collision-shield mode, a moving-rift mode, and a hard contact-hazard mode.
 
+### Challenges
+
+Challenges are solo runs that bring their own rules instead of their own opponent, and they are chosen under **Menu → Game Modes → Challenges** rather than from the difficulty list.
+
+- **Rift Survival** — endless. The arena gains a **Rift Level** every minute, and the mode has no win condition: time survived is the score.
+
+Survival escalates through five stages, and each one changes behaviour rather than inflating numbers:
+
+| Stage | From | What changes |
+| --- | --- | --- |
+| Stable | 0:00 | The rift holds centre. Ordinary hostile waves. |
+| Unstable | 2:00 | The rift breaks orbit, sweep beams appear, waves come faster, and the full hostile catalogue opens. |
+| Critical | 4:00 | Rift contact burns hull, and its contact radius keeps growing. |
+| Enraged | 6:00 | The rift enrages: it regenerates, answers with mixed waves, and mine storms intensify. |
+| Rift Collapse | 10:00 | Double sweep beams, a gravity well, a shielding rift, and the tightest wave cadence. |
+
+The rift is still worth attacking. Sending a power-up back through it damages its integrity as usual, and driving that to zero **breaches** it: the arena is swept, the run banks a bonus that scales with the Rift Level reached, and the rift reforms with more integrity than before. Runs end when the pilot's hull does.
+
+Survival escalation is data rather than loop logic. `app/survival.ts` owns the whole curve — the Rift Level clock, the stage table, the hazard cadences, and a `DifficultyRules` object re-derived on every level — and `tests/survival.test.mjs` checks it without a browser.
+
 ## Fleet
 
 The commercial-facing fleet currently contains eight distinct frames:
@@ -74,6 +94,8 @@ Touch play uses a twin-stick layout: the left stick controls movement and the ri
 A qualifying solo PvE score can be locked using three-character arcade initials. Initials are remembered on the device and reused until changed in **Menu → Game Info**. Practice runs are not submitted.
 
 The global board is designed like a classic arcade leaderboard: no account is required merely to enter initials and compete. Local bests are also retained on-device.
+
+Rift Survival is ranked by time rather than by a settled score, so it keeps its own on-device record and is deliberately excluded from the arcade global board. A dedicated survival board is planned separately.
 
 ## Multiplayer architecture
 

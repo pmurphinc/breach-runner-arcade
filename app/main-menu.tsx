@@ -28,6 +28,21 @@ export const MODE_INFO: Record<GameMode, { label: string; blurb: string }> = {
 
 export const MODE_ORDER: GameMode[] = ["pve", "coop", "pvp"];
 
+/**
+ * Challenges.
+ *
+ * A challenge is a solo run with its own rules rather than its own opponent,
+ * so it is chosen here instead of in the difficulty list — Rift Survival sets
+ * its own difficulty from the clock, and offering "Survival Easy" beside
+ * "Survival Hard" would be describing the same run twice.
+ */
+export const CHALLENGE_INFO = {
+  survival: {
+    label: "Rift Survival",
+    blurb: "Endless. The rift gains a level every minute. Time survived is the score.",
+  },
+} as const;
+
 /** Difficulty in the player's terms, derived from the rules rather than typed. */
 export function difficultyBlurb(id: DifficultyId) {
   const rules = DIFFICULTIES[id];
@@ -74,6 +89,9 @@ export function HomeScreen({
 }) {
   const profile = SHIP_PROFILES[ship];
   const network = mode !== "pve";
+  // A challenge runs solo, so it rides on the PvE mode and replaces the labels
+  // rather than adding a fourth mode nothing else in the shell knows about.
+  const survival = difficulty === "survival";
 
   return (
     <MenuScreen
@@ -103,11 +121,11 @@ export function HomeScreen({
           <div className="play-summary">
             <SummaryRow
               label="Mode"
-              value={MODE_INFO[mode].label}
-              detail={MODE_INFO[mode].blurb}
+              value={survival ? CHALLENGE_INFO.survival.label : MODE_INFO[mode].label}
+              detail={survival ? CHALLENGE_INFO.survival.blurb : MODE_INFO[mode].blurb}
               onAction={() => go("modes")}
             />
-            {mode === "pvp" ? null : (
+            {mode === "pvp" || survival ? null : (
               <SummaryRow
                 label="Difficulty"
                 value={difficultyLabel(difficulty)}
@@ -145,6 +163,7 @@ export function ModesScreen({
   difficulty,
   onMode,
   onDifficulty,
+  onSurvival,
   onLaunch,
   back,
 }: MenuCallbacks & {
@@ -152,8 +171,11 @@ export function ModesScreen({
   difficulty: DifficultyId;
   onMode: (next: GameMode) => void;
   onDifficulty: (next: DifficultyId) => void;
+  /** Switch the launch selection to the endless Rift Survival challenge. */
+  onSurvival: () => void;
   onLaunch: () => void;
 }) {
+  const survival = difficulty === "survival";
   return (
     <MenuScreen
       route="modes"
@@ -165,29 +187,54 @@ export function ModesScreen({
         </button>
       }
     >
-      <MenuSection>
-        <div className="mode-grid" role="radiogroup" aria-label="Game mode">
-          {MODE_ORDER.map((id) => (
-            <button
-              key={id}
-              type="button"
-              role="radio"
-              aria-checked={mode === id}
-              className={`mode-card ${mode === id ? "active" : ""}`}
-              data-mode={id}
-              onClick={() => onMode(id)}
-            >
-              <span className="option-check" aria-hidden="true">
-                {mode === id ? "✓" : ""}
-              </span>
-              <b>{MODE_INFO[id].label}</b>
-              <small>{MODE_INFO[id].blurb}</small>
-            </button>
-          ))}
+      <MenuSection title="Arcade">
+        <div className="mode-grid" role="radiogroup" aria-label="Arcade mode">
+          {MODE_ORDER.map((id) => {
+            // A challenge suppresses the arcade tick: the run about to launch
+            // is Survival, and two ticked cards would be two answers to one
+            // question.
+            const active = !survival && mode === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                className={`mode-card ${active ? "active" : ""}`}
+                data-mode={id}
+                onClick={() => onMode(id)}
+              >
+                <span className="option-check" aria-hidden="true">
+                  {active ? "✓" : ""}
+                </span>
+                <b>{MODE_INFO[id].label}</b>
+                <small>{MODE_INFO[id].blurb}</small>
+              </button>
+            );
+          })}
         </div>
       </MenuSection>
 
-      {mode === "pvp" ? null : (
+      <MenuSection title="Challenges" hint="Solo runs with their own rules.">
+        <div className="mode-grid" role="radiogroup" aria-label="Challenge">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={survival}
+            className={`mode-card ${survival ? "active" : ""}`}
+            data-mode="survival"
+            onClick={onSurvival}
+          >
+            <span className="option-check" aria-hidden="true">
+              {survival ? "✓" : ""}
+            </span>
+            <b>{CHALLENGE_INFO.survival.label}</b>
+            <small>{CHALLENGE_INFO.survival.blurb}</small>
+          </button>
+        </div>
+      </MenuSection>
+
+      {mode === "pvp" || survival ? null : (
         <MenuSection title="Difficulty">
           <OptionRow
             label="Difficulty"
@@ -493,6 +540,18 @@ export function InfoScreen({
               <dd>{difficultyBlurb(id)}</dd>
             </div>
           ))}
+        </dl>
+      </MenuSection>
+
+      <MenuSection title="Challenges">
+        <dl className="control-list">
+          <div>
+            <dt>{CHALLENGE_INFO.survival.label}</dt>
+            <dd>
+              {DIFFICULTIES.survival.blurb} The rift can still be breached: send power-ups back
+              through it to collapse it, clear the arena, and bank a bonus before it reforms.
+            </dd>
+          </div>
         </dl>
       </MenuSection>
 
