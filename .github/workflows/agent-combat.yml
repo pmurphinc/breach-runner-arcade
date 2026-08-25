@@ -18,6 +18,8 @@ jobs:
         with:
           node-version: "22"
           cache: npm
+      - name: Adapt combat patch helper
+        run: python .github/fix-combat-agent.py
       - name: Apply combat patch
         run: python .github/agent-combat.py
       - name: Install dependencies
