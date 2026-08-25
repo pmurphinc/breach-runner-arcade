@@ -89,6 +89,12 @@ for (const device of DEVICES) {
       );
       assert.ok(overflow <= 0, `horizontal overflow of ${overflow}px`);
 
+      // The main menu is the first thing every player sees.
+      const homeRoute = await page.evaluate(
+        () => document.querySelector(".menu-screen")?.dataset.route ?? null
+      );
+      assert.equal(homeRoute, "home", "the game must open on the main menu");
+
       const badge = await page.evaluate(() => {
         const el = document.querySelector(".difficulty-badge");
         if (!el) return null;
@@ -152,48 +158,103 @@ for (const device of DEVICES) {
         }
       }
 
-      const reachable = await page.evaluate(() => {
-        const visible = (el) => {
-          if (!el) return false;
-          const r = el.getBoundingClientRect();
-          return r.width > 0 && r.height > 0;
-        };
-        return (
-          visible(document.querySelector('.ship-panel [role="radiogroup"]')) ||
-          visible(document.querySelector(".top-menu-toggle"))
-        );
-      });
-      assert.ok(reachable, "the mode selector must be reachable");
-
-      await page.locator(".top-menu-toggle").click();
-      for (const tab of ["play", "display", "controls", "info"]) {
-        await page.locator(`#menu-tab-${tab}`).click();
-        const fit = await page.evaluate((id) => {
-          const drawer = document.querySelector(".settings-drawer");
-          const body = document.querySelector(".drawer-body");
-          const panel = document.querySelector(`#menu-panel-${id}`);
-          const close = document.querySelector(".drawer-close");
-          const back = document.querySelector(".drawer-primary");
-          const inside = (el) => {
+      /**
+       * The mandatory requirement, checked the way it actually fails.
+       *
+       * Menu and Fullscreen used to have real bounding boxes on every screen
+       * while another element owned every one of their pixels, so a visibility
+       * check passed and the buttons were still unusable. `elementFromPoint`
+       * is the check that catches that.
+       */
+      const systemReach = () =>
+        page.evaluate(() => {
+          const probe = (selector) => {
+            const el = document.querySelector(selector);
+            if (!el) return "absent";
             const r = el.getBoundingClientRect();
-            return r.left >= -1 && r.top >= -1 && r.right <= innerWidth + 1 && r.bottom <= innerHeight + 1;
+            if (r.width === 0 || r.height === 0) return "zero-size";
+            if (r.left < -1 || r.top < -1 || r.right > innerWidth + 1 || r.bottom > innerHeight + 1) {
+              return "offscreen";
+            }
+            if (r.height < 44) return `under 44px (${Math.round(r.height)})`;
+            const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+            return top === el || el.contains(top)
+              ? "ok"
+              : `covered by .${String(top?.className || top?.tagName).split(" ")[0]}`;
           };
+          return { menu: probe(".system-menu"), fullscreen: probe(".system-fullscreen") };
+        });
+
+      const fits = () =>
+        page.evaluate(() => {
+          const panel = document.querySelector(".menu-panel");
+          if (!panel) return null;
+          const r = panel.getBoundingClientRect();
           return {
-            drawer: inside(drawer), panel: inside(panel), close: inside(close), back: inside(back),
-            overflow: body.scrollHeight - body.clientHeight,
-            horizontal: drawer.scrollWidth - drawer.clientWidth,
+            inside: r.left >= -1 && r.top >= -1 && r.right <= innerWidth + 1 && r.bottom <= innerHeight + 1,
+            horizontal: panel.scrollWidth - panel.clientWidth,
+            pageScroll: document.documentElement.scrollHeight - document.documentElement.clientHeight,
           };
-        }, tab);
-        assert.ok(fit.drawer && fit.panel && fit.close && fit.back, `${tab} menu controls leave viewport: ${JSON.stringify(fit)}`);
-        assert.ok(fit.overflow <= 0, `${tab} menu has ${fit.overflow}px scrollable overflow`);
-        assert.ok(fit.horizontal <= 0, `${tab} menu has horizontal overflow`);
+        });
+
+      const screens = [
+        ["home", null],
+        ["ships", ".menu-nav button:nth-child(1)"],
+        ["leaderboard", ".menu-nav button:nth-child(2)"],
+        ["settings", ".menu-nav button:nth-child(3)"],
+        ["info", ".menu-nav button:nth-child(4)"],
+      ];
+
+      for (const [name, open] of screens) {
+        if (open) {
+          await page.locator(open).click();
+          await page.waitForTimeout(200);
+        }
+        const reach = await systemReach();
+        assert.equal(reach.menu, "ok", `${name}: Menu ${reach.menu}`);
+        assert.equal(reach.fullscreen, "ok", `${name}: Fullscreen ${reach.fullscreen}`);
+        const fit = await fits();
+        if (fit) {
+          assert.ok(fit.inside, `${name}: menu panel leaves the viewport`);
+          assert.ok(fit.horizontal <= 0, `${name}: menu panel scrolls horizontally`);
+          assert.ok(fit.pageScroll <= 0, `${name}: the page itself scrolls`);
+        }
+        if (open) {
+          await page.locator(".menu-back, .codex-close").first().click();
+          await page.waitForTimeout(200);
+        }
       }
-      const controlsFit = await page.evaluate(() => [...document.querySelectorAll(".top-menu-toggle,.top-start,.top-fullscreen,.top-pause")].map((el) => {
-        const r = el.getBoundingClientRect();
-        return { visible: r.width > 0 && r.height >= 44, inside: r.left >= -1 && r.right <= innerWidth + 1 };
-      }));
-      assert.ok(controlsFit.every((control) => control.visible && control.inside), `top controls do not fit: ${JSON.stringify(controlsFit)}`);
-      await page.locator(".drawer-close").click();
+
+      // Modes, reached from the Play panel's own summary row.
+      await page.locator(".summary-action").first().click();
+      await page.waitForTimeout(200);
+      let reach = await systemReach();
+      assert.equal(reach.menu, "ok", `modes: Menu ${reach.menu}`);
+      assert.equal(reach.fullscreen, "ok", `modes: Fullscreen ${reach.fullscreen}`);
+      await page.locator(".menu-back").click();
+      await page.waitForTimeout(200);
+
+      // Gameplay: the controls stay reachable while a run is live.
+      await page.locator(".menu-footer .play-button").click();
+      await page.waitForTimeout(1200);
+      reach = await systemReach();
+      assert.equal(reach.menu, "ok", `gameplay: Menu ${reach.menu}`);
+      assert.equal(reach.fullscreen, "ok", `gameplay: Fullscreen ${reach.fullscreen}`);
+
+      // Menu during a run opens Pause, and Pause offers Resume.
+      await page.locator(".system-menu").click();
+      await page.waitForTimeout(300);
+      const paused = await page.evaluate(
+        () => document.querySelector(".menu-screen")?.dataset.route ?? null
+      );
+      assert.equal(paused, "pause", "Menu during a run must open the pause screen");
+      reach = await systemReach();
+      assert.equal(reach.menu, "ok", `pause: Menu ${reach.menu}`);
+      assert.equal(reach.fullscreen, "ok", `pause: Fullscreen ${reach.fullscreen}`);
+      await page.locator(".menu-footer .play-button").click();
+      await page.waitForTimeout(300);
+      const resumed = await page.evaluate(() => document.querySelector(".menu-screen") === null);
+      assert.ok(resumed, "Resume must return to the game");
 
       assert.deepEqual(errors, [], "console errors");
       await context.close();

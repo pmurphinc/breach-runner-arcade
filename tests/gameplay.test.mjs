@@ -51,15 +51,15 @@ async function openGame(browser, difficulty) {
   );
   await page.goto(URL_UNDER_TEST, { waitUntil: "networkidle" });
 
-  // The launch flow runs through the ship-selection scene: confirm a ship,
-  // choose the difficulty in Mission Setup, then launch.
-  await page.waitForSelector(".detail-select", { timeout: 15_000 });
-  await page.locator(".detail-select").click();
-  await page.waitForTimeout(800);
-  await page.locator(".mission-setup [role=radio]", { hasText: difficulty }).first().click();
+  // The launch flow runs through the main menu: open Game Modes from the
+  // Play panel's difficulty summary, choose the difficulty, then launch.
+  await page.waitForSelector(".menu-screen[data-route='home']", { timeout: 15_000 });
+  await page.locator(".summary-action").first().click();
+  await page.waitForTimeout(400);
+  await page.locator(".option-choices [role=radio]", { hasText: difficulty }).first().click();
   await page.waitForTimeout(250);
-  await page.locator(".setup-launch").click();
-  await page.waitForTimeout(500);
+  await page.locator(".menu-footer .play-button").click();
+  await page.waitForTimeout(700);
   return { context, page };
 }
 
@@ -165,7 +165,7 @@ test("DIFFICULT: the same wall contact reaches hull, with no shield", { skip }, 
   const browser = await chromium.launch({ executablePath: CHROME });
   try {
     const { context, page } = await openGame(browser, "DIFFICULT");
-    assert.match(await badgeOf(page), /SHIELD DISABLED/, "difficult grants no shield");
+    assert.match(await badgeOf(page), /NO COLLISION SHIELD/, "difficult grants no shield");
 
     const startingHull = await hullOf(page);
     await hold(page);
@@ -203,12 +203,13 @@ test("HARD: the contact hazard is armed and the wormhole moves", { skip }, async
   const { chromium } = playwright;
   const browser = await chromium.launch({ executablePath: CHROME });
   try {
-    const { context, page } = await openGame(browser, "HARD MODE");
+    // The difficulty option reads HARD; the badge still says HARD MODE.
+    const { context, page } = await openGame(browser, "HARD");
     const badge = await badgeOf(page);
-    assert.match(badge, /HARD MODE/);
-    assert.match(badge, /WORMHOLE MOVING/);
-    assert.match(badge, /CONTACT ARMED/);
-    assert.match(badge, /SHIELD DISABLED/);
+    assert.match(badge, /HARD/);
+    assert.match(badge, /RIFT MOVING/);
+    assert.match(badge, /CONTACT HAZARD/);
+    assert.match(badge, /NO COLLISION SHIELD/);
     await context.close();
   } finally {
     await browser.close();
@@ -246,24 +247,34 @@ test("WASD and the arrows move the ship in world space", { skip }, async () => {
   try {
     const { context, page } = await openGame(browser, "DIFFICULT");
 
-    // Arena camera, so screen movement maps to world movement. The settings
-    // panel is collapsed on every device, so open the menu to reach it.
-    // Arena camera, so screen movement maps to world movement. It lives in
-    // the settings drawer now.
-    await page.locator(".top-menu-toggle").click();
+    // Arena camera, so screen movement maps to world movement. Releasing the
+    // camera lock is what selects it, and it lives in Settings, reached from
+    // the pause menu via the global Menu control.
+    await page.locator(".system-menu").click();
     await page.waitForTimeout(300);
-    // Scope to the camera group: "ARENA FOCUS" in the screen-preset group
-    // also contains "ARENA", and matching that would change the preset.
+    await page.locator(".pause-actions button", { hasText: "Settings" }).click();
+    await page.waitForTimeout(300);
     await page
-      .locator('.settings-drawer .segmented', { hasText: "CAMERA" })
-      .locator('[role=radio]', { hasText: "ARENA" })
+      .locator(".ui-toggle", { hasText: "Camera lock" })
+      .locator("[role=switch]")
       .click();
+    await page.waitForTimeout(200);
+    await page.keyboard.press("Escape");
     await page.waitForTimeout(200);
     await page.keyboard.press("Escape");
     await page.waitForTimeout(300);
 
+    // Restart lives in the pause menu now: the top bar no longer carries a
+    // control that throws the run away.
+    const restart = async () => {
+      await page.locator(".system-menu").click();
+      await page.waitForTimeout(300);
+      await page.locator(".pause-actions button", { hasText: "Restart Run" }).click();
+      await page.waitForTimeout(500);
+    };
+
     const drive = async (codes, ms = 1100) => {
-      await page.locator(".start-button").click();
+      await restart();
       await page.waitForTimeout(500);
       const before = await shipAt(page);
       for (const code of codes) await page.keyboard.down(code);
@@ -316,6 +327,124 @@ test("WASD and the arrows move the ship in world space", { skip }, async () => {
     const controls = await page.locator(".controls").innerText();
     assert.match(controls, /MOVE UP/);
     assert.doesNotMatch(controls, /ROTATE/, "the rotate instruction must be gone");
+
+    await context.close();
+  } finally {
+    await browser.close();
+  }
+});
+
+test("a run cannot be resumed after its ship or mode is changed", { skip }, async () => {
+  const { chromium } = playwright;
+  const browser = await chromium.launch({ executablePath: CHROME });
+  try {
+    const { context, page } = await openGame(browser, "EASY");
+
+    // A run is live and the badge reports the rules it is actually running.
+    const startingBadge = await badgeOf(page);
+    assert.match(startingBadge, /PVE · EASY/, `expected an EASY run, got ${startingBadge}`);
+    assert.equal(
+      await page.evaluate(() => document.querySelector(".menu-screen") === null),
+      true,
+      "the run should be unobstructed before we open the menu"
+    );
+
+    // Menu during a run opens Pause, and Pause offers no way to change the
+    // configuration without saying it ends the run.
+    await page.locator(".system-menu").click();
+    await page.waitForTimeout(300);
+    assert.equal(
+      await page.evaluate(() => document.querySelector(".menu-screen")?.dataset.route ?? null),
+      "pause",
+      "Menu during a run must open Pause"
+    );
+    const pauseText = (await page.locator(".menu-panel").innerText()).toUpperCase();
+    assert.ok(pauseText.includes("END RUN & CHANGE SHIP"), "changing ship must be labelled destructive");
+    assert.ok(pauseText.includes("END RUN & CHANGE MODE"), "changing mode must be labelled destructive");
+
+    // Take the destructive action.
+    await page.locator(".pause-actions button", { hasText: "End Run & Change Ship" }).click();
+    await page.waitForTimeout(500);
+    assert.equal(
+      await page.evaluate(() => document.querySelector(".menu-screen")?.dataset.route ?? null),
+      "ships",
+      "ending the run should land on Ships"
+    );
+
+    // Pick a different ship from the one the run was flying.
+    const chosen = await page.evaluate(() => {
+      const current = document.querySelector(".ship-card.active");
+      const next = [...document.querySelectorAll(".ship-card")].find((card) => card !== current);
+      next.click();
+      return next.querySelector("b").textContent.trim();
+    });
+    await page.waitForTimeout(300);
+    assert.match(await page.locator(".ship-detail h3").innerText(), new RegExp(chosen, "i"));
+
+    // The old run must be gone, not merely hidden behind the menu. Pressing
+    // Menu resolves to Home rather than Pause precisely because no run exists.
+    await page.locator(".system-menu").click();
+    await page.waitForTimeout(400);
+    assert.equal(
+      await page.evaluate(() => document.querySelector(".menu-screen")?.dataset.route ?? null),
+      "home",
+      "with the run ended, Menu must resolve to Home rather than Pause"
+    );
+
+    // And Home describes the newly chosen ship, so nothing is left resumable
+    // under a label that does not match it.
+    assert.match(await page.locator(".play-summary").innerText(), new RegExp(chosen, "i"));
+
+    // Escape must not smuggle the player back into the dead simulation.
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(400);
+    assert.equal(
+      await page.evaluate(() => document.querySelector(".menu-screen")?.dataset.route ?? null),
+      "home",
+      "there is no run to escape back into"
+    );
+
+    await context.close();
+  } finally {
+    await browser.close();
+  }
+});
+
+test("with no run, Menu returns to Home instead of an empty cockpit", { skip }, async () => {
+  const { chromium } = playwright;
+  const browser = await chromium.launch({ executablePath: CHROME });
+  try {
+    const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const page = await context.newPage();
+    await page.route("https://murphtournaments.com/**", (route) =>
+      route.fulfill({ json: { signedIn: false, player: null } })
+    );
+    await page.goto(URL_UNDER_TEST, { waitUntil: "networkidle" });
+    await page.waitForSelector(".menu-screen[data-route='home']", { timeout: 15_000 });
+
+    const routeNow = () =>
+      page.evaluate(() => document.querySelector(".menu-screen")?.dataset.route ?? null);
+
+    // Fresh launch, no run: Menu on Home is a no-op, not an exit.
+    await page.locator(".system-menu").click();
+    await page.waitForTimeout(400);
+    assert.equal(await routeNow(), "home", "Menu on Home with no run must stay on Home");
+
+    // From a deeper screen it returns to the root rather than closing.
+    await page.locator(".menu-nav button", { hasText: "Settings" }).click();
+    await page.waitForTimeout(300);
+    assert.equal(await routeNow(), "settings");
+    await page.locator(".system-menu").click();
+    await page.waitForTimeout(400);
+    assert.equal(await routeNow(), "home", "Menu from a screen with no run must return Home");
+
+    // Same from Ships.
+    await page.locator(".menu-nav button", { hasText: "Ships" }).click();
+    await page.waitForTimeout(300);
+    assert.equal(await routeNow(), "ships");
+    await page.locator(".system-menu").click();
+    await page.waitForTimeout(400);
+    assert.equal(await routeNow(), "home", "Menu from Ships with no run must return Home");
 
     await context.close();
   } finally {

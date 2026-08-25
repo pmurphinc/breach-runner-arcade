@@ -1,8 +1,23 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 
 const game = await readFile(new URL('../app/game.tsx', import.meta.url), 'utf8');
+const menu = await readFile(new URL('../app/main-menu.tsx', import.meta.url), 'utf8');
+const routes = await readFile(new URL('../app/menu-routes.ts', import.meta.url), 'utf8');
+const systemControls = await readFile(new URL('../app/system-controls.tsx', import.meta.url), 'utf8');
+
+/**
+ * Source with comments removed.
+ *
+ * These assertions are about what the code does, not about what the comments
+ * say. A comment explaining why the first-launch gate was removed must not be
+ * read as evidence that it is still there.
+ */
+const stripComments = (source) =>
+  source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+const gameCode = stripComments(game);
 const settings = await readFile(new URL('../app/view-settings.ts', import.meta.url), 'utf8');
 const css = await readFile(new URL('../app/globals.css', import.meta.url), 'utf8');
 
@@ -11,31 +26,70 @@ test('view modes are explicit, typed, and versioned', () => {
   assert.match(settings, /wormhole-arcade:settings:v1/);
   assert.match(settings, /viewMode: null/);
   assert.match(settings, /playerInitials: ""/);
-  assert.doesNotMatch(game.slice(game.indexOf('label="VIEW MODE"'), game.indexOf('label="CAMERA LOCK"')), /AUTO/);
+  assert.match(settings, /soundLevel/);
 });
 
-test('first launch requires an explicit choice', () => {
-  assert.match(game, /if \(!viewMode\)/);
-  assert.match(game, /Choose Your View/);
-  assert.match(game, /settingsStore\.update\(\{ viewMode: mode \}\)/);
+test('first launch infers the view instead of blocking on a chooser', () => {
+  // The old gate rendered a "Choose Your View" screen and nothing else until
+  // the player answered, so the game never mounted on first visit — which is
+  // what broke every browser test on main. Capability answers it instead.
+  assert.doesNotMatch(gameCode, /Choose Your View/);
+  assert.doesNotMatch(gameCode, /if \(!viewMode\)/);
+  assert.doesNotMatch(gameCode, /choose-shell/);
+  assert.match(game, /resolveViewMode\(settings\.viewMode, capability\)/);
+  assert.match(settings, /export function resolveViewMode/);
+  assert.match(settings, /export function inferViewMode/);
+  // Capability is subscribed, not sniffed: no user-agent, no device lists.
+  assert.match(settings, /capabilityStore/);
+  assert.doesNotMatch(settings, /userAgent/);
 });
 
-test('menus expose only requested setting groups', () => {
-  const display = game.slice(game.indexOf('id="menu-panel-display"'), game.indexOf('id="menu-panel-controls"'));
-  assert.match(display, /VIEW MODE/);
-  assert.match(display, /CAMERA LOCK/);
-  assert.doesNotMatch(display, /SCREEN FIT|RENDER QUALITY|FULLSCREEN|SHELL/);
-  const controls = game.slice(game.indexOf('id="menu-panel-controls"'), game.indexOf('id="menu-panel-info"'));
-  for (const label of ['SOUND', 'THUMBSTICKS', 'TOUCH CONTROL SIZE']) assert.match(controls, new RegExp(label));
-  assert.match(game, /role="switch" aria-checked=\{value\}/);
-  assert.match(game, /Available in Touch or Hybrid view/);
+test('the menu is one navigation stack rather than independent booleans', () => {
+  assert.match(routes, /export type MenuStack/);
+  assert.match(routes, /export function menuButtonTarget/);
+  assert.match(game, /const \[menu, setMenu\] = useState<MenuStack>\(INITIAL_STACK\)/);
+  // The screens these replaced must be gone, not merely unused.
+  for (const dead of ['setStage', 'lobbyOpen', 'boardOpen', 'MissionSetup', 'SettingsDrawer', 'ViewChooser']) {
+    assert.doesNotMatch(gameCode, new RegExp(`\\b${dead}\\b`), `${dead} should be removed`);
+  }
+});
+
+test('Menu and Fullscreen are one global layer above every screen', () => {
+  // Exactly one implementation, rendered once.
+  assert.equal((game.match(/<GlobalSystemControls/g) ?? []).length, 1);
+  assert.match(systemControls, /className="system-controls"/);
+  // Fullscreen state is observed, never assumed from the request resolving.
+  assert.match(systemControls, /fullscreenchange/);
+  assert.match(systemControls, /webkitfullscreenchange/);
+  assert.match(systemControls, /fullscreenEnabled/);
+  assert.match(systemControls, /Exit Fullscreen/);
+  // The layer outranks every other layer, and screens sit below it.
+  assert.match(css, /--z-system:\s*400/);
+  assert.match(css, /\.system-controls\s*\{[^}]*z-index:\s*var\(--z-system\)/s);
+  assert.match(css, /\.menu-screen\s*\{[^}]*z-index:\s*var\(--z-screen\)/s);
+  // Safe-area insets on all four sides of the layer's own box.
+  assert.match(css, /\.system-controls\s*\{[^}]*var\(--safe-top\)[^}]*var\(--safe-right\)/s);
+});
+
+test('settings are consolidated into Controls, Audio and Display', () => {
+  const settingsScreen = menu.slice(menu.indexOf('export function SettingsScreen'), menu.indexOf('export function InfoScreen'));
+  for (const group of ['Controls', 'Audio', 'Display']) {
+    assert.match(settingsScreen, new RegExp(`title="${group}"`));
+  }
+  for (const label of ['Thumbsticks', 'Touch control size', 'Sound', 'Volume', 'Camera lock']) {
+    assert.match(settingsScreen, new RegExp(label));
+  }
+  // Fullscreen must never live only in Settings — it is a global control.
+  assert.doesNotMatch(settingsScreen, /Fullscreen/);
+  const ui = readFileSync(new URL('../app/ui-system.tsx', import.meta.url), 'utf8');
+  assert.match(ui, /role="switch"/);
 });
 
 test('initials are a remembered device identity with no Discord prompt', () => {
-  const info = game.slice(game.indexOf('id="menu-panel-info"'), game.indexOf('</section>', game.indexOf('id="menu-panel-info"')));
+  const settingsScreen = menu.slice(menu.indexOf('export function SettingsScreen'), menu.indexOf('export function InfoScreen'));
   const summary = game.slice(game.indexOf('{summary.awaitingInitials ? ('), game.indexOf('className={`death-info'));
-  assert.match(info, /PLAYER INITIALS/);
-  assert.match(info, /USED AUTOMATICALLY FOR FUTURE SCORES/);
+  assert.match(settingsScreen, /menu-player-initials/);
+  assert.match(settingsScreen, /Used automatically for future scores/);
   assert.match(settings, /playerInitials: normalizePlayerInitials/);
   assert.match(summary, /type="submit".*LOCK SCORE/);
   assert.match(summary, /SCORE LOCKED/);
@@ -166,24 +220,33 @@ test('landscape tablets reuse the full arena shell and corner controls', () => {
 });
 
 
-test('mission setup has a viewport action and semantic option colors', () => {
-  assert.match(game, /data-choice=\{option\.id\}/);
-  const mission = css.slice(css.indexOf('Mission Setup uses semantic color families'));
-  for (const [choice, color] of [
-    ['pve', 'var\\(--cyan\\)'],
-    ['pvp', '#ff5f70'],
-    ['easy', 'var\\(--lime\\)'],
-    ['difficult', 'var\\(--amber\\)'],
-    ['hard', '#ff4058'],
-  ]) {
-    assert.match(mission, new RegExp(`data-choice="${choice}"[^}]+--mission-choice: ${color}`));
-  }
-  assert.match(mission, /aria-checked="true"/);
-  const launch = css.slice(css.indexOf("Match Ship Select's touch action dock"));
-  assert.match(launch, /\.touch-capable \.setup-launch[\s\S]*position:\s*fixed/);
-  assert.match(launch, /right:\s*max\(7px, var\(--safe-right\)\)/);
-  assert.match(launch, /left:\s*max\(7px, var\(--safe-left\)\)/);
-  assert.match(launch, /bottom:\s*max\(7px, var\(--safe-bottom\)\)/);
+test('the menu adapts by available space, not by device', () => {
+  // The one structural shift is a container query on the panel's own width, so
+  // the same component composes correctly at any viewport and inside a drawer.
+  assert.match(css, /@container menu \(min-width: 720px\)/);
+  assert.match(css, /container-type:\s*inline-size/);
+  // Reflow comes from intrinsic grids rather than a pile of breakpoints.
+  assert.match(css, /\.menu-nav\s*\{[^}]*repeat\(auto-fit, minmax\(200px, 1fr\)\)/s);
+  assert.match(css, /\.mode-grid\s*\{[^}]*repeat\(auto-fit, minmax\(230px, 1fr\)\)/s);
+  assert.match(css, /\.ship-grid\s*\{[^}]*repeat\(auto-fit, minmax\(128px, 1fr\)\)/s);
+  // Short viewports scroll the content region, never the page, and never by
+  // hiding the primary action.
+  assert.match(css, /\.menu-panel\s*\{[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\) auto/s);
+  assert.match(css, /\.menu-content\s*\{[^}]*overflow-y:\s*auto/s);
+  // Targets have a floor, and it is not "however small it needs to be".
+  assert.match(css, /--control-h:\s*clamp\(44px/);
+  assert.match(css, /--touch-target:\s*44px/);
+  // The measured arena budget is no longer overridden by an !important query.
+  assert.doesNotMatch(css, /--arena-size:[^;]*!important/);
+});
+
+test('difficulty and mode copy is derived from the rules, not retyped', () => {
+  assert.match(menu, /export function difficultyBlurb/);
+  assert.match(menu, /DIFFICULTIES\[id\]/);
+  assert.match(menu, /rules\.unlimitedHull/);
+  // One label per mode, defined once and reused by every screen.
+  assert.match(menu, /export const MODE_INFO/);
+  assert.equal((menu.match(/Solo PvE/g) ?? []).length, 1);
 });
 
 
@@ -195,4 +258,42 @@ test('arena world and viewport use the shared 1504 by 940 ratio', () => {
   assert.match(game, /width=\{VIEW_WIDTH\}[\s\S]*height=\{VIEW_HEIGHT\}/);
   assert.match(css, /aspect-ratio:\s*1504\/940/);
   assert.doesNotMatch(game, /worldSize:/);
+});
+
+test('the pause menu cannot mutate a run the player can resume into', () => {
+  const pause = menu.slice(menu.indexOf('export function PauseScreen'));
+  // Ship and mode changes are destructive by name and by handler: they end the
+  // run before opening the next screen. A plain go("ships") / go("modes") here
+  // would leave the old game object alive and resumable while the labels
+  // described a different one.
+  assert.match(pause, /End Run &amp; Change Ship/);
+  assert.match(pause, /End Run &amp; Change Mode/);
+  assert.match(pause, /onClick=\{onEndRunAndChangeShip\}/);
+  assert.match(pause, /onClick=\{onEndRunAndChangeMode\}/);
+  assert.doesNotMatch(pause, /go\("ships"\)/, 'ships must not be reachable without ending the run');
+  assert.doesNotMatch(pause, /go\("modes"\)/, 'modes must not be reachable without ending the run');
+
+  // Both funnel through endRun, which tears the run down before navigating.
+  assert.match(gameCode, /onEndRunAndChangeShip=\{\(\) => endRun\("ships"\)\}/);
+  assert.match(gameCode, /onEndRunAndChangeMode=\{\(\) => endRun\("modes"\)\}/);
+  const endRun = gameCode.slice(gameCode.indexOf('const endRun = useCallback'), gameCode.indexOf('const quitRun'));
+  assert.match(endRun, /game\.running = false/);
+  assert.match(endRun, /setLaunched\(false\)/);
+  assert.match(endRun, /gameRef\.current = createGame/);
+  // The match is left through the client that owns it, chosen by the running
+  // game's mode rather than by the stored preference.
+  assert.match(endRun, /game\.mode !== "pve"[\s\S]*?netRef\.current\?\.leave\(\)/);
+
+  // Pause describes the live run, not the preference.
+  assert.match(gameCode, /mode=\{hud\.mode\}/);
+  assert.match(gameCode, /pausable=\{hud\.mode === "pve"\}/);
+});
+
+test('Restart Run is solo-only, because the server owns a live match', () => {
+  const pause = menu.slice(menu.indexOf('export function PauseScreen'));
+  assert.match(pause, /const network = mode !== "pve"/);
+  // Restart is rendered only when the run is not a network match.
+  assert.match(pause, /\{network \? null : \([\s\S]*?Restart Run[\s\S]*?\)\}/);
+  // Leaving is named for what it does in each mode.
+  assert.match(pause, /network \? "Leave Match" : "Quit to Main Menu"/);
 });

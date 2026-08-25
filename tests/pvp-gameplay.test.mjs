@@ -76,13 +76,13 @@ test("two guests play a PvP match end to end", { skip, timeout: 240_000 }, async
         r.fulfill({ json: { signedIn: false, player: null } })
       );
       await page.goto(service.base, { waitUntil: "networkidle" });
-      // The launch flow now runs through the ship-selection scene: confirm a
-      // ship, then pick PVP in Mission Setup, which opens the lobby.
-      await page.locator(".detail-select").click();
-      await page.waitForTimeout(800);
-      await page.locator('.mission-setup [role=radio]', { hasText: "PVP 1V1" }).first().click();
+      // The game opens on the main menu. Change the mode to PvP, then Play —
+      // which routes to the lobby rather than launching into nothing.
+      await page.locator(".summary-action").first().click();
+      await page.waitForTimeout(400);
+      await page.locator('.mode-card', { hasText: "PvP 1v1" }).first().click();
       await page.waitForTimeout(300);
-      await page.locator(".setup-launch").click();
+      await page.locator(".menu-footer .play-button").click();
       await page.waitForSelector(".lobby", { timeout: 15_000 });
       // Wait for usability, not for the word OFFLINE to vanish: "CONNECTING"
       // also lacks it while the buttons are still disabled.
@@ -146,8 +146,10 @@ test("two guests play a PvP match end to end", { skip, timeout: 240_000 }, async
 
     assert.match(
       (await alpha.locator(".difficulty-badge").innerText()).replace(/\s+/g, " "),
-      /PVP \/\/ EASY RULES WORMHOLE LOCKED SHIELD FULL CONTACT OFF/,
-      "PvP runs Easy rules with a centred wormhole and no contact hazard"
+      // Same guarantee, current vocabulary: the badge says RIFT rather than
+      // WORMHOLE and reports contact as SAFE rather than OFF.
+      /PVP · EASY RIFT LOCKED SHIELD FULL CONTACT SAFE/,
+      "PvP runs Easy rules with a centred rift and no contact hazard"
     );
 
     // The PvE rival objective must not appear as a second victory condition.
@@ -155,14 +157,46 @@ test("two guests play a PvP match end to end", { skip, timeout: 240_000 }, async
     assert.doesNotMatch(matchBar, /RIVAL INTEGRITY/, "rival integrity has no place in PvP");
     assert.match(matchBar, /OPPONENT HULL/, "PvP is decided by opponent hull");
 
-    // P must not pause a live match.
+    // P must not pause a live match. It opens the same pause screen every mode
+    // uses, which says so rather than pretending the world stopped.
     await alpha.keyboard.press("KeyP");
     await alpha.waitForTimeout(700);
+    assert.equal(
+      await alpha.evaluate(() => document.querySelector(".menu-screen")?.dataset.route ?? null),
+      "pause",
+      "P opens the pause screen"
+    );
     assert.match(
       await alpha.locator(".coach-strip").innerText(),
       /NO PAUSE|MATCH CONTINUES/,
       "a live match cannot be paused"
     );
+
+    // Restart is a client-side start(). In a live match the server owns the
+    // session, so restarting locally would desync the two clients rather than
+    // begin anything: the action must not be on offer at all.
+    const livePause = (await alpha.locator(".menu-panel").innerText()).toUpperCase();
+    assert.ok(
+      !livePause.includes("RESTART RUN"),
+      `a live match must not offer Restart Run: ${livePause}`
+    );
+    assert.equal(
+      await alpha.locator('.pause-actions button:text-is("Restart Run")').count(),
+      0,
+      "Restart Run must not be rendered during a live match"
+    );
+    // Leaving is named for a match rather than a solo run, and the actions a
+    // live match can legitimately offer are still present.
+    assert.ok(livePause.includes("LEAVE MATCH"), "a live match leaves rather than quits a run");
+    for (const action of ["RESUME", "SETTINGS", "GAME INFO", "LEADERBOARD"]) {
+      assert.ok(livePause.includes(action), `live pause is missing ${action}`);
+    }
+
+    // Resume before flying again: an open menu owns the keyboard, so movement
+    // keys must not reach the ship behind it.
+    await alpha.keyboard.press("KeyP");
+    await alpha.waitForFunction(() => document.querySelector(".menu-screen") === null, null, { timeout: 5_000 });
+    await alpha.waitForTimeout(300);
 
     // Collisions spend the server-held shield before any hull is lost.
     const hullOf = () => alpha.locator(".pvp-side.you > span > i").innerText();
