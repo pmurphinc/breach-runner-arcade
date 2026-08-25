@@ -17,7 +17,7 @@ import { SHIP_ORDER, SHIP_PROFILES } from "./ship-data";
 import { DIFFICULTIES, DIFFICULTY_ORDER, type DifficultyId, type GameMode } from "./difficulty";
 import { PRODUCT_TAGLINE, PRODUCT_TITLE } from "./product";
 import type { MenuRoute } from "./menu-routes";
-import type { SoundLevel, TouchControlSize, ViewMode, ZoomLevel } from "./view-settings";
+import type { CombatHaptics, SoundLevel, TouchControlSize, ViewMode, ZoomLevel } from "./view-settings";
 
 /** One line each. A mode a player cannot summarise is a mode they will not pick. */
 export const MODE_INFO: Record<GameMode, { label: string; blurb: string }> = {
@@ -374,6 +374,10 @@ export function SettingsScreen({
   onSound,
   soundLevel,
   onSoundLevel,
+  combatHaptics,
+  onCombatHaptics,
+  cannonHitSound,
+  onCannonHitSound,
   cameraLock,
   onCameraLock,
   zoom,
@@ -392,6 +396,10 @@ export function SettingsScreen({
   onSound: (next: boolean) => void;
   soundLevel: SoundLevel;
   onSoundLevel: (next: SoundLevel) => void;
+  combatHaptics: CombatHaptics;
+  onCombatHaptics: (next: CombatHaptics) => void;
+  cannonHitSound: boolean;
+  onCannonHitSound: (next: boolean) => void;
   cameraLock: boolean;
   onCameraLock: (next: boolean) => void;
   zoom: ZoomLevel;
@@ -431,6 +439,17 @@ export function SettingsScreen({
           ]}
           onChange={onTouchSize}
         />
+        <OptionRow
+          label="Vibration"
+          value={combatHaptics}
+          options={[
+            { id: "off", label: "Off" },
+            { id: "gun", label: "Gun Feedback", hint: "Pulse when your cannon hits" },
+            { id: "hull", label: "Hull Feedback", hint: "Pulse when hull takes damage" },
+            { id: "both", label: "Both" },
+          ]}
+          onChange={onCombatHaptics}
+        />
       </MenuSection>
 
       <MenuSection title="Audio">
@@ -445,6 +464,13 @@ export function SettingsScreen({
             { id: "high", label: "High" },
           ]}
           onChange={onSoundLevel}
+        />
+        <Toggle
+          label="Cannon Hit Sound"
+          value={cannonHitSound}
+          onChange={onCannonHitSound}
+          disabled={!sound}
+          hint="Short impact marker for normal pulse-cannon hits"
         />
       </MenuSection>
 

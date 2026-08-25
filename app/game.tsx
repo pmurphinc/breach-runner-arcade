@@ -54,6 +54,7 @@ import {
   SOUND_GAIN,
   VIEW_PROFILES,
   ZOOM_SCALE,
+  type CombatHaptics,
   type SoundLevel,
   type ZoomLevel,
 } from "./view-settings";
@@ -88,6 +89,7 @@ import {
   type LayoutBudget,
   type ScreenPreset,
 } from "./layout-budget";
+import { cannonPlaybackRate, hapticsAllow } from "./combat-feedback";
 import {
   MOVEMENT_CODES,
   applyIntent,
@@ -1600,6 +1602,8 @@ export default function WormholeGame() {
   const codexOpenRef = useRef(false);
   const soundRef = useRef(true);
   const soundLevelRef = useRef<SoundLevel>("medium");
+  const combatHapticsRef = useRef<CombatHaptics>("both");
+  const cannonHitSoundRef = useRef(true);
   const cameraRef = useRef(true);
   const zoomRef = useRef<ZoomLevel>("standard");
   const qualityRef = useRef<QualityMode>("auto");
@@ -1637,6 +1641,8 @@ export default function WormholeGame() {
   useEffect(() => { codexOpenRef.current = codexOpen; }, [codexOpen]);
   useEffect(() => { soundRef.current = sound; }, [sound]);
   useEffect(() => { soundLevelRef.current = settings.soundLevel; }, [settings.soundLevel]);
+  useEffect(() => { combatHapticsRef.current = settings.combatHaptics; }, [settings.combatHaptics]);
+  useEffect(() => { cannonHitSoundRef.current = settings.cannonHitSound; }, [settings.cannonHitSound]);
   useEffect(() => { cameraRef.current = cameraLocked; }, [cameraLocked]);
   useEffect(() => { zoomRef.current = settings.zoom; }, [settings.zoom]);
   useEffect(() => { qualityRef.current = quality; }, [quality]);
@@ -1795,7 +1801,7 @@ export default function WormholeGame() {
   }, [stopVictorySuction]);
 
   /** Pooled playback: three reusable elements per clip instead of one per shot. */
-  const play = useCallback((name: "fire" | "explosion" | "magic" | "thrust", volume = 0.22) => {
+  const play = useCallback((name: "fire" | "explosion" | "magic" | "thrust", volume = 0.22, playbackRate = 1) => {
     if (!soundRef.current) return;
     let clips = audioPool.current.get(name);
     if (!clips) {
@@ -1809,6 +1815,7 @@ export default function WormholeGame() {
     const clip = clips.find((item) => item.paused || item.ended) ?? clips[0];
     // The volume setting is a real gain on every effect, not a label.
     clip.volume = cap(volume * SOUND_GAIN[soundLevelRef.current], 0, 1);
+    clip.playbackRate = cap(playbackRate, 0.5, 2);
     try { clip.currentTime = 0; } catch { /* Safari throws before metadata loads. */ }
     void clip.play().catch(() => undefined);
   }, []);
@@ -1841,6 +1848,10 @@ export default function WormholeGame() {
         ? { frequencies: [640, 400, 250, 155], duration: 0.9, gap: 0.075, type: "sine" as OscillatorType }
       : cue === "overcharge:core"
         ? { frequencies: [110, 74, 52, 190], duration: 1.05, gap: 0.085, type: "sawtooth" as OscillatorType }
+      : cue === "cannon-hit"
+        ? { frequencies: [185, 122], duration: 0.075, gap: 0.012, type: "square" as OscillatorType }
+      : cue === "emp-hit"
+        ? { frequencies: [920, 510, 260], duration: 0.34, gap: 0.035, type: "sawtooth" as OscillatorType }
       : cue === "shield-pickup"
         ? { frequencies: [420, 680, 1020], duration: 0.46, gap: 0.07, type: "sine" as OscillatorType }
         : cue === "shield-down"
@@ -2476,6 +2487,20 @@ export default function WormholeGame() {
     let previous = performance.now();
     let accumulator = 0;
     let hudDelay = 0;
+    let lastGunFeedbackTick = -999;
+
+    const vibrateCombat = (event: "gun" | "hull") => {
+      if (reducedMotionRef.current || !hapticsAllow(combatHapticsRef.current, event)) return;
+      if (typeof navigator === "undefined" || !("vibrate" in navigator)) return;
+      navigator.vibrate(event === "gun" ? 9 : 24);
+    };
+
+    const cannonImpactFeedback = (game: Game, bullet: Bullet) => {
+      if (bullet.enemy || bullet.special || game.cycles - lastGunFeedbackTick < 2) return;
+      lastGunFeedbackTick = game.cycles;
+      vibrateCombat("gun");
+      if (cannonHitSoundRef.current) playCue("cannon-hit", 0.075);
+    };
 
     // Rendering geometry. The 1048 × 655 viewport is the same 1.6:1
     // shape as the authoritative 1504 × 940 world.
@@ -2556,6 +2581,7 @@ export default function WormholeGame() {
         game.noticeLife = 55;
         return;
       }
+      if (amount > 0) vibrateCombat("hull");
       player.health -= amount;
       if (game.mode !== "pve") {
         player.health = Math.max(0, player.health);
@@ -3084,7 +3110,15 @@ export default function WormholeGame() {
         enemy.blastRadius = (enemy.blastRadius ?? 0) + (!scrambled && enemy.age > 65 ? 8 : 0);
         enemy.x = player.x;
         enemy.y = player.y;
-        if ((enemy.blastRadius ?? 0) > 0 && (enemy.blastRadius ?? 0) >= d) player.emp = 150;
+        if ((enemy.blastRadius ?? 0) > 0 && (enemy.blastRadius ?? 0) >= d) {
+          const newlyScrambled = player.emp <= 0;
+          player.emp = 150;
+          if (newlyScrambled) {
+            game.notice = "SCRAMBLED // CONTROLS REVERSED";
+            game.noticeLife = 150;
+            playCue("emp-hit", 0.15);
+          }
+        }
         if ((enemy.blastRadius ?? 0) > 320) enemy.hp = 0;
       } else if (enemy.kind === "beam") {
         enemy.phase = advanceBeamAngle(enemy.phase, enemy.rotationDir ?? 1);
@@ -3442,7 +3476,7 @@ export default function WormholeGame() {
           game.playerShots += 1;
         });
         game.shotCycle = shot.delay;
-        play("fire", 0.12);
+        play("fire", 0.12, cannonPlaybackRate(player.gun));
       }
 
       if (launch && game.stock.length > 0 && !keys.current.__launchLatch) {
@@ -3516,6 +3550,7 @@ export default function WormholeGame() {
           game.portalCharge += bullet.damage;
           game.portalPulse = Math.max(game.portalPulse, 0.4);
           burst(game, bullet.x, bullet.y, "#ff5ac8", 4, 2.5);
+          cannonImpactFeedback(game, bullet);
           if (game.portalCharge > game.portalThreshold) {
             game.portalCharge = 0;
             const type = randomPower();
@@ -3532,6 +3567,7 @@ export default function WormholeGame() {
             bullet.life = 0;
             enemy.hp -= scrambledDamage(bullet.damage, (enemy.scrambled ?? 0) > 0);
             burst(game, bullet.x, bullet.y, POWER_COLORS[enemy.kind], 4, 2.5);
+            cannonImpactFeedback(game, bullet);
             if (enemy.hp <= 0) destroyEnemy(game, enemy);
           }
         }
@@ -4245,6 +4281,26 @@ export default function WormholeGame() {
           ctx.stroke();
         }
         ctx.restore();
+
+        if (player.emp > 0) {
+          ctx.save();
+          ctx.translate(player.x, player.y);
+          const pulse = 0.55 + Math.sin(time * 0.025) * 0.2;
+          ctx.strokeStyle = "#7fb6ff";
+          ctx.lineWidth = 2.4;
+          ctx.globalAlpha = pulse;
+          ctx.setLineDash([5, 5]);
+          ctx.beginPath();
+          ctx.arc(0, 0, 31 + Math.sin(time * 0.018) * 3, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.globalAlpha = 0.95;
+          ctx.fillStyle = "#dce8ff";
+          ctx.font = "800 12px ui-monospace, monospace";
+          ctx.textAlign = "center";
+          ctx.fillText(`SCRAMBLED ${(player.emp * TICK_MS / 1000).toFixed(1)}s`, 0, -38);
+          ctx.restore();
+        }
 
         const teammate = netRef.current?.state.teammate;
         if (game.mode === "coop" && teammate) {
@@ -5278,6 +5334,10 @@ export default function WormholeGame() {
           onSound={(next) => setSetting("sound", next)}
           soundLevel={settings.soundLevel}
           onSoundLevel={(next) => setSetting("soundLevel", next)}
+          combatHaptics={settings.combatHaptics}
+          onCombatHaptics={(next) => setSetting("combatHaptics", next)}
+          cannonHitSound={settings.cannonHitSound}
+          onCannonHitSound={(next) => setSetting("cannonHitSound", next)}
           cameraLock={cameraLocked}
           onCameraLock={(next) => setSetting("cameraLock", next)}
           zoom={settings.zoom}

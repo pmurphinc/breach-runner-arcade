@@ -3,6 +3,7 @@ export type TouchControlSize = "small" | "medium" | "large";
 /** How loud the effects bus plays. Music is not implemented, so it is absent. */
 export type SoundLevel = "low" | "medium" | "high";
 export type ZoomLevel = "wide" | "standard" | "close" | "closer";
+export type CombatHaptics = "off" | "gun" | "hull" | "both";
 
 export type DeviceSettings = {
   version: 1;
@@ -22,6 +23,9 @@ export type DeviceSettings = {
   zoom: ZoomLevel;
   sound: boolean;
   soundLevel: SoundLevel;
+  /** Combat-only vibration. Control-press and victory haptics remain separate. */
+  combatHaptics: CombatHaptics;
+  cannonHitSound: boolean;
   thumbsticks: boolean;
   touchControlSize: TouchControlSize;
   /** Three-character arcade identity remembered on this device. */
@@ -38,6 +42,8 @@ export const DEFAULT_SETTINGS: DeviceSettings = {
   zoom: "standard",
   sound: true,
   soundLevel: "medium",
+  combatHaptics: "both",
+  cannonHitSound: true,
   thumbsticks: true,
   touchControlSize: "medium",
   playerInitials: "",
@@ -53,6 +59,7 @@ const isViewMode = (value: unknown): value is ViewMode => value === "touch" || v
 const isSize = (value: unknown): value is TouchControlSize => value === "small" || value === "medium" || value === "large";
 const isLevel = (value: unknown): value is SoundLevel => value === "low" || value === "medium" || value === "high";
 const isZoom = (value: unknown): value is ZoomLevel => value === "wide" || value === "standard" || value === "close" || value === "closer";
+const isCombatHaptics = (value: unknown): value is CombatHaptics => value === "off" || value === "gun" || value === "hull" || value === "both";
 const normalizePlayerInitials = (value: unknown) => {
   if (typeof value !== "string") return "";
   const normalized = value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 3);
@@ -69,6 +76,8 @@ export function migrateSettings(value: unknown): DeviceSettings {
     zoom: isZoom(candidate.zoom) ? candidate.zoom : "standard",
     sound: typeof candidate.sound === "boolean" ? candidate.sound : true,
     soundLevel: isLevel(candidate.soundLevel) ? candidate.soundLevel : "medium",
+    combatHaptics: isCombatHaptics(candidate.combatHaptics) ? candidate.combatHaptics : "both",
+    cannonHitSound: typeof candidate.cannonHitSound === "boolean" ? candidate.cannonHitSound : true,
     thumbsticks: typeof candidate.thumbsticks === "boolean" ? candidate.thumbsticks : true,
     touchControlSize: isSize(candidate.touchControlSize) ? candidate.touchControlSize : "medium",
     playerInitials: normalizePlayerInitials(candidate.playerInitials),
