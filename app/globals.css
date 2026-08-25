@@ -382,6 +382,16 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 .board-you { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0; padding: 9px 11px; border: 1px dashed var(--line-strong); border-radius: 3px; }
 .board-you span { color: var(--muted); font: 700 var(--fs-nano)/1 var(--mono); letter-spacing: .12em; }
 .board-you b { color: var(--cyan); font: 900 var(--fs-sm)/1 var(--mono); }
+/* Board switch and ship filter. Both are radio groups styled as segmented
+   controls, so the chosen board and ship read the same way the mode cards do. */
+.board-tabs, .board-filter { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 14px 0; }
+.board-filter { padding-top: 0; }
+.board-tabs button, .board-filter button { flex: 0 0 auto; padding: 7px 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 3px; background: rgba(2, 8, 13, .55); cursor: pointer; font: 800 var(--fs-nano)/1 var(--mono); letter-spacing: .1em; }
+.board-tabs button:hover, .board-filter button:hover { color: #eafcff; border-color: var(--line-strong); }
+.board-tabs button.active, .board-filter button.active { color: var(--cyan); border-color: var(--cyan); background: rgba(100, 234, 255, .1); }
+/* Separates the device rows from the global ones above them. */
+.board-section { margin: 4px 0 0; color: var(--muted); font: 800 var(--fs-nano)/1 var(--mono); letter-spacing: .14em; }
+
 .board-link { width: 100%; padding: 8px; color: var(--cyan); border: 0; background: transparent; cursor: pointer; text-decoration: none; text-align: center; font: 800 var(--fs-micro)/1.4 var(--mono); letter-spacing: .08em; }
 .board-link:hover, .board-link:focus-visible { text-decoration: underline; }
 @media (max-width: 420px) {

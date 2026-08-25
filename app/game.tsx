@@ -104,15 +104,24 @@ import {
   MURPH_SITE_URL,
   createArcadeRunId,
   fetchLeaderboard,
+  fetchSurvivalLeaderboard,
   loadLocalBest,
   saveLocalRun,
   saveScoreToMurph,
-  saveSurvivalRun,
+  saveSurvivalScoreToMurph,
   type LeaderboardEntry,
   type LocalBest,
   type RunResult,
-  type SurvivalBest,
+  type SurvivalLeaderboardEntry,
 } from "./arcade-scores";
+import {
+  loadSurvivalBoard,
+  nameSurvivalRun,
+  recordSurvivalRun,
+  shipsOnSurvivalBoard,
+  survivalEntriesForShip,
+  type SurvivalEntry,
+} from "./survival-board";
 import { formatRunTime, normalizeInitials, settleScore } from "./run-scoring";
 import {
   VIPER_GUIDANCE_SECONDS,
@@ -956,12 +965,13 @@ type RunSummary = {
   /** Final hull-damaging hazard for defeat screens. */
   deathCause?: string;
   /**
-   * This device's longest Survival run after the run just finished.
-   *
-   * Survival is ranked by time rather than score, so it cannot share `best`
-   * without the card comparing two different measurements.
+   * Where this run landed on the device Survival board, or null when it did
+   * not place. Survival is ranked by time rather than score, so it cannot
+   * share `best` without the card comparing two different measurements.
    */
-  survivalBest?: SurvivalBest | null;
+  survivalRank?: number | null;
+  /** The device Survival board after the run, for the result card's context. */
+  survivalBoard?: SurvivalEntry[];
 };
 
 type SaveState =
@@ -990,21 +1000,143 @@ function finishInitialsEditing() {
  * ask for it. A failed read is reported in place — the leaderboard is a bonus,
  * never a dependency of the game.
  */
-function Leaderboard({ onClose }: { onClose: () => void }) {
+/** Which board the leaderboard screen is showing. */
+type BoardKind = "arcade" | "survival";
+
+const SURVIVAL_ALL_SHIPS = "";
+
+/**
+ * Formats a survival duration for a board row.
+ *
+ * Shared by the global rows and the device rows so a run reads identically
+ * whichever list it appears in.
+ */
+const boardTime = (seconds: number) => formatRunTime(seconds);
+
+/**
+ * The Survival board.
+ *
+ * Two sources, one list, in priority order: the public board when it answers,
+ * and this device's board either way. The public Survival endpoint is not live
+ * on the score service yet — see `docs/SURVIVAL_LEADERBOARD_API.md` — so the
+ * unavailable path is the ordinary one today rather than an error case, and it
+ * is worded as a status rather than a failure.
+ */
+function SurvivalBoard() {
+  const [rows, setRows] = useState<SurvivalLeaderboardEntry[] | null>(null);
+  const [globalMissing, setGlobalMissing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [ship, setShip] = useState<string>(SURVIVAL_ALL_SHIPS);
+  const [board, setBoard] = useState<SurvivalEntry[]>([]);
+
+  // Storage is read in an effect rather than during render: the server has no
+  // localStorage, and reading it while rendering would hydrate to a different
+  // list than the one the server sent. Publishing through a microtask matches
+  // the arcade board beside it and keeps the read out of the render pass.
+  useEffect(() => {
+    const stored = loadSurvivalBoard();
+    queueMicrotask(() => setBoard(stored));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setLoading(true);
+      setGlobalMissing(false);
+    });
+    void fetchSurvivalLeaderboard(25, ship || undefined).then((entries) => {
+      if (cancelled) return;
+      setLoading(false);
+      if (entries) setRows(entries);
+      else { setRows(null); setGlobalMissing(true); }
+    });
+    return () => { cancelled = true; };
+  }, [ship]);
+
+  // Only ships that actually have a run to show, plus All Ships. A filter that
+  // offers eight ships and returns nothing for six of them is a worse list.
+  const ships = useMemo(() => shipsOnSurvivalBoard(board), [board]);
+  const localRows = useMemo(() => survivalEntriesForShip(board, ship), [board, ship]);
+
+  return (
+    <>
+      {ships.length > 1 ? (
+        <div className="board-filter" role="radiogroup" aria-label="Filter Survival board by ship">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={ship === SURVIVAL_ALL_SHIPS}
+            className={ship === SURVIVAL_ALL_SHIPS ? "active" : ""}
+            onClick={() => setShip(SURVIVAL_ALL_SHIPS)}
+          >
+            ALL SHIPS
+          </button>
+          {ships.map((name) => (
+            <button
+              key={name}
+              type="button"
+              role="radio"
+              aria-checked={ship === name}
+              className={ship === name ? "active" : ""}
+              onClick={() => setShip(name)}
+            >
+              {name.toUpperCase()}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {loading ? <p className="board-note">Loading the Survival board…</p> : null}
+      {globalMissing && !loading ? (
+        <p className="board-note">The global Survival board is not open yet. Your device board is below.</p>
+      ) : null}
+
+      {rows !== null && rows.length > 0 ? (
+        <ol className="board-list">
+          {rows.map((entry) => (
+            <li key={entry.id}>
+              <span className="board-rank">{entry.rank}</span>
+              <span className="board-name">{entry.initials}</span>
+              <span className="board-runs">{entry.ship} · RIFT {entry.riftLevel}</span>
+              <b>{boardTime(entry.durationSeconds)}</b>
+            </li>
+          ))}
+        </ol>
+      ) : null}
+
+      <p className="board-section">THIS DEVICE</p>
+      {localRows.length === 0 ? (
+        <p className="board-note">
+          No Survival runs yet{ship ? ` in the ${ship}` : ""}. Survive the rift and the clock does the rest.
+        </p>
+      ) : (
+        <ol className="board-list">
+          {localRows.map((entry, index) => (
+            <li key={entry.runId || `${entry.achievedAt}-${index}`}>
+              <span className="board-rank">{index + 1}</span>
+              <span className="board-name">{entry.initials || "—"}</span>
+              <span className="board-runs">
+                {entry.ship} · RIFT {entry.riftLevel}
+                {entry.breaches > 0 ? ` · ${entry.breaches} BREACH${entry.breaches > 1 ? "ES" : ""}` : ""}
+              </span>
+              <b>{boardTime(entry.durationSeconds)}</b>
+            </li>
+          ))}
+        </ol>
+      )}
+    </>
+  );
+}
+
+/** The arcade board: settled scores from completed PvE victories. */
+function ArcadeBoard() {
   const [entries, setEntries] = useState<LeaderboardEntry[] | null>(null);
   const [best, setBest] = useState<LocalBest | null>(null);
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [boardLimit, setBoardLimit] = useState(10);
   const [reloadKey, setReloadKey] = useState(0);
-  const closeRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => { closeRef.current?.focus(); }, []);
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1026,6 +1158,61 @@ function Leaderboard({ onClose }: { onClose: () => void }) {
   }, [boardLimit, reloadKey]);
 
   return (
+    <>
+      {failed ? <p className="board-note">The global board could not be reached. Your device score is safe.</p> : null}
+      {loading && entries === null ? <p className="board-note">Loading the board…</p> : null}
+      {!loading && entries !== null && entries.length === 0 ? <p className="board-note">No scores yet. Win a non-Practice PvE run to claim the first spot.</p> : null}
+      {entries !== null && entries.length > 0 ? (
+        <ol className="board-list">
+          {entries.map((entry) => (
+            <li key={entry.id}>
+              <span className="board-rank">{entry.rank}</span>
+              <span className="board-name">{entry.initials}</span>
+              <span className="board-runs">{entry.ship} · {entry.difficulty.toUpperCase()}</span>
+              <b>{entry.score.toLocaleString()}</b>
+            </li>
+          ))}
+        </ol>
+      ) : null}
+      {best ? (
+        <p className="board-you">
+          <span>YOUR BEST ON THIS DEVICE</span>
+          <b>{best.score.toLocaleString()}</b>
+        </p>
+      ) : null}
+      {entries !== null && !failed && boardLimit === 10 && entries.length >= 10 ? (
+        <button className="board-link" type="button" onClick={() => setBoardLimit(100)}>
+          LOAD FULL BOARD →
+        </button>
+      ) : null}
+      {failed ? (
+        <button className="board-link" type="button" onClick={() => setReloadKey((value) => value + 1)}>
+          RETRY BOARD →
+        </button>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * The leaderboard screen.
+ *
+ * Two boards rather than one, because they rank different things: the arcade
+ * board sorts settled scores from completed victories, and Survival sorts time
+ * survived. A single merged list would be sorted wrongly for one of them.
+ */
+function Leaderboard({ onClose, initialBoard = "arcade" }: { onClose: () => void; initialBoard?: BoardKind }) {
+  const [kind, setKind] = useState<BoardKind>(initialBoard);
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => { closeRef.current?.focus(); }, []);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
     <div className="codex-backdrop" role="presentation" onClick={onClose}>
       <div
         className="codex board"
@@ -1036,58 +1223,41 @@ function Leaderboard({ onClose }: { onClose: () => void }) {
       >
         <div className="codex-head">
           <h2 id="board-heading">GLOBAL BOARD</h2>
-          <p>Classic arcade high scores. No account or login required.</p>
+          <p>
+            {kind === "survival"
+              ? "Rift Survival, ranked by time survived. No account or login required."
+              : "Classic arcade high scores. No account or login required."}
+          </p>
           <button ref={closeRef} type="button" className="codex-close" onClick={onClose} aria-label="Close leaderboard">✕</button>
         </div>
+        <div className="board-tabs" role="radiogroup" aria-label="Board">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={kind === "arcade"}
+            className={kind === "arcade" ? "active" : ""}
+            onClick={() => setKind("arcade")}
+          >
+            ARCADE
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={kind === "survival"}
+            className={kind === "survival" ? "active" : ""}
+            onClick={() => setKind("survival")}
+          >
+            SURVIVAL
+          </button>
+        </div>
         <div className="board-body">
-          {failed ? <p className="board-note">The global board could not be reached. Your device score is safe.</p> : null}
-          {loading && entries === null ? <p className="board-note">Loading the board…</p> : null}
-          {!loading && entries !== null && entries.length === 0 ? <p className="board-note">No scores yet. Win a non-Practice PvE run to claim the first spot.</p> : null}
-          {entries !== null && entries.length > 0 ? (
-            <ol className="board-list">
-              {entries.map((entry) => (
-                <li key={entry.id}>
-                  <span className="board-rank">{entry.rank}</span>
-                  <span className="board-name">{entry.initials}</span>
-                  <span className="board-runs">{entry.ship} · {entry.difficulty.toUpperCase()}</span>
-                  <b>{entry.score.toLocaleString()}</b>
-                </li>
-              ))}
-            </ol>
-          ) : null}
-          {best ? (
-            <p className="board-you">
-              <span>YOUR BEST ON THIS DEVICE</span>
-              <b>{best.score.toLocaleString()}</b>
-            </p>
-          ) : null}
-          {entries !== null && !failed && boardLimit === 10 && entries.length >= 10 ? (
-            <button className="board-link" type="button" onClick={() => setBoardLimit(100)}>
-              LOAD FULL BOARD →
-            </button>
-          ) : null}
-          {failed ? (
-            <button className="board-link" type="button" onClick={() => setReloadKey((value) => value + 1)}>
-              RETRY BOARD →
-            </button>
-          ) : null}
+          {kind === "survival" ? <SurvivalBoard /> : <ArcadeBoard />}
         </div>
       </div>
     </div>
   );
 }
 
-/**
- * A remembered choice, backed by localStorage and read through
- * `useSyncExternalStore`.
- *
- * The store shape matters here: the page is server-rendered, so reading
- * localStorage during render would hydrate with a different value than the
- * server sent. `getServerSnapshot` hands React the default for the server pass
- * and `getSnapshot` supplies the stored value on the client, which is exactly
- * the mismatch this hook exists to resolve. A blocked or empty store is not an
- * error — the default simply stands.
- */
 function createPreference<T extends string>(key: string, allowed: readonly T[], fallback: T) {
   let cached: T | null = null;
   const listeners = new Set<() => void>();
@@ -1600,6 +1770,8 @@ export default function WormholeGame() {
   const [summary, setSummary] = useState<RunSummary | null>(null);
   const [initialsEntry, setInitialsEntry] = useState("");
   const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });
+  /** Which board the leaderboard screen opens on. Sticky between visits. */
+  const [boardKind, setBoardKind] = useState<BoardKind>("arcade");
   const reducedMotion = useReducedMotion();
 
   /** Menu and codex state for the global key handler, without re-subscribing. */
@@ -1965,6 +2137,26 @@ export default function WormholeGame() {
     setSaveState({ status: "error", message: result.message });
   }, []);
 
+  /**
+   * Sends a completed initials-tagged Survival run to the public Survival
+   * board.
+   *
+   * The endpoint is not live yet, so this ordinarily reports the failure state
+   * — which is why the device board is the one the result card leads with. The
+   * run is never lost either way.
+   */
+  const saveSurvivalRunToBoard = useCallback(async (run: RunResult) => {
+    setSaveState({ status: "saving" });
+    const result = await saveSurvivalScoreToMurph(run);
+
+    if (result.status === "saved") {
+      setSaveState({ status: "saved", rank: result.rank });
+      return;
+    }
+
+    setSaveState({ status: "error", message: result.message });
+  }, []);
+
   // Network modes share the proven WebSocket lobby. Solo PvE never opens a socket.
   useEffect(() => {
     if (mode === "pve") {
@@ -2052,17 +2244,20 @@ export default function WormholeGame() {
     const identifiedRun = storedInitials ? { ...run, initials: storedInitials } : run;
     setInitialsEntry(storedInitials);
     if (survivalRun) {
-      // Survival keeps its own device record and stays out of the arcade one.
-      const survival = saveSurvivalRun(identifiedRun);
+      // Survival keeps its own device board and stays out of the arcade one.
+      const placement = recordSurvivalRun(identifiedRun);
       setSummary({
         run: identifiedRun,
         best: null,
-        isBest: survival.isBest,
+        isBest: placement.rank === 1,
         runs: 0,
         restored: false,
-        awaitingInitials: false,
+        // A run that placed is worth signing, so an unnamed pilot is asked for
+        // initials here exactly as a PvE victory is.
+        awaitingInitials: placement.rank !== null && !storedInitials,
         deathCause: hud.deathCause,
-        survivalBest: survival.best,
+        survivalRank: placement.rank,
+        survivalBoard: placement.board,
       });
     } else if (hud.result === "victory" && hud.mode === "pve" && !practice && !storedInitials) {
       setSummary({
@@ -2097,6 +2292,23 @@ export default function WormholeGame() {
     autoSavedRun.current = summary.run;
     void saveRun(summary.run);
   }, [mode, saveRun, summary]);
+
+  // Every initials-tagged Survival run joins the public Survival board. It is
+  // a separate effect from the arcade one because it is a separate board with
+  // a separate ordering, and the arcade submitter rejects a run with no
+  // victory to settle.
+  useEffect(() => {
+    if (
+      !summary ||
+      summary.awaitingInitials ||
+      summary.run.difficulty !== "survival" ||
+      !summary.run.initials ||
+      summary.survivalRank === null ||
+      autoSavedRun.current === summary.run
+    ) return;
+    autoSavedRun.current = summary.run;
+    void saveSurvivalRunToBoard(summary.run);
+  }, [saveSurvivalRunToBoard, summary]);
 
   // Before a run, keep the idle arena matching the selection so the preview
   // shows exactly what START will produce (EASY re-centres the wormhole at
@@ -2200,8 +2412,24 @@ export default function WormholeGame() {
     if (initials.length !== 3 || !summary?.awaitingInitials) return;
 
     const run = { ...summary.run, initials };
-    const local = saveLocalRun(run);
     setSetting("playerInitials", initials);
+
+    if (run.difficulty === "survival") {
+      // The run is already on the board; it was recorded before the pilot had
+      // a name. Re-stamp that row rather than adding a second copy of it.
+      const placement = nameSurvivalRun(run.runId, initials);
+      setSummary({
+        ...summary,
+        run,
+        awaitingInitials: false,
+        survivalRank: placement.rank,
+        survivalBoard: placement.board,
+      });
+      (document.activeElement as HTMLElement | null)?.blur();
+      return;
+    }
+
+    const local = saveLocalRun(run);
     setSummary({
       ...summary,
       run,
@@ -4998,11 +5226,17 @@ export default function WormholeGame() {
                           <span>SCORE <b>{summary.run.score.toLocaleString()}</b></span>
                         </div>
                         <p className="run-meta">
-                          {summary.isBest
+                          {summary.survivalRank === 1
                             ? "NEW DEVICE BEST"
-                            : summary.survivalBest
-                              ? `DEVICE BEST ${formatRunTime(summary.survivalBest.durationSeconds)} · RIFT LEVEL ${summary.survivalBest.riftLevel}`
-                              : "FIRST SURVIVAL RUN ON THIS DEVICE"}
+                            : summary.survivalRank
+                              ? `DEVICE RANK #${summary.survivalRank}${
+                                  summary.survivalBoard?.[0]
+                                    ? ` · BEST ${formatRunTime(summary.survivalBoard[0].durationSeconds)}`
+                                    : ""
+                                }`
+                              : summary.survivalBoard?.[0]
+                                ? `OFF THE BOARD · BEST ${formatRunTime(summary.survivalBoard[0].durationSeconds)}`
+                                : "FIRST SURVIVAL RUN ON THIS DEVICE"}
                         </p>
                       </>
                     ) : (
@@ -5048,7 +5282,28 @@ export default function WormholeGame() {
                     ) : summary.run.practice ? (
                       <div className="run-save"><p className="run-status">PRACTICE RUN // NOT SAVED TO LEADERBOARDS</p></div>
                     ) : summary.run.difficulty === "survival" ? (
-                      <div className="run-save"><p className="run-status ok">SURVIVAL TIME SAVED ON THIS DEVICE</p></div>
+                      <div className="run-save">
+                        <p className="run-status ok">
+                          {summary.survivalRank
+                            ? `RANKED #${summary.survivalRank} ON THIS DEVICE`
+                            : "RUN SAVED ON THIS DEVICE"}
+                        </p>
+                        {/*
+                          The public Survival board is not open yet, so a
+                          submission ordinarily reports the failure state. Say
+                          that plainly instead of dressing it as an error the
+                          player could act on.
+                        */}
+                        {summary.run.initials && saveState.status === "saving" ? <p className="run-status">SENDING TO THE SURVIVAL BOARD…</p> : null}
+                        {summary.run.initials && saveState.status === "saved" ? (
+                          <p className="run-status ok">
+                            SURVIVAL BOARD UPDATED{saveState.rank ? ` · #${saveState.rank}` : ""}
+                          </p>
+                        ) : null}
+                        {summary.run.initials && saveState.status === "error" ? (
+                          <p className="run-status">GLOBAL SURVIVAL BOARD NOT OPEN YET</p>
+                        ) : null}
+                      </div>
                     ) : (
                       <div className="run-save">
                         <p className="run-status ok">
@@ -5115,19 +5370,22 @@ export default function WormholeGame() {
                         CHANGE GAME MODE
                       </button>
                       {/*
-                        The global board ranks settled arcade scores. A survival
-                        run has none to compare against, so offering the link
-                        here would send the player to look for a result that was
-                        never sent.
+                        Each result card links to the board its run is actually
+                        ranked on. Sending a Survival run to the arcade board
+                        would be sending the player to look for a result that
+                        was never submitted there.
                       */}
-                      {mode === "pve" && summary.run.difficulty !== "survival" ? (
+                      {mode === "pve" ? (
                         <button
                           type="button"
                           className="run-board-link"
                           disabled={summary.awaitingInitials}
-                          onClick={() => go("leaderboard")}
+                          onClick={() => {
+                            setBoardKind(summary.run.difficulty === "survival" ? "survival" : "arcade");
+                            go("leaderboard");
+                          }}
                         >
-                          GLOBAL BOARD
+                          {summary.run.difficulty === "survival" ? "SURVIVAL BOARD" : "GLOBAL BOARD"}
                         </button>
                       ) : null}
                     </div>
@@ -5410,7 +5668,7 @@ export default function WormholeGame() {
         />
       ) : null}
 
-      {route === "leaderboard" ? <Leaderboard onClose={back} /> : null}
+      {route === "leaderboard" ? <Leaderboard onClose={back} initialBoard={boardKind} /> : null}
 
       {route === "lobby" ? (
         <MultiplayerLobby

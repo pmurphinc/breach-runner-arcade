@@ -43,8 +43,13 @@ const skip = !URL_UNDER_TEST
     ? "playwright is not installed"
     : false;
 
-/** Launches a Rift Survival run through the menu the player actually uses. */
-async function openSurvival(browser) {
+/**
+ * Opens the game with the score service stubbed out.
+ *
+ * `seed` runs before any page script, so a test can plant a device board and
+ * check the screen that renders it without playing the runs first.
+ */
+async function openGame(browser, seed) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await context.newPage();
 
@@ -62,15 +67,21 @@ async function openSurvival(browser) {
   await page.route("https://murphtournaments.com/**", (route) =>
     route.fulfill({ json: { signedIn: false, player: null } })
   );
+  if (seed) await page.addInitScript(seed);
   await page.goto(URL_UNDER_TEST, { waitUntil: "networkidle" });
   await page.waitForSelector(".menu-screen[data-route='home']", { timeout: 15_000 });
 
-  await page.locator(".summary-action").first().click();
-  await page.waitForSelector(".menu-screen[data-route='modes']", { timeout: 10_000 });
-  await page.locator(".mode-card[data-mode='survival']").click();
-  await page.waitForTimeout(250);
-
   return { context, page, errors };
+}
+
+/** Selects Rift Survival on the Modes screen, ready to launch. */
+async function openSurvival(browser) {
+  const opened = await openGame(browser);
+  await opened.page.locator(".summary-action").first().click();
+  await opened.page.waitForSelector(".menu-screen[data-route='modes']", { timeout: 10_000 });
+  await opened.page.locator(".mode-card[data-mode='survival']").click();
+  await opened.page.waitForTimeout(250);
+  return opened;
 }
 
 const badgeText = (page) => page.locator(".difficulty-badge").innerText();
@@ -142,6 +153,8 @@ test("a Survival run ends on the pilot's hull and reports time, not a settlement
     const summary = await page.locator(".run-summary").innerText();
 
     assert.match(summary, /RIFT LEVEL \d+ REACHED/);
+    // The run is ranked on the device board, and says where it landed.
+    assert.match(summary, /ON THIS DEVICE|DEVICE RANK|DEVICE BEST|OFF THE BOARD/);
     assert.match(summary, /SURVIVED/);
     assert.match(summary, /\d\d:\d\d/);
     assert.match(summary, /BREACHES/);
@@ -150,6 +163,59 @@ test("a Survival run ends on the pilot's hull and reports time, not a settlement
     assert.doesNotMatch(summary, /PENALTY/);
     // And it does not advertise a board it was never sent to.
     assert.doesNotMatch(summary, /GLOBAL BOARD/);
+
+    assert.deepEqual(errors, []);
+    await context.close();
+  } finally {
+    await browser.close();
+  }
+});
+
+test("the Survival board ranks by time, filters by ship, and survives a bad row", { skip }, async () => {
+  const { chromium } = playwright;
+  const browser = await chromium.launch({ executablePath: CHROME });
+  try {
+    // A board with two ships, one unfinished row and one that is not an object
+    // at all. Corrupt rows are dropped rather than taking the screen with them.
+    const { context, page, errors } = await openGame(browser, () => {
+      localStorage.setItem("wormhole-arcade:survival-board", JSON.stringify([
+        { runId: "a", initials: "PJM", ship: "Starling", durationSeconds: 947, score: 182400, riftLevel: 16, breaches: 3, achievedAt: 10 },
+        { runId: "b", initials: "ZZZ", ship: "Phantom", durationSeconds: 600, score: 90000, riftLevel: 11, breaches: 1, achievedAt: 20 },
+        { runId: "c", initials: "ABC", ship: "Starling", durationSeconds: 305, score: 20000, riftLevel: 6, breaches: 0, achievedAt: 30 },
+        { runId: "junk", durationSeconds: "not a number" },
+        "garbage",
+      ]));
+    });
+
+    await page.locator(".menu-nav button").filter({ hasText: /Leaderboard/i }).first().click();
+    await page.waitForSelector(".codex.board", { timeout: 10_000 });
+    await page.locator(".board-tabs button", { hasText: "SURVIVAL" }).click();
+    await page.waitForTimeout(600);
+
+    // The global board is not open yet, so the screen says so and shows the
+    // device board rather than rendering an empty list.
+    const all = await page.locator(".board-body").innerText();
+    assert.match(all, /global Survival board is not open yet/);
+    assert.match(all, /THIS DEVICE/);
+
+    // Ranked by time, longest first — not by score, which run "a" also leads.
+    const times = await page.locator(".board-list li b").allTextContents();
+    assert.deepEqual(times, ["15:47", "10:00", "05:05"]);
+
+    // Only ships with a run to show, so the filter never offers a dead end.
+    assert.deepEqual(
+      await page.locator(".board-filter button").allTextContents(),
+      ["ALL SHIPS", "STARLING", "PHANTOM"]
+    );
+
+    await page.locator(".board-filter button", { hasText: "PHANTOM" }).click();
+    await page.waitForTimeout(500);
+    assert.deepEqual(await page.locator(".board-list li b").allTextContents(), ["10:00"]);
+    assert.equal(await page.locator(".board-filter button[aria-checked=true]").innerText(), "PHANTOM");
+
+    await page.locator(".board-filter button", { hasText: "STARLING" }).click();
+    await page.waitForTimeout(500);
+    assert.deepEqual(await page.locator(".board-list li b").allTextContents(), ["15:47", "05:05"]);
 
     assert.deepEqual(errors, []);
     await context.close();
