@@ -152,8 +152,8 @@ test("two guests quick-match, ready up, and fight to a hull victory", async () =
 
     // The sweep drives the countdown to activation.
     const active = await alpha.waitFor("state", (m) => m.you && m.you.hull > 0, 25_000);
-    assert.equal(active.you.maxHull, 240, "wing hull");
-    assert.equal(active.opponent.maxHull, 200, "squid hull");
+    assert.equal(active.you.maxHull, 175, "wing hull");
+    assert.equal(active.opponent.maxHull, 170, "squid hull");
     assert.equal(active.you.shieldPct, 100);
 
     // A transmission must reach only the opponent.
@@ -166,7 +166,7 @@ test("two guests quick-match, ready up, and fight to a hull victory", async () =
     // Collisions spend BRAVO's shield without touching hull.
     bravo.send({ type: "damage", seq: 1, source: "collision", amount: 20 });
     const shielded = await bravo.waitFor("state", (m) => m.you?.shieldPct === 50);
-    assert.equal(shielded.you.hull, 200, "collision must not reach hull while shielded");
+    assert.equal(shielded.you.hull, 170, "collision must not reach hull while shielded");
 
     // Grind BRAVO's hull to zero with weapon damage, respecting the rate cap.
     let seq = 2;

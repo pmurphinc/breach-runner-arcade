@@ -12,6 +12,7 @@
 // directly in tests, without a bundler. tsconfig sets
 // allowImportingTsExtensions, and the bundler resolves it identically.
 import { SHIPS, SHIP_SPECIALS, type ShipId, type ShipSpec } from "./game-data.ts";
+import { overchargeFor, overchargeSource } from "./overcharge.ts";
 
 /** Experience the frame realistically demands. */
 export type ExperienceTier = "Beginner" | "Intermediate" | "Expert";
@@ -40,7 +41,20 @@ export type ShipProfile = {
   locked: boolean;
   /** Full sentence for a locked frame; empty when it is available. */
   lockRequirement: string;
-  special: { name: string; cooldownSeconds: number; description: string };
+  special: {
+    name: string;
+    cooldownSeconds: number;
+    description: string;
+    /**
+     * "Overcharged TRACKER SWARM" when the special is an enhanced build of a
+     * power-up, null when it is a bespoke ability. Read from the overcharge
+     * table rather than written here, so the screen cannot claim a derivation
+     * the ship does not actually have.
+     */
+    derivedFrom: string | null;
+    /** How the overcharged build differs from the ordinary pickup. */
+    differences: string[];
+  };
   /** Exactly how to use the special on each input method. */
   specialInput: { keyboard: string; touch: string };
   experience: ExperienceTier;
@@ -231,6 +245,7 @@ export const SHIP_PROFILES: Record<ShipId, ShipProfile> = Object.fromEntries(
   SHIPS.map((spec) => {
     const { strengths, weaknesses } = traitsFor(spec);
     const experience = experienceFor(spec);
+    const overcharge = overchargeFor(spec.id);
     const locked = spec.unlock.toUpperCase() !== "OPEN";
     return [
       spec.id,
@@ -246,6 +261,8 @@ export const SHIP_PROFILES: Record<ShipId, ShipProfile> = Object.fromEntries(
           name: SHIP_SPECIALS[spec.id].name,
           cooldownSeconds: SHIP_SPECIALS[spec.id].cooldownSeconds,
           description: specialDescription(spec),
+          derivedFrom: overcharge ? overchargeSource(overcharge) : null,
+          differences: overcharge ? overcharge.differences : [],
         },
         specialInput: { keyboard: "Q", touch: "SPEC" },
         experience,

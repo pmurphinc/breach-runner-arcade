@@ -20,19 +20,36 @@ export type ShipSpec = {
  * Internal ids remain stable so local settings, tests and multiplayer payloads
  * keep working across the identity cleanup. Player-facing names and ability
  * copy are original to this project and no longer mirror the legacy client.
- * Balance values are intentionally unchanged in this pass; gameplay tuning is
- * handled separately from naming/provenance cleanup.
+ * Starling, Phantom and Talon carry the overcharge rebalance: each trades raw
+ * statistics for a special that is an overcharged build of an existing
+ * power-up (see `app/overcharge.ts`). Every frame still has to clear
+ * `app/ship-balance.ts`, so a special that got stronger was paid for
+ * somewhere else on the sheet.
  */
 export const SHIPS: ShipSpec[] = [
   { id: "tank", name: "Ironclad", role: "Heavy brawler", turn: 5, maxSpeed: 2.7, acceleration: 0.04, health: 280, gun: 2, thrust: 0, special: "Q: Impact Guard grants three seconds of collision immunity.", unlock: "OPEN" },
-  { id: "wing", name: "Starling", role: "Balanced interceptor", turn: 7, maxSpeed: 3.2, acceleration: 0.1, health: 240, gun: 1, thrust: 1, special: "Q: Afterburn boosts controllable speed and acceleration for three seconds.", unlock: "OPEN" },
-  { id: "squid", name: "Phantom", role: "High-speed scout", turn: 9, maxSpeed: 4, acceleration: 0.13, health: 200, gun: 0, thrust: 2, special: "Q: Phase Veil breaks hostile tracking and collision contact for 2.5 seconds.", unlock: "OPEN" },
+  { id: "wing", name: "Starling", role: "Strike skirmisher", turn: 9, maxSpeed: 3.5, acceleration: 0.13, health: 175, gun: 1, thrust: 1, special: "Q: Swarm Overcharge fires an overcharged Tracker Swarm — twelve homing missiles flying for you — and afterburns for three seconds.", unlock: "OPEN" },
+  { id: "squid", name: "Phantom", role: "Disruption scout", turn: 8, maxSpeed: 3.8, acceleration: 0.12, health: 170, gun: 1, thrust: 1, special: "Q: Scrambler Overcharge fires an overcharged Pulse Scrambler that reverses and disarms every hostile it sweeps for four seconds.", unlock: "OPEN" },
   { id: "rabbit", name: "Needle", role: "Guided-strike corvette", turn: 12, maxSpeed: 3, acceleration: 0.14, health: 150, gun: 1, thrust: 2, special: "Q: Target Link makes power-ups launched during the next three seconds steer toward the rival portal.", unlock: "OPEN" },
   { id: "turtle", name: "Rampart", role: "Defensive bruiser", turn: 4.5, maxSpeed: 2.4, acceleration: 0.06, health: 250, gun: 1, thrust: 1, special: "Q: Reactor Burst clears nearby threats at a health cost.", unlock: "OPEN" },
   { id: "flash", name: "Switchback", role: "Shape-shifter", turn: 1, maxSpeed: 1, acceleration: 0.1, health: 190, gun: 3, thrust: 3, special: "Q: Form Shift swaps between heavy and scout handling profiles.", unlock: "OPEN" },
-  { id: "hunter", name: "Talon", role: "Missile corvette", turn: 4.8, maxSpeed: 3.2, acceleration: 0.12, health: 220, gun: 0, thrust: 1, special: "Q: Missile Fan launches a 17-missile spread.", unlock: "OPEN" },
+  { id: "hunter", name: "Talon", role: "Siege brawler", turn: 5.5, maxSpeed: 2.9, acceleration: 0.08, health: 220, gun: 2, thrust: 1, special: "Q: Core Overcharge detonates an overcharged Core Bomb on your own hull, gutting every hostile within 340 units.", unlock: "OPEN" },
   { id: "flagship", name: "Leviathan", role: "Command vessel", turn: 2, maxSpeed: 1.8, acceleration: 0.04, health: 300, gun: 0, thrust: 2, special: "Q: Gravity Pulse projects a three-second field that pulls in pickups and repels nearby enemies.", unlock: "OPEN" },
 ];
+
+/**
+ * Handling profiles Switchback's FORM SHIFT swaps between.
+ *
+ * These used to be read straight off `SHIPS[0]` and `SHIPS[2]`, which quietly
+ * coupled Switchback to whatever Ironclad and Phantom happened to be tuned to:
+ * rebalancing Phantom re-tuned a second ship nobody had touched. The numbers
+ * are frozen here on purpose, so Switchback only ever changes when Switchback
+ * is the ship being changed.
+ */
+export const FORM_SHIFT_PROFILES = {
+  tank: { maxSpeed: 2.7, acceleration: 0.04 },
+  squid: { maxSpeed: 4, acceleration: 0.13 },
+} as const;
 
 export type ShipSpecial = {
   name: string;
@@ -44,12 +61,12 @@ export type ShipSpecial = {
 /** Single source of truth for active Q/SPEC ability names and cooldowns. */
 export const SHIP_SPECIALS: Record<ShipId, ShipSpecial> = {
   tank: { name: "IMPACT GUARD", cooldownSeconds: 12, balancePoints: 20 },
-  wing: { name: "AFTERBURN", cooldownSeconds: 10, balancePoints: 15 },
-  squid: { name: "PHASE VEIL", cooldownSeconds: 12, balancePoints: 15 },
+  wing: { name: "SWARM OVERCHARGE", cooldownSeconds: 10, balancePoints: 18 },
+  squid: { name: "SCRAMBLER OVERCHARGE", cooldownSeconds: 14, balancePoints: 19 },
   rabbit: { name: "TARGET LINK", cooldownSeconds: 20, balancePoints: 14 },
   turtle: { name: "REACTOR BURST", cooldownSeconds: 14, balancePoints: 25 },
   flash: { name: "FORM SHIFT", cooldownSeconds: 1, balancePoints: 20 },
-  hunter: { name: "MISSILE FAN", cooldownSeconds: 20, balancePoints: 24 },
+  hunter: { name: "CORE OVERCHARGE", cooldownSeconds: 18, balancePoints: 22 },
   flagship: { name: "GRAVITY PULSE", cooldownSeconds: 10, balancePoints: 30 },
 };
 

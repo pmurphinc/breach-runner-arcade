@@ -5,6 +5,7 @@ import {
   CATEGORY_LABELS,
   ENEMY_COUNTS,
   ENEMY_STATS,
+  FORM_SHIFT_PROFILES,
   POWER_COLORS,
   POWER_LABELS,
   SENDABLE_POWERUPS,
@@ -106,13 +107,25 @@ import {
 } from "./arcade-scores";
 import { formatRunTime, normalizeInitials, settleScore } from "./run-scoring";
 import {
-  SQUID_PHASE_SECONDS,
   VIPER_GUIDANCE_SECONDS,
-  WING_OVERDRIVE_SECONDS,
   hostileTrackingVector,
-  overdriveHandling,
   steerHomingVelocity,
 } from "./ship-specials";
+import {
+  OVERCHARGE_FLASH_TICKS,
+  blastDamageAt,
+  blastRadiusAt,
+  blastRingRadii,
+  countsTowardShotBudget,
+  overchargeFor,
+  overchargeSource,
+  overchargeSourceColor,
+  overchargeTicks,
+  riderHandling,
+  scrambledDamage,
+  volleyHeadings,
+  type OverchargeSpec,
+} from "./overcharge";
 import {
   VICTORY_SUCTION_FREQUENCY,
   VICTORY_TOTAL_SECONDS,
@@ -183,7 +196,35 @@ const ARENA_PALETTES: Record<DifficultyId, readonly [string, string, string]> = 
   hard: ["#241014", "#0d080f", "#030305"],
 };
 
-type Bullet = { x: number; y: number; vx: number; vy: number; damage: number; life: number; enemy: boolean; color: string };
+type Bullet = {
+  x: number; y: number; vx: number; vy: number; damage: number; life: number; enemy: boolean; color: string;
+  /**
+   * Fired by a ship special rather than the pulse cannon.
+   *
+   * Special rounds are deliberately excluded from the live-shot budget in
+   * `SHOT_LEVELS`. Counting them there is what used to make Talon's old
+   * Missile Fan disable Talon's own cannon for the whole flight of the volley.
+   */
+  special?: boolean;
+  /** Steering authority in radians per tick. Absent means it flies straight. */
+  turnRadians?: number;
+};
+
+/**
+ * One overcharged power-up detonation, anchored where it went off.
+ *
+ * The shape is generic on purpose: Phantom's control pulse and Talon's core
+ * blast are the same entity with different numbers, so a fourth ship needs no
+ * new entity type.
+ */
+type OverchargeBlastFx = {
+  x: number; y: number; age: number; life: number;
+  /** Band swept last tick, so a hostile is caught exactly once. */
+  sweptTo: number;
+  /** Resolved once on creation rather than re-derived every tick. */
+  scrambleTicks: number;
+  spec: OverchargeSpec;
+};
 type Pickup = { x: number; y: number; vx: number; vy: number; type: PickupId; life: number; phase: number };
 type PowerShot = { x: number; y: number; vx: number; vy: number; type: PowerId; life: number; homing: boolean };
 type Particle = { x: number; y: number; vx: number; vy: number; color: string; size: number; life: number; maxLife: number };
@@ -233,6 +274,8 @@ type Enemy = {
   armed?: boolean;
   countdown?: number;
   blastRadius?: number;
+  /** Ticks left flying backwards and unable to fire, from a scrambler pulse. */
+  scrambled?: number;
 };
 
 type Player = {
@@ -250,10 +293,19 @@ type Player = {
   retros: boolean;
   specialCooldown: number;
   emp: number;
-  /** Ticks remaining on the Wing's controllable handling boost. */
-  wingOverdrive: number;
-  /** Ticks remaining on the Squid's tracking-breaking phase veil. */
-  squidPhase: number;
+  /**
+   * Handling rider left by an overcharge, in ticks, with its multipliers.
+   *
+   * One set of fields covers Starling's afterburn and Talon's post-blast
+   * stagger, because a rider that halves acceleration is the same mechanism as
+   * one that raises it.
+   */
+  riderTicks: number;
+  riderTotal: number;
+  riderAcceleration: number;
+  riderMaxSpeed: number;
+  /** Ticks left on the hull flare that marks a special as a special. */
+  overchargeFlash: number;
   /** Ticks remaining in which newly launched Viper power-ups gain guidance. */
   viperGuidance: number;
   /** Ticks remaining on the Flagship's continuous attraction/repulsion field. */
@@ -313,6 +365,7 @@ type Game = {
   /** Last host world revision applied by a co-op guest. */
   lastWorldSeq?: number;
   powers: PowerShot[];
+  blasts: OverchargeBlastFx[];
   particles: Particle[];
   spawns: SpawnFx[];
   stock: PowerId[];
@@ -445,8 +498,11 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
       retros: ship.thrust > 0,
       specialCooldown: 0,
       emp: 0,
-      wingOverdrive: 0,
-      squidPhase: 0,
+      riderTicks: 0,
+      riderTotal: 0,
+      riderAcceleration: 1,
+      riderMaxSpeed: 1,
+      overchargeFlash: 0,
       viperGuidance: 0,
       flagshipField: 0,
       flashMode: "tank",
@@ -467,6 +523,7 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
     pickups: [],
     enemies: [],
     powers: [],
+    blasts: [],
     particles: [],
     spawns: [],
     stock: [],
@@ -1707,8 +1764,16 @@ export default function WormholeGame() {
     void context.resume().catch(() => undefined);
 
     const hash = [...cue].reduce((value, character) => ((value * 33) ^ character.charCodeAt(0)) >>> 0, 5381);
+    // Overcharges get a longer, lower, four-note signature than any pickup
+    // cue, so a special is identifiable with the screen covered by a thumb.
     const special = cue === "wormhole-explosion"
       ? { frequencies: [72, 48, 34, 150], duration: 1.35, gap: 0.08, type: "sawtooth" as OscillatorType }
+      : cue === "overcharge:swarm"
+        ? { frequencies: [520, 700, 940, 1240], duration: 0.78, gap: 0.055, type: "triangle" as OscillatorType }
+      : cue === "overcharge:scrambler"
+        ? { frequencies: [640, 400, 250, 155], duration: 0.9, gap: 0.075, type: "sine" as OscillatorType }
+      : cue === "overcharge:core"
+        ? { frequencies: [110, 74, 52, 190], duration: 1.05, gap: 0.085, type: "sawtooth" as OscillatorType }
       : cue === "shield-pickup"
         ? { frequencies: [420, 680, 1020], duration: 0.46, gap: 0.07, type: "sine" as OscillatorType }
         : cue === "shield-down"
@@ -1728,7 +1793,9 @@ export default function WormholeGame() {
       const noteEnd = noteStart + special.duration / special.frequencies.length;
       oscillator.type = special.type;
       oscillator.frequency.setValueAtTime(frequency, noteStart);
-      if (cue === "wormhole-explosion") oscillator.frequency.exponentialRampToValueAtTime(Math.max(24, frequency * 0.45), noteEnd);
+      if (cue === "wormhole-explosion" || cue === "overcharge:core") {
+        oscillator.frequency.exponentialRampToValueAtTime(Math.max(24, frequency * 0.45), noteEnd);
+      }
       gain.gain.setValueAtTime(0.0001, noteStart);
       gain.gain.exponentialRampToValueAtTime(Math.max(0.001, volume), noteStart + 0.018);
       gain.gain.exponentialRampToValueAtTime(0.0001, noteEnd);
@@ -2522,12 +2589,12 @@ export default function WormholeGame() {
       play("explosion", 0.36);
     };
 
-    const destroyEnemy = (game: Game, enemy: Enemy) => {
+    const destroyEnemy = (game: Game, enemy: Enemy, guaranteedDrop = false) => {
       enemy.hp = 0;
       game.score += enemy.kind === "nuke" ? 600 : enemy.kind === "gunship" ? 300 : 100;
       burst(game, enemy.x, enemy.y, POWER_COLORS[enemy.kind], 18, 8);
       play("explosion", 0.16);
-      if (enemy.kind !== "ghost" && enemy.kind !== "beam" && enemy.kind !== "emp" && enemy.kind !== "mines" && Math.random() < 0.48) {
+      if (enemy.kind !== "ghost" && enemy.kind !== "beam" && enemy.kind !== "emp" && enemy.kind !== "mines" && (guaranteedDrop || Math.random() < 0.48)) {
         game.pickups.push({ x: enemy.x, y: enemy.y, vx: range(-0.7, 0.7), vy: range(-0.7, 0.7), type: randomPower(), life: 900, phase: range(0, 6) });
       }
     };
@@ -2537,6 +2604,76 @@ export default function WormholeGame() {
       const dy = game.player.y - enemy.y;
       const d = Math.max(1, Math.hypot(dx, dy));
       game.bullets.push({ x: enemy.x, y: enemy.y, vx: (dx / d) * speed, vy: (dy / d) * speed, damage, life: 170, enemy: true, color: "#ff596f" });
+    };
+
+    /**
+     * Fires one overcharged power-up.
+     *
+     * Everything specific to a ship lives in its `OverchargeSpec`, so this
+     * function is what makes the pattern reusable: giving a fourth frame an
+     * overcharge is a data entry, not another branch down in `activateSpecial`.
+     */
+    const fireOvercharge = (game: Game, spec: OverchargeSpec) => {
+      const player = game.player;
+      const timing = overchargeTicks(spec);
+      const sourceColor = overchargeSourceColor(spec);
+
+      if (spec.volley) {
+        const volley = spec.volley;
+        for (const heading of volleyHeadings(player.angle, volley.count, volley.spreadDegrees)) {
+          const angle = heading * DEG;
+          game.bullets.push({
+            x: player.x + Math.cos(angle) * 16,
+            y: player.y + Math.sin(angle) * 16,
+            vx: Math.cos(angle) * volley.speed + player.vx,
+            vy: Math.sin(angle) * volley.speed + player.vy,
+            damage: volley.damage,
+            life: volley.lifeTicks,
+            enemy: false,
+            color: spec.accent,
+            special: true,
+            turnRadians: volley.turnRadians,
+          });
+        }
+      }
+
+      if (spec.blast) {
+        game.blasts.push({
+          x: player.x,
+          y: player.y,
+          age: 0,
+          life: timing.blast,
+          sweptTo: 0,
+          scrambleTicks: timing.scramble,
+          spec,
+        });
+      }
+
+      // Set unconditionally: a spec with no rider has to clear any rider the
+      // previous activation left running, rather than silently inheriting it.
+      player.riderTicks = spec.rider ? timing.rider : 0;
+      player.riderTotal = player.riderTicks;
+      player.riderAcceleration = spec.rider ? spec.rider.accelerationScale : 1;
+      player.riderMaxSpeed = spec.rider ? spec.rider.maxSpeedScale : 1;
+      if (timing.invuln > 0) player.invuln = Math.max(player.invuln, timing.invuln);
+
+      // A special that shoves its own ship says so in its spec rather than
+      // being named here, so this stays free of per-ship branching.
+      if (spec.recoil !== undefined) {
+        player.vx *= spec.recoil;
+        player.vy *= spec.recoil;
+      }
+
+      player.overchargeFlash = timing.flash;
+      // The HUD's SPECIAL readout already carries the ability name, so the
+      // notice spends its line on the thing the player has to learn: which
+      // ordinary power-up this is the overcharged build of.
+      game.notice = `SPECIAL // ${overchargeSource(spec).toUpperCase()}`;
+      // The escalation is the point of the pattern, so the effect leads with
+      // the pickup's own colour before the ship accent takes over.
+      burst(game, player.x, player.y, sourceColor, 34, 9);
+      burst(game, player.x, player.y, spec.accent, 26, 13);
+      playCue(`overcharge:${spec.id}`, 0.3);
     };
 
     const activateSpecial = (game: Game) => {
@@ -2557,16 +2694,12 @@ export default function WormholeGame() {
       }
 
       const ship = game.ship.id;
-      if (ship === "tank") {
+      const overcharge = overchargeFor(ship);
+      if (overcharge) {
+        fireOvercharge(game, overcharge);
+      } else if (ship === "tank") {
         player.invuln = Math.max(player.invuln, ticksForSeconds(3));
         game.notice = "IMPACT GUARD // 3S IMMUNITY";
-      } else if (ship === "wing") {
-        player.wingOverdrive = ticksForSeconds(WING_OVERDRIVE_SECONDS);
-        game.notice = "AFTERBURN // 3S";
-      } else if (ship === "squid") {
-        player.squidPhase = ticksForSeconds(SQUID_PHASE_SECONDS);
-        player.invuln = Math.max(player.invuln, player.squidPhase);
-        game.notice = "PHASE VEIL // TRACKING BROKEN";
       } else if (ship === "rabbit") {
         player.viperGuidance = ticksForSeconds(VIPER_GUIDANCE_SECONDS);
         game.notice = "TARGET LINK // LAUNCH WITHIN 3S";
@@ -2579,14 +2712,6 @@ export default function WormholeGame() {
       } else if (ship === "flash") {
         player.flashMode = player.flashMode === "tank" ? "squid" : "tank";
         game.notice = `FORM SHIFT // ${player.flashMode === "tank" ? "HEAVY" : "SCOUT"} FORM`;
-      } else if (ship === "hunter") {
-        for (let i = 0; i < 17; i += 1) {
-          const angle = (player.angle + (i - 8) * 12) * DEG;
-          game.bullets.push({ x: player.x, y: player.y, vx: Math.cos(angle) * 8, vy: Math.sin(angle) * 8, damage: 15, life: 105, enemy: false, color: "#ff5f70" });
-          game.playerShots += 1;
-        }
-        game.notice = "MISSILE FAN";
-        play("fire", 0.3);
       } else if (ship === "flagship") {
         player.flagshipField = ticksForSeconds(3);
         game.notice = "GRAVITY PULSE // 3S";
@@ -2594,15 +2719,63 @@ export default function WormholeGame() {
 
       player.specialCooldown = ticksForSeconds(spec.cooldownSeconds);
       game.noticeLife = 90;
-      burst(game, player.x, player.y, "#68f2ff", 26, 8);
-      play("magic", 0.22);
+      if (!overcharge) {
+        burst(game, player.x, player.y, "#68f2ff", 26, 8);
+        play("magic", 0.22);
+      }
+    };
+
+    /**
+     * Advances one overcharged detonation and applies it to whatever the
+     * expanding band reaches this tick.
+     *
+     * Sweeping a band — everything between last tick's radius and this one's —
+     * rather than testing the whole disc is how a hostile is caught exactly
+     * once, and it is the same technique the ordinary CORE BOMB already uses.
+     */
+    const updateBlast = (game: Game, fx: OverchargeBlastFx) => {
+      const blast = fx.spec.blast;
+      if (!blast) { fx.age = fx.life; return; }
+      fx.age += 1;
+      const previous = fx.sweptTo;
+      const radius = blastRadiusAt(fx.age, blast);
+      fx.sweptTo = radius;
+      if (radius <= previous) return;
+
+      const scrambleTicks = fx.scrambleTicks;
+      for (const enemy of game.enemies) {
+        if (enemy.hp <= 0) continue;
+        const dx = enemy.x - fx.x;
+        const dy = enemy.y - fx.y;
+        const d = Math.hypot(dx, dy);
+        if (d > radius || d <= previous) continue;
+
+        if (blast.knockback > 0) {
+          const away = Math.max(1, d);
+          enemy.vx += (dx / away) * blast.knockback;
+          enemy.vy += (dy / away) * blast.knockback;
+        }
+        // A Phase Shade is immune to fire by design; scrambling one is still
+        // fair game, because scramble steers rather than damages.
+        if (scrambleTicks > 0) enemy.scrambled = Math.max(enemy.scrambled ?? 0, scrambleTicks);
+
+        const damage = blastDamageAt(d, blast);
+        if (damage <= 0 || enemy.kind === "ghost") continue;
+        enemy.hp -= scrambledDamage(damage, (enemy.scrambled ?? 0) > 0);
+        burst(game, enemy.x, enemy.y, fx.spec.accent, 6, 4);
+        if (enemy.hp <= 0) destroyEnemy(game, enemy, blast.guaranteedDrops);
+      }
     };
 
     const updateEnemy = (game: Game, enemy: Enemy) => {
       const player = game.player;
       enemy.age += 1;
-      enemy.cooldown -= 1;
-      const tracking = hostileTrackingVector(enemy.x, enemy.y, player.x, player.y, player.squidPhase > 0);
+      // A scrambled hostile flies its approach backwards and its weapon timer
+      // stops, so the pulse buys real space rather than only looking dramatic.
+      const scrambled = (enemy.scrambled ?? 0) > 0;
+      if (scrambled) enemy.scrambled = (enemy.scrambled ?? 0) - 1;
+      else enemy.cooldown -= 1;
+      const tracking = hostileTrackingVector(enemy.x, enemy.y, player.x, player.y, scrambled);
       const dx = tracking.dx;
       const dy = tracking.dy;
       const d = Math.max(1, Math.hypot(dx, dy));
@@ -2621,7 +2794,7 @@ export default function WormholeGame() {
         enemy.vy += (dy / d) * 0.2;
         const speed = Math.hypot(enemy.vx, enemy.vy);
         if (speed > 5) { enemy.vx = (enemy.vx / speed) * 5; enemy.vy = (enemy.vy / speed) * 5; }
-        if (enemy.age % 150 === 0) {
+        if (!scrambled && enemy.age % 150 === 0) {
           for (let i = 0; i < 3; i += 1) game.enemies.push(makeEnemy("heatseeker", enemy.x, enemy.y, i, 3));
         }
       } else if (enemy.kind === "inflator") {
@@ -2639,14 +2812,14 @@ export default function WormholeGame() {
           enemy.vx += Math.cos(enemy.phase) * 0.03;
           enemy.vy += Math.sin(enemy.phase) * 0.03;
         }
-        if (enemy.cooldown <= 0) {
+        if (!scrambled && enemy.cooldown <= 0) {
           spawnEnemyBullet(game, enemy, enemy.kind === "artillery" ? 7 : 5, enemy.kind === "artillery" ? 16 : 10);
           enemy.cooldown = enemy.kind === "gunship" ? 28 : 45;
         }
       } else if (enemy.kind === "minelayer") {
         enemy.vx = Math.cos(enemy.age * 0.04) * 3.5;
         enemy.vy = Math.sin(enemy.age * 0.021) * 3.5;
-        if (enemy.age % 95 === 0) game.enemies.push(makeEnemy("mines", enemy.x, enemy.y, 0, 1));
+        if (!scrambled && enemy.age % 95 === 0) game.enemies.push(makeEnemy("mines", enemy.x, enemy.y, 0, 1));
       } else if (enemy.kind === "scarab") {
         const pickup = game.pickups[0];
         if (pickup) {
@@ -2662,11 +2835,11 @@ export default function WormholeGame() {
         if (enemy.y >= game.worldHeight - 12) { enemy.y = game.worldHeight - 12; enemy.vx = 4; enemy.vy = 0; }
         if (enemy.x >= game.worldWidth - 12) { enemy.x = game.worldWidth - 12; enemy.vx = 0; enemy.vy = -4; }
         if (enemy.y <= 12) { enemy.y = 12; enemy.vx = -4; enemy.vy = 0; }
-        if (enemy.age % 35 === 0) spawnEnemyBullet(game, enemy, 6, 10);
+        if (!scrambled && enemy.age % 35 === 0) spawnEnemyBullet(game, enemy, 6, 10);
       } else if (enemy.kind === "ghost") {
         if (enemy.age % 130 === 0) { enemy.vx = range(-2.5, 2.5); enemy.vy = range(-2.5, 2.5); }
       } else if (enemy.kind === "emp") {
-        enemy.blastRadius = (enemy.blastRadius ?? 0) + (enemy.age > 65 ? 8 : 0);
+        enemy.blastRadius = (enemy.blastRadius ?? 0) + (!scrambled && enemy.age > 65 ? 8 : 0);
         enemy.x = player.x;
         enemy.y = player.y;
         if ((enemy.blastRadius ?? 0) > 0 && (enemy.blastRadius ?? 0) >= d) player.emp = 150;
@@ -2675,7 +2848,7 @@ export default function WormholeGame() {
         enemy.phase = advanceBeamAngle(enemy.phase, enemy.rotationDir ?? 1);
         enemy.x = game.portalX;
         enemy.y = game.portalY;
-        if (enemy.age > 45 && enemy.age < 365) {
+        if (!scrambled && enemy.age > 45 && enemy.age < 365) {
           if (
             enemy.age % 16 === 0
             && pointTouchesBeam(game.portalX, game.portalY, enemy.phase, player.x, player.y, BEAM_HIT_WIDTH)
@@ -2801,6 +2974,7 @@ export default function WormholeGame() {
           game.pickups.length = 0;
           game.bullets.length = 0;
           game.powers.length = 0;
+          game.blasts.length = 0;
           game.spawns.length = 0;
           game.particles = game.particles.filter((item) => {
             const keep = pullObject(item, 5 + visual.phaseProgress * 5);
@@ -2872,8 +3046,9 @@ export default function WormholeGame() {
       player.shield = Math.max(0, player.shield - 1);
       if (shieldWasActive && player.shield === 0) playCue("shield-down", 0.18);
       player.specialCooldown = Math.max(0, player.specialCooldown - 1);
-      player.wingOverdrive = Math.max(0, player.wingOverdrive - 1);
-      player.squidPhase = Math.max(0, player.squidPhase - 1);
+      player.riderTicks = Math.max(0, player.riderTicks - 1);
+      if (player.riderTicks === 0) { player.riderAcceleration = 1; player.riderMaxSpeed = 1; }
+      player.overchargeFlash = Math.max(0, player.overchargeFlash - 1);
       player.viperGuidance = Math.max(0, player.viperGuidance - 1);
       player.emp = Math.max(0, player.emp - 1);
       // Wormhole motion is a rule, not a constant: EASY locks it dead centre
@@ -2960,11 +3135,16 @@ export default function WormholeGame() {
         }
       }
 
-      let handling = game.ship;
-      if (game.ship.id === "flash") handling = player.flashMode === "tank" ? SHIPS[0] : SHIPS[2];
+      const handling = game.ship.id === "flash" ? FORM_SHIFT_PROFILES[player.flashMode] : game.ship;
       const baseMaxSpeed = handling.maxSpeed + player.thrust * THRUST_SPEED_BONUS;
       const baseAcceleration = handling.acceleration + player.thrust * THRUST_ACCEL_BONUS;
-      const specialHandling = overdriveHandling(baseAcceleration, baseMaxSpeed, player.wingOverdrive > 0);
+      const specialHandling = riderHandling(
+        baseAcceleration,
+        baseMaxSpeed,
+        player.riderTicks > 0
+          ? { seconds: 0, accelerationScale: player.riderAcceleration, maxSpeedScale: player.riderMaxSpeed }
+          : null,
+      );
       const maxSpeed = specialHandling.maxSpeed;
       const acceleration = specialHandling.acceleration;
 
@@ -3052,6 +3232,22 @@ export default function WormholeGame() {
       }
 
       game.bullets.forEach((bullet) => {
+        if (bullet.turnRadians && !bullet.enemy) {
+          // Overcharged trackers hunt the nearest hostile. With the arena clear
+          // they steer for the rift instead, where a player round already
+          // counts toward the next power-up, so the volley is never wasted.
+          let targetX = game.portalX;
+          let targetY = game.portalY;
+          let closest = Infinity;
+          for (const enemy of game.enemies) {
+            if (enemy.hp <= 0 || enemy.kind === "ghost") continue;
+            const d = dist(bullet, enemy);
+            if (d < closest) { closest = d; targetX = enemy.x; targetY = enemy.y; }
+          }
+          const guided = steerHomingVelocity(bullet.x, bullet.y, bullet.vx, bullet.vy, targetX, targetY, bullet.turnRadians);
+          bullet.vx = guided.vx;
+          bullet.vy = guided.vy;
+        }
         bullet.x += bullet.vx;
         bullet.y += bullet.vy;
         bullet.life -= 1;
@@ -3078,7 +3274,7 @@ export default function WormholeGame() {
           if (enemy.hp <= 0 || bullet.life <= 0 || enemy.kind === "ghost") continue;
           if (dist(bullet, enemy) < enemy.radius + 4) {
             bullet.life = 0;
-            enemy.hp -= bullet.damage;
+            enemy.hp -= scrambledDamage(bullet.damage, (enemy.scrambled ?? 0) > 0);
             burst(game, bullet.x, bullet.y, POWER_COLORS[enemy.kind], 4, 2.5);
             if (enemy.hp <= 0) destroyEnemy(game, enemy);
           }
@@ -3214,6 +3410,7 @@ export default function WormholeGame() {
         game.botTimer = Math.max(330, 580 - Math.floor(game.cycles / 140));
       }
 
+      game.blasts.forEach((fx) => updateBlast(game, fx));
       game.enemies.forEach((enemy) => { if (enemy.hp > 0) updateEnemy(game, enemy); });
       if (coopIsHost && game.cycles % 6 === 0) {
         netRef.current?.reportWorld({
@@ -3238,13 +3435,14 @@ export default function WormholeGame() {
       let liveShots = 0;
       compact(game.bullets, (item) => {
         const alive = item.life > 0 && item.x > -30 && item.x < game.worldWidth + 30 && item.y > -30 && item.y < game.worldHeight + 30;
-        if (alive && !item.enemy) liveShots += 1;
+        if (alive && countsTowardShotBudget(item)) liveShots += 1;
         return alive;
       });
       game.playerShots = liveShots;
       compact(game.pickups, (item) => item.life > 0);
       compact(game.powers, (item) => item.life > 0 && item.x > -30 && item.x < game.worldWidth + 30 && item.y > -30 && item.y < game.worldHeight + 30);
       compact(game.enemies, (item) => item.hp > 0);
+      compact(game.blasts, (item) => item.age < item.life);
       compact(game.particles, (item) => item.life > 0);
       compact(game.spawns, (item) => item.age < item.life);
       if (game.incoming && game.noticeLife <= 0) game.incoming = null;
@@ -3505,10 +3703,74 @@ export default function WormholeGame() {
       ctx.restore();
     };
 
+    /**
+     * One overcharged detonation.
+     *
+     * Deliberately the same visual grammar as the pickup it came from — an
+     * expanding ring leaving a bright core — drawn bigger, with more rings and
+     * a ship-coloured accent so it can never be mistaken for the normal
+     * version. Ring count and the radial accents both fall away with the
+     * detail setting, so a phone draws two strokes where a desktop draws ten.
+     */
+    const drawOverchargeBlast = (fx: OverchargeBlastFx, detail: number) => {
+      const blast = fx.spec.blast;
+      if (!blast) return;
+      const life = cap(fx.age / Math.max(1, fx.life), 0, 1);
+      const fade = (1 - life) ** 1.4;
+      if (fade <= 0.01) return;
+      const source = overchargeSourceColor(fx.spec);
+
+      ctx.save();
+      ctx.translate(fx.x, fx.y);
+      ctx.globalCompositeOperation = "lighter";
+
+      const rings = blastRingRadii(fx.age, blast);
+      const drawn = detail < 0.35 ? 1 : detail < 0.6 ? Math.min(2, rings.length) : rings.length;
+      for (let index = 0; index < drawn; index += 1) {
+        const radius = rings[index];
+        if (radius <= 1) continue;
+        // The leading edge carries the ship accent; the rings trailing it stay
+        // in the source power-up's colour, which is what ties the two together.
+        ctx.strokeStyle = index === 0 ? fx.spec.accent : source;
+        ctx.globalAlpha = fade * (index === 0 ? 0.95 : 0.42 / index);
+        ctx.lineWidth = index === 0 ? 5 + fade * 6 : 2.5;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      // Radial energy accents, only where there is budget for them.
+      if (detail >= 0.6 && rings[0] > 4) {
+        const spokes = 12;
+        ctx.strokeStyle = fx.spec.accent;
+        ctx.globalAlpha = fade * 0.3;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        for (let i = 0; i < spokes; i += 1) {
+          const angle = (i / spokes) * Math.PI * 2 + fx.age * 0.02;
+          ctx.moveTo(Math.cos(angle) * rings[0] * 0.62, Math.sin(angle) * rings[0] * 0.62);
+          ctx.lineTo(Math.cos(angle) * rings[0], Math.sin(angle) * rings[0]);
+        }
+        ctx.stroke();
+      }
+
+      // Core flash, brightest on the first few frames.
+      const core = Math.max(0, 1 - fx.age / 14);
+      if (core > 0) {
+        ctx.globalAlpha = core * 0.9;
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.arc(0, 0, 16 + core * 46, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    };
+
     const drawScene = (time: number, detail: number) => {
       const game = gameRef.current;
       const player = game.player;
       const quiet = reducedMotionRef.current;
+      const shipOvercharge = overchargeFor(game.ship.id);
 
       ctx.setTransform(worldScale, 0, 0, worldScale, 0, 0);
       const palette = ARENA_PALETTES[game.rules.id];
@@ -3640,9 +3902,9 @@ export default function WormholeGame() {
           ctx.arc(bullet.x, bullet.y, 2.4, 0, Math.PI * 2);
           ctx.fill();
         } else {
-          if (profile.shadows) { ctx.shadowColor = bullet.color; ctx.shadowBlur = 7; }
+          if (profile.shadows) { ctx.shadowColor = bullet.color; ctx.shadowBlur = bullet.special ? 13 : 7; }
           ctx.strokeStyle = bullet.color;
-          ctx.lineWidth = 2.6;
+          ctx.lineWidth = bullet.special ? 4.4 : 2.6;
           ctx.lineCap = "round";
           ctx.beginPath();
           ctx.moveTo(bullet.x, bullet.y);
@@ -3657,6 +3919,11 @@ export default function WormholeGame() {
           ctx.stroke();
         }
         ctx.restore();
+      }
+
+      for (const fx of game.blasts) {
+        if (!visible(fx.x, fx.y, (fx.spec.blast?.radius ?? 0) + 20)) continue;
+        drawOverchargeBlast(fx, detail);
       }
 
       for (const power of game.powers) {
@@ -3678,7 +3945,11 @@ export default function WormholeGame() {
         ctx.save();
         ctx.translate(player.x, player.y);
         ctx.rotate(player.angle * DEG);
-        if (player.squidPhase > 0) ctx.globalAlpha = 0.42 + Math.sin(time * 0.02) * 0.12;
+        // Phantom's pulse phases the hull out while it lands, so the frame
+        // reads as untouchable rather than merely lucky.
+        if (shipOvercharge?.id === "scrambler" && player.riderTicks > 0) {
+          ctx.globalAlpha = 0.42 + Math.sin(time * 0.02) * 0.12;
+        }
         ctx.strokeStyle = player.invuln > 0 ? "#ffffff" : "#69ecff";
         ctx.fillStyle = "rgba(86, 226, 255, .12)";
         if (profile.shadows) { ctx.shadowColor = "#62eaff"; ctx.shadowBlur = 10; }
@@ -3769,14 +4040,36 @@ export default function WormholeGame() {
           ctx.restore();
         }
 
-        if (player.wingOverdrive > 0) {
+        // Muzzle flare on the hull itself. Short, bright and in the ship's
+        // own accent, so an overcharge is legible as a SPECIAL from the first
+        // frame rather than only once the ring has grown.
+        if (shipOvercharge && player.overchargeFlash > 0) {
+          const flash = player.overchargeFlash / OVERCHARGE_FLASH_TICKS;
           ctx.save();
           ctx.translate(player.x, player.y);
-          ctx.globalAlpha = 0.28;
-          ctx.strokeStyle = "#68f2ff";
-          ctx.lineWidth = 2;
+          ctx.globalCompositeOperation = "lighter";
+          ctx.strokeStyle = shipOvercharge.accent;
+          ctx.globalAlpha = flash * 0.85;
+          ctx.lineWidth = 2 + flash * 4;
           ctx.beginPath();
-          ctx.arc(0, 0, 30 + Math.sin(time * 0.018) * 4, 0, Math.PI * 2);
+          ctx.arc(0, 0, 26 + (1 - flash) * 54, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        // The handling rider, whichever direction it runs in: a tight halo for
+        // a boost, a heavy dashed drag ring for Talon's post-blast stagger.
+        if (shipOvercharge && player.riderTicks > 0) {
+          const rider = player.riderTicks / Math.max(1, player.riderTotal);
+          const dragging = player.riderMaxSpeed < 1;
+          ctx.save();
+          ctx.translate(player.x, player.y);
+          ctx.globalAlpha = 0.2 + rider * 0.25;
+          ctx.strokeStyle = shipOvercharge.accent;
+          ctx.lineWidth = dragging ? 3 : 2;
+          if (dragging) ctx.setLineDash([6, 8]);
+          ctx.beginPath();
+          ctx.arc(0, 0, (dragging ? 36 : 30) + Math.sin(time * 0.018) * 4, 0, Math.PI * 2);
           ctx.stroke();
           ctx.restore();
         }

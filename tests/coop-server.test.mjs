@@ -105,10 +105,18 @@ test("stale co-op world revisions are ignored", () => {
 
 test("co-op defeat identifies the eliminated pilot and final damage source", () => {
   const { server, a, b } = activeCoop();
-  server.reportDamage(a.player, { seq: 1, source: "impact", amount: 60, cause: "nuke_blast" }, 6000);
-  server.reportDamage(a.player, { seq: 2, source: "impact", amount: 60, cause: "nuke_blast" }, 7100);
-  server.reportDamage(a.player, { seq: 3, source: "impact", amount: 60, cause: "nuke_blast" }, 8200);
-  server.reportDamage(a.player, { seq: 4, source: "impact", amount: 60, cause: "nuke_blast" }, 9300);
+  // Reported until the pilot is actually gone rather than a fixed number of
+  // hits, so a hull rebalance cannot silently stop this reaching elimination.
+  const HIT = 60;
+  const remainder = a.player.combat.maxHull % HIT;
+  const finalHit = remainder === 0 ? HIT : remainder;
+  let seq = 1;
+  let now = 6000;
+  while (a.player.combat.hull > 0 && seq < 100) {
+    server.reportDamage(a.player, { seq: seq++, source: "impact", amount: HIT, cause: "nuke_blast" }, now);
+    now += 1100;
+  }
+  assert.equal(a.player.combat.hull, 0);
   const ownResult = a.messages.findLast((message) => message.type === "result");
   const allyResult = b.messages.findLast((message) => message.type === "result");
   assert.equal(ownResult.youEliminated, true);
@@ -117,8 +125,8 @@ test("co-op defeat identifies the eliminated pilot and final damage source", () 
   assert.equal(allyResult.eliminatedName, a.player.name);
   assert.equal(ownResult.cause, "nuke_blast");
   assert.equal(allyResult.cause, "nuke_blast");
-  assert.equal(ownResult.finalDamage, 60);
-  assert.equal(allyResult.finalDamage, 60);
+  assert.equal(ownResult.finalDamage, finalHit);
+  assert.equal(allyResult.finalDamage, finalHit);
 });
 
 test("a co-op retry can store a new ship before both pilots accept", () => {

@@ -292,6 +292,9 @@ export function parseClientMessage(raw) {
           armed: Boolean(enemy.armed),
           countdown: isFiniteNumber(enemy.countdown) ? enemy.countdown : undefined,
           blastRadius: isFiniteNumber(enemy.blastRadius) ? enemy.blastRadius : undefined,
+          // Scramble is simulated state, not decoration: without it a co-op
+          // guest would watch hostiles fly backwards for no visible reason.
+          scrambled: isFiniteNumber(enemy.scrambled) ? Math.max(0, Math.min(1000, enemy.scrambled)) : undefined,
         });
       }
       const enemyBullets = [];

@@ -142,7 +142,7 @@ test("two guests play a PvP match end to end", { skip, timeout: 240_000 }, async
     assert.match(hud, /PVP \/\/ EASY RULES/);
     assert.match(hud, /LINK OK/);
     assert.match(hud, /280\/280/, "tank hull comes from the server");
-    assert.match(hud, /200\/200/, "squid hull comes from the server");
+    assert.match(hud, /170\/170/, "squid hull comes from the server");
 
     assert.match(
       (await alpha.locator(".difficulty-badge").innerText()).replace(/\s+/g, " "),
