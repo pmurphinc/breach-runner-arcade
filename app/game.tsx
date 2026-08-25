@@ -53,7 +53,9 @@ import {
   settingsStore,
   SOUND_GAIN,
   VIEW_PROFILES,
+  ZOOM_SCALE,
   type SoundLevel,
+  type ZoomLevel,
 } from "./view-settings";
 import GlobalSystemControls, { useFullscreen } from "./system-controls";
 import {
@@ -1599,6 +1601,7 @@ export default function WormholeGame() {
   const soundRef = useRef(true);
   const soundLevelRef = useRef<SoundLevel>("medium");
   const cameraRef = useRef(true);
+  const zoomRef = useRef<ZoomLevel>("standard");
   const qualityRef = useRef<QualityMode>("auto");
   const reducedMotionRef = useRef(false);
   const viewProfileRef = useRef(viewProfile);
@@ -1635,6 +1638,7 @@ export default function WormholeGame() {
   useEffect(() => { soundRef.current = sound; }, [sound]);
   useEffect(() => { soundLevelRef.current = settings.soundLevel; }, [settings.soundLevel]);
   useEffect(() => { cameraRef.current = cameraLocked; }, [cameraLocked]);
+  useEffect(() => { zoomRef.current = settings.zoom; }, [settings.zoom]);
   useEffect(() => { qualityRef.current = quality; }, [quality]);
   useEffect(() => { reducedMotionRef.current = reducedMotion; }, [reducedMotion]);
   useEffect(() => { viewProfileRef.current = viewProfile; }, [viewProfile]);
@@ -2370,9 +2374,9 @@ export default function WormholeGame() {
     const game = gameRef.current;
     const player = game.player;
     const locked = cameraRef.current;
-    const camScale = locked ? 1 : Math.min(VIEW_WIDTH / game.worldWidth, VIEW_HEIGHT / game.worldHeight);
-    const camX = locked ? cap(VIEW_WIDTH / 2 - player.x, VIEW_WIDTH - game.worldWidth, 0) : (VIEW_WIDTH - game.worldWidth * camScale) / 2;
-    const camY = locked ? cap(VIEW_HEIGHT / 2 - player.y, VIEW_HEIGHT - game.worldHeight, 0) : (VIEW_HEIGHT - game.worldHeight * camScale) / 2;
+    const camScale = locked ? ZOOM_SCALE[zoomRef.current] : Math.min(VIEW_WIDTH / game.worldWidth, VIEW_HEIGHT / game.worldHeight);
+    const camX = locked ? cap(VIEW_WIDTH / 2 - player.x * camScale, VIEW_WIDTH - game.worldWidth * camScale, 0) : (VIEW_WIDTH - game.worldWidth * camScale) / 2;
+    const camY = locked ? cap(VIEW_HEIGHT / 2 - player.y * camScale, VIEW_HEIGHT - game.worldHeight * camScale, 0) : (VIEW_HEIGHT - game.worldHeight * camScale) / 2;
     const worldX = (screenX - camX) / camScale;
     const worldY = (screenY - camY) / camScale;
     aimHeading.current = (Math.atan2(worldY - player.y, worldX - player.x) * 180) / Math.PI;
@@ -2548,7 +2552,7 @@ export default function WormholeGame() {
       const player = game.player;
       if (game.rules.unlimitedHull) {
         player.health = player.maxHealth;
-        game.notice = "PRACTICE // HULL LOCKED";
+        game.notice = "SIMULATION // HULL LOCKED";
         game.noticeLife = 55;
         return;
       }
@@ -4070,9 +4074,9 @@ export default function WormholeGame() {
       ctx.stroke();
 
       const locked = cameraRef.current;
-      const camScale = locked ? 1 : Math.min(VIEW_WIDTH / game.worldWidth, VIEW_HEIGHT / game.worldHeight);
-      const camX = locked ? cap(VIEW_WIDTH / 2 - player.x, VIEW_WIDTH - game.worldWidth, 0) : (VIEW_WIDTH - game.worldWidth * camScale) / 2;
-      const camY = locked ? cap(VIEW_HEIGHT / 2 - player.y, VIEW_HEIGHT - game.worldHeight, 0) : (VIEW_HEIGHT - game.worldHeight * camScale) / 2;
+      const camScale = locked ? ZOOM_SCALE[zoomRef.current] : Math.min(VIEW_WIDTH / game.worldWidth, VIEW_HEIGHT / game.worldHeight);
+      const camX = locked ? cap(VIEW_WIDTH / 2 - player.x * camScale, VIEW_WIDTH - game.worldWidth * camScale, 0) : (VIEW_WIDTH - game.worldWidth * camScale) / 2;
+      const camY = locked ? cap(VIEW_HEIGHT / 2 - player.y * camScale, VIEW_HEIGHT - game.worldHeight * camScale, 0) : (VIEW_HEIGHT - game.worldHeight * camScale) / 2;
       const viewLeft = -camX / camScale;
       const viewTop = -camY / camScale;
       const viewRight = (VIEW_WIDTH - camX) / camScale;
@@ -4230,7 +4234,7 @@ export default function WormholeGame() {
         ctx.fillStyle = "rgba(86, 226, 255, .12)";
         if (profile.shadows) { ctx.shadowColor = "#62eaff"; ctx.shadowBlur = 10; }
         ctx.lineWidth = 2;
-        drawShipShape(ctx, game.ship.id, game.ship.id === "flagship" ? .82 : 1);
+        drawShipShape(ctx, game.ship.id, (game.ship.id === "flagship" ? .82 : 1) * 1.15);
         ctx.fill();
         ctx.stroke();
         if (player.shield > 0 || player.invuln > 0) {
@@ -4272,7 +4276,7 @@ export default function WormholeGame() {
           ctx.strokeStyle = "#ffffff";
           ctx.fillStyle = "rgba(182,255,87,.42)";
           ctx.lineWidth = 4;
-          drawShipShape(ctx, teammate.ship as ShipId, teammate.ship === "flagship" ? .82 : 1);
+          drawShipShape(ctx, teammate.ship as ShipId, (teammate.ship === "flagship" ? .82 : 1) * 1.15);
           ctx.fill();
           ctx.stroke();
           ctx.restore();
@@ -5276,6 +5280,8 @@ export default function WormholeGame() {
           onSoundLevel={(next) => setSetting("soundLevel", next)}
           cameraLock={cameraLocked}
           onCameraLock={(next) => setSetting("cameraLock", next)}
+          zoom={settings.zoom}
+          onZoom={(next) => setSetting("zoom", next)}
           initials={settings.playerInitials}
           onInitials={(next) => setSetting("playerInitials", normalizeInitials(next))}
           go={go}

@@ -76,7 +76,7 @@ test('settings are consolidated into Controls, Audio and Display', () => {
   for (const group of ['Controls', 'Audio', 'Display']) {
     assert.match(settingsScreen, new RegExp(`title="${group}"`));
   }
-  for (const label of ['Thumbsticks', 'Touch control size', 'Sound', 'Volume', 'Camera lock']) {
+  for (const label of ['Thumbsticks', 'Touch control size', 'Sound', 'Volume', 'Perspective', 'Zoom']) {
     assert.match(settingsScreen, new RegExp(label));
   }
   // Fullscreen must never live only in Settings — it is a global control.

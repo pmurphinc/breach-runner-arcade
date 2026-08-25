@@ -17,7 +17,7 @@ import { SHIP_ORDER, SHIP_PROFILES } from "./ship-data";
 import { DIFFICULTIES, DIFFICULTY_ORDER, type DifficultyId, type GameMode } from "./difficulty";
 import { PRODUCT_TAGLINE, PRODUCT_TITLE } from "./product";
 import type { MenuRoute } from "./menu-routes";
-import type { SoundLevel, TouchControlSize, ViewMode } from "./view-settings";
+import type { SoundLevel, TouchControlSize, ViewMode, ZoomLevel } from "./view-settings";
 
 /** One line each. A mode a player cannot summarise is a mode they will not pick. */
 export const MODE_INFO: Record<GameMode, { label: string; blurb: string }> = {
@@ -376,6 +376,8 @@ export function SettingsScreen({
   onSoundLevel,
   cameraLock,
   onCameraLock,
+  zoom,
+  onZoom,
   initials,
   onInitials,
 }: MenuCallbacks & {
@@ -392,6 +394,8 @@ export function SettingsScreen({
   onSoundLevel: (next: SoundLevel) => void;
   cameraLock: boolean;
   onCameraLock: (next: boolean) => void;
+  zoom: ZoomLevel;
+  onZoom: (next: ZoomLevel) => void;
   initials: string;
   onInitials: (next: string) => void;
 }) {
@@ -445,12 +449,28 @@ export function SettingsScreen({
       </MenuSection>
 
       <MenuSection title="Display">
-        <Toggle
-          label="Camera lock"
-          value={cameraLock}
-          onChange={onCameraLock}
-          hint="Keep the camera centred on your ship"
+        <OptionRow
+          label="Perspective"
+          value={cameraLock ? "follow" : "arena"}
+          options={[
+            { id: "follow", label: "Follow Ship", hint: "The arena moves around your ship" },
+            { id: "arena", label: "Full Arena", hint: "Fit the entire arena on screen" },
+          ]}
+          onChange={(next) => onCameraLock(next === "follow")}
         />
+        <OptionRow
+          label="Zoom"
+          value={zoom}
+          disabled={!cameraLock}
+          options={[
+            { id: "wide", label: "Wide", hint: "0.85×" },
+            { id: "standard", label: "Standard", hint: "1.00×" },
+            { id: "close", label: "Close", hint: "1.15×" },
+            { id: "closer", label: "Closer", hint: "1.30×" },
+          ]}
+          onChange={onZoom}
+        />
+        {!cameraLock ? <p className="menu-hint">Full Arena always fits the entire arena.</p> : null}
       </MenuSection>
 
       <MenuSection title="Arcade identity" hint="Used automatically for future scores.">
