@@ -334,9 +334,16 @@ test("the settings drawer scrolls, traps focus, and restores it", { skip }, asyn
       const text = (await panel.innerText()).replace(/\s+/g, " ");
       // Labels are uppercased by CSS, so innerText comes back uppercase.
       const upper = text.toUpperCase();
-      for (const action of ["RESUME", "RESTART RUN", "CHANGE SHIP", "CHANGE MODE", "SETTINGS", "GAME INFO"]) {
+      for (const action of ["RESUME", "SETTINGS", "GAME INFO"]) {
         assert.ok(upper.includes(action), `missing pause action: ${action}`);
       }
+      // Solo PvE keeps Restart, which is a client-side start().
+      assert.ok(upper.includes("RESTART RUN"), "solo play can restart its own run");
+      // Ship and mode changes are destructive and must say so: reaching them
+      // without ending the run is what let the menu describe one ship while
+      // the simulation ran another.
+      assert.ok(upper.includes("END RUN & CHANGE SHIP"), "changing ship must end the run");
+      assert.ok(upper.includes("END RUN & CHANGE MODE"), "changing mode must end the run");
       assert.ok(upper.includes("QUIT TO MAIN MENU"), "abandoning the run must be explicit");
       assert.equal(
         await panel.locator('[aria-label="Choose a ship"]').count(),
