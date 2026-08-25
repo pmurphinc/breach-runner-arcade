@@ -4210,6 +4210,15 @@ export default function WormholeGame() {
 
       if (player.health > 0) {
         ctx.save();
+        // A player hull must never inherit transparent or destructive canvas
+        // state from an earlier arena effect. Form Shift can be triggered
+        // repeatedly during long Switchback runs, so the player draw owns
+        // an explicit visible render-state boundary every frame.
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = "source-over";
+        ctx.shadowBlur = 0;
+        ctx.setLineDash([]);
+        ctx.lineDashOffset = 0;
         ctx.translate(player.x, player.y);
         ctx.rotate(player.angle * DEG);
         // Phantom's pulse phases the hull out while it lands, so the frame
