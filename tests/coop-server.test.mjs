@@ -52,11 +52,21 @@ test("both pilots damage one authoritative rival", () => {
 
 test("co-op teammate positions relay without becoming server movement authority", () => {
   const { server, a, b } = activeCoop();
-  const result = server.updatePosition(a.player, { x: 120, y: 300, angle: 45 }, 5000);
+  const result = server.updatePosition(a.player, { seq: 1, sentAt: 4900, x: 120, y: 300, angle: 45 }, 5000);
   assert.equal(result.ok, true);
   const message = b.messages.at(-1);
   assert.equal(message.type, "teammate");
   assert.deepEqual({ x: message.x, y: message.y, angle: message.angle }, { x: 120, y: 300, angle: 45 });
+  assert.deepEqual({ seq: message.seq, sentAt: message.sentAt }, { seq: 1, sentAt: 4900 });
+});
+
+test("co-op server ignores stale position sequences", () => {
+  const { server, a, b } = activeCoop();
+  server.updatePosition(a.player, { seq: 4, sentAt: 4900, x: 120, y: 300, angle: 45 }, 5000);
+  const stale = server.updatePosition(a.player, { seq: 3, sentAt: 5100, x: 900, y: 800, angle: 180 }, 5200);
+  assert.equal(stale.ignored, true);
+  assert.equal(b.messages.filter((message) => message.type === "teammate").length, 1);
+  assert.equal(a.player.position.x, 120);
 });
 
 test("one destroyed pilot produces a shared defeat", () => {

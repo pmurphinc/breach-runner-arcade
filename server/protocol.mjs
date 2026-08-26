@@ -10,7 +10,7 @@
  * `tests/pvp-protocol.test.mjs` asserts the two agree.
  */
 
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 /** WebSocket path. Shares the game's HTTP server and Railway's injected PORT. */
 export const PVP_PATH = "/pvp";
@@ -247,13 +247,17 @@ export function parseClientMessage(raw) {
       return { ok: true, message: { type, seq: parsed.seq, weapon: parsed.weapon } };
     }
     case "position": {
-      if (![parsed.x, parsed.y, parsed.angle].every(isFiniteNumber)) {
+      if (!Number.isInteger(parsed.seq) || parsed.seq < 0 || parsed.seq > 1_000_000_000
+        || !Number.isInteger(parsed.sentAt) || parsed.sentAt < 0 || parsed.sentAt > 10_000_000_000_000
+        || ![parsed.x, parsed.y, parsed.angle].every(isFiniteNumber)) {
         return { ok: false, code: ERRORS.BAD_MESSAGE, detail: "bad position" };
       }
       return {
         ok: true,
         message: {
           type,
+          seq: parsed.seq,
+          sentAt: parsed.sentAt,
           x: Math.max(0, Math.min(1504, parsed.x)),
           y: Math.max(0, Math.min(940, parsed.y)),
           angle: ((parsed.angle % 360) + 360) % 360,

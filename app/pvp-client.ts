@@ -1,5 +1,7 @@
 "use client";
 
+import { RemoteMotion } from "./network-motion.ts";
+
 /**
  * Client side of the PvP protocol.
  *
@@ -13,7 +15,7 @@
  */
 
 /** Must match server/protocol.mjs. `tests/pvp-protocol.test.mjs` asserts it. */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 export const PVP_PATH = "/pvp";
 export const CODE_LENGTH = 6;
 export const COUNTDOWN_SECONDS = 3;
@@ -49,7 +51,8 @@ export type PvpOpponent = {
 };
 
 export type NetworkMode = "pvp" | "coop";
-export type TeammatePosition = { id: string; name: string; ship: string; x: number; y: number; angle: number };
+export type TeammatePosition = { id: string; name: string; ship: string; seq: number; sentAt: number; x: number; y: number; angle: number };
+export const POSITION_SEND_INTERVAL_MS = 33;
 export type CoopRival = { hull: number; maxHull: number; score: number };
 export type CoopWorld = {
   seq: number;
@@ -152,7 +155,9 @@ export class PvpClient {
   private sessionKind: NetworkMode;
   private difficulty: string;
   private lastPositionAt = 0;
-  private lastWorldAt = 0;
+  private positionSeq = 0;
+  private teammateMotion = new RemoteMotion();
+  private lastMotionDebugAt = 0;
   private worldSeq = 0;
 
   constructor(kind: NetworkMode = "pvp", difficulty = "easy") {
@@ -271,6 +276,7 @@ export class PvpClient {
         return;
       }
       case "lobby": {
+        this.teammateMotion.reset();
         const state = message.state;
         this.update({
           phase: state === "searching" ? "searching" : state === "waiting" ? "waiting" : "idle",
@@ -336,7 +342,14 @@ export class PvpClient {
         return;
       }
       case "teammate": {
-        this.update({ teammate: message as unknown as TeammatePosition });
+        const teammate = message as unknown as TeammatePosition;
+        const receivedAt = performance.now();
+        if (!this.teammateMotion.push({ ...teammate, receivedAt })) return;
+        this.update({ teammate });
+        if (process.env.NODE_ENV !== "production" && receivedAt - this.lastMotionDebugAt >= 2000) {
+          this.lastMotionDebugAt = receivedAt;
+          console.debug("[coop motion]", this.teammateMotion.metrics(receivedAt));
+        }
         return;
       }
       case "world": {
@@ -364,7 +377,9 @@ export class PvpClient {
       }
       case "opponent": {
         const opponent = this.snapshot.opponent;
+        if (message.state === "reconnected") this.teammateMotion.reset();
         this.update({
+          ...(message.state === "reconnected" ? { teammate: null } : {}),
           opponent: opponent ? { ...opponent, connected: message.state === "reconnected" } : opponent,
         });
         return;
@@ -428,17 +443,21 @@ export class PvpClient {
     this.send({ type: "damage", seq: this.damageSeq, source, amount: Math.round(amount), cause });
   }
 
-  reportPosition(x: number, y: number, angle: number) {
-    const now = performance.now();
-    if (now - this.lastPositionAt < 66) return;
+  reportPosition(x: number, y: number, angle: number, now = performance.now()) {
+    if (now - this.lastPositionAt < POSITION_SEND_INTERVAL_MS) return false;
     this.lastPositionAt = now;
-    this.send({ type: "position", x, y, angle });
+    this.positionSeq += 1;
+    return this.send({ type: "position", seq: this.positionSeq, sentAt: Date.now(), x, y, angle });
+  }
+
+  /** Called from the canvas render loop; it does not cause a React update. */
+  renderedTeammate(now = performance.now()) {
+    const teammate = this.snapshot.teammate;
+    const motion = this.teammateMotion.sample(now);
+    return teammate && motion ? { ...teammate, ...motion } : teammate;
   }
 
   reportWorld(world: Omit<CoopWorld, "seq">) {
-    const now = performance.now();
-    if (now - this.lastWorldAt < 90) return;
-    this.lastWorldAt = now;
     this.worldSeq += 1;
     this.send({ type: "world", seq: this.worldSeq, ...world });
   }
@@ -463,6 +482,7 @@ export class PvpClient {
     this.socket = null;
     this.seenIncoming.clear();
     this.incomingQueue = [];
+    this.teammateMotion.reset();
     this.update({ ...EMPTY });
   }
 }

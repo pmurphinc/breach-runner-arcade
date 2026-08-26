@@ -68,7 +68,7 @@ export function createPlayer(send, { now = Date.now(), random = Math.random } = 
     combat: null,
     lastDamageSeq: -1,
     lastTransmitSeq: -1,
-    position: { x: 752, y: 470, angle: 270 },
+    position: { seq: -1, sentAt: 0, x: 752, y: 470, angle: 270 },
     window: createRateWindow(),
   };
 }
@@ -139,6 +139,9 @@ export class MatchServer {
     player.send = send;
     player.lastSeen = now;
     player.disconnectedAt = 0;
+    // A reloaded client starts its position sequence at one. No frames from
+    // the closed socket can follow this point, so begin a fresh ordering era.
+    player.position.seq = -1;
 
     const room = player.room;
     if (room) {
@@ -404,7 +407,8 @@ export class MatchServer {
   updatePosition(player, position, now = Date.now()) {
     const room = player.room;
     if (!room || room.kind !== "coop" || room.phase !== PHASES.ACTIVE) return { ok: false, code: ERRORS.NOT_IN_MATCH };
-    player.position = { x: position.x, y: position.y, angle: position.angle };
+    if (position.seq <= player.position.seq) return { ok: true, ignored: true };
+    player.position = { seq: position.seq, sentAt: position.sentAt, x: position.x, y: position.y, angle: position.angle };
     room.touchedAt = now;
     this.sendTo(this.opponentOf(room, player), {
       type: "teammate", id: player.id, ship: player.ship, name: player.name, ...player.position,
