@@ -2,7 +2,8 @@
 .touch-capable .canvas-wrap > .touch-powerup-hud,
 .touch-capable[data-touch-controls="off"] .touch-powerup-hud {
   --pup-slot: clamp(20px, 3.8vw, 32px);
-  top: calc(var(--rules-bottom, 52px) + 12px);
+  /* The measured health edge includes the Hull, Shield, and Rival labels. */
+  top: calc(var(--health-bottom, 94px) + 8px);
   bottom: auto;
   z-index: var(--z-hud-float);
   width: auto;
@@ -29,6 +30,16 @@
   border-color: color-mix(in srgb, var(--pup) 62%, transparent);
   background: color-mix(in srgb, var(--pup) 12%, rgba(2, 9, 15, .94));
 }
+.touch-powerup-slot .weapon-icon {
+  position: static;
+  width: 100%;
+  height: 100%;
+  max-width: calc(var(--pup-slot) - 4px);
+  max-height: calc(var(--pup-slot) - 4px);
+  aspect-ratio: 1;
+  object-fit: contain;
+  transform: none;
+}
 .touch-powerup-loaded {
   width: clamp(92px, 17vw, 142px); min-width: 0; display: grid;
   grid-template-rows: 11px 1fr; color: var(--pup); overflow: hidden;
@@ -44,6 +55,15 @@
 .touch-powerup-loaded button {
   min-width: 0; border: 0; display: flex; align-items: center; gap: 4px;
   padding: 0 4px; color: var(--pup); background: transparent;
+}
+.touch-powerup-loaded .weapon-icon {
+  position: static;
+  width: min(28px, 34%);
+  height: auto;
+  max-height: 28px;
+  aspect-ratio: 1;
+  object-fit: contain;
+  transform: none;
 }
 .touch-powerup-loaded strong {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

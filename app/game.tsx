@@ -1917,6 +1917,7 @@ export default function WormholeGame() {
       const canvasWidth = Math.max(1, Math.floor(Math.min(wrapRect.width, availableHeight * WORLD_WIDTH / WORLD_HEIGHT)));
       const canvasHeight = Math.max(1, Math.floor(canvasWidth * WORLD_HEIGHT / WORLD_WIDTH));
       wrap.style.setProperty("--rules-bottom", `${Math.max(0, bottomOf(".difficulty-badge"))}px`);
+      wrap.style.setProperty("--health-bottom", `${Math.max(0, hudBottom)}px`);
       // HTML paints above the canvas, so make canvas spawn/tracker nameplates
       // start below the inventory instead of allowing that panel to cover them.
       const inventoryBottom = bottomOf(".touch-powerup-hud");
