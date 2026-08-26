@@ -59,6 +59,7 @@ import {
   type ZoomLevel,
 } from "./view-settings";
 import GlobalSystemControls, { useFullscreen } from "./system-controls";
+import { MenuScreen } from "./ui-system";
 import {
   activeRoute,
   isOpen as menuIsOpen,
@@ -92,6 +93,7 @@ import {
 import { cannonPlaybackRate, hapticsAllow } from "./combat-feedback";
 import { pupInventoryLayout } from "./pup-inventory";
 import { RICOCHET_BOUNCES, RICOCHET_DURATION_SECONDS, reflectRicochet } from "./ricochet";
+import { EMPTY_GAMEPAD, readStandardGamepad } from "./gamepad";
 import {
   MOVEMENT_CODES,
   applyIntent,
@@ -909,19 +911,10 @@ function WeaponCodex({ onClose, reducedMotion }: { onClose: () => void; reducedM
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
   return (
-    <div className="codex-backdrop" role="presentation" onClick={onClose}>
-      <div
-        className="codex"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="codex-heading"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="codex-head">
-          <h2 id="codex-heading">WEAPON CODEX</h2>
-          <p>Every power-up the rift can produce. Select one to read what it does.</p>
-          <button ref={closeRef} type="button" className="codex-close" onClick={onClose} aria-label="Close weapon codex">✕</button>
-        </div>
+    <MenuScreen route="codex" title="Weapon Codex" onBack={onClose} wide>
+      <div className="codex">
+        <p className="codex-intro">Every power-up the rift can produce. Select one to read what it does.</p>
+        <button ref={closeRef} type="button" className="sr-only" onClick={onClose}>Close weapon codex</button>
         <div className="codex-body">
           <ul className="codex-list" aria-label="Weapon list">
             {CODEX_ORDER.map((id) => {
@@ -948,7 +941,7 @@ function WeaponCodex({ onClose, reducedMotion }: { onClose: () => void; reducedM
           <WeaponCard id={focused} variant="inline" reducedMotion={reducedMotion} />
         </div>
       </div>
-    </div>
+    </MenuScreen>
   );
 }
 
@@ -2737,6 +2730,52 @@ export default function WormholeGame() {
     };
   }, [start, toggleMenu]);
 
+  // Controllers are optional and hot-pluggable. Gameplay consumes actions,
+  // never vendor button labels; standard Xbox and PlayStation pads therefore
+  // share the same map without changing the saved view/input preference.
+  useEffect(() => {
+    let frame = 0;
+    let previous = EMPTY_GAMEPAD;
+    let lastMenuMove = 0;
+    const poll = (now: number) => {
+      const pad = Array.from(navigator.getGamepads?.() ?? []).find((candidate) => candidate?.connected && candidate.mapping === "standard");
+      const action = pad ? readStandardGamepad(pad) : EMPTY_GAMEPAD;
+      if (menuOpenRef.current || Boolean(summary)) {
+        const direction = action.menuY || action.menuX;
+        if (direction && (!previous.menuX && !previous.menuY || now - lastMenuMove > 220)) {
+          lastMenuMove = now;
+          const controls = [...document.querySelectorAll<HTMLElement>(".menu-panel button:not(:disabled), .run-summary button:not(:disabled), .menu-panel input")].filter((item) => item.offsetParent !== null);
+          const current = Math.max(0, controls.indexOf(document.activeElement as HTMLElement));
+          controls[(current + Math.sign(direction) + controls.length) % controls.length]?.focus();
+        }
+        if (action.confirm && !previous.confirm) (document.activeElement as HTMLElement)?.click?.();
+        if (action.cancel && !previous.cancel) back();
+      } else {
+        moveHeading.current = Math.hypot(action.moveX, action.moveY) > 0 ? Math.atan2(action.moveY, action.moveX) : null;
+        aimHeading.current = Math.hypot(action.aimX, action.aimY) > 0 ? Math.atan2(action.aimY, action.aimX) : null;
+        keys.current.Space = action.fireMain;
+        if (action.firePup && !previous.firePup) keys.current.KeyE = true;
+        if (action.special && !previous.special) keys.current.KeyQ = true;
+        const pupStep = action.nextPup && !previous.nextPup ? 1 : action.previousPup && !previous.previousPup ? -1 : 0;
+        if (pupStep) {
+          const stock = gameRef.current.stock;
+          if (stock.length) {
+            const current = inspect ? stock.lastIndexOf(inspect.id as PowerId) : stock.length - 1;
+            const id = stock[(Math.max(0, current) + pupStep + stock.length) % stock.length];
+            setInspect({ id, pinned: true });
+          }
+        }
+      }
+      if (action.pause && !previous.pause) toggleMenu();
+      if (!action.firePup) keys.current.KeyE = false;
+      if (!action.special) keys.current.KeyQ = false;
+      previous = action;
+      frame = requestAnimationFrame(poll);
+    };
+    frame = requestAnimationFrame(poll);
+    return () => cancelAnimationFrame(frame);
+  }, [back, inspect, summary, toggleMenu]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -4115,6 +4154,10 @@ export default function WormholeGame() {
       // Charge ring: the same number the HUD shows, read straight off the portal.
       ctx.save();
       ctx.translate(game.portalX, game.portalY);
+      // The charge ring is rift hardware: pull and collapse it with the rift
+      // instead of leaving a full-size progress indicator over the blast.
+      ctx.scale(collapseScale, collapseScale);
+      if (victory?.phase === "blast") ctx.globalAlpha = Math.max(0, 1 - victory.phaseProgress * 4);
       ctx.lineWidth = 4;
       ctx.strokeStyle = "rgba(233,251,255,.14)";
       ctx.beginPath();
@@ -5113,6 +5156,7 @@ export default function WormholeGame() {
       data-preset={layout.preset}
       data-panels={layout.panels}
       data-touch-controls={layout.showTouchControls ? "on" : "off"}
+      data-touch-height={settings.touchControlHeight}
       style={{
         // Every size the interface uses comes from the one measurement, so
         // CSS never has to guess and cannot disagree with the shell.
@@ -5272,6 +5316,9 @@ export default function WormholeGame() {
                     </button> : <span aria-label="No PUP loaded">—</span>}
                   </div>;
                 })()}
+                <p className={`pup-notification ${hud.notice ? "alert" : ""}`} aria-live="polite">
+                  <span aria-hidden="true">▸</span>{guidance}
+                </p>
               </div>
               <div className="pilot-health">
                 <span><em>PILOT HULL</em><b>{hud.health}/{hud.maxHealth}</b></span>
@@ -5608,6 +5655,7 @@ export default function WormholeGame() {
       <GlobalSystemControls
         menuOpen={menuOpen}
         onToggleMenu={toggleMenu}
+        onOpenSettings={() => { setCodexOpen(false); if (route !== "settings") go("settings"); }}
         fullscreen={fullscreen.active}
         fullscreenSupported={fullscreen.supported}
         onToggleFullscreen={() => { void fullscreen.toggle(); }}
@@ -5678,6 +5726,8 @@ export default function WormholeGame() {
           onThumbsticks={(next) => setSetting("thumbsticks", next)}
           touchSize={stickSizeName}
           onTouchSize={(next) => setSetting("touchControlSize", next)}
+          touchHeight={settings.touchControlHeight}
+          onTouchHeight={(next) => setSetting("touchControlHeight", next)}
           sound={sound}
           onSound={(next) => setSetting("sound", next)}
           soundLevel={settings.soundLevel}

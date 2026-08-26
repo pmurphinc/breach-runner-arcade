@@ -2227,12 +2227,37 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
    glance, not so much that an unselected card competes with the selected one. */
 .mode-card,
 .option-row[data-option="difficulty"] .option-choices button {
-  border-left: 3px solid color-mix(in srgb, var(--accent, var(--line-strong)) 55%, transparent);
+  border-left: 8px solid color-mix(in srgb, var(--accent, var(--line-strong)) 82%, transparent);
+  background-image: linear-gradient(90deg, color-mix(in srgb, var(--accent, transparent) 14%), transparent 46%);
 }
 .mode-card.active,
 .option-row[data-option="difficulty"] .option-choices button.active {
-  border-left-width: 3px;
+  border-left-width: 8px;
 }
+
+.mode-info-list [data-mode="pve"] { --accent: var(--cyan); }
+.mode-info-list [data-mode="coop"] { --accent: var(--lime); }
+.mode-info-list [data-mode="pvp"] { --accent: var(--pink); }
+.difficulty-info-list [data-difficulty="practice"] { --accent: var(--cyan); }
+.difficulty-info-list [data-difficulty="easy"] { --accent: var(--lime); }
+.difficulty-info-list [data-difficulty="difficult"] { --accent: var(--amber); }
+.difficulty-info-list [data-difficulty="hard"] { --accent: var(--red); }
+.mode-info-list > div, .difficulty-info-list > div {
+  border-left: 8px solid var(--accent); padding-left: var(--space-3);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 13%, transparent), transparent 48%);
+}
+
+/* One constrained menu frame owns the codex header and scroll budget. */
+.menu-screen[data-route="codex"] .menu-content { padding: 0; }
+.menu-screen[data-route="codex"] .codex { width: 100%; max-height: none; border: 0; box-shadow: none; }
+.codex-intro { margin: 0; padding: 12px 16px 0; color: var(--muted); font: 500 var(--fs-xs)/1.4 var(--mono); }
+
+/* Shared, symmetric vertical stick placement. Clamped offsets retain safe-area
+   clearance and move both sides as a single setting. */
+.touch-capable[data-touch-controls="on"][data-touch-height="low"] .touch-controls { transform: translateY(clamp(-8px, -2vh, -2px)); }
+.touch-capable[data-touch-controls="on"][data-touch-height="middle"] .touch-controls { transform: translateY(clamp(-52px, -7vh, -24px)); }
+.touch-capable[data-touch-controls="on"][data-touch-height="high"] .touch-controls { transform: translateY(clamp(-96px, -13vh, -48px)); }
+.touch-capable .play-column > .coach-strip { display: none; }
 .mode-card .option-check,
 .option-row[data-option="difficulty"] .option-check { color: var(--accent, var(--lime)); }
 .mode-card.active b,
