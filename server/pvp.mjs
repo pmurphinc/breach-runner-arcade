@@ -19,15 +19,15 @@ import {
 } from "./protocol.mjs";
 import { MatchServer, createPlayer } from "./rooms.mjs";
 
-const PRODUCTION_ORIGIN = "https://wormhole.murphtournaments.com";
+const PRODUCTION_ORIGIN = "https://breachrunner.murphtournaments.com";
 
 /**
  * Browser origins allowed to open a match socket.
  *
- * Production is always allowed. Local development origins are added only when
- * NODE_ENV is not "production", so a deployed service never accepts a
- * localhost origin. PVP_EXTRA_ORIGINS can add more for staging without a code
- * change; it is a comma-separated list.
+ * The current Breach Runner production origin is always allowed. Local
+ * development origins are added only when NODE_ENV is not "production", so a
+ * deployed service never accepts a localhost origin. PVP_EXTRA_ORIGINS can add
+ * more for staging without a code change; it is a comma-separated list.
  */
 export function allowedOrigins(env = process.env) {
   const origins = new Set([PRODUCTION_ORIGIN]);
