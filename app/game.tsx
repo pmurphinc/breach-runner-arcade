@@ -2034,7 +2034,9 @@ export default function WormholeGame() {
         ? { frequencies: [920, 510, 260], duration: 0.34, gap: 0.035, type: "sawtooth" as OscillatorType }
       : cue === "shield-pickup"
         ? { frequencies: [420, 680, 1020], duration: 0.46, gap: 0.07, type: "sine" as OscillatorType }
-        : cue === "shield-down"
+      : cue === "inventory-full"
+        ? { frequencies: [540, 760, 1080], duration: 0.3, gap: 0.045, type: "triangle" as OscillatorType }
+      : cue === "shield-down"
           ? { frequencies: [330, 210, 95], duration: 0.62, gap: 0.08, type: "square" as OscillatorType }
           : {
               frequencies: [180 + hash % 520, 260 + (hash >>> 5) % 720],
@@ -2123,6 +2125,20 @@ export default function WormholeGame() {
     const next = hudFrom(gameRef.current);
     setHud((previous) => (hudEqual(previous, next) ? previous : next));
   }, []);
+
+  /* Browser regression tests can deterministically exercise empty, partial,
+     and full queue presentation without changing pickup spawn behavior. */
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    const seedStock = (event: Event) => {
+      const detail = (event as CustomEvent<PowerId[]>).detail;
+      if (!Array.isArray(detail)) return;
+      gameRef.current.stock = detail.filter((id): id is PowerId => id in WEAPONS).slice(0, STOCK_LIMIT);
+      sync();
+    };
+    window.addEventListener("breach-runner:test-stock", seedStock);
+    return () => window.removeEventListener("breach-runner:test-stock", seedStock);
+  }, [sync]);
 
   /** Sends a completed initials-tagged victory to the public arcade board. */
   const saveRun = useCallback(async (run: RunResult) => {
@@ -3922,7 +3938,11 @@ export default function WormholeGame() {
           else if (type === "clear") game.enemies.forEach((enemy) => destroyEnemy(game, enemy));
           else if (type === "health") player.health = Math.min(player.maxHealth, player.health + 30);
           else if (type === "ricochet") player.ricochetTicks = ticksForSeconds(RICOCHET_DURATION_SECONDS);
-          else if (game.stock.length < STOCK_LIMIT) game.stock.push(type);
+          else if (game.stock.length < STOCK_LIMIT) {
+            const wasBelowCapacity = game.stock.length === STOCK_LIMIT - 1;
+            game.stock.push(type);
+            if (wasBelowCapacity) playCue("inventory-full", 0.2);
+          }
           else { game.notice = "POWERUP BIN FULL"; game.noticeLife = 75; return; }
           game.notice = `${WEAPONS[type].short} COLLECTED`;
           game.noticeLife = 100;
@@ -5029,7 +5049,6 @@ export default function WormholeGame() {
     : 0;
   const healthPct = hud.maxHealth ? hud.health / hud.maxHealth * 100 : 0;
   const queued = nextWeapon(hud.stock);
-  const queuedBehind = hud.stock.length > 1 ? hud.stock[hud.stock.length - 2] : null;
   const guidance = hud.notice || hud.coach;
 
   const stockCounts = useMemo(() => {
@@ -5049,6 +5068,14 @@ export default function WormholeGame() {
     onPointerLeave: () => setControl(code, false),
     onLostPointerCapture: () => setControl(code, false),
   });
+
+  const touchUtility = (mirrored = false) => (
+    <div className={`touch-utility ${mirrored ? "touch-utility-mirrored" : ""}`} aria-label={mirrored ? "Mirrored left-side actions" : "Right-side actions"}>
+      <button className="touch-pup" type="button" disabled={!gameActive || !queued} aria-label={queued ? `Fire power-up ${WEAPONS[queued].name}. Same as keyboard E.` : "Fire power-up. Bin is empty. Same as keyboard E."} {...controlProps("KeyE")}><b>PUP</b><small>E</small></button>
+      <button className="touch-special" type="button" aria-label={`${hud.specialName}. ${hud.specialCooldown > 0 ? `Ready in ${hud.specialCooldown} seconds.` : "Ready."} Same as keyboard Q.`} disabled={!gameActive || hud.specialCooldown > 0} {...controlProps("KeyQ")}><b>SPEC</b><small>{hud.specialCooldown > 0 ? `${hud.specialCooldown}S` : "READY"}</small></button>
+      <button className="touch-pause" type="button" aria-label="Pause, opens the menu" onClick={toggleMenu}><b aria-hidden="true">Ⅱ</b><small>P</small></button>
+    </div>
+  );
 
   const pinSlot = useCallback((id: PickupId) => {
     setInspect((current) => (current && current.id === id && current.pinned ? null : { id, pinned: true }));
@@ -5204,30 +5231,34 @@ export default function WormholeGame() {
                 className="touch-powerup-hud"
                 role="status"
                 aria-label={queued
-                  ? `Equipped power-up: ${WEAPONS[queued].name}.${queuedBehind ? ` Next: ${WEAPONS[queuedBehind].name}.` : ""}`
-                  : "No power-up equipped."}
+                  ? `${hud.stock.length} of ${STOCK_LIMIT} power-ups stored. ${WEAPONS[queued].name} fires next.`
+                  : `0 of ${STOCK_LIMIT} power-ups stored.`}
               >
-                <span className="touch-powerup-count" aria-hidden="true">{hud.stock.length}/{STOCK_LIMIT}</span>
-                {queuedBehind ? (
-                  <span
-                    className="touch-powerup-queued"
-                    style={{ "--pup": WEAPONS[queuedBehind].color } as React.CSSProperties}
-                    aria-hidden="true"
-                  >
-                    <WeaponIcon id={queuedBehind} size={26} />
-                  </span>
-                ) : null}
-                <button
-                  type="button"
-                  className="touch-powerup-equipped"
-                  style={{ "--pup": queued ? WEAPONS[queued].color : "var(--muted)" } as React.CSSProperties}
-                  aria-label={queued ? `View equipped power-up ${WEAPONS[queued].name}` : "Power-up slot empty"}
-                  disabled={!queued}
-                  onClick={() => queued && pinSlot(queued)}
-                >
-                  {queued ? <WeaponIcon id={queued} size={28} /> : null}
-                  <b>{queued ? WEAPONS[queued].name : "EMPTY"}</b>
-                </button>
+                <span className="touch-powerup-count">{hud.stock.length}/{STOCK_LIMIT}</span>
+                <ol className="touch-powerup-slots" aria-label="Power-up firing queue">
+                  {Array.from({ length: STOCK_LIMIT }, (_, index) => {
+                    // Stock is a stack: the final array entry is fired first.
+                    // Present it first, then walk backward in actual firing order.
+                    const stockIndex = hud.stock.length - 1 - index;
+                    const item = stockIndex >= 0 ? hud.stock[stockIndex] : null;
+                    const meta = item ? WEAPONS[item] : null;
+                    return (
+                      <li
+                        key={index}
+                        className={`touch-powerup-slot ${meta ? "occupied" : "empty"} ${index === 0 && meta ? "next" : ""}`}
+                        style={{ "--pup": meta?.color ?? "var(--muted)" } as React.CSSProperties}
+                        aria-label={meta ? `${index + 1}. ${meta.name}${index === 0 ? ", fires next" : ""}` : `${index + 1}. Empty`}
+                      >
+                        {index === 0 && meta ? <em aria-hidden="true">NEXT</em> : null}
+                        {meta ? (
+                          <button type="button" onClick={() => pinSlot(meta.id)} aria-label={`View ${meta.name}`}>
+                            <WeaponIcon id={meta.id} size={22} />
+                          </button>
+                        ) : <span aria-hidden="true" />}
+                      </li>
+                    );
+                  })}
+                </ol>
               </div>
               <div className="pilot-health">
                 <span><em>PILOT HULL</em><b>{hud.health}/{hud.maxHealth}</b></span>
@@ -5449,6 +5480,7 @@ export default function WormholeGame() {
                   <span className="stick-label stick-label-side" aria-hidden="true">DRIVE</span>
                   <span className="stick-knob" style={{ transform: `translate(calc(-50% + ${moveStickPosition.x}px), calc(-50% + ${moveStickPosition.y}px))` }} aria-hidden="true"><i /></span>
                 </div>
+                {touchUtility(true)}
               </div>
               <div className="touch-action">
                 <div
@@ -5468,20 +5500,7 @@ export default function WormholeGame() {
                   <span className="stick-label stick-label-side" aria-hidden="true">AIM</span>
                   <span className="stick-knob" style={{ transform: `translate(calc(-50% + ${aimStickPosition.x}px), calc(-50% + ${aimStickPosition.y}px))` }} aria-hidden="true"><i /></span>
                 </div>
-                <div className="touch-utility">
-                  <button
-                    className="touch-pup"
-                    type="button"
-                    aria-label={queued ? `Fire power-up ${WEAPONS[queued].name}. Same as keyboard E.` : "Fire power-up. Bin is empty. Same as keyboard E."}
-                    {...controlProps("KeyE")}
-                  >
-                    <b>PUP</b><small>E</small>
-                  </button>
-                  <button className="touch-special" type="button" aria-label={`${hud.specialName}. ${hud.specialCooldown > 0 ? `Ready in ${hud.specialCooldown} seconds.` : "Ready."} Same as keyboard Q.`} disabled={!gameActive || hud.specialCooldown > 0} {...controlProps("KeyQ")}>
-                    <b>SPEC</b><small>{hud.specialCooldown > 0 ? `${hud.specialCooldown}S` : "READY"}</small>
-                  </button>
-                  <button className="touch-pause" type="button" aria-label="Pause, opens the menu" onClick={toggleMenu}><b aria-hidden="true">Ⅱ</b><small>P</small></button>
-                </div>
+                {touchUtility()}
               </div>
             </div>
 

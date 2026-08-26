@@ -35,3 +35,77 @@
 .run-summary-layer {
   z-index: var(--z-dialog);
 }
+
+/* The touch HUD is the same ten-entry firing queue as the desktop bin, only
+   condensed to icons. It wraps to two rows of five rather than truncating on
+   narrow cover displays. */
+.touch-capable .canvas-wrap > .touch-powerup-hud {
+  width: min(360px, calc(100% - 116px));
+  min-width: 210px;
+  height: auto;
+  min-height: 46px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+  padding: 4px 6px;
+}
+
+.touch-powerup-count {
+  position: static;
+  min-width: 38px;
+  padding: 3px 5px;
+  text-align: center;
+}
+
+.touch-powerup-slots {
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(26px, 1fr));
+  gap: 3px;
+  list-style: none;
+}
+
+.touch-powerup-slot { position: relative; min-width: 0; height: 28px; }
+.touch-powerup-slot > span,
+.touch-powerup-slot > button {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 1px;
+  color: var(--pup);
+  border: 1px solid rgba(100, 234, 255, .18);
+  border-radius: 3px;
+  background: rgba(2, 9, 15, .78);
+}
+.touch-powerup-slot.occupied > button {
+  border-color: color-mix(in srgb, var(--pup) 62%, transparent);
+  background: color-mix(in srgb, var(--pup) 12%, rgba(2, 9, 15, .94));
+  box-shadow: inset 0 0 7px color-mix(in srgb, var(--pup) 18%, transparent);
+}
+.touch-powerup-slot.next > button {
+  border-color: var(--pup);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--pup) 55%, transparent), inset 0 0 8px color-mix(in srgb, var(--pup) 24%, transparent);
+}
+.touch-powerup-slot em {
+  position: absolute;
+  z-index: 2;
+  top: -3px;
+  left: 1px;
+  color: #fff;
+  background: #071019;
+  font: 900 7px/1 var(--mono);
+  letter-spacing: .02em;
+  pointer-events: none;
+}
+
+@media (max-width: 420px) {
+  .touch-capable .canvas-wrap > .touch-powerup-hud {
+    width: min(270px, calc(100% - 104px));
+    min-width: 210px;
+  }
+}

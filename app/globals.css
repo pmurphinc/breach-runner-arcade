@@ -1326,6 +1326,9 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
 .touch-capable[data-touch-controls="on"] .touch-action {
   --satellite: clamp(44px, 28%, 58px);
 }
+.touch-capable[data-touch-controls="on"] .touch-flight {
+  --satellite: clamp(44px, 28%, 58px);
+}
 .touch-capable[data-touch-controls="on"] .touch-action .touch-utility {
   position: absolute;
   inset: 0;
@@ -1335,7 +1338,26 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
   transform: none;
   pointer-events: none;
 }
+.touch-capable[data-touch-controls="on"] .touch-flight .touch-utility {
+  position: absolute;
+  inset: 0;
+  width: var(--stick);
+  height: var(--stick);
+  transform: none;
+  pointer-events: none;
+}
 .touch-capable[data-touch-controls="on"] .touch-action .touch-utility button {
+  position: absolute;
+  width: var(--satellite);
+  height: var(--satellite);
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 50%;
+  padding: 3px;
+  pointer-events: auto;
+  box-shadow: 0 5px 16px rgba(0, 0, 0, .5);
+}
+.touch-capable[data-touch-controls="on"] .touch-flight .touch-utility button {
   position: absolute;
   width: var(--satellite);
   height: var(--satellite);
@@ -1360,6 +1382,26 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
   left: 38%;
   top: calc(0px - var(--satellite) - 6px);
 }
+
+/* One set of radial offsets is the source of truth. The left cluster uses the
+   same Y coordinate and reflects each X coordinate through its stick centre. */
+.touch-capable[data-touch-controls="on"] :is(.touch-action, .touch-flight) {
+  --pup-x: calc(var(--stick) / 2 + var(--satellite) / 2 + 8px);
+  --pup-y: 50%;
+  --spec-x: 115%;
+  --spec-y: 17%;
+  --pause-x: 83%;
+  --pause-y: -15%;
+}
+.touch-capable[data-touch-controls="on"] .touch-action .touch-pup { left: calc(50% - var(--pup-x)); top: var(--pup-y); right: auto; transform: translate(-50%, -50%); }
+.touch-capable[data-touch-controls="on"] .touch-flight .touch-pup { left: calc(50% + var(--pup-x)); top: var(--pup-y); transform: translate(-50%, -50%); }
+.touch-capable[data-touch-controls="on"] .touch-action .touch-special { left: calc(100% - var(--spec-x)); top: var(--spec-y); right: auto; transform: translate(-50%, -50%); }
+.touch-capable[data-touch-controls="on"] .touch-flight .touch-special { left: var(--spec-x); top: var(--spec-y); transform: translate(-50%, -50%); }
+.touch-capable[data-touch-controls="on"] .touch-action .touch-pause { left: calc(100% - var(--pause-x)); top: var(--pause-y); transform: translate(-50%, -50%); }
+.touch-capable[data-touch-controls="on"] .touch-flight .touch-pause { left: var(--pause-x); top: var(--pause-y); transform: translate(-50%, -50%); }
+
+.touch-controls .touch-pup:not(:disabled) { box-shadow: 0 0 13px rgba(255, 89, 199, .45), 0 5px 16px rgba(0, 0, 0, .5) !important; }
+.touch-controls .touch-pup:disabled { opacity: .32; filter: grayscale(.72) saturate(.22); box-shadow: 0 5px 12px rgba(0, 0, 0, .32) !important; }
 
 
 /* Touch/Hybrid portrait uses the complete remaining viewport as one framed
@@ -1387,9 +1429,15 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
    measured into the remaining space and begins two pixels below the bars, so
    world objects can never travel behind the rules or health UI. */
 .touch-capable[data-immersive="true"] .canvas-wrap canvas {
-  width: var(--arena-canvas-width, 100%);
-  height: var(--arena-canvas-height, auto);
-  margin: var(--arena-playfield-top, 0) auto 0;
+  position: absolute;
+  top: var(--arena-playfield-top, 0);
+  bottom: 0;
+  left: 50%;
+  width: auto;
+  min-width: 100%;
+  height: calc(100% - var(--arena-playfield-top, 0px));
+  margin: 0;
+  transform: translateX(-50%);
   border-top: 2px solid rgba(101, 232, 255, .48);
   box-sizing: border-box;
 }
@@ -1467,26 +1515,6 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
   padding: 1px 5px;
   background: rgba(1, 5, 9, .78);
 }
-
-/* A true 9/10/11 o'clock arc around the Fire stick. */
-.touch-capable[data-touch-controls="on"] .touch-action .touch-pup {
-  right: auto;
-  left: 0;
-  top: 50%;
-  transform: translate(-115%, -50%);
-}
-.touch-capable[data-touch-controls="on"] .touch-action .touch-special {
-  right: auto;
-  left: -8%;
-  top: 17%;
-  transform: translate(-50%, -50%);
-}
-.touch-capable[data-touch-controls="on"] .touch-action .touch-pause {
-  left: 17%;
-  top: -8%;
-  transform: translate(-50%, -50%);
-}
-
 
 /* Landscape tablets use the full existing arena shell. The square game canvas
    remains undistorted and centered; only the surrounding frame and existing

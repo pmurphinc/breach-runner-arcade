@@ -184,11 +184,15 @@ test('touch frame reaches the viewport and health bars use fighting-game geometr
   assert.match(fighterBars, /top:\s*var\(--rules-bottom/);
 });
 
-test('special remains radially between PUP and Pause', () => {
-  const radial = css.slice(css.indexOf("A true 9\/10\/11 o'clock arc"));
-  assert.match(radial, /touch-pup[\s\S]*left:\s*0[\s\S]*top:\s*50%/);
-  assert.match(radial, /touch-special[\s\S]*left:\s*-8%[\s\S]*top:\s*17%/);
-  assert.match(radial, /touch-pause[\s\S]*left:\s*17%[\s\S]*top:\s*-8%/);
+test('both action arcs derive from one reflected set of radial offsets', () => {
+  const radial = css.slice(css.indexOf('One set of radial offsets is the source of truth'));
+  assert.match(radial, /--pup-x:[^;]+;[\s\S]*--spec-x:[^;]+;[\s\S]*--pause-x:[^;]+;/);
+  assert.match(radial, /touch-action \.touch-pup[^}]*50% - var\(--pup-x\)/);
+  assert.match(radial, /touch-flight \.touch-pup[^}]*50% \+ var\(--pup-x\)/);
+  assert.match(radial, /touch-action \.touch-special[^}]*100% - var\(--spec-x\)/);
+  assert.match(radial, /touch-flight \.touch-special[^}]*left:\s*var\(--spec-x\)/);
+  assert.match(radial, /touch-action \.touch-pause[^}]*100% - var\(--pause-x\)/);
+  assert.match(radial, /touch-flight \.touch-pause[^}]*left:\s*var\(--pause-x\)/);
 });
 
 
@@ -201,7 +205,9 @@ test('touch playfield starts below the complete HUD and removes canvas text pane
   const overlay = game.slice(game.indexOf('const drawOverlay'), game.indexOf('// Next weapon in the bin'));
   assert.doesNotMatch(overlay, /WORMHOLE CHARGE|Mission notice|coachLine\(game\)/);
   const reserved = css.slice(css.indexOf('The Touch\/Hybrid HUD occupies a real header lane'));
-  assert.match(reserved, /margin:\s*var\(--arena-playfield-top/);
+  assert.match(reserved, /top:\s*var\(--arena-playfield-top/);
+  assert.match(reserved, /bottom:\s*0/);
+  assert.match(reserved, /height:\s*calc\(100% - var\(--arena-playfield-top/);
   assert.match(reserved, /border-top:\s*2px/);
 });
 
