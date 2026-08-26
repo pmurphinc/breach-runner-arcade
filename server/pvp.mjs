@@ -251,6 +251,16 @@ function handle(matches, player, message, now, send) {
       if (!result.ok) send({ type: "error", code: result.code });
       return;
     }
+    case "enemy_hit": {
+      const result = matches.reportEnemyHit(player, message, now);
+      if (!result.ok) send({ type: "error", code: result.code });
+      return;
+    }
+    case "coop_world_action": {
+      const result = matches.reportWorldAction(player, message, now);
+      if (!result.ok) send({ type: "error", code: result.code });
+      return;
+    }
     case "rematch": {
       const result = matches.requestRematch(player, now, message.ship);
       if (!result.ok) send({ type: "error", code: result.code });

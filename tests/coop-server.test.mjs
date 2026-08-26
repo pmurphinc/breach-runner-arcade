@@ -86,11 +86,12 @@ test("only the co-op host can publish the shared enemy world", () => {
   const { server, a, b } = activeCoop();
   const world = {
     seq: 1,
+    roundId: 1,
     portalX: 752,
     portalY: 470,
     portalAngle: 1.2,
     enrageActive: false,
-    enemies: [{ kind: "mines", x: 700, y: 400, vx: 0, vy: 0, hp: 20, maxHp: 20, radius: 12, age: 40, cooldown: 0, phase: 0, armed: true }],
+    enemies: [{ enemyId: 1, kind: "mines", x: 700, y: 400, vx: 0, vy: 0, hp: 20, maxHp: 20, radius: 12, age: 40, cooldown: 0, phase: 0, armed: true }],
   };
   const rejected = server.updateWorld(b.player, world, 5000);
   assert.equal(rejected.ok, false);
@@ -106,10 +107,33 @@ test("only the co-op host can publish the shared enemy world", () => {
 
 test("stale co-op world revisions are ignored", () => {
   const { server, a, b } = activeCoop();
-  const world = { seq: 4, portalX: 752, portalY: 470, portalAngle: 0, enrageActive: false, enemies: [] };
+  const world = { seq: 4, roundId: 1, portalX: 752, portalY: 470, portalAngle: 0, enrageActive: false, enemies: [] };
   server.updateWorld(a.player, world, 5000);
   server.updateWorld(a.player, { ...world, seq: 3 }, 5200);
   assert.equal(b.messages.filter((message) => message.type === "world").length, 1);
+});
+
+test("guest enemy hits are sequenced, round-scoped, rate-limited, and relayed only to the host", () => {
+  const { server, a, b, room } = activeCoop();
+  const hit = { seq: 1, roundId: room.roundId, enemyId: 42, source: "cannon", damage: 10 };
+  assert.equal(server.reportEnemyHit(b.player, hit, 4000).ok, true);
+  assert.deepEqual(a.messages.findLast((message) => message.type === "enemy_hit"), { type: "enemy_hit", ...hit, from: b.player.id });
+  assert.equal(b.messages.some((message) => message.type === "enemy_hit"), false);
+  assert.equal(server.reportEnemyHit(b.player, hit, 4001).ignored, true);
+  assert.equal(server.reportEnemyHit(b.player, { ...hit, seq: 2, roundId: room.roundId - 1 }, 4002).ignored, true);
+  for (let seq = 2; seq <= 46; seq += 1) server.reportEnemyHit(b.player, { ...hit, seq }, 4100);
+  assert.equal(server.reportEnemyHit(b.player, { ...hit, seq: 47 }, 4100).code, "rate_limited");
+});
+
+test("new co-op rounds increment their generation and reject stale worlds", () => {
+  const { server, a, room } = activeCoop();
+  assert.equal(room.roundId, 1);
+  server.finishCoop(room, "defeat", "pilot_hull", 5000, a.player);
+  server.setReady(room.players[0], true, 5100);
+  server.setReady(room.players[1], true, 5100);
+  server.activate(room, 8100);
+  assert.equal(room.roundId, 2);
+  assert.equal(server.updateWorld(a.player, { seq: 1, roundId: 1, portalX: 1, portalY: 1, portalAngle: 0, enemies: [] }, 8200).ignored, true);
 });
 
 

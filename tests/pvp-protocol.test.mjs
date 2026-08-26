@@ -55,10 +55,12 @@ test("co-op world snapshots preserve rotating beam direction", () => {
   const parsed = parseClientMessage(JSON.stringify({
     type: "world",
     seq: 1,
+    roundId: 1,
     portalX: 752,
     portalY: 470,
     portalAngle: 0,
     enemies: [{
+      enemyId: 1,
       kind: "beam",
       x: 752,
       y: 470,
@@ -81,11 +83,11 @@ test("co-op world snapshots preserve rotating beam direction", () => {
 
 test("co-op world snapshots carry scramble, so a host's pulse reaches the guest", () => {
   const enemy = {
-    kind: "gunship", x: 700, y: 400, vx: 1, vy: 1,
+    enemyId: 1, kind: "gunship", x: 700, y: 400, vx: 1, vy: 1,
     hp: 80, maxHp: 80, radius: 25, age: 5, cooldown: 10, phase: 0,
   };
   const world = (scrambled) => JSON.parse(JSON.stringify({
-    type: "world", seq: 1, portalX: 752, portalY: 470, portalAngle: 0,
+    type: "world", seq: 1, roundId: 1, portalX: 752, portalY: 470, portalAngle: 0,
     enemies: [{ ...enemy, scrambled }], enemyBullets: [],
   }));
 
@@ -102,4 +104,14 @@ test("co-op world snapshots carry scramble, so a host's pulse reaches the guest"
   const absurd = parseClientMessage(JSON.stringify(world(99_999)));
   assert.equal(absurd.ok, true);
   assert.equal(absurd.message.enemies[0].scrambled, 1000);
+});
+
+test("enemy hit validation caps damage and requires stable round/enemy identity", () => {
+  const valid = parseClientMessage(JSON.stringify({ type: "enemy_hit", seq: 1, roundId: 2, enemyId: 9, source: "cannon", damage: 10 }));
+  assert.equal(valid.ok, true);
+  for (const bad of [
+    { type: "enemy_hit", seq: 1, roundId: 2, enemyId: 9, source: "cannon", damage: 999999 },
+    { type: "enemy_hit", seq: 1, roundId: 1, enemyId: 0, source: "cannon", damage: 10 },
+    { type: "enemy_hit", seq: 1, roundId: 1, enemyId: 1, source: "laser", damage: 10 },
+  ]) assert.equal(parseClientMessage(JSON.stringify(bad)).ok, false);
 });

@@ -15,7 +15,7 @@ import { RemoteMotion } from "./network-motion.ts";
  */
 
 /** Must match server/protocol.mjs. `tests/pvp-protocol.test.mjs` asserts it. */
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 export const PVP_PATH = "/pvp";
 export const CODE_LENGTH = 6;
 export const COUNTDOWN_SECONDS = 3;
@@ -51,7 +51,7 @@ export type PvpOpponent = {
 };
 
 export type NetworkMode = "pvp" | "coop";
-export type TeammatePosition = { id: string; name: string; ship: string; seq: number; sentAt: number; x: number; y: number; angle: number };
+export type TeammatePosition = { id: string; name: string; roundId: number; seq: number; sentAt: number; x: number; y: number; angle: number };
 export const POSITION_SEND_INTERVAL_MS = 33;
 export type CoopRival = { hull: number; maxHull: number; score: number };
 export type RoundResult = {
@@ -62,6 +62,7 @@ export type RoundResult = {
 };
 export type CoopWorld = {
   seq: number;
+  roundId: number;
   portalX: number;
   portalY: number;
   portalAngle: number;
@@ -83,6 +84,7 @@ export type PvpSnapshot = {
   code: string | null;
   you: { id: string; ready: boolean; ship: string } | null;
   hostId: string | null;
+  roundId: number;
   opponent: PvpOpponent | null;
   yourCombat: PvpCombat | null;
   opponentCombat: PvpCombat | null;
@@ -91,6 +93,7 @@ export type PvpSnapshot = {
   world: CoopWorld | null;
   /** Milliseconds until the match goes live, during a countdown. */
   countdownMs: number;
+  countdownStartsAt: number;
   result: RoundResult | null;
   rematch: { you: boolean; opponent: boolean; status: "waiting" | "starting"; expiresAt: number } | null;
   /** Last inbound attack, for the warning banner. */
@@ -109,6 +112,7 @@ const EMPTY: PvpSnapshot = {
   code: null,
   you: null,
   hostId: null,
+  roundId: 0,
   opponent: null,
   yourCombat: null,
   opponentCombat: null,
@@ -116,6 +120,7 @@ const EMPTY: PvpSnapshot = {
   teammate: null,
   world: null,
   countdownMs: 0,
+  countdownStartsAt: 0,
   result: null,
   rematch: null,
   incoming: null,
@@ -156,6 +161,11 @@ export class PvpClient {
   private teammateMotion = new RemoteMotion();
   private lastMotionDebugAt = 0;
   private worldSeq = 0;
+  private enemyHitSeq = 0;
+  private worldActionSeq = 0;
+  private countdownTimer: ReturnType<typeof setInterval> | null = null;
+  private enemyHitQueue: { roundId: number; enemyId: number; source: string; damage: number; from: string }[] = [];
+  private worldActionQueue: { roundId: number; action: "clear" | "emp"; from: string }[] = [];
 
   constructor(kind: NetworkMode = "pvp", difficulty = "easy") {
     this.sessionKind = kind;
@@ -179,6 +189,19 @@ export class PvpClient {
     const queued = this.incomingQueue;
     this.incomingQueue = [];
     return queued;
+  }
+
+  drainEnemyHits() { const hits = this.enemyHitQueue; this.enemyHitQueue = []; return hits; }
+  drainWorldActions() { const actions = this.worldActionQueue; this.worldActionQueue = []; return actions; }
+
+  private stopCountdownTimer() {
+    if (this.countdownTimer) clearInterval(this.countdownTimer);
+    this.countdownTimer = null;
+  }
+
+  private refreshCountdown() {
+    if (this.snapshot.phase !== "countdown") return this.stopCountdownTimer();
+    this.update({ countdownMs: countdownRemaining(this.snapshot.countdownStartsAt, this.clockOffset) });
   }
 
   private update(patch: Partial<PvpSnapshot>) {
@@ -300,6 +323,7 @@ export class PvpClient {
           code: typeof message.code === "string" ? message.code : null,
           you: { id: you?.id ?? "", ship: you?.ship ?? "wing", ready: Boolean(you?.ready) },
           hostId: typeof message.hostId === "string" ? message.hostId : null,
+          roundId: typeof message.roundId === "number" ? message.roundId : this.snapshot.roundId,
           opponent: (message.opponent as PvpOpponent | null) ?? null,
           result: message.lastResult ? this.parseResult(message.lastResult as Record<string, unknown>) : null,
           rematch: this.snapshot.rematch,
@@ -325,13 +349,24 @@ export class PvpClient {
         const startsAt = typeof message.startsAt === "number" ? message.startsAt : 0;
         this.update({
           phase: "countdown",
-          countdownMs: Math.max(0, startsAt - (Date.now() + this.clockOffset)),
+          countdownStartsAt: startsAt,
+          countdownMs: countdownRemaining(startsAt, this.clockOffset),
+          teammate: null,
+          world: null,
         });
+        this.teammateMotion.reset();
+        this.stopCountdownTimer();
+        this.countdownTimer = setInterval(() => this.refreshCountdown(), 100);
         return;
       }
       case "state": {
         const patch: Partial<PvpSnapshot> = {};
-        if (message.phase === "active" || message.you) patch.phase = "active";
+        if (message.phase === "active" || message.you) {
+          if (this.snapshot.phase !== "active") { this.teammateMotion.reset(); patch.teammate = null; patch.world = null; }
+          patch.phase = "active";
+          this.stopCountdownTimer();
+        }
+        if (typeof message.roundId === "number") patch.roundId = message.roundId;
         if (message.you) patch.yourCombat = message.you as PvpCombat;
         if (message.opponent) patch.opponentCombat = message.opponent as PvpCombat;
         if (message.rival) patch.rival = message.rival as CoopRival;
@@ -340,6 +375,7 @@ export class PvpClient {
       }
       case "teammate": {
         const teammate = message as unknown as TeammatePosition;
+        if (teammate.roundId !== this.snapshot.roundId) return;
         const receivedAt = performance.now();
         if (!this.teammateMotion.push({ ...teammate, receivedAt })) return;
         this.update({ teammate });
@@ -350,7 +386,19 @@ export class PvpClient {
         return;
       }
       case "world": {
-        this.update({ world: message as unknown as CoopWorld });
+        const world = message as unknown as CoopWorld;
+        if (world.roundId !== this.snapshot.roundId || world.seq <= (this.snapshot.world?.seq ?? -1)) return;
+        this.update({ world });
+        return;
+      }
+      case "enemy_hit": {
+        if (message.roundId !== this.snapshot.roundId) return;
+        this.enemyHitQueue.push(message as unknown as { roundId: number; enemyId: number; source: string; damage: number; from: string });
+        return;
+      }
+      case "coop_world_action": {
+        if (message.roundId !== this.snapshot.roundId) return;
+        this.worldActionQueue.push(message as unknown as { roundId: number; action: "clear" | "emp"; from: string });
         return;
       }
       case "incoming": {
@@ -463,6 +511,18 @@ export class PvpClient {
     this.send({ type: "world", seq: this.worldSeq, ...world });
   }
 
+  reportEnemyHit(enemyId: number, damage: number, source: "cannon" | "overcharge" | "projectile" = "cannon") {
+    if (!Number.isInteger(enemyId) || enemyId < 1 || this.snapshot.roundId < 1) return false;
+    this.enemyHitSeq += 1;
+    return this.send({ type: "enemy_hit", seq: this.enemyHitSeq, roundId: this.snapshot.roundId, enemyId, source, damage });
+  }
+
+  reportWorldAction(action: "clear" | "emp") {
+    if (this.snapshot.roundId < 1) return false;
+    this.worldActionSeq += 1;
+    return this.send({ type: "coop_world_action", seq: this.worldActionSeq, roundId: this.snapshot.roundId, action });
+  }
+
   transmit(weapon: string) {
     this.transmitSeq += 1;
     this.send({ type: "transmit", seq: this.transmitSeq, weapon });
@@ -477,6 +537,7 @@ export class PvpClient {
     this.closedByUs = true;
     if (this.retryTimer) clearTimeout(this.retryTimer);
     if (this.warningTimer) clearTimeout(this.warningTimer);
+    this.stopCountdownTimer();
     this.retryTimer = null;
     this.warningTimer = null;
     this.socket?.close();
@@ -486,6 +547,14 @@ export class PvpClient {
     this.teammateMotion.reset();
     this.update({ ...EMPTY });
   }
+}
+
+export function countdownRemaining(startsAt: number, clockOffset: number, clientNow = Date.now()) {
+  return Math.max(0, startsAt - (clientNow + clockOffset));
+}
+
+export function countdownLabel(remainingMs: number) {
+  return remainingMs > 0 ? String(Math.ceil(remainingMs / 1000)) : "LAUNCH";
 }
 
 function describeError(code: string) {
