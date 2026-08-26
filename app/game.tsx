@@ -81,7 +81,7 @@ import {
   SettingsScreen,
   ShipsScreen,
 } from "./main-menu";
-import { PvpClient, type PvpSnapshot } from "./pvp-client";
+import { PvpClient, countdownLabel, type PvpSnapshot } from "./pvp-client";
 import {
   DEFAULT_PRESET,
   SCREEN_PRESETS,
@@ -307,6 +307,7 @@ const FALLBACK_BUDGET: LayoutBudget = {
 
 
 type Enemy = {
+  enemyId: number;
   x: number;
   y: number;
   vx: number;
@@ -422,6 +423,8 @@ type Game = {
   bullets: Bullet[];
   pickups: Pickup[];
   enemies: Enemy[];
+  nextEnemyId: number;
+  roundId: number;
   /** Last host world revision applied by a co-op guest. */
   lastWorldSeq?: number;
   powers: PowerShot[];
@@ -593,6 +596,8 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
     bullets: [],
     pickups: [],
     enemies: [],
+    nextEnemyId: 0,
+    roundId: 0,
     powers: [],
     blasts: [],
     particles: [],
@@ -736,6 +741,7 @@ function makeEnemy(kind: PowerId, x: number, y: number, index: number, count: nu
   let speed = kind === "mines" ? 6 : kind === "heatseeker" ? 7 : range(0.8, 2.8);
   if (kind === "turret" || kind === "beam" || kind === "emp" || kind === "nuke") speed = 0;
   return {
+    enemyId: 0,
     x: x + range(-15, 15),
     y: y + range(-15, 15),
     vx: Math.cos(angle) * speed,
@@ -1498,11 +1504,7 @@ function MultiplayerLobby({
                   <small>TEAM SCORE {result.teamScore.toLocaleString()} · TIME {formatRunTime(result.durationSeconds)}</small>
                 </section>
               ) : null}
-              <p className="lobby-status" aria-live="polite">
-                {net.phase === "countdown"
-                  ? `LAUNCHING IN ${Math.ceil(net.countdownMs / 1000)}…`
-                  : net?.kind === "coop" ? "ALLY FOUND — CHOOSE YOUR SHIP" : "OPPONENT FOUND — CHOOSE YOUR SHIP"}
-              </p>
+              {net.phase === "countdown" ? <div className="launch-countdown" aria-live="assertive"><span>LAUNCHING IN</span><strong>{countdownLabel(net.countdownMs)}</strong></div> : <p className="lobby-status" aria-live="polite">{net?.kind === "coop" ? "ALLY FOUND — CHOOSE YOUR SHIP" : "OPPONENT FOUND — CHOOSE YOUR SHIP"}</p>}
               <div className="lobby-versus">
                 <div className="ready-player own">
                   <span>YOU</span>
@@ -1514,7 +1516,7 @@ function MultiplayerLobby({
                     <button type="button" disabled={net.phase === "countdown"} onClick={() => cycleShip(1)} aria-label="Next ship">▶</button>
                   </div>
                   <small>HULL {ownShip.health} · CANNON MK{ownShip.gun} · {SHIP_SPECIALS[ownShip.id].name}</small>
-                  <i className={net.you?.ready ? "ok" : ""}>{net.you?.ready ? "READY" : "NOT READY"}</i>
+                  <i className={net.you?.ready ? "ok" : ""}>{net.you?.ready ? "READY ✓" : "NOT READY"}</i>
                 </div>
                 <em aria-hidden="true">{net?.kind === "coop" ? "+" : "VS"}</em>
                 <div className="ready-player ally">
@@ -1524,7 +1526,7 @@ function MultiplayerLobby({
                   <strong className="ally-ship">{allyShip.name.toUpperCase()}</strong>
                   <small>HULL {allyShip.health} · CANNON MK{allyShip.gun} · {SHIP_SPECIALS[allyShip.id].name}</small>
                   <i className={net.opponent.ready ? "ok" : ""}>
-                    {net.opponent.connected ? (net.opponent.ready ? "READY" : "NOT READY") : "DISCONNECTED"}
+                    {net.opponent.connected ? (net.opponent.ready ? "READY ✓" : "NOT READY") : "DISCONNECTED"}
                   </i>
                 </div>
               </div>
@@ -2405,7 +2407,9 @@ export default function WormholeGame() {
 
   const start = useCallback(() => {
     stopVictorySuction();
-    const game = createGame(selectedShip(shipId), mode, difficulty);
+    const confirmedShip = mode === "coop" ? netRef.current?.state.you?.ship : null;
+    const game = createGame(selectedShip((confirmedShip ?? shipId) as ShipId), mode, difficulty);
+    game.roundId = mode === "coop" ? (netRef.current?.state.roundId ?? 0) : 0;
     game.running = true;
     game.notice = "ENTERING NEW GROUND";
     gameRef.current = game;
@@ -3223,6 +3227,17 @@ export default function WormholeGame() {
       }
     };
 
+    const enemyIdentity = (game: Game, enemy: Enemy) => {
+      if (!enemy.enemyId) enemy.enemyId = ++game.nextEnemyId;
+      return enemy.enemyId;
+    };
+
+    const damageEnemy = (game: Game, enemy: Enemy, amount: number, guaranteedDrop = false) => {
+      if (enemy.hp <= 0 || amount <= 0) return;
+      enemy.hp -= scrambledDamage(amount, (enemy.scrambled ?? 0) > 0);
+      if (enemy.hp <= 0) destroyEnemy(game, enemy, guaranteedDrop);
+    };
+
     /**
      * The rift has been driven to zero integrity in Survival.
      *
@@ -3303,6 +3318,10 @@ export default function WormholeGame() {
           scrambleTicks: timing.scramble,
           spec,
         });
+        if (game.mode === "coop" && timing.scramble > 0
+          && netRef.current?.state.you?.id !== netRef.current?.state.hostId) {
+          netRef.current?.reportWorldAction("emp");
+        }
       }
 
       // Set unconditionally: a spec with no rider has to clear any rider the
@@ -3360,6 +3379,7 @@ export default function WormholeGame() {
         player.viperGuidance = ticksForSeconds(VIPER_GUIDANCE_SECONDS);
         game.notice = "TARGET LINK // LAUNCH WITHIN 3S";
       } else if (ship === "turtle") {
+        if (game.mode === "coop" && netRef.current?.state.you?.id !== netRef.current?.state.hostId) netRef.current?.reportWorldAction("clear");
         game.enemies.forEach((enemy) => {
           if (enemy.kind !== "ghost") destroyEnemy(game, enemy);
         });
@@ -3417,9 +3437,8 @@ export default function WormholeGame() {
 
         const damage = blastDamageAt(d, blast);
         if (damage <= 0 || enemy.kind === "ghost") continue;
-        enemy.hp -= scrambledDamage(damage, (enemy.scrambled ?? 0) > 0);
+        damageEnemy(game, enemy, damage, blast.guaranteedDrops);
         burst(game, enemy.x, enemy.y, fx.spec.accent, 6, 4);
-        if (enemy.hp <= 0) destroyEnemy(game, enemy, blast.guaranteedDrops);
       }
     };
 
@@ -3979,10 +3998,11 @@ export default function WormholeGame() {
           if (enemy.hp <= 0 || bullet.life <= 0 || enemy.kind === "ghost") continue;
           if (dist(bullet, enemy) < enemy.radius + 4) {
             bullet.life = 0;
-            enemy.hp -= scrambledDamage(bullet.damage, (enemy.scrambled ?? 0) > 0);
+            const coopGuest = game.mode === "coop" && netRef.current?.state.you?.id !== netRef.current?.state.hostId;
+            if (coopGuest) netRef.current?.reportEnemyHit(enemyIdentity(game, enemy), bullet.damage, bullet.special ? "overcharge" : "cannon");
+            else damageEnemy(game, enemy, bullet.damage);
             burst(game, bullet.x, bullet.y, POWER_COLORS[enemy.kind], 4, 2.5);
             cannonImpactFeedback(game, bullet);
-            if (enemy.hp <= 0) destroyEnemy(game, enemy);
           }
         }
       });
@@ -4057,7 +4077,12 @@ export default function WormholeGame() {
         }
         for (const enemy of game.enemies) {
           if (enemy.hp <= 0 || power.life <= 0) continue;
-          if (dist(power, enemy) < enemy.radius + 10) { power.life = 0; destroyEnemy(game, enemy); }
+          if (dist(power, enemy) < enemy.radius + 10) {
+            power.life = 0;
+            const coopGuest = game.mode === "coop" && netRef.current?.state.you?.id !== netRef.current?.state.hostId;
+            if (coopGuest) netRef.current?.reportEnemyHit(enemyIdentity(game, enemy), 60, "projectile");
+            else damageEnemy(game, enemy, enemy.hp);
+          }
         }
       });
 
@@ -4076,7 +4101,11 @@ export default function WormholeGame() {
           else if (type === "thrust") player.thrust = Math.min(3, player.thrust + 1);
           else if (type === "retros") player.retros = true;
           else if (type === "shield") player.shield = Math.max(450, player.shield + 200);
-          else if (type === "clear") game.enemies.forEach((enemy) => destroyEnemy(game, enemy));
+          else if (type === "clear") {
+            const coopGuest = game.mode === "coop" && netRef.current?.state.you?.id !== netRef.current?.state.hostId;
+            if (coopGuest) netRef.current?.reportWorldAction("clear");
+            else game.enemies.forEach((enemy) => destroyEnemy(game, enemy));
+          }
           else if (type === "health") player.health = Math.min(player.maxHealth, player.health + 30);
           else if (type === "ricochet") player.ricochetTicks = ticksForSeconds(RICOCHET_DURATION_SECONDS);
           else if (game.stock.length < STOCK_LIMIT) {
@@ -4097,6 +4126,18 @@ export default function WormholeGame() {
       const coopIsHost = game.mode === "coop"
         && Boolean(coopNetwork?.you?.id)
         && coopNetwork?.you?.id === coopNetwork?.hostId;
+      if (coopIsHost) {
+        for (const hit of netRef.current?.drainEnemyHits() ?? []) {
+          if (hit.roundId !== game.roundId) continue;
+          const enemy = game.enemies.find((entry) => entry.enemyId === hit.enemyId);
+          if (enemy) damageEnemy(game, enemy, hit.damage);
+        }
+        for (const action of netRef.current?.drainWorldActions() ?? []) {
+          if (action.roundId !== game.roundId) continue;
+          if (action.action === "clear") game.enemies.forEach((enemy) => destroyEnemy(game, enemy));
+          else game.enemies.forEach((enemy) => { enemy.scrambled = Math.max(enemy.scrambled ?? 0, ticksForSeconds(3)); });
+        }
+      }
       if (game.mode === "coop" && !coopIsHost && coopNetwork?.world
         && coopNetwork.world.seq !== game.lastWorldSeq) {
         const world = coopNetwork.world;
@@ -4136,11 +4177,12 @@ export default function WormholeGame() {
       game.enemies.forEach((enemy) => { if (enemy.hp > 0) updateEnemy(game, enemy); });
       if (coopIsHost && game.cycles % 6 === 0) {
         netRef.current?.reportWorld({
+          roundId: game.roundId,
           portalX: game.portalX,
           portalY: game.portalY,
           portalAngle: game.portalAngle,
           enrageActive: game.enrageActive,
-          enemies: game.enemies.slice(0, 128).map((enemy) => ({ ...enemy })),
+          enemies: game.enemies.slice(0, 128).map((enemy) => ({ ...enemy, enemyId: enemyIdentity(game, enemy) })),
           enemyBullets: game.bullets.filter((bullet) => bullet.enemy).slice(0, 256).map((bullet) => ({ ...bullet })),
         });
       }
@@ -4775,7 +4817,8 @@ export default function WormholeGame() {
           ctx.strokeStyle = "#ffffff";
           ctx.fillStyle = "rgba(182,255,87,.42)";
           ctx.lineWidth = 4;
-          drawShipShape(ctx, teammate.ship as ShipId, (teammate.ship === "flagship" ? .82 : 1) * 1.15);
+          const allyShip = netRef.current?.state.opponent?.ship as ShipId | undefined;
+          drawShipShape(ctx, allyShip ?? "wing", (allyShip === "flagship" ? .82 : 1) * 1.15);
           ctx.fill();
           ctx.stroke();
           ctx.restore();

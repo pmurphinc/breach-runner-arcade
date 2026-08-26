@@ -10,7 +10,7 @@
  * `tests/pvp-protocol.test.mjs` asserts the two agree.
  */
 
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 
 /** WebSocket path. Shares the game's HTTP server and Railway's injected PORT. */
 export const PVP_PATH = "/pvp";
@@ -27,6 +27,8 @@ export const CLIENT_MESSAGES = [
   "transmit",
   "position",
   "world",
+  "enemy_hit",
+  "coop_world_action",
   "pong",
   "leave",
   "rematch",
@@ -43,6 +45,8 @@ export const SERVER_MESSAGES = [
   "incoming",
   "teammate",
   "world",
+  "enemy_hit",
+  "coop_world_action",
   "result",
   "opponent",
   "error",
@@ -97,6 +101,8 @@ export const MAX_DAMAGE_TOTAL_PER_WINDOW = 220;
 
 /** Transmissions are a deliberate action; this is far above human cadence. */
 export const MAX_TRANSMITS_PER_WINDOW = 6;
+export const MAX_ENEMY_HITS_PER_WINDOW = 45;
+export const ENEMY_HIT_SOURCES = { cannon: 24, overcharge: 60, projectile: 60 };
 
 /** General message flood guard. */
 export const MAX_MESSAGES_PER_WINDOW = 120;
@@ -264,8 +270,26 @@ export function parseClientMessage(raw) {
         },
       };
     }
+    case "enemy_hit": {
+      if (!Number.isInteger(parsed.seq) || parsed.seq < 0 || !Number.isInteger(parsed.roundId) || parsed.roundId < 1
+        || !Number.isInteger(parsed.enemyId) || parsed.enemyId < 1
+        || !Object.hasOwn(ENEMY_HIT_SOURCES, parsed.source)
+        || !isFiniteNumber(parsed.damage) || parsed.damage <= 0
+        || parsed.damage > ENEMY_HIT_SOURCES[parsed.source]) {
+        return { ok: false, code: ERRORS.INVALID_DAMAGE, detail: "bad enemy hit" };
+      }
+      return { ok: true, message: { type, seq: parsed.seq, roundId: parsed.roundId, enemyId: parsed.enemyId, source: parsed.source, damage: parsed.damage } };
+    }
+    case "coop_world_action": {
+      if (!Number.isInteger(parsed.seq) || parsed.seq < 0 || !Number.isInteger(parsed.roundId) || parsed.roundId < 1
+        || (parsed.action !== "clear" && parsed.action !== "emp")) {
+        return { ok: false, code: ERRORS.BAD_MESSAGE, detail: "bad co-op action" };
+      }
+      return { ok: true, message: { type, seq: parsed.seq, roundId: parsed.roundId, action: parsed.action } };
+    }
     case "world": {
-      if (!Number.isInteger(parsed.seq) || parsed.seq < 0 || parsed.seq > 1_000_000_000) {
+      if (!Number.isInteger(parsed.seq) || parsed.seq < 0 || parsed.seq > 1_000_000_000
+        || !Number.isInteger(parsed.roundId) || parsed.roundId < 1) {
         return { ok: false, code: ERRORS.BAD_MESSAGE, detail: "bad world seq" };
       }
       if (![parsed.portalX, parsed.portalY, parsed.portalAngle].every(isFiniteNumber)
@@ -275,12 +299,13 @@ export function parseClientMessage(raw) {
       }
       const enemies = [];
       for (const enemy of parsed.enemies) {
-        if (!isPlainObject(enemy) || !SENDABLE_WEAPONS.includes(enemy.kind)
+        if (!isPlainObject(enemy) || !Number.isInteger(enemy.enemyId) || enemy.enemyId < 1 || !SENDABLE_WEAPONS.includes(enemy.kind)
           || ![enemy.x, enemy.y, enemy.vx, enemy.vy, enemy.hp, enemy.maxHp, enemy.radius,
             enemy.age, enemy.cooldown, enemy.phase].every(isFiniteNumber)) {
           return { ok: false, code: ERRORS.BAD_MESSAGE, detail: "bad enemy snapshot" };
         }
         enemies.push({
+          enemyId: enemy.enemyId,
           kind: enemy.kind,
           x: Math.max(-100, Math.min(1604, enemy.x)),
           y: Math.max(-100, Math.min(1040, enemy.y)),
@@ -320,7 +345,7 @@ export function parseClientMessage(raw) {
         });
       }
       return { ok: true, message: {
-        type, seq: parsed.seq, enemies, enemyBullets,
+        type, seq: parsed.seq, roundId: parsed.roundId, enemies, enemyBullets,
         portalX: Math.max(0, Math.min(1504, parsed.portalX)),
         portalY: Math.max(0, Math.min(940, parsed.portalY)),
         portalAngle: parsed.portalAngle,
@@ -344,7 +369,7 @@ export function parseClientMessage(raw) {
 
 /** Fixed-window counter used for the per-player rate limits above. */
 export function createRateWindow() {
-  return { start: 0, messages: 0, damageEvents: 0, damageTotal: 0, transmits: 0 };
+  return { start: 0, messages: 0, damageEvents: 0, damageTotal: 0, transmits: 0, enemyHits: 0 };
 }
 
 export function rollWindow(window, now) {
@@ -354,6 +379,7 @@ export function rollWindow(window, now) {
     window.damageEvents = 0;
     window.damageTotal = 0;
     window.transmits = 0;
+    window.enemyHits = 0;
   }
 }
 

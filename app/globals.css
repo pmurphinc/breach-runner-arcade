@@ -507,6 +507,9 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 .last-round span { color: #eafcff; font: 800 var(--fs-micro)/1.4 var(--mono); }
 .last-round small, .lobby-waiting { margin: 0; color: var(--muted); font: 700 var(--fs-nano)/1.3 var(--mono); letter-spacing: .08em; }
 .lobby-waiting { text-align: center; }
+.launch-countdown { display: grid; place-items: center; gap: 8px; min-height: 130px; color: var(--lime); text-align: center; font-family: var(--mono); letter-spacing: .16em; }
+.launch-countdown span { font-size: var(--fs-sm); font-weight: 900; }
+.launch-countdown strong { font-size: clamp(4rem, 14vw, 7rem); line-height: .9; text-shadow: 0 0 24px rgba(182,255,87,.65); }
 .ready-player { justify-items: center; text-align: center; }
 .ship-cycle { width: 100%; display: grid; grid-template-columns: var(--touch-target) minmax(0, 1fr) var(--touch-target); align-items: center; gap: 4px; }
 .ship-cycle button { min-width: var(--touch-target); min-height: var(--touch-target); color: var(--cyan); border: 1px solid var(--line); background: #07121b; cursor: pointer; }

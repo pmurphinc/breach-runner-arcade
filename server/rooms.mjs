@@ -15,6 +15,7 @@ import {
   MAX_DAMAGE_EVENTS_PER_WINDOW,
   MAX_DAMAGE_TOTAL_PER_WINDOW,
   MAX_MESSAGES_PER_WINDOW,
+  MAX_ENEMY_HITS_PER_WINDOW,
   MAX_TRANSMITS_PER_WINDOW,
   QUEUE_TIMEOUT_MS,
   RECONNECT_GRACE_MS,
@@ -68,6 +69,8 @@ export function createPlayer(send, { now = Date.now(), random = Math.random } = 
     combat: null,
     lastDamageSeq: -1,
     lastTransmitSeq: -1,
+    lastEnemyHitSeq: -1,
+    lastWorldActionSeq: -1,
     position: { seq: -1, sentAt: 0, x: 752, y: 470, angle: 270 },
     window: createRateWindow(),
   };
@@ -205,6 +208,7 @@ export class MatchServer {
       rematchExpiresAt: 0,
       lastResult: null,
       roundStartedAt: 0,
+      roundId: 0,
     };
     this.rooms.set(code, room);
     player.room = room;
@@ -251,6 +255,7 @@ export class MatchServer {
       rematchExpiresAt: 0,
       lastResult: null,
       roundStartedAt: 0,
+      roundId: 0,
     };
     this.rooms.set(code, room);
     a.room = room;
@@ -323,6 +328,9 @@ export class MatchServer {
     room.phase = PHASES.ACTIVE;
     room.touchedAt = now;
     room.roundStartedAt = now;
+    room.roundId += 1;
+    room.worldSeq = -1;
+    room.lastWorldAt = 0;
     if (room.kind === "coop") {
       room.rivalHealth = room.rivalMaxHealth;
       room.teamScore = 0;
@@ -331,8 +339,11 @@ export class MatchServer {
       player.combat = createCombatState(SHIP_HULL[player.ship] ?? 240);
       player.lastDamageSeq = -1;
       player.lastTransmitSeq = -1;
+      player.lastEnemyHitSeq = -1;
+      player.lastWorldActionSeq = -1;
+      player.position.seq = -1;
     }
-    this.broadcast(room, { type: "state", phase: "active", serverNow: now });
+    this.broadcast(room, { type: "state", phase: "active", serverNow: now, roundId: room.roundId });
     this.broadcastState(room, now);
   }
 
@@ -420,7 +431,7 @@ export class MatchServer {
     player.position = { seq: position.seq, sentAt: position.sentAt, x: position.x, y: position.y, angle: position.angle };
     room.touchedAt = now;
     this.sendTo(this.opponentOf(room, player), {
-      type: "teammate", id: player.id, ship: player.ship, name: player.name, ...player.position,
+      type: "teammate", id: player.id, name: player.name, roundId: room.roundId, ...player.position,
     });
     return { ok: true };
   }
@@ -431,12 +442,37 @@ export class MatchServer {
       return { ok: false, code: ERRORS.NOT_IN_MATCH };
     }
     if (room.players[0]?.id !== player.id) return { ok: false, code: ERRORS.WRONG_PHASE };
+    if (world.roundId !== room.roundId) return { ok: true, ignored: true };
     if (world.seq <= room.worldSeq) return { ok: true, ignored: true };
     if (now - room.lastWorldAt < 70) return { ok: true, ignored: true };
     room.worldSeq = world.seq;
     room.lastWorldAt = now;
     room.touchedAt = now;
     this.sendTo(this.opponentOf(room, player), { type: "world", ...world, hostId: player.id });
+    return { ok: true };
+  }
+
+  reportEnemyHit(player, hit, now = Date.now()) {
+    const room = player.room;
+    if (!room || room.kind !== "coop" || room.phase !== PHASES.ACTIVE) return { ok: false, code: ERRORS.NOT_IN_MATCH };
+    if (hit.roundId !== room.roundId || hit.seq <= player.lastEnemyHitSeq) return { ok: true, ignored: true };
+    rollWindow(player.window, now);
+    if (player.window.enemyHits >= MAX_ENEMY_HITS_PER_WINDOW) return { ok: false, code: ERRORS.RATE_LIMITED };
+    player.window.enemyHits += 1;
+    player.lastEnemyHitSeq = hit.seq;
+    const host = room.players[0];
+    if (player === host) return { ok: true, ignored: true };
+    this.sendTo(host, { type: "enemy_hit", ...hit, from: player.id });
+    return { ok: true };
+  }
+
+  reportWorldAction(player, action) {
+    const room = player.room;
+    if (!room || room.kind !== "coop" || room.phase !== PHASES.ACTIVE) return { ok: false, code: ERRORS.NOT_IN_MATCH };
+    if (action.roundId !== room.roundId || action.seq <= player.lastWorldActionSeq) return { ok: true, ignored: true };
+    player.lastWorldActionSeq = action.seq;
+    const host = room.players[0];
+    if (player !== host) this.sendTo(host, { type: "coop_world_action", ...action, from: player.id });
     return { ok: true };
   }
 
@@ -623,6 +659,7 @@ export class MatchServer {
         difficulty: room.difficulty,
         phase: room.phase,
         hostId: room.players[0]?.id ?? null,
+        roundId: room.roundId,
         you: { id: player.id, name: player.name, ship: player.ship, ready: player.ready },
         opponent: opponent
           ? {
