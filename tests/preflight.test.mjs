@@ -593,3 +593,78 @@ test("the canvas HUD is never drawn underneath the panels floating over it", { s
     await browser.close();
   }
 });
+
+test("touch HUD mirrors action geometry, renders the full queue, and keeps canvas behind controls", { skip, timeout: 120_000 }, async () => {
+  const browser = await playwright.chromium.launch({ executablePath: CHROME });
+  try {
+    for (const viewport of [
+      { name: "phone portrait", width: 390, height: 844 },
+      { name: "Fold cover", width: 344, height: 882 },
+      { name: "tablet portrait", width: 800, height: 1280 },
+      { name: "touch landscape", width: 1280, height: 800 },
+    ]) {
+      const { context, page, errors } = await openShell(browser, { ...viewport, touch: true });
+      await page.evaluate(() => {
+        const key = "wormhole-arcade:settings:v1";
+        const settings = JSON.parse(localStorage.getItem(key) || "{}");
+        localStorage.setItem(key, JSON.stringify({ ...settings, viewMode: "touch", thumbsticks: true, mirrorTouchActions: true }));
+      });
+      await page.reload({ waitUntil: "networkidle" });
+      await enterArena(page);
+
+      const geometry = await page.evaluate(() => {
+        const rect = (selector) => document.querySelector(selector)?.getBoundingClientRect();
+        const center = (r) => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+        const moveRect = rect(".move-stick");
+        const fireRect = rect(".aim-stick");
+        const move = center(moveRect);
+        const fire = center(fireRect);
+        const pairs = ["touch-pause", "touch-special", "touch-pup"].map((name) => {
+          const leftRect = rect(`.touch-flight .${name}`);
+          const rightRect = rect(`.touch-action .${name}`);
+          const left = center(leftRect);
+          const right = center(rightRect);
+          const leftDelta = { x: left.x - move.x, y: left.y - move.y };
+          const rightDelta = { x: right.x - fire.x, y: right.y - fire.y };
+          const outside = (delta, button) => Math.hypot(delta.x, delta.y) >= moveRect.width / 2 + Math.min(button.width, button.height) / 2 - 2;
+          return { name, leftDelta, rightDelta, leftOutside: outside(leftDelta, leftRect), rightOutside: outside(rightDelta, rightRect) };
+        });
+        const canvas = rect(".canvas-wrap canvas");
+        const wrap = rect(".canvas-wrap");
+        return { pairs, canvasBottom: canvas.bottom, wrapBottom: wrap.bottom };
+      });
+      for (const pair of geometry.pairs) {
+        assert.ok(Math.abs(pair.leftDelta.x + pair.rightDelta.x) <= 2, `${viewport.name} ${pair.name} X offsets are not mirrored: ${JSON.stringify(pair)}`);
+        assert.ok(Math.abs(pair.leftDelta.y - pair.rightDelta.y) <= 2, `${viewport.name} ${pair.name} Y offsets differ: ${JSON.stringify(pair)}`);
+        assert.ok(pair.leftOutside && pair.rightOutside, `${viewport.name} ${pair.name} overlaps a stick: ${JSON.stringify(pair)}`);
+      }
+      assert.ok(Math.abs(geometry.canvasBottom - geometry.wrapBottom) <= 2, `${viewport.name} canvas stops above arena bottom: ${JSON.stringify(geometry)}`);
+
+      for (const count of [0, 4, 10]) {
+        await page.evaluate((amount) => {
+          const ids = ["heatseeker", "turret", "mines", "scarab", "ghost", "artillery", "minelayer", "emp", "beam", "nuke"];
+          window.dispatchEvent(new CustomEvent("breach-runner:test-stock", { detail: ids.slice(0, amount) }));
+        }, count);
+        await page.waitForTimeout(60);
+        const state = await page.evaluate(() => ({
+          count: document.querySelector(".touch-powerup-count")?.textContent,
+          occupied: document.querySelectorAll(".touch-powerup-slot.occupied").length,
+          next: document.querySelectorAll(".touch-powerup-slot.next").length,
+          pupDisabled: [...document.querySelectorAll(".touch-pup")].map((button) => button.disabled),
+          pupClasses: [...document.querySelectorAll(".touch-pup")].map((button) => button.className),
+          specClasses: [...document.querySelectorAll(".touch-special")].map((button) => button.className),
+        }));
+        assert.equal(state.count, `${count}/10`);
+        assert.equal(state.occupied, count, `${viewport.name} must show all ${count} occupied entries`);
+        assert.equal(state.next, count ? 1 : 0);
+        assert.deepEqual(state.pupDisabled, [count === 0, count === 0], "both PUP copies must share inventory state");
+        assert.equal(new Set(state.pupClasses).size, 1, "PUP copies must use the same class styling");
+        assert.equal(new Set(state.specClasses).size, 1, "SPEC copies must use the same class styling");
+      }
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+  } finally {
+    await browser.close();
+  }
+});
