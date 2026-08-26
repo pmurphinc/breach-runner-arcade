@@ -274,7 +274,7 @@ test("touch-stick height has safe symmetric computed geometry in every arrangeme
           const overlaps = (a, b) => Boolean(a && b && a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top);
           const move = rect(".touch-flight .virtual-stick");
           const aim = rect(".touch-action .virtual-stick");
-          const protectedHud = [rect(".health-rails"), rect(".touch-powerup-hud"), rect(".pup-notification"), rect(".system-controls")];
+          const protectedHud = [rect(".health-rails"), rect(".touch-powerup-hud"), rect(".pup-notice-stack"), rect(".system-controls")];
           const interactive = [
             move, aim,
             ...[...document.querySelectorAll(".touch-controls .touch-utility button")].map((item) => {
@@ -318,6 +318,91 @@ test("touch-stick height has safe symmetric computed geometry in every arrangeme
     await browser.close();
   }
 });
+
+/**
+ * The wave announcement is one notification, hung off the PUP inventory.
+ *
+ * It used to be two: a thin `▸INCOMING // RAIDERS` bar under the inventory and
+ * a `RAIDERS ×3` plate painted mid-arena on the canvas. What survives is the
+ * plate's presentation, mounted inside the inventory panel so it tracks that
+ * panel through every responsive rule rather than carrying its own offsets.
+ */
+const NOTICE_VIEWPORTS = [
+  { name: "phone portrait", width: 390, height: 844, touch: true },
+  { name: "phone landscape", width: 844, height: 390, touch: true },
+  { name: "tablet landscape", width: 1280, height: 800, touch: true },
+];
+
+for (const viewport of NOTICE_VIEWPORTS) {
+  test(`${viewport.name} anchors the spawn notice under the PUP inventory`, { skip }, async () => {
+    const { chromium } = playwright;
+    const browser = await chromium.launch({ executablePath: CHROME });
+    try {
+      const { context, page, errors } = await openShell(browser, viewport);
+      await enterArena(page);
+
+      // The removed bar must be gone before anything is announced, so a stale
+      // element cannot pass as the new one.
+      assert.equal(await page.locator(".pup-notification").count(), 0,
+        `${viewport.name} still renders the removed INCOMING bar`);
+
+      await page.evaluate(() => {
+        window.dispatchEvent(new CustomEvent("breach-runner:test-spawn-notice", {
+          detail: { type: "ufo", count: 3 },
+        }));
+      });
+      await page.waitForTimeout(120);
+
+      const notice = await page.evaluate(() => {
+        const rect = (element) => {
+          const box = element?.getBoundingClientRect();
+          return box ? { top: box.top, bottom: box.bottom, left: box.left, right: box.right, width: box.width, height: box.height } : null;
+        };
+        const plates = [...document.querySelectorAll(".pup-notice")];
+        const inventory = document.querySelector(".touch-powerup-hud");
+        const canvas = rect(document.querySelector(".canvas-wrap > canvas"));
+        return {
+          plates: plates.length,
+          bars: document.querySelectorAll(".pup-notification").length,
+          text: plates[0]?.textContent?.replace(/\s+/g, " ").trim(),
+          plate: rect(plates[0]),
+          inventory: rect(inventory),
+          // Shared offset parent is what makes the pair move as one group.
+          sameFrame: plates[0]?.offsetParent === inventory.offsetParent
+            || inventory.contains(plates[0]),
+          coachVisible: [...document.querySelectorAll(".coach-strip")]
+            .some((strip) => strip.getBoundingClientRect().height > 0),
+          canvas,
+        };
+      });
+
+      // One event, one plate, and nothing left of the bar it replaced.
+      assert.equal(notice.plates, 1, `${viewport.name} rendered ${notice.plates} plates for one spawn`);
+      assert.equal(notice.bars, 0, `${viewport.name} rendered both notification variants`);
+      assert.equal(notice.coachVisible, false, `${viewport.name} still shows the desktop guidance strip alongside the plate`);
+      assert.match(notice.text ?? "", /RAIDERS ×3/, `${viewport.name} lost the plate presentation: ${notice.text}`);
+
+      // Attached beneath the inventory: a small gap, and horizontally over it.
+      const gap = notice.plate.top - notice.inventory.bottom;
+      assert.ok(gap >= 0 && gap <= 12, `${viewport.name} notice is not snapped under the inventory (gap ${gap}px)`);
+      assert.equal(notice.sameFrame, true, `${viewport.name} notice does not share the inventory's coordinate system`);
+      const inventoryCentre = notice.inventory.left + notice.inventory.width / 2;
+      const plateCentre = notice.plate.left + notice.plate.width / 2;
+      assert.ok(Math.abs(inventoryCentre - plateCentre) <= 2,
+        `${viewport.name} notice drifted off the inventory: ${JSON.stringify(notice)}`);
+
+      // And no longer marooned in the middle of the playfield.
+      const arenaMiddle = notice.canvas.top + notice.canvas.height / 2;
+      assert.ok(notice.plate.bottom < arenaMiddle,
+        `${viewport.name} notice is still centred in the arena: ${JSON.stringify(notice)}`);
+
+      assert.deepEqual(errors, []);
+      await context.close();
+    } finally {
+      await browser.close();
+    }
+  });
+}
 
 const PRESET_VIEWPORTS = [
   { name: "2048x1152 desktop", width: 2048, height: 1152, touch: false },
@@ -708,7 +793,7 @@ test("touch HUD mirrors action geometry, renders the full queue, and keeps canva
           const outside = (delta, button) => Math.hypot(delta.x, delta.y) >= moveRect.width / 2 + Math.min(button.width, button.height) / 2 - 2;
           return { name, leftDelta, rightDelta, leftOutside: outside(leftDelta, leftRect), rightOutside: outside(rightDelta, rightRect) };
         });
-        const canvas = rect(".canvas-wrap canvas");
+        const canvas = rect(".canvas-wrap > canvas");
         const wrap = rect(".canvas-wrap");
         return { pairs, canvasBottom: canvas.bottom, wrapBottom: wrap.bottom };
       });

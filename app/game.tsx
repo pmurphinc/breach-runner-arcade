@@ -270,7 +270,17 @@ type StickPosition = { active: boolean; x: number; y: number };
 type StickKind = "move" | "aim";
 type SpawnKind = "hostile" | "friendly" | "transmit";
 /** Short, non-blocking portal animation announcing what just came through. */
-type SpawnFx = { x: number; y: number; type: PickupId; kind: SpawnKind; age: number; life: number; count: number };
+type SpawnFx = { id: number; x: number; y: number; type: PickupId; kind: SpawnKind; age: number; life: number; count: number };
+
+/**
+ * The HUD half of a `SpawnFx`: everything the inventory-anchored notice needs,
+ * and nothing that changes tick to tick, so the HUD only re-renders when a
+ * plate actually appears or expires.
+ */
+type SpawnNotice = { id: number; type: PickupId; kind: SpawnKind; count: number; life: number };
+
+/** Identity for React keys. Plates outlive several HUD syncs, so it must be stable. */
+let nextSpawnId = 0;
 
 type QualityMode = "auto" | "high" | "performance";
 
@@ -459,6 +469,8 @@ type Hud = {
   incoming: PowerId | null;
   notice: string;
   coach: string;
+  /** Live spawn plates, oldest first. Rendered under the PUP inventory. */
+  spawnNotices: SpawnNotice[];
   /** Rules badge: what the pilot is flying under right now. */
   mode: GameMode;
   difficulty: DifficultyId;
@@ -627,6 +639,7 @@ function hudFrom(game: Game): Hud {
     incoming: game.incoming,
     notice: game.noticeLife > 0 ? game.notice : "",
     coach: coachLine(game),
+    spawnNotices: game.spawns.slice(-MAX_NAMEPLATES).map(({ id, type, kind, count, life }) => ({ id, type, kind, count, life })),
     mode: game.mode,
     difficulty: game.rules.id,
     difficultyName: game.rules.shortName,
@@ -666,6 +679,9 @@ function hudEqual(a: Hud, b: Hud) {
     && a.incoming === b.incoming
     && a.notice === b.notice
     && a.coach === b.coach
+    // Plate contents never change once pushed, so identity settles the list.
+    && a.spawnNotices.length === b.spawnNotices.length
+    && a.spawnNotices.every((plate, index) => plate.id === b.spawnNotices[index].id)
     && a.mode === b.mode
     && a.difficulty === b.difficulty
     && a.wormholeState === b.wormholeState
@@ -1789,8 +1805,6 @@ export default function WormholeGame() {
   const qualityRef = useRef<QualityMode>("auto");
   const reducedMotionRef = useRef(false);
   const viewProfileRef = useRef(viewProfile);
-  /** CSS pixels of arena covered by the HTML HUD strip, for the canvas to skip. */
-  const hudInsetRef = useRef(0);
   /**
    * How far down the canvas HUD must start on each side to clear the DOM
    * panels floating over the arena — the rules badge on the left, the PvP HUD
@@ -1879,12 +1893,6 @@ export default function WormholeGame() {
     };
   }, [screenPreset, stickSizeName, touchControlMode, viewProfile.touch]);
 
-  // Page-level gesture suppression is scoped to active touch gameplay so normal
-  // scrolling, zooming, and selection stay available everywhere else.
-  useEffect(() => {
-    hudInsetRef.current = immersive && layout.sticks === "overlay" ? 44 : 0;
-  }, [immersive, layout.sticks]);
-
   // Touch/Hybrid reserves a real header lane above the 1.6:1 playfield.
   // Measuring the rendered HUD keeps wrapped rules and shield text out of the
   // playable canvas on phones, tablets, and foldables.
@@ -1919,12 +1927,6 @@ export default function WormholeGame() {
       const canvasHeight = Math.max(1, Math.floor(canvasWidth * WORLD_HEIGHT / WORLD_WIDTH));
       wrap.style.setProperty("--rules-bottom", `${Math.max(0, bottomOf(".difficulty-badge"))}px`);
       wrap.style.setProperty("--health-bottom", `${Math.max(0, hudBottom)}px`);
-      // HTML paints above the canvas, so make canvas spawn/tracker nameplates
-      // start below the inventory instead of allowing that panel to cover them.
-      const inventoryBottom = bottomOf(".touch-powerup-hud");
-      hudInsetRef.current = inventoryBottom > 0
-        ? Math.ceil(inventoryBottom) + 8
-        : immersive && layout.sticks === "overlay" ? 44 : 0;
       wrap.style.setProperty("--arena-playfield-top", `${playfieldTop}px`);
       wrap.style.setProperty("--arena-canvas-width", `${canvasWidth}px`);
       wrap.style.setProperty("--arena-canvas-height", `${canvasHeight}px`);
@@ -2147,6 +2149,31 @@ export default function WormholeGame() {
     };
     window.addEventListener("breach-runner:test-stock", seedStock);
     return () => window.removeEventListener("breach-runner:test-stock", seedStock);
+  }, [sync]);
+
+  /* Spawn notices are wave-timed, so tests ask for one rather than waiting out
+     the rift's own schedule. This pushes the same record `pushSpawn` does. */
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    const seedNotice = (event: Event) => {
+      const detail = (event as CustomEvent<{ type?: string; count?: number }>).detail;
+      const type = detail?.type;
+      if (typeof type !== "string" || !(type in WEAPONS)) return;
+      nextSpawnId += 1;
+      gameRef.current.spawns.push({
+        id: nextSpawnId,
+        x: gameRef.current.portalX,
+        y: gameRef.current.portalY,
+        type: type as PickupId,
+        kind: "hostile",
+        age: 0,
+        life: 145,
+        count: Math.max(1, Math.round(detail?.count ?? 1)),
+      });
+      sync();
+    };
+    window.addEventListener("breach-runner:test-spawn-notice", seedNotice);
+    return () => window.removeEventListener("breach-runner:test-spawn-notice", seedNotice);
   }, [sync]);
 
   /** Sends a completed initials-tagged victory to the public arcade board. */
@@ -2889,7 +2916,8 @@ export default function WormholeGame() {
     };
 
     const pushSpawn = (game: Game, kind: SpawnKind, type: PickupId, x: number, y: number, count: number) => {
-      game.spawns.push({ x, y, type, kind, age: 0, life: kind === "hostile" ? 145 : 115, count });
+      nextSpawnId += 1;
+      game.spawns.push({ id: nextSpawnId, x, y, type, kind, age: 0, life: kind === "hostile" ? 145 : 115, count });
       game.portalPulse = 1;
     };
 
@@ -4894,7 +4922,6 @@ export default function WormholeGame() {
       const fs = (size: number) => Math.max(11.5, Math.round(size * base * 10) / 10);
       const mono = (weight: number, size: number) => `${weight} ${fs(size)}px ui-monospace, SFMono-Regular, Menlo, monospace`;
       const pad = Math.round(fs(12));
-      const top = pad + hudInsetRef.current;
 
       const fit = (text: string, maxWidth: number) => {
         if (ctx.measureText(text).width <= maxWidth) return text;
@@ -4932,41 +4959,6 @@ export default function WormholeGame() {
         ctx.fillStyle = meta.color;
         ctx.font = mono(800, 13);
         ctx.fillText(fit(meta.name, chipW - chipH - pad), chipX + chipH, chipY + fs(12) * 2.15);
-      }
-
-      // Spawn nameplates. One short line each, glyph first, in a fixed stack
-      // under the HUD band: a plate that always appears in the same place is
-      // far quicker to read than one that chases the portal around the arena.
-      const plateH = Math.round(fs(13) * 2.2);
-      const firstPlate = Math.max(0, game.spawns.length - MAX_NAMEPLATES);
-      for (let i = firstPlate; i < game.spawns.length; i += 1) {
-        const spawn = game.spawns[i];
-        const meta = WEAPONS[spawn.type];
-        const p = cap(spawn.age / spawn.life, 0, 1);
-        // Hold at full strength for most of the life, then fade quickly.
-        const alpha = p < 0.08 ? p / 0.08 : cap((1 - p) / 0.22, 0, 1);
-        const label = spawn.kind === "hostile"
-          ? `${meta.short}${spawn.count > 1 ? ` ×${spawn.count}` : ""}  ${threatBadge(meta)}`
-          : spawn.kind === "friendly"
-            ? `${meta.short}  READY`
-            : `${meta.short}  SENT  −${spawn.count}`;
-        const accent = spawn.kind === "hostile" ? "#ff6a80" : spawn.kind === "friendly" ? "#8dffd0" : meta.color;
-        ctx.save();
-        ctx.globalAlpha = alpha;
-        ctx.font = mono(800, 13);
-        const iconW = plateH;
-        const plateW = Math.round(ctx.measureText(label).width + iconW + pad * 1.4);
-        const plateX = Math.round((W - plateW) / 2);
-        const plateY = Math.round(top + (i - firstPlate) * (plateH + 6));
-        panel(plateX, plateY, plateW, plateH, `${accent}aa`);
-        ctx.save();
-        ctx.translate(plateX + iconW * 0.5, plateY + plateH * 0.5);
-        drawWeaponGlyph(ctx, spawn.type, plateH * 0.3, time, { detail: profile.detail });
-        ctx.restore();
-        ctx.textAlign = "left";
-        ctx.fillStyle = spawn.kind === "hostile" ? "#ffd9de" : "#eafcff";
-        ctx.fillText(label, plateX + iconW, plateY + plateH / 2);
-        ctx.restore();
       }
 
       // Rival wormhole label follows the portal.
@@ -5353,9 +5345,37 @@ export default function WormholeGame() {
                     </button> : <span aria-label="No PUP loaded">—</span>}
                   </div>;
                 })()}
-                <p className={`pup-notification ${hud.notice ? "alert" : ""}`} aria-live="polite">
-                  <span aria-hidden="true">▸</span>{guidance}
-                </p>
+                {/*
+                  Spawn notices live inside the inventory panel rather than
+                  beside it, so they inherit its coordinate system: whatever
+                  responsive rule moves the inventory — resize, orientation,
+                  fullscreen, the touch breakpoints — moves these with it, and
+                  the gap between the two stays a single margin.
+                */}
+                <div className="pup-notice-stack" role="status" aria-live="polite">
+                  {hud.spawnNotices.map((plate) => {
+                    const meta = WEAPONS[plate.type];
+                    const label = plate.kind === "hostile"
+                      ? `${meta.short}${plate.count > 1 ? ` ×${plate.count}` : ""}  ${threatBadge(meta)}`
+                      : plate.kind === "friendly"
+                        ? `${meta.short}  READY`
+                        : `${meta.short}  SENT  −${plate.count}`;
+                    const accent = plate.kind === "hostile" ? "#ff6a80" : plate.kind === "friendly" ? "#8dffd0" : meta.color;
+                    // The plate is unmounted the tick its life runs out, so driving
+                    // the fade off that same number keeps the timing the canvas
+                    // version always had.
+                    return (
+                      <p
+                        key={plate.id}
+                        className={`pup-notice ${plate.kind}`}
+                        style={{ "--notice-accent": accent, animationDuration: `${plate.life * TICK_MS}ms` } as React.CSSProperties}
+                      >
+                        <WeaponIcon id={plate.type} size={18} />
+                        <span>{label}</span>
+                      </p>
+                    );
+                  })}
+                </div>
               </div>
               <div className="pilot-health">
                 <span><em>PILOT HULL</em><b>{hud.health}/{hud.maxHealth}</b></span>

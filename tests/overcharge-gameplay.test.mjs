@@ -124,7 +124,7 @@ async function noticeShows(page, pattern, ms = 2000) {
  * honest instrument for "is the cannon actually firing".
  */
 const riftChargeOf = (page) =>
-  page.locator(".canvas-wrap canvas").getAttribute("aria-label")
+  page.locator(".canvas-wrap > canvas").getAttribute("aria-label")
     .then((label) => Number(label.match(/Rift charge (\d+) percent/)[1]));
 
 /** Waits for the readout to come back to READY, so cooldowns are observable. */
@@ -216,7 +216,7 @@ for (const ship of OVERCHARGED) {
       // itself, which silently disabled the cannon for the flight of the
       // volley. Firing is measured while the special is still live, because
       // that is exactly the window the old bug covered.
-      const canvas = page.locator(".canvas-wrap canvas");
+      const canvas = page.locator(".canvas-wrap > canvas");
       const box = await canvas.boundingBox();
       await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
       await page.waitForTimeout(200);
@@ -313,7 +313,7 @@ test("movement, aim and the power-up launcher still work alongside the special",
     await page.waitForTimeout(200);
 
     const at = () => page.evaluate(() => {
-      const canvas = document.querySelector(".canvas-wrap canvas");
+      const canvas = document.querySelector(".canvas-wrap > canvas");
       const data = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data;
       let sx = 0;
       let sy = 0;
