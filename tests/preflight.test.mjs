@@ -333,6 +333,81 @@ const NOTICE_VIEWPORTS = [
   { name: "tablet landscape", width: 1280, height: 800, touch: true },
 ];
 
+const PHONE_GAMEPLAY_VIEWPORTS = [
+  { name: "portrait phone", width: 390, height: 844 },
+  { name: "landscape phone", width: 844, height: 390 },
+  { name: "portrait fullscreen", width: 430, height: 932 },
+  { name: "landscape fullscreen", width: 932, height: 430 },
+  { name: "narrow portrait", width: 344, height: 882 },
+  { name: "short landscape", width: 667, height: 375 },
+];
+
+for (const viewport of PHONE_GAMEPLAY_VIEWPORTS) {
+  test(`${viewport.name} keeps HUD, arena, inventory, and controls in their regions`, { skip }, async () => {
+    const { chromium } = playwright;
+    const browser = await chromium.launch({ executablePath: CHROME });
+    try {
+      const { context, page, errors } = await openShell(browser, { ...viewport, touch: true });
+      await enterArena(page);
+      const layout = await page.evaluate(() => {
+        const box = (selector) => {
+          const rect = document.querySelector(selector)?.getBoundingClientRect();
+          return rect ? { top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left, width: rect.width, height: rect.height } : null;
+        };
+        const overlap = (a, b) => Boolean(a && b && a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top);
+        const cards = [...document.querySelectorAll(".health-rail")].map((item) => {
+          const card = item.getBoundingClientRect();
+          const label = item.querySelector("span")?.getBoundingClientRect();
+          return { card, label, contained: Boolean(label && label.left >= card.left - 1 && label.right <= card.right + 1) };
+        });
+        const visibleActions = [...document.querySelectorAll(".touch-utility button")]
+          .filter((item) => {
+            const style = getComputedStyle(item);
+            return style.display !== "none" && style.visibility !== "hidden" && item.getBoundingClientRect().height > 0;
+          });
+        const arena = box(".canvas-wrap > canvas");
+        const inventory = box(".touch-powerup-hud");
+        const controls = box(".touch-controls");
+        return {
+          portrait: document.querySelector(".app-shell")?.dataset.orientation === "portrait",
+          arena, inventory, controls,
+          system: box(".system-controls"),
+          rules: box(".difficulty-badge"),
+          cards,
+          healthCardsOverlap: overlap(box(".pilot-rail"), box(".rival-rail")),
+          inventoryInside: Boolean(inventory && inventory.left >= -1 && inventory.right <= innerWidth + 1),
+          normalActionCount: visibleActions.length,
+        };
+      });
+      assert.equal(layout.inventoryInside, true, `${viewport.name} inventory escaped horizontally`);
+      assert.equal(overlapBoxes(layout.rules, layout.system), false, `${viewport.name} score/time crossed system controls`);
+      assert.equal(layout.healthCardsOverlap, false, `${viewport.name} health cards overlapped`);
+      assert.ok(layout.cards.every((card) => card.contained), `${viewport.name} health label escaped its card`);
+      assert.equal(layout.normalActionCount, 3, `${viewport.name} normal mode must render one action set`);
+      if (layout.portrait) {
+        assert.ok(layout.arena.top >= layout.inventory.bottom - 1, `${viewport.name} arena began behind inventory`);
+        assert.ok(layout.arena.bottom <= layout.controls.top + 1, `${viewport.name} arena entered control deck`);
+        assert.ok(layout.arena.height >= (layout.controls.top - layout.inventory.bottom) * .75,
+          `${viewport.name} arena did not fill the flexible middle row`);
+      }
+      await page.evaluate(() => { document.documentElement.dataset.mirrorTouchActions = "on"; });
+      const mirroredActionCount = await page.locator(".touch-utility button").evaluateAll((items) => items.filter((item) => {
+        const style = getComputedStyle(item);
+        return style.display !== "none" && style.visibility !== "hidden" && item.getBoundingClientRect().height > 0;
+      }).length);
+      assert.equal(mirroredActionCount, 6, `${viewport.name} mirrored mode must render exactly two action sets`);
+      assert.deepEqual(errors, []);
+      await context.close();
+    } finally {
+      await browser.close();
+    }
+  });
+}
+
+function overlapBoxes(a, b) {
+  return Boolean(a && b && a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top);
+}
+
 for (const viewport of NOTICE_VIEWPORTS) {
   test(`${viewport.name} anchors the spawn notice under the PUP inventory`, { skip }, async () => {
     const { chromium } = playwright;

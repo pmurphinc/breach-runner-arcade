@@ -1956,18 +1956,26 @@ export default function WormholeGame() {
         const rect = element.getBoundingClientRect();
         return rect.height > 0 ? Math.max(0, rect.bottom - wrapRect.top) : 0;
       };
-      const hudBottom = Math.max(
+      const healthBottom = Math.max(
         bottomOf(".difficulty-badge"),
         bottomOf(".pilot-rail"),
         bottomOf(".pilot-rail small"),
         bottomOf(".rival-rail")
       );
+      // On a portrait phone the inventory and its transient notice are real
+      // header rows, not canvas overlays. Include their rendered edge so the
+      // playfield always begins below them, even when the notice wraps or the
+      // visual viewport changes while browser chrome/fullscreen is toggled.
+      const phonePortrait = layout.form === "phone" && layout.orientation === "portrait";
+      const hudBottom = phonePortrait
+        ? Math.max(healthBottom, bottomOf(".touch-powerup-hud"), bottomOf(".pup-notice-stack"))
+        : healthBottom;
       const playfieldTop = Math.ceil(hudBottom) + 2;
       const availableHeight = Math.max(1, wrapRect.height - playfieldTop);
       const canvasWidth = Math.max(1, Math.floor(Math.min(wrapRect.width, availableHeight * WORLD_WIDTH / WORLD_HEIGHT)));
       const canvasHeight = Math.max(1, Math.floor(canvasWidth * WORLD_HEIGHT / WORLD_WIDTH));
       wrap.style.setProperty("--rules-bottom", `${Math.max(0, bottomOf(".difficulty-badge"))}px`);
-      wrap.style.setProperty("--health-bottom", `${Math.max(0, hudBottom)}px`);
+      wrap.style.setProperty("--health-bottom", `${Math.max(0, healthBottom)}px`);
       wrap.style.setProperty("--arena-playfield-top", `${playfieldTop}px`);
       wrap.style.setProperty("--arena-canvas-width", `${canvasWidth}px`);
       wrap.style.setProperty("--arena-canvas-height", `${canvasHeight}px`);
@@ -1976,7 +1984,7 @@ export default function WormholeGame() {
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(wrap);
-    for (const selector of [".difficulty-badge", ".pilot-rail", ".pilot-rail small", ".rival-rail"]) {
+    for (const selector of [".difficulty-badge", ".pilot-rail", ".pilot-rail small", ".rival-rail", ".touch-powerup-hud", ".pup-notice-stack"]) {
       const element = wrap.querySelector(selector);
       if (element) observer.observe(element);
     }

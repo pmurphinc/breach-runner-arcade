@@ -20,6 +20,7 @@ const stripComments = (source) =>
 const gameCode = stripComments(game);
 const settings = await readFile(new URL('../app/view-settings.ts', import.meta.url), 'utf8');
 const css = await readFile(new URL('../app/globals.css', import.meta.url), 'utf8');
+const arenaHudCss = await readFile(new URL('../app/arena-hud.css', import.meta.url), 'utf8');
 
 test('view modes are explicit, typed, and versioned', () => {
   assert.match(settings, /type ViewMode = "touch" \| "pc" \| "hybrid"/);
@@ -121,6 +122,22 @@ test('view profile owns HUD and canvas queue behavior', () => {
   assert.match(game, /viewProfileRef\.current\.canvasQueue/);
   assert.match(game, /viewProfile\.verticalRails/);
   assert.match(game, /data-view-mode=\{viewMode\}/);
+});
+
+test('phone portrait reserves measured HUD and control rows around a flexible arena', () => {
+  assert.match(game, /phonePortrait[\s\S]*bottomOf\("\.touch-powerup-hud"\)[\s\S]*bottomOf\("\.pup-notice-stack"\)/);
+  assert.match(arenaHudCss, /--portrait-control-deck:[^;]*var\(--stick\)[^;]*var\(--touch-lift/);
+  const portraitCanvas = arenaHudCss.match(/data-orientation="portrait"\] \.canvas-wrap > canvas \{[^}]+\}/s)?.[0] ?? '';
+  assert.match(portraitCanvas, /top:\s*calc\(var\(--arena-playfield-top/);
+  assert.match(portraitCanvas, /bottom:\s*var\(--portrait-control-deck\)/);
+  assert.match(portraitCanvas, /height:\s*auto/);
+});
+
+test('phone HUD cards and inventory use constrained responsive grids', () => {
+  assert.match(arenaHudCss, /grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(arenaHudCss, /\.health-rail \{[^}]*min-width:\s*0[^}]*overflow:\s*hidden/s);
+  assert.match(arenaHudCss, /grid-template-columns:\s*repeat\(9, minmax\(0, 1fr\)\)/);
+  assert.match(arenaHudCss, /grid-template-columns:\s*minmax\(0, 1fr\) clamp\(104px, 29vw, 126px\)/);
 });
 
 
