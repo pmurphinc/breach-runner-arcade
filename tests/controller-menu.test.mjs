@@ -17,8 +17,10 @@ test("one controller surface query covers complete interactive dialogs", () => {
 });
 
 test("multiplayer controls and controller select changes are reachable", () => {
-  for (const label of ["QUICK MATCH", "CREATE PRIVATE MATCH", "JOIN WITH CODE", "READY", "CANCEL READY", "LEAVE MATCH", "BACK"]) assert.match(game, new RegExp(label));
+  for (const label of ["QUICK MATCH", "CREATE PRIVATE MATCH", "JOIN WITH CODE", "READY UP", "READY ✓", "LEAVE MATCH", "BACK"]) assert.match(game, new RegExp(label));
   assert.match(game, /<select[\s\S]*onChange=\{\(event\) => onShip\(event\.target\.value\)\}/);
+  assert.match(game, /aria-label="Previous ship"/);
+  assert.match(game, /aria-label="Next ship"/);
   assert.match(navigation, /active\.dispatchEvent\(new Event\("change", \{ bubbles: true \}\)\)/);
 });
 

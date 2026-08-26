@@ -54,6 +54,12 @@ export type NetworkMode = "pvp" | "coop";
 export type TeammatePosition = { id: string; name: string; ship: string; seq: number; sentAt: number; x: number; y: number; angle: number };
 export const POSITION_SEND_INTERVAL_MS = 33;
 export type CoopRival = { hull: number; maxHull: number; score: number };
+export type RoundResult = {
+  outcome: "victory" | "defeat"; reason: string; opponent: string;
+  eliminatedId: string | null; eliminatedName: string | null; youEliminated: boolean;
+  cause: string; finalDamage: number; finisherId: string | null; finisherName: string | null;
+  teamScore: number; durationSeconds: number;
+};
 export type CoopWorld = {
   seq: number;
   portalX: number;
@@ -85,16 +91,7 @@ export type PvpSnapshot = {
   world: CoopWorld | null;
   /** Milliseconds until the match goes live, during a countdown. */
   countdownMs: number;
-  result: {
-    outcome: "victory" | "defeat";
-    reason: string;
-    opponent: string;
-    eliminatedId: string | null;
-    eliminatedName: string | null;
-    youEliminated: boolean;
-    cause: string;
-    finalDamage: number;
-  } | null;
+  result: RoundResult | null;
   rematch: { you: boolean; opponent: boolean; status: "waiting" | "starting"; expiresAt: number } | null;
   /** Last inbound attack, for the warning banner. */
   incoming: { weapon: string; from: string; at: number } | null;
@@ -304,7 +301,7 @@ export class PvpClient {
           you: { id: you?.id ?? "", ship: you?.ship ?? "wing", ready: Boolean(you?.ready) },
           hostId: typeof message.hostId === "string" ? message.hostId : null,
           opponent: (message.opponent as PvpOpponent | null) ?? null,
-          result: null,
+          result: message.lastResult ? this.parseResult(message.lastResult as Record<string, unknown>) : null,
           rematch: this.snapshot.rematch,
           error: null,
         });
@@ -398,18 +395,7 @@ export class PvpClient {
       case "result": {
         this.update({
           phase: "finished",
-          result: {
-            outcome: message.outcome === "victory" ? "victory" : "defeat",
-            reason: String(message.reason ?? ""),
-            opponent: String(message.opponent ?? "OPPONENT"),
-            eliminatedId: typeof message.eliminatedId === "string" ? message.eliminatedId : null,
-            eliminatedName: typeof message.eliminatedName === "string" ? message.eliminatedName : null,
-            youEliminated: Boolean(message.youEliminated),
-            cause: String(message.cause ?? "unknown"),
-            finalDamage: typeof message.finalDamage === "number" && Number.isFinite(message.finalDamage)
-              ? Math.max(0, Math.round(message.finalDamage))
-              : 0,
-          },
+          result: this.parseResult(message),
         });
         return;
       }
@@ -420,6 +406,21 @@ export class PvpClient {
       default:
         return;
     }
+  }
+
+  private parseResult(message: Record<string, unknown>): RoundResult {
+    const number = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+    return {
+      outcome: message.outcome === "victory" ? "victory" : "defeat",
+      reason: String(message.reason ?? ""), opponent: String(message.opponent ?? "OPPONENT"),
+      eliminatedId: typeof message.eliminatedId === "string" ? message.eliminatedId : null,
+      eliminatedName: typeof message.eliminatedName === "string" ? message.eliminatedName : null,
+      youEliminated: Boolean(message.youEliminated), cause: String(message.cause ?? "unknown"),
+      finalDamage: number(message.finalDamage),
+      finisherId: typeof message.finisherId === "string" ? message.finisherId : null,
+      finisherName: typeof message.finisherName === "string" ? message.finisherName : null,
+      teamScore: number(message.teamScore), durationSeconds: number(message.durationSeconds),
+    };
   }
 
   private send(payload: Record<string, unknown>) {
