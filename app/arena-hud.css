@@ -240,4 +240,13 @@
    has no box; when enabled, each copy remains in its own stick's orbit. */
 .touch-capable[data-immersive="true"][data-form="phone"] .touch-utility-mirrored { visibility: hidden; }
 html[data-mirror-touch-actions="on"] .touch-capable[data-immersive="true"][data-form="phone"] .touch-utility-mirrored { visibility: visible; }
+
+/* Wide-screen radial offsets converge at the centre on portrait phones.
+   Stack each cluster above its own stick and preserve a clear centre lane. */
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"][data-touch-controls="on"] :is(.touch-flight, .touch-action) .touch-utility { inset: 0; }
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"][data-touch-controls="on"] .touch-flight .touch-utility button { left: 22%; }
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"][data-touch-controls="on"] .touch-action .touch-utility button { left: 78%; }
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"][data-touch-controls="on"] :is(.touch-flight, .touch-action) .touch-pause { top: -72%; transform: translate(-50%, -50%); }
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"][data-touch-controls="on"] :is(.touch-flight, .touch-action) .touch-special { top: -25%; transform: translate(-50%, -50%); }
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"][data-touch-controls="on"] :is(.touch-flight, .touch-action) .touch-pup { top: 22%; right: auto; transform: translate(-50%, -50%); }
 .run-summary-layer { z-index: var(--z-dialog); }

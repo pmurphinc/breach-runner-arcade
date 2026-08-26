@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from "react";
+import { canvasBackingSize } from "./canvas-sizing";
 import {
   CATEGORY_LABELS,
   CODEX_PICKUPS,
@@ -1989,7 +1990,7 @@ export default function WormholeGame() {
       if (element) observer.observe(element);
     }
     return () => observer.disconnect();
-  }, [immersive, layout.arena, layout.preset, layout.sticks, mode, net?.phase, viewProfile.verticalRails]);
+  }, [immersive, layout.arena, layout.form, layout.orientation, layout.preset, layout.sticks, mode, net?.phase, viewProfile.verticalRails]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -2749,13 +2750,16 @@ export default function WormholeGame() {
     // active camera transform. This keeps mouse aim exact in both ship-lock and
     // full-arena camera modes.
     const screenX = ((event.clientX - rect.left) / rect.width) * VIEW_WIDTH;
-    const screenY = ((event.clientY - rect.top) / rect.height) * VIEW_HEIGHT;
+    // Portrait uses a taller presentation viewport than the fixed simulation
+    // viewport. Pointer coordinates must follow that same visible viewport.
+    const viewHeight = VIEW_WIDTH * rect.height / Math.max(1, rect.width);
+    const screenY = ((event.clientY - rect.top) / rect.height) * viewHeight;
     const game = gameRef.current;
     const player = game.player;
     const locked = cameraRef.current;
-    const camScale = locked ? ZOOM_SCALE[zoomRef.current] : Math.min(VIEW_WIDTH / game.worldWidth, VIEW_HEIGHT / game.worldHeight);
+    const camScale = locked ? ZOOM_SCALE[zoomRef.current] : Math.min(VIEW_WIDTH / game.worldWidth, viewHeight / game.worldHeight);
     const camX = locked ? cap(VIEW_WIDTH / 2 - player.x * camScale, VIEW_WIDTH - game.worldWidth * camScale, 0) : (VIEW_WIDTH - game.worldWidth * camScale) / 2;
-    const camY = locked ? cap(VIEW_HEIGHT / 2 - player.y * camScale, VIEW_HEIGHT - game.worldHeight * camScale, 0) : (VIEW_HEIGHT - game.worldHeight * camScale) / 2;
+    const camY = locked ? cap(viewHeight / 2 - player.y * camScale, viewHeight - game.worldHeight * camScale, 0) : (viewHeight - game.worldHeight * camScale) / 2;
     const worldX = (screenX - camX) / camScale;
     const worldY = (screenY - camY) / camScale;
     aimHeading.current = (Math.atan2(worldY - player.y, worldX - player.x) * 180) / Math.PI;
@@ -2915,6 +2919,7 @@ export default function WormholeGame() {
     let cssWidth = Math.max(1, initialRect.width || VIEW_WIDTH);
     let cssHeight = Math.max(1, initialRect.height || VIEW_HEIGHT);
     let worldScale = 1;
+    let renderViewHeight = VIEW_HEIGHT;
     let cssScale = 1;
     let needsResize = true;
 
@@ -2938,14 +2943,19 @@ export default function WormholeGame() {
 
     const applyResize = () => {
       needsResize = false;
-      const dpr = Math.min(2, window.devicePixelRatio || 1);
-      const targetWidth = Math.max(420, Math.min(profile.maxBackingPx, Math.round(cssWidth * dpr)));
-      const targetHeight = Math.max(263, Math.round(targetWidth * VIEW_HEIGHT / VIEW_WIDTH));
+      const backing = canvasBackingSize(cssWidth, cssHeight, window.devicePixelRatio || 1, profile.maxBackingPx);
+      // The old path always derived height from the 1.6:1 simulation aspect.
+      // In portrait CSS made the canvas tall, but its backing store and camera
+      // remained 1.6:1. Keep the fixed world width while extending the logical
+      // presentation viewport to exactly match the measured canvas rectangle.
+      const targetWidth = backing.width;
+      const targetHeight = backing.height;
       if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
         canvas.width = targetWidth;
         canvas.height = targetHeight;
       }
       worldScale = targetWidth / VIEW_WIDTH;
+      renderViewHeight = backing.logicalHeight;
       cssScale = targetWidth / cssWidth;
     };
 
@@ -4562,12 +4572,12 @@ export default function WormholeGame() {
       const palette = game.survival
         ? SURVIVAL_PALETTES[game.survival.escalation.stage.id]
         : ARENA_PALETTES[game.rules.id];
-      const gradient = ctx.createRadialGradient(VIEW_WIDTH / 2, VIEW_HEIGHT / 2, 10, VIEW_WIDTH / 2, VIEW_HEIGHT / 2, VIEW_WIDTH * .58);
+      const gradient = ctx.createRadialGradient(VIEW_WIDTH / 2, renderViewHeight / 2, 10, VIEW_WIDTH / 2, renderViewHeight / 2, Math.max(VIEW_WIDTH, renderViewHeight) * .58);
       gradient.addColorStop(0, palette[0]);
       gradient.addColorStop(.58, palette[1]);
       gradient.addColorStop(1, palette[2]);
       ctx.fillStyle = gradient;
-      ctx.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
+      ctx.fillRect(0, 0, VIEW_WIDTH, renderViewHeight);
 
       for (const star of stars) {
         const environmentTime = game.cycles * TICK_MS;
@@ -4582,22 +4592,29 @@ export default function WormholeGame() {
       ctx.beginPath();
       for (let x = 30; x < VIEW_WIDTH; x += 30) {
         ctx.moveTo(x, 0);
-        ctx.lineTo(x, VIEW_HEIGHT);
+        ctx.lineTo(x, renderViewHeight);
       }
-      for (let y = 30; y < VIEW_HEIGHT; y += 30) {
+      for (let y = 30; y < renderViewHeight; y += 30) {
         ctx.moveTo(0, y);
         ctx.lineTo(VIEW_WIDTH, y);
       }
       ctx.stroke();
 
       const locked = cameraRef.current;
-      const camScale = locked ? ZOOM_SCALE[zoomRef.current] : Math.min(VIEW_WIDTH / game.worldWidth, VIEW_HEIGHT / game.worldHeight);
+      const camScale = locked ? ZOOM_SCALE[zoomRef.current] : Math.min(VIEW_WIDTH / game.worldWidth, renderViewHeight / game.worldHeight);
       const camX = locked ? cap(VIEW_WIDTH / 2 - player.x * camScale, VIEW_WIDTH - game.worldWidth * camScale, 0) : (VIEW_WIDTH - game.worldWidth * camScale) / 2;
-      const camY = locked ? cap(VIEW_HEIGHT / 2 - player.y * camScale, VIEW_HEIGHT - game.worldHeight * camScale, 0) : (VIEW_HEIGHT - game.worldHeight * camScale) / 2;
+      // On short landscape phones, bias critical focal objects below the DOM
+      // HUD. This changes framing only; simulation bounds remain untouched.
+      const landscapeHudInset = cssWidth > cssHeight && cssHeight < 600 ? Math.min(150, 92 / cssScale) : 0;
+      const focalTop = landscapeHudInset;
+      const focalHeight = Math.max(1, renderViewHeight - focalTop);
+      const camY = locked
+        ? cap(focalTop + focalHeight / 2 - player.y * camScale, renderViewHeight - game.worldHeight * camScale, 0)
+        : (renderViewHeight - game.worldHeight * camScale) / 2;
       const viewLeft = -camX / camScale;
       const viewTop = -camY / camScale;
       const viewRight = (VIEW_WIDTH - camX) / camScale;
-      const viewBottom = (VIEW_HEIGHT - camY) / camScale;
+      const viewBottom = (renderViewHeight - camY) / camScale;
       const visible = (x: number, y: number, r: number) =>
         x + r > viewLeft && x - r < viewRight && y + r > viewTop && y - r < viewBottom;
 
