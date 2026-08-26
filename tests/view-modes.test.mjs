@@ -125,12 +125,32 @@ test('view profile owns HUD and canvas queue behavior', () => {
 });
 
 test('phone portrait reserves measured HUD and control rows around a flexible arena', () => {
-  assert.match(game, /phonePortrait[\s\S]*bottomOf\("\.touch-powerup-hud"\)[\s\S]*bottomOf\("\.pup-notice-stack"\)/);
+  assert.match(game, /phonePortrait[\s\S]*bottomOf\("\.touch-powerup-hud"\)/);
+  const geometryObserver = game.slice(game.indexOf('const observer = new ResizeObserver(measure)'), game.indexOf('return () => observer.disconnect()', game.indexOf('const observer = new ResizeObserver(measure)')));
+  assert.doesNotMatch(geometryObserver, /pup-notice-stack/,
+    'temporary notices must not participate in HUD measurement or renderer resize');
   assert.match(arenaHudCss, /--portrait-control-deck:[^;]*var\(--stick\)[^;]*var\(--touch-lift/);
   const portraitCanvas = arenaHudCss.match(/data-orientation="portrait"\] \.canvas-wrap > canvas \{[^}]+\}/s)?.[0] ?? '';
   assert.match(portraitCanvas, /top:\s*calc\(var\(--arena-playfield-top/);
   assert.match(portraitCanvas, /bottom:\s*var\(--portrait-control-deck\)/);
   assert.match(portraitCanvas, /height:\s*auto/);
+});
+
+test('phone controls use one bounded proportional scale without changing their orbit', () => {
+  const portrait = arenaHudCss.slice(arenaHudCss.indexOf('One proportional scale controls'));
+  assert.match(game, /"--touch-control-scale": layout\.form === "phone"[\s\S]*Math\.max\(\.72,[\s\S]*layout\.usableWidth/);
+  assert.match(portrait, /--stick:\s*calc\(var\(--touch-base-stick\) \* var\(--touch-control-scale\)\)/);
+  assert.match(portrait, /--satellite:\s*calc\(52px \* var\(--touch-control-scale\)\)/);
+  assert.match(portrait, /--control-space:\s*calc\(8px \* var\(--touch-control-scale\)\)/);
+  assert.match(portrait, /button::before[\s\S]*44px/,
+    'shrunk graphics retain an invisible 44px hit surface');
+});
+
+test('landscape camera safe inset comes only from permanent HUD geometry', () => {
+  assert.match(game, /--camera-safe-top[\s\S]*healthBottom[\s\S]*bottomOf\("\.touch-powerup-hud"\)/);
+  assert.match(game, /cameraSafeTop = safeTopCss \* VIEW_WIDTH \/ cssWidth/);
+  assert.match(game, /const focalTop = cssWidth > cssHeight \? Math\.min\(renderViewHeight \* \.42, cameraSafeTop\) : 0/);
+  assert.doesNotMatch(game.match(/--camera-safe-top[^\n]+/)?.[0] ?? '', /pup-notice/);
 });
 
 test('phone HUD cards and inventory use constrained responsive grids', () => {

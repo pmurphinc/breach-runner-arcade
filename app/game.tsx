@@ -1963,13 +1963,12 @@ export default function WormholeGame() {
         bottomOf(".pilot-rail small"),
         bottomOf(".rival-rail")
       );
-      // On a portrait phone the inventory and its transient notice are real
-      // header rows, not canvas overlays. Include their rendered edge so the
-      // playfield always begins below them, even when the notice wraps or the
-      // visual viewport changes while browser chrome/fullscreen is toggled.
+      // Only permanent HUD participates in playfield geometry. Spawn notices
+      // are absolutely positioned overlays and must never move or resize the
+      // arena when their contents change.
       const phonePortrait = layout.form === "phone" && layout.orientation === "portrait";
       const hudBottom = phonePortrait
-        ? Math.max(healthBottom, bottomOf(".touch-powerup-hud"), bottomOf(".pup-notice-stack"))
+        ? Math.max(healthBottom, bottomOf(".touch-powerup-hud"))
         : healthBottom;
       const playfieldTop = Math.ceil(hudBottom) + 2;
       const availableHeight = Math.max(1, wrapRect.height - playfieldTop);
@@ -1978,6 +1977,7 @@ export default function WormholeGame() {
       wrap.style.setProperty("--rules-bottom", `${Math.max(0, bottomOf(".difficulty-badge"))}px`);
       wrap.style.setProperty("--health-bottom", `${Math.max(0, healthBottom)}px`);
       wrap.style.setProperty("--arena-playfield-top", `${playfieldTop}px`);
+      wrap.style.setProperty("--camera-safe-top", `${layout.form === "phone" && layout.orientation === "landscape" ? Math.ceil(Math.max(healthBottom, bottomOf(".touch-powerup-hud"))) + 2 : 0}px`);
       wrap.style.setProperty("--arena-canvas-width", `${canvasWidth}px`);
       wrap.style.setProperty("--arena-canvas-height", `${canvasHeight}px`);
     };
@@ -1985,7 +1985,7 @@ export default function WormholeGame() {
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(wrap);
-    for (const selector of [".difficulty-badge", ".pilot-rail", ".pilot-rail small", ".rival-rail", ".touch-powerup-hud", ".pup-notice-stack"]) {
+    for (const selector of [".difficulty-badge", ".pilot-rail", ".pilot-rail small", ".rival-rail", ".touch-powerup-hud"]) {
       const element = wrap.querySelector(selector);
       if (element) observer.observe(element);
     }
@@ -2891,6 +2891,8 @@ export default function WormholeGame() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    const canvasWrap = canvasWrapRef.current;
+    if (!canvasWrap) return;
     const ctx = canvas.getContext("2d", { alpha: false });
     if (!ctx) return;
 
@@ -2930,6 +2932,7 @@ export default function WormholeGame() {
     let profile = profileFor(autoQ);
     let frameAverage = 16.7;
     let samples = 0;
+    let cameraSafeTop = 0;
 
     const applyProfile = () => {
       const mode = qualityRef.current;
@@ -2957,6 +2960,8 @@ export default function WormholeGame() {
       worldScale = targetWidth / VIEW_WIDTH;
       renderViewHeight = backing.logicalHeight;
       cssScale = targetWidth / cssWidth;
+      const safeTopCss = Number.parseFloat(getComputedStyle(canvasWrap).getPropertyValue("--camera-safe-top")) || 0;
+      cameraSafeTop = safeTopCss * VIEW_WIDTH / cssWidth;
     };
 
     const observer = new ResizeObserver((entries) => {
@@ -4605,8 +4610,7 @@ export default function WormholeGame() {
       const camX = locked ? cap(VIEW_WIDTH / 2 - player.x * camScale, VIEW_WIDTH - game.worldWidth * camScale, 0) : (VIEW_WIDTH - game.worldWidth * camScale) / 2;
       // On short landscape phones, bias critical focal objects below the DOM
       // HUD. This changes framing only; simulation bounds remain untouched.
-      const landscapeHudInset = cssWidth > cssHeight && cssHeight < 600 ? Math.min(150, 92 / cssScale) : 0;
-      const focalTop = landscapeHudInset;
+      const focalTop = cssWidth > cssHeight ? Math.min(renderViewHeight * .42, cameraSafeTop) : 0;
       const focalHeight = Math.max(1, renderViewHeight - focalTop);
       const camY = locked
         ? cap(focalTop + focalHeight / 2 - player.y * camScale, renderViewHeight - game.worldHeight * camScale, 0)
@@ -5296,6 +5300,10 @@ export default function WormholeGame() {
         // CSS never has to guess and cannot disagree with the shell.
         "--arena-size": `${layout.arena}px`,
         "--stick": `${layout.stick}px`,
+        "--touch-base-stick": `${layout.stick}px`,
+        "--touch-control-scale": layout.form === "phone"
+          ? Math.max(.72, Math.min(layout.orientation === "portrait" ? 1 : .9, layout.usableWidth / (layout.orientation === "portrait" ? 390 : 844)))
+          : 1,
         "--usable-h": `${layout.usableHeight}px`,
       } as React.CSSProperties}
     >
