@@ -29,7 +29,12 @@ Phase 1 changes the player-facing fleet and weapon identity while retaining exis
 
 | Path | Status | Provenance / restriction |
 | --- | --- | --- |
-| `public/favicon.svg` | Cleared for current project use | Original geometric rift mark created specifically for Breach Runner during Phase 1 using SVG primitives only. |
+| `public/branding/breach_runner_logo.png` | Cleared for current project use | AI-generated original Breach Runner wordmark created specifically for this project at the owner's direction on 2026-08-25. No source image or existing franchise reference was used. |
+| `public/branding/breach_runner_logo.webp` | Cleared for current project use | Web-optimized derivative of the cleared Breach Runner wordmark above. |
+| `public/branding/breach_runner_favicon.png` | Cleared for current project use | AI-generated original rift-and-spacecraft brand mark created specifically for this project at the owner's direction on 2026-08-25. No source image or existing franchise reference was used. |
+| `public/favicon.ico` | Cleared for current project use | Multi-size browser-icon derivative of the cleared favicon master above. |
+| `public/favicon.png` | Cleared for current project use | 64px browser-icon derivative of the cleared favicon master above. |
+| `public/apple-touch-icon.png` | Cleared for current project use | 180px touch-icon derivative of the cleared favicon master above. |
 | `public/og.png` | Dormant / not cleared | Predates the commercial cleanup. Phase 1 removes it from active Open Graph and Twitter metadata. Do not reuse it for stores, trailers, advertisements, or other commercial launch material. |
 
 New commercial key art, store icons, screenshots, capsule art, and trailer assets should be created from cleared material before store submission.

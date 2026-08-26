@@ -129,11 +129,9 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 
 /* ---------------------------------------------------------------- topbar -- */
 .topbar { min-height: 66px; padding: max(6px, env(safe-area-inset-top)) max(clamp(12px, 2vw, 32px), env(safe-area-inset-right)) 6px max(clamp(12px, 2vw, 32px), env(safe-area-inset-left)); display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; border-bottom: 1px solid var(--line); background: rgba(2, 7, 12, .9); }
-.brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.brand-mark { flex: 0 0 auto; width: 42px; height: 42px; display: grid; place-items: center; color: var(--cyan); border: 1px solid rgba(100, 234, 255, .55); background: linear-gradient(135deg, rgba(100, 234, 255, .13), rgba(255, 89, 199, .08)); box-shadow: 0 0 22px rgba(100, 234, 255, .08), inset 0 0 16px rgba(100, 234, 255, .05); clip-path: polygon(12% 0, 100% 0, 100% 88%, 88% 100%, 0 100%, 0 12%); font: 900 var(--fs-micro)/1 var(--mono); }
-.brand h1 { margin: 0; font-size: var(--fs-lg); letter-spacing: .07em; white-space: nowrap; }
-.brand h1 em { color: var(--cyan); font-style: normal; font-weight: 400; }
-.brand p { margin: 4px 0 0; color: var(--muted); font: 600 var(--fs-nano)/1 var(--mono); letter-spacing: .15em; }
+.brand { display: flex; align-items: center; min-width: 0; }
+.brand > div { min-width: 0; }
+.brand-logo { display: block; width: clamp(92px, 7vw, 112px); height: auto; object-fit: contain; }
 /* Replaces the old tagline: same size and position, but it goes somewhere. */
 .brand-home { display: inline-block; margin: 4px 0 0; color: var(--muted); text-decoration: none; font: 600 var(--fs-nano)/1 var(--mono); letter-spacing: .15em; }
 .brand-home:hover, .brand-home:focus-visible { color: var(--cyan); text-decoration: underline; }
@@ -909,7 +907,8 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 }
 
 @media (max-width: 620px) {
-  .brand p, .brand-home { display: none; }
+  .brand-home { display: none; }
+  .brand-logo { width: 100px; }
   .link-status { display: none; }
   .topbar { min-height: 58px; gap: 8px; }
   .top-actions { gap: 5px; }
@@ -937,7 +936,7 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 
 /* Foldable cover displays and other very narrow screens. */
 @media (max-width: 400px) {
-  .brand h1 { font-size: var(--fs-md); }
+  .brand-logo { width: 96px; }
   .fullscreen-trigger { display: none; }
   .slot.empty, .slot > button { min-height: 52px; }
   .slot .slot-cat { display: none; }
@@ -962,8 +961,8 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 
 [data-immersive="true"] { position: fixed; inset: 0; overflow: hidden; overscroll-behavior: none; }
 [data-immersive="true"] .topbar { height: 48px; min-height: 0; flex-wrap: nowrap; gap: 8px; padding: 0 max(8px, env(safe-area-inset-right)) 0 max(8px, env(safe-area-inset-left)); }
-[data-immersive="true"] .brand p, [data-immersive="true"] .brand-home, [data-immersive="true"] .link-status { display: none; }
-[data-immersive="true"] .brand h1 { font-size: var(--fs-sm); }
+[data-immersive="true"] .brand-home, [data-immersive="true"] .link-status { display: none; }
+[data-immersive="true"] .brand-logo { width: 96px; }
 [data-immersive="true"] .cockpit { width: 100%; height: calc(100dvh - 48px); display: block; padding: 0; overflow: hidden; }
 [data-immersive="true"] .ship-panel,
 [data-immersive="true"] .intel-panel,
@@ -1040,7 +1039,7 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 .compact-menu .q-detail { display: inline; }
 
 @media (max-width: 520px) {
-  [data-immersive="true"] .brand h1 { display: none; }
+  [data-immersive="true"] .brand-logo { width: 88px; }
 }
 
 /* ------------------------------------------------------------ a11y modes -- */
@@ -1899,6 +1898,12 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
 }
 
 .menu-heading { min-width: 0; }
+.launch-brand-logo {
+  display: block;
+  width: clamp(230px, 48cqw, 480px);
+  max-width: 100%;
+  height: auto;
+}
 .menu-eyebrow {
   margin: 0 0 2px;
   color: var(--cyan);
@@ -2389,6 +2394,7 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
   .menu-content { padding: var(--space-2) var(--space-3); gap: var(--space-2); }
   .menu-header { padding: var(--space-2) var(--space-3); }
   .menu-header h2 { font-size: var(--fs-lg); }
+  .launch-brand-logo { width: min(280px, 100%); }
   .menu-eyebrow { display: none; }
   .home-layout, .ships-layout { gap: var(--space-2); }
   .ship-detail-art { display: none; }

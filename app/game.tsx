@@ -5125,9 +5125,14 @@ export default function WormholeGame() {
 
       <header className="topbar">
         <div className="brand">
-          <span className="brand-mark" aria-hidden="true">BR/01</span>
           <div>
-            <h1>BREACH <em>RUNNER</em></h1>
+            <img
+              className="brand-logo"
+              src="/branding/breach_runner_logo.webp"
+              alt="Breach Runner"
+              width={800}
+              height={320}
+            />
             <a className="brand-home" href={MURPH_SITE_URL} target="_blank" rel="noopener noreferrer">
               ← MURPH TOURNAMENTS
             </a>

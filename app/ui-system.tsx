@@ -75,8 +75,8 @@ export function useScreenKeys(
 }
 
 export type MenuScreenProps = {
-  /** Shown in the screen header. */
-  title: string;
+  /** Shown in the screen header. Text on normal screens; branded artwork on Home. */
+  title: ReactNode;
   /** Small line above the title. Optional; most screens do not need one. */
   eyebrow?: string;
   onBack: () => void;
