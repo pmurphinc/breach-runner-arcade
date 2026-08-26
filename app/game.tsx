@@ -3,6 +3,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from "react";
 import {
   CATEGORY_LABELS,
+  CODEX_PICKUPS,
   ENEMY_COUNTS,
   ENEMY_STATS,
   FORM_SHIFT_PROFILES,
@@ -59,6 +60,7 @@ import {
   type ZoomLevel,
 } from "./view-settings";
 import GlobalSystemControls, { useFullscreen } from "./system-controls";
+import { MenuScreen } from "./ui-system";
 import {
   activeRoute,
   isOpen as menuIsOpen,
@@ -92,6 +94,8 @@ import {
 import { cannonPlaybackRate, hapticsAllow } from "./combat-feedback";
 import { pupInventoryLayout } from "./pup-inventory";
 import { RICOCHET_BOUNCES, RICOCHET_DURATION_SECONDS, reflectRicochet } from "./ricochet";
+import { controllerStateForPads, EMPTY_GAMEPAD, headingDegrees, pressedOnce, type GamepadActions } from "./gamepad";
+import { controllerCancelTarget, moveControllerFocus, visibleControllerControls } from "./controller-navigation";
 import {
   MOVEMENT_CODES,
   applyIntent,
@@ -897,7 +901,7 @@ function WeaponCard({
   );
 }
 
-const CODEX_ORDER: PickupId[] = [...SENDABLE_POWERUPS, "gun", "thrust", "retros", "shield", "clear", "health"];
+const CODEX_ORDER: readonly PickupId[] = CODEX_PICKUPS;
 
 function WeaponCodex({ onClose, reducedMotion }: { onClose: () => void; reducedMotion: boolean }) {
   const [focused, setFocused] = useState<PickupId>(CODEX_ORDER[0]);
@@ -909,19 +913,10 @@ function WeaponCodex({ onClose, reducedMotion }: { onClose: () => void; reducedM
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
   return (
-    <div className="codex-backdrop" role="presentation" onClick={onClose}>
-      <div
-        className="codex"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="codex-heading"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="codex-head">
-          <h2 id="codex-heading">WEAPON CODEX</h2>
-          <p>Every power-up the rift can produce. Select one to read what it does.</p>
-          <button ref={closeRef} type="button" className="codex-close" onClick={onClose} aria-label="Close weapon codex">✕</button>
-        </div>
+    <MenuScreen route="codex" title="Weapon Codex" onBack={onClose} wide>
+      <div className="codex">
+        <p className="codex-intro">Every power-up the rift can produce. Select one to read what it does.</p>
+        <button ref={closeRef} type="button" className="sr-only" onClick={onClose}>Close weapon codex</button>
         <div className="codex-body">
           <ul className="codex-list" aria-label="Weapon list">
             {CODEX_ORDER.map((id) => {
@@ -948,7 +943,7 @@ function WeaponCodex({ onClose, reducedMotion }: { onClose: () => void; reducedM
           <WeaponCard id={focused} variant="inline" reducedMotion={reducedMotion} />
         </div>
       </div>
-    </div>
+    </MenuScreen>
   );
 }
 
@@ -1217,6 +1212,7 @@ function Leaderboard({ onClose, initialBoard = "arcade" }: { onClose: () => void
     <div className="codex-backdrop" role="presentation" onClick={onClose}>
       <div
         className="codex board"
+        data-controller-surface
         role="dialog"
         aria-modal="true"
         aria-labelledby="board-heading"
@@ -1451,6 +1447,7 @@ function MultiplayerLobby({
     <div className="codex-backdrop" role="presentation" onClick={onClose}>
       <div
         className="codex lobby"
+        data-controller-surface
         role="dialog"
         aria-modal="true"
         aria-labelledby="lobby-heading"
@@ -1697,6 +1694,8 @@ export default function WormholeGame() {
   const aimStickPointer = useRef<number | null>(null);
   const moveHeading = useRef<number | null>(null);
   const aimHeading = useRef<number | null>(null);
+  /** Isolated from keyboard, mouse and touch; disconnect clears only this ref. */
+  const controllerInput = useRef<GamepadActions>(EMPTY_GAMEPAD);
   const shipId = useSyncExternalStore(
     shipPreference.subscribe,
     shipPreference.get,
@@ -1779,6 +1778,8 @@ export default function WormholeGame() {
   const menuRef = useRef<MenuStack>(INITIAL_STACK);
   const menuOpenRef = useRef(false);
   const codexOpenRef = useRef(false);
+  /** Route-aware Cancel target, kept stable across controller button holds. */
+  const controllerCancelRef = useRef<() => void>(() => {});
   const soundRef = useRef(true);
   const soundLevelRef = useRef<SoundLevel>("medium");
   const combatHapticsRef = useRef<CombatHaptics>("both");
@@ -2534,6 +2535,33 @@ export default function WormholeGame() {
     setMenu(resetRoute("home"));
   }, [closeMenu, setPaused]);
 
+  const openSettings = useCallback(() => {
+    setCodexOpen(false);
+    if (activeRoute(menuRef.current) === "settings") return;
+    const game = gameRef.current;
+    if (game.running && !game.result && !menuIsOpen(menuRef.current)) {
+      // setPaused freezes solo only; network matches keep their established
+      // live behavior while sharing the same Pause → Settings return path.
+      setPaused(true);
+      setMenu(["pause", "settings"]);
+      return;
+    }
+    setMenu((stack) => pushRoute(stack, "settings"));
+  }, [setPaused]);
+
+  const controllerCancel = useCallback(() => controllerCancelRef.current(), []);
+  useEffect(() => {
+    controllerCancelRef.current = () => {
+      const target = controllerCancelTarget({ codex: codexOpen, summary: Boolean(summary), route });
+      if (target === "close-codex") { setCodexOpen(false); return; }
+      // A result has no inert cockpit behind it. Cancel leaves its valid action
+      // surface in place instead of dismissing or navigating underneath it.
+      if (target === "hold-summary" || target === "none") return;
+      if (target === "resume") { resumeOrClose(); return; }
+      back();
+    };
+  }, [back, codexOpen, resumeOrClose, route, summary]);
+
   /**
    * End the current run, then go somewhere.
    *
@@ -2736,6 +2764,45 @@ export default function WormholeGame() {
       window.removeEventListener("blur", blur);
     };
   }, [start, toggleMenu]);
+
+  // Controllers are optional and hot-pluggable. Gameplay consumes actions,
+  // never vendor button labels; standard Xbox and PlayStation pads therefore
+  // share the same map without changing the saved view/input preference.
+  useEffect(() => {
+    let frame = 0;
+    let previous = EMPTY_GAMEPAD;
+    let lastMenuMove = 0;
+    const poll = (now: number) => {
+      const action = controllerStateForPads(Array.from(navigator.getGamepads?.() ?? []));
+      controllerInput.current = action;
+      const controls = visibleControllerControls();
+      if (controls.length > 0) {
+        const direction = action.menuY || action.menuX;
+        if (direction && (!previous.menuX && !previous.menuY || now - lastMenuMove > 220)) {
+          lastMenuMove = now;
+          moveControllerFocus(controls, action.menuX, action.menuY);
+        }
+        if (pressedOnce(action.confirm, previous.confirm)) (document.activeElement as HTMLElement)?.click?.();
+        if (pressedOnce(action.cancel, previous.cancel)) controllerCancel();
+      } else {
+        const pupStep = pressedOnce(action.nextPup, previous.nextPup) ? 1 : pressedOnce(action.previousPup, previous.previousPup) ? -1 : 0;
+        if (pupStep) {
+          const stock = gameRef.current.stock;
+          if (stock.length) {
+            setInspect((currentInspect) => {
+              const current = currentInspect ? stock.lastIndexOf(currentInspect.id as PowerId) : stock.length - 1;
+              return { id: stock[(Math.max(0, current) + pupStep + stock.length) % stock.length], pinned: true };
+            });
+          }
+        }
+      }
+      if (pressedOnce(action.pause, previous.pause)) toggleMenu();
+      previous = action;
+      frame = requestAnimationFrame(poll);
+    };
+    frame = requestAnimationFrame(poll);
+    return () => { cancelAnimationFrame(frame); controllerInput.current = EMPTY_GAMEPAD; };
+  }, [controllerCancel, toggleMenu]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -3204,9 +3271,9 @@ export default function WormholeGame() {
       playCue(`overcharge:${spec.id}`, 0.3);
     };
 
-    const activateSpecial = (game: Game) => {
+    const activateSpecial = (game: Game, controllerPressed = false) => {
       const player = game.player;
-      const pressed = Boolean(keys.current.KeyQ);
+      const pressed = Boolean(keys.current.KeyQ) || controllerPressed;
       if (!pressed) {
         keys.current.__specialLatch = false;
         return;
@@ -3652,15 +3719,19 @@ export default function WormholeGame() {
       }
       if (contact.damage > 0) damageContact(game, contact.damage);
 
-      const firingHeading = aimHeading.current;
-      let fire = keys.current.Space || keys.current.MousePrimary;
-      const launch = keys.current.KeyE || keys.current.MouseSecondary;
+      const controller = controllerInput.current;
+      const controllerAimHeading = headingDegrees(controller.aimX, controller.aimY);
+      const controllerMoveHeading = headingDegrees(controller.moveX, controller.moveY);
+      const firingHeading = controllerAimHeading ?? aimHeading.current;
+      let fire = keys.current.Space || keys.current.MousePrimary || controller.fireMain;
+      const launch = keys.current.KeyE || keys.current.MouseSecondary || controller.firePup;
 
       // Resolve the input source before combining it. Stick and keys feed one
       // intent and one flight model, so Touch, PC and Hybrid fly identically.
       const stickIntent = intentFromStick(moveHeading.current);
       const keyboardIntent = intentFromKeys(keysFrom(keys.current));
-      let intent = resolveIntent(stickIntent, keyboardIntent);
+      const controllerIntent = intentFromStick(controllerMoveHeading);
+      let intent = resolveIntent(controllerIntent, resolveIntent(stickIntent, keyboardIntent));
       if (player.emp > 0) {
         // EMP still scrambles the pilot: the requested direction is inverted
         // and the trigger swaps with movement, as it always has.
@@ -3752,7 +3823,7 @@ export default function WormholeGame() {
         play("fire", 0.2);
       }
       if (!launch) keys.current.__launchLatch = false;
-      activateSpecial(game);
+      activateSpecial(game, controller.special);
 
       // The Flagship field is continuous rather than a one-tick impulse, so
       // enemy steering and pickup drag cannot erase the special immediately.
@@ -4115,6 +4186,10 @@ export default function WormholeGame() {
       // Charge ring: the same number the HUD shows, read straight off the portal.
       ctx.save();
       ctx.translate(game.portalX, game.portalY);
+      // The charge ring is rift hardware: pull and collapse it with the rift
+      // instead of leaving a full-size progress indicator over the blast.
+      ctx.scale(collapseScale, collapseScale);
+      if (victory?.phase === "blast") ctx.globalAlpha = Math.max(0, 1 - victory.phaseProgress * 4);
       ctx.lineWidth = 4;
       ctx.strokeStyle = "rgba(233,251,255,.14)";
       ctx.beginPath();
@@ -5113,6 +5188,7 @@ export default function WormholeGame() {
       data-preset={layout.preset}
       data-panels={layout.panels}
       data-touch-controls={layout.showTouchControls ? "on" : "off"}
+      data-touch-height={settings.touchControlHeight}
       style={{
         // Every size the interface uses comes from the one measurement, so
         // CSS never has to guess and cannot disagree with the shell.
@@ -5277,6 +5353,9 @@ export default function WormholeGame() {
                     </button> : <span aria-label="No PUP loaded">—</span>}
                   </div>;
                 })()}
+                <p className={`pup-notification ${hud.notice ? "alert" : ""}`} aria-live="polite">
+                  <span aria-hidden="true">▸</span>{guidance}
+                </p>
               </div>
               <div className="pilot-health">
                 <span><em>PILOT HULL</em><b>{hud.health}/{hud.maxHealth}</b></span>
@@ -5290,7 +5369,7 @@ export default function WormholeGame() {
               <i className="reticle bl" aria-hidden="true" /><i className="reticle br" aria-hidden="true" />
               {summary ? (
                 <div className="run-summary-layer">
-                  <section className="run-summary" aria-live="polite" aria-label="Run result">
+                  <section className="run-summary" data-controller-surface aria-live="polite" aria-label="Run result">
                     {!summary.awaitingInitials ? <button className="run-close" type="button" onClick={() => setSummary(null)} aria-label="Dismiss run summary">✕</button> : null}
                     <p className="run-outcome" data-outcome={summary.run.outcome}>
                       {summary.restored ? "LAST RUN"
@@ -5613,6 +5692,7 @@ export default function WormholeGame() {
       <GlobalSystemControls
         menuOpen={menuOpen}
         onToggleMenu={toggleMenu}
+        onOpenSettings={openSettings}
         fullscreen={fullscreen.active}
         fullscreenSupported={fullscreen.supported}
         onToggleFullscreen={() => { void fullscreen.toggle(); }}
@@ -5683,6 +5763,8 @@ export default function WormholeGame() {
           onThumbsticks={(next) => setSetting("thumbsticks", next)}
           touchSize={stickSizeName}
           onTouchSize={(next) => setSetting("touchControlSize", next)}
+          touchHeight={settings.touchControlHeight}
+          onTouchHeight={(next) => setSetting("touchControlHeight", next)}
           sound={sound}
           onSound={(next) => setSetting("sound", next)}
           soundLevel={settings.soundLevel}

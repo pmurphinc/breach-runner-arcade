@@ -148,12 +148,21 @@ test('canvas renderer starts after first-launch view selection', () => {
 test('touch health rails reserve the complete overlay control stack', () => {
   const controlsOn = css.match(/\.touch-capable\[data-sticks="overlay"\]\[data-touch-controls="on"\] \.health-rails \{[^}]+\}/s)?.[0] ?? '';
   const controlsOff = css.match(/\.touch-capable\[data-sticks="overlay"\]\[data-touch-controls="off"\] \.health-rails \{[^}]+\}/s)?.[0] ?? '';
-  assert.match(controlsOn, /var\(--stick\).*var\(--touch-target\)/s,
-    'rails must stop above both the stick and utility-button row');
+  assert.match(controlsOn, /var\(--touch-stack-reserve\)/,
+    'rails must use the shared stick, utility, safe-area, and height reservation');
   assert.doesNotMatch(controlsOff, /var\(--stick\)/,
     'hidden sticks must not reserve their old height');
   assert.match(controlsOff, /var\(--touch-target\)/,
     'rails must still clear the compact HUD and utility buttons');
+});
+
+test('touch-stick height participates in the shared safe-area reservation', () => {
+  assert.match(css, /--touch-stack-reserve:[^;]*var\(--touch-lift\)/);
+  assert.match(css, /data-touch-height="high"[^}]*--touch-lift:\s*clamp\(24px, 8dvh, 64px\)/);
+  assert.match(css, /data-sticks="docked"[^}]*\.touch-controls[^}]*bottom:[^;]*var\(--touch-lift\)/);
+  assert.match(css, /data-sticks="overlay"[^}]*touch-action[^}]*bottom:[^;]*var\(--touch-lift\)/);
+  assert.match(css, /data-sticks="gutter"[^}]*touch-action[^}]*top:\s*calc\(50% - var\(--touch-lift/);
+  assert.doesNotMatch(css, /data-touch-height="high"[^}]*transform:/);
 });
 
 
@@ -219,8 +228,10 @@ test('landscape tablets reuse the full arena shell and corner controls', () => {
   );
   assert.match(tablet, /data-form="tablet"\]\[data-orientation="landscape"/);
   assert.match(tablet, /\.arena-stage\s*\{[\s\S]*?width:\s*100%/);
-  assert.match(tablet, /\.touch-flight\s*\{[\s\S]*?bottom:\s*max\(12px,[\s\S]*?left:\s*max\(12px/);
-  assert.match(tablet, /\.touch-action\s*\{[\s\S]*?right:\s*max\(12px,[\s\S]*?bottom:\s*max\(12px/);
+  assert.match(tablet, /data-sticks="overlay"[^}]*\.touch-flight\s*\{[\s\S]*?bottom:\s*calc\(max\(12px,[^;]*var\(--touch-lift\)/);
+  assert.match(tablet, /data-sticks="overlay"[^}]*\.touch-action\s*\{[\s\S]*?bottom:\s*calc\(max\(12px,[^;]*var\(--touch-lift\)/);
+  assert.match(tablet, /data-sticks="gutter"[^}]*\.touch-flight\s*\{[\s\S]*?top:\s*calc\(50% - var\(--touch-lift\)/);
+  assert.match(tablet, /data-sticks="gutter"[^}]*\.touch-action\s*\{[\s\S]*?top:\s*calc\(50% - var\(--touch-lift\)/);
   assert.doesNotMatch(tablet, /scale|dead.?zone|accel|inertia/i,
     'tablet layout must not alter touch response or gameplay');
 });

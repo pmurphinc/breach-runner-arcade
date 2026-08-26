@@ -25,3 +25,23 @@ jobs:
         run: npm test
       - name: Lint
         run: npm run lint
+      - name: Install browser harness
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Responsive browser tests
+        run: |
+          npm run dev -- --port 5199 > /tmp/breach-runner-vite.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid"' EXIT
+          for attempt in {1..60}; do
+            curl --fail --silent http://127.0.0.1:5199/ > /dev/null && break
+            if [ "$attempt" -eq 60 ]; then
+              cat /tmp/breach-runner-vite.log
+              exit 1
+            fi
+            sleep 1
+          done
+          export WORMHOLE_TEST_URL=http://127.0.0.1:5199/
+          export WORMHOLE_TEST_CHROME=$(node --input-type=module -e "import { chromium } from 'playwright'; console.log(chromium.executablePath())")
+          npm run test:browser

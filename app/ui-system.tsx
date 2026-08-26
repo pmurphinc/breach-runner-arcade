@@ -132,6 +132,7 @@ export function MenuScreen({
     <div className="menu-screen" data-route={route} data-wide={wide ? "true" : "false"}>
       <div
         className="menu-panel"
+        data-controller-surface
         role="dialog"
         aria-modal="true"
         aria-labelledby={headingId}

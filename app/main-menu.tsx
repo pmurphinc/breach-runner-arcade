@@ -17,7 +17,7 @@ import { SHIP_ORDER, SHIP_PROFILES } from "./ship-data";
 import { DIFFICULTIES, DIFFICULTY_ORDER, type DifficultyId, type GameMode } from "./difficulty";
 import { PRODUCT_TAGLINE, PRODUCT_TITLE } from "./product";
 import type { MenuRoute } from "./menu-routes";
-import { settingsStore, type CombatHaptics, type SoundLevel, type TouchControlSize, type ViewMode, type ZoomLevel } from "./view-settings";
+import { settingsStore, type CombatHaptics, type SoundLevel, type TouchControlHeight, type TouchControlSize, type ViewMode, type ZoomLevel } from "./view-settings";
 
 /** One line each. A mode a player cannot summarise is a mode they will not pick. */
 export const MODE_INFO: Record<GameMode, { label: string; blurb: string }> = {
@@ -177,7 +177,6 @@ export function HomeScreen({
           items={[
             { route: "ships", label: "Ships", hint: "Compare the fleet" },
             { route: "leaderboard", label: "Leaderboard", hint: "Global high scores" },
-            { route: "settings", label: "Settings", hint: "Controls, audio, display" },
             { route: "info", label: "Game Info", hint: "How to play" },
           ]}
           onSelect={go}
@@ -395,6 +394,8 @@ export function SettingsScreen({
   onThumbsticks,
   touchSize,
   onTouchSize,
+  touchHeight,
+  onTouchHeight,
   sound,
   onSound,
   soundLevel,
@@ -417,6 +418,8 @@ export function SettingsScreen({
   onThumbsticks: (next: boolean) => void;
   touchSize: TouchControlSize;
   onTouchSize: (next: TouchControlSize) => void;
+  touchHeight: TouchControlHeight;
+  onTouchHeight: (next: TouchControlHeight) => void;
   sound: boolean;
   onSound: (next: boolean) => void;
   soundLevel: SoundLevel;
@@ -478,6 +481,17 @@ export function SettingsScreen({
             { id: "large", label: "Large" },
           ]}
           onChange={onTouchSize}
+        />
+        <OptionRow
+          label="Touch stick height"
+          value={touchHeight}
+          disabled={viewMode === "pc" || !thumbsticks}
+          options={[
+            { id: "low", label: "Low" },
+            { id: "middle", label: "Middle" },
+            { id: "high", label: "High" },
+          ]}
+          onChange={onTouchHeight}
         />
         <OptionRow
           label="Vibration"
@@ -618,10 +632,16 @@ export function InfoScreen({
         </button>
       </MenuSection>
 
-      <MenuSection title="Difficulty">
-        <dl className="control-list">
+      <MenuSection title="Game Modes" hint="Gameplay formats determine who plays and how a run ends.">
+        <dl className="control-list mode-info-list">
+          {MODE_ORDER.map((id) => <div key={id} data-mode={id}><dt>{MODE_INFO[id].label}</dt><dd>{MODE_INFO[id].blurb}</dd></div>)}
+        </dl>
+      </MenuSection>
+
+      <MenuSection title="Difficulties" hint="Challenge modifiers change rift and collision rules in solo play.">
+        <dl className="control-list difficulty-info-list">
           {DIFFICULTY_ORDER.map((id) => (
-            <div key={id}>
+            <div key={id} data-difficulty={id}>
               <dt>{difficultyLabel(id)}</dt>
               <dd>{difficultyBlurb(id)}</dd>
             </div>
@@ -722,9 +742,6 @@ export function PauseScreen({
           </button>
           <button type="button" onClick={onEndRunAndChangeMode}>
             End Run &amp; Change Mode
-          </button>
-          <button type="button" onClick={() => go("settings")}>
-            Settings
           </button>
           <button type="button" onClick={() => go("info")}>
             Game Info

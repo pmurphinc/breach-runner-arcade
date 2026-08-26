@@ -1022,8 +1022,8 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 [data-immersive="true"][data-sticks="gutter"] .play-column { justify-content: center; }
 [data-immersive="true"][data-sticks="gutter"] .match-bar { position: absolute; top: 4px; left: 4px; z-index: 4; width: max(150px, calc((100% - var(--arena-size)) / 2 - 12px)); grid-template-columns: minmax(0, 1fr); gap: 6px; background: rgba(4, 13, 21, .86); pointer-events: none; }
 [data-immersive="true"][data-sticks="gutter"] .status-dock { position: absolute; bottom: 4px; left: 50%; z-index: 4; width: var(--arena-size); transform: translateX(-50%); background: rgba(4, 13, 21, .86); }
-[data-immersive="true"][data-sticks="gutter"] .touch-flight { top: 50%; right: calc(100% + 12px); left: auto; transform: translateY(-50%); }
-[data-immersive="true"][data-sticks="gutter"] .touch-action { top: 50%; left: calc(100% + 12px); right: auto; transform: translateY(-50%); }
+[data-immersive="true"][data-sticks="gutter"] .touch-flight { top: calc(50% - var(--touch-lift, 0px)); right: calc(100% + 12px); left: auto; transform: translateY(-50%); }
+[data-immersive="true"][data-sticks="gutter"] .touch-action { top: calc(50% - var(--touch-lift, 0px)); left: calc(100% + 12px); right: auto; transform: translateY(-50%); }
 [data-immersive="true"][data-sticks="gutter"] .touch-utility { top: calc(100% + 8px); bottom: auto; }
 
 
@@ -1296,7 +1296,7 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
    the arena, with the utility row above the fire stick. Stop both rails above
    that entire control stack rather than letting them run behind it. */
 .touch-capable[data-sticks="overlay"][data-touch-controls="on"] .health-rails {
-  bottom: calc(var(--stick) + var(--touch-target) + 22px + max(8px, env(safe-area-inset-bottom)));
+  bottom: var(--touch-stack-reserve);
 }
 
 /* With sticks disabled, only the compact queue and utility buttons remain. */
@@ -1529,20 +1529,40 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
     margin: 0;
   }
 
-  .touch-capable[data-immersive="true"][data-form="tablet"][data-orientation="landscape"] .touch-flight {
+  .touch-capable[data-immersive="true"][data-form="tablet"][data-orientation="landscape"][data-sticks="overlay"] .touch-flight {
     top: auto;
     right: auto;
-    bottom: max(12px, env(safe-area-inset-bottom));
+    bottom: calc(max(12px, env(safe-area-inset-bottom)) + var(--touch-lift));
     left: max(12px, env(safe-area-inset-left));
     transform: none;
   }
 
-  .touch-capable[data-immersive="true"][data-form="tablet"][data-orientation="landscape"] .touch-action {
+  .touch-capable[data-immersive="true"][data-form="tablet"][data-orientation="landscape"][data-sticks="overlay"] .touch-action {
     top: auto;
     right: max(12px, env(safe-area-inset-right));
-    bottom: max(12px, env(safe-area-inset-bottom));
+    bottom: calc(max(12px, env(safe-area-inset-bottom)) + var(--touch-lift));
     left: auto;
     transform: none;
+  }
+
+  /* A tablet can still receive the gutter budget. Keep the pair reflected at
+     the viewport sides and move their shared centreline with the same lift as
+     docked and overlay controls. Explicit layout selectors prevent this block
+     from overriding overlay's bottom-based placement. */
+  .touch-capable[data-immersive="true"][data-form="tablet"][data-orientation="landscape"][data-sticks="gutter"] .touch-flight {
+    top: calc(50% - var(--touch-lift));
+    right: auto;
+    bottom: auto;
+    left: max(12px, env(safe-area-inset-left));
+    transform: translateY(-50%);
+  }
+
+  .touch-capable[data-immersive="true"][data-form="tablet"][data-orientation="landscape"][data-sticks="gutter"] .touch-action {
+    top: calc(50% - var(--touch-lift));
+    right: max(12px, env(safe-area-inset-right));
+    bottom: auto;
+    left: auto;
+    transform: translateY(-50%);
   }
 
   .touch-capable[data-immersive="true"][data-form="tablet"][data-orientation="landscape"] .touch-powerup-hud {
@@ -2232,12 +2252,43 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
    glance, not so much that an unselected card competes with the selected one. */
 .mode-card,
 .option-row[data-option="difficulty"] .option-choices button {
-  border-left: 3px solid color-mix(in srgb, var(--accent, var(--line-strong)) 55%, transparent);
+  border-left: 8px solid color-mix(in srgb, var(--accent, var(--line-strong)) 82%, transparent);
+  background-image: linear-gradient(90deg, color-mix(in srgb, var(--accent, transparent) 14%), transparent 46%);
 }
 .mode-card.active,
 .option-row[data-option="difficulty"] .option-choices button.active {
-  border-left-width: 3px;
+  border-left-width: 8px;
 }
+
+.mode-info-list [data-mode="pve"] { --accent: var(--cyan); }
+.mode-info-list [data-mode="coop"] { --accent: var(--lime); }
+.mode-info-list [data-mode="pvp"] { --accent: var(--pink); }
+.difficulty-info-list [data-difficulty="practice"] { --accent: var(--cyan); }
+.difficulty-info-list [data-difficulty="easy"] { --accent: var(--lime); }
+.difficulty-info-list [data-difficulty="difficult"] { --accent: var(--amber); }
+.difficulty-info-list [data-difficulty="hard"] { --accent: var(--red); }
+.mode-info-list > div, .difficulty-info-list > div {
+  border-left: 8px solid var(--accent); padding-left: var(--space-3);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 13%, transparent), transparent 48%);
+}
+
+/* One constrained menu frame owns the codex header and scroll budget. */
+.menu-screen[data-route="codex"] .menu-content { padding: 0; }
+.menu-screen[data-route="codex"] .codex { width: 100%; max-height: none; border: 0; box-shadow: none; }
+.codex-intro { margin: 0; padding: 12px 16px 0; color: var(--muted); font: 500 var(--fs-xs)/1.4 var(--mono); }
+
+/* Shared, symmetric vertical stick placement. The lift participates in the
+   control-stack reservation; it is not a paint-only transform. Short screens
+   receive a smaller fluid lift so the high position stays below the measured
+   health/inventory header and above the device bottom safe area. */
+.touch-capable { --touch-lift: 0px; --touch-stack-reserve: calc(var(--stick) + var(--touch-target) + 22px + max(8px, env(safe-area-inset-bottom)) + var(--touch-lift)); }
+.touch-capable[data-touch-controls="on"][data-touch-height="middle"] { --touch-lift: clamp(12px, 4dvh, 34px); }
+.touch-capable[data-touch-controls="on"][data-touch-height="high"] { --touch-lift: clamp(24px, 8dvh, 64px); }
+.touch-capable[data-immersive="true"][data-sticks="docked"] .touch-controls { bottom: calc(max(8px, env(safe-area-inset-bottom)) + var(--touch-lift)); }
+.touch-capable[data-immersive="true"][data-sticks="docked"] .play-column { padding-bottom: calc(var(--touch-stack-reserve) + 70px); }
+.touch-capable[data-immersive="true"][data-sticks="docked"] .status-dock { bottom: calc(var(--touch-stack-reserve) + 4px); }
+.touch-capable[data-immersive="true"][data-sticks="overlay"] :is(.touch-flight, .touch-action) { bottom: calc(8px + var(--touch-lift)); }
+.touch-capable .play-column > .coach-strip { display: none; }
 .mode-card .option-check,
 .option-row[data-option="difficulty"] .option-check { color: var(--accent, var(--lime)); }
 .mode-card.active b,
