@@ -2,7 +2,9 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import "./arena-hud.css";
 import "./mirrored-touch-actions.css";
-import { PRODUCT_DESCRIPTION, PRODUCT_TAGLINE, PRODUCT_TITLE } from "./product";
+import { PRODUCT_TAGLINE, PRODUCT_TITLE } from "./product";
+
+const PRODUCTION_URL = "https://breachrunner.murphtournaments.com";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -13,18 +15,32 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://wormhole-arcade.pmurphinc.chatgpt.site"),
+  metadataBase: new URL(PRODUCTION_URL),
   title: PRODUCT_TITLE,
-  description: PRODUCT_DESCRIPTION,
+  description: PRODUCT_TAGLINE,
+  alternates: {
+    canonical: "/",
+  },
   openGraph: {
     title: PRODUCT_TITLE,
     description: PRODUCT_TAGLINE,
+    url: PRODUCTION_URL,
+    siteName: PRODUCT_TITLE,
     type: "website",
+    images: [
+      {
+        url: "/og.png",
+        width: 1200,
+        height: 630,
+        alt: "Breach Runner — Weaponize the Rift",
+      },
+    ],
   },
   twitter: {
-    card: "summary",
+    card: "summary_large_image",
     title: PRODUCT_TITLE,
     description: PRODUCT_TAGLINE,
+    images: ["/og.png"],
   },
   icons: {
     icon: [

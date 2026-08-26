@@ -73,7 +73,8 @@ test("public metadata and README do not market the project as a recreation", () 
   assert.doesNotMatch(publicCopy, /Centerfleet/i);
   assert.doesNotMatch(publicCopy, /browser recreation/i);
   assert.doesNotMatch(publicCopy, /original downloadable client/i);
-  assert.doesNotMatch(layout, /og\.png/i);
+  assert.match(layout, /url: "\/og\.png"/i);
+  assert.match(layout, /card: "summary_large_image"/i);
   assert.match(layout, /\/favicon\.ico/);
   assert.match(layout, /\/favicon\.png/);
   assert.match(layout, /\/apple-touch-icon\.png/);
