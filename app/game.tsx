@@ -5509,188 +5509,204 @@ export default function WormholeGame() {
                 <div className="run-summary-layer">
                   <section className="run-summary" data-controller-surface aria-live="polite" aria-label="Run result">
                     {!summary.awaitingInitials ? <button className="run-close" type="button" onClick={() => setSummary(null)} aria-label="Dismiss run summary">✕</button> : null}
-                    <p className="run-outcome" data-outcome={summary.run.outcome}>
-                      {summary.restored ? "LAST RUN"
-                        : summary.run.difficulty === "survival" ? `RIFT LEVEL ${summary.run.riftLevel ?? 1} REACHED`
-                          : summary.run.practice ? "PRACTICE COMPLETE"
-                            : summary.run.outcome === "victory" ? "RIVAL ELIMINATED" : "SHIP DESTROYED"}
-                    </p>
                     {/*
-                      Survival is scored on time, so time is what the card
-                      leads with. The base/penalty settlement below it belongs
-                      to the arcade modes and would only ever read as zero here.
+                      Two groups, one markup. Everywhere but phone landscape
+                      they are `display: contents`, so the card reads as the
+                      single column it always has; phone landscape promotes
+                      them to real grid items and puts the result beside the
+                      continuation controls, which is the only way the whole
+                      menu fits a 390px-tall viewport without scrolling.
                     */}
-                    {summary.run.difficulty === "survival" ? (
-                      <>
-                        <p className="run-score"><span>SURVIVED</span><b>{formatRunTime(summary.run.durationSeconds)}</b></p>
-                        <div className="score-settlement">
-                          <span>RIFT LEVEL <b>{summary.run.riftLevel ?? 1}</b></span>
-                          <span>BREACHES <b>{summary.run.breaches ?? 0}</b></span>
-                          <span>SCORE <b>{summary.run.score.toLocaleString()}</b></span>
-                        </div>
-                        <p className="run-meta">
-                          {summary.survivalRank === 1
-                            ? "NEW DEVICE BEST"
-                            : summary.survivalRank
-                              ? `DEVICE RANK #${summary.survivalRank}${
-                                  summary.survivalBoard?.[0]
-                                    ? ` · BEST ${formatRunTime(summary.survivalBoard[0].durationSeconds)}`
-                                    : ""
-                                }`
-                              : summary.survivalBoard?.[0]
-                                ? `OFF THE BOARD · BEST ${formatRunTime(summary.survivalBoard[0].durationSeconds)}`
-                                : "FIRST SURVIVAL RUN ON THIS DEVICE"}
-                        </p>
-                      </>
-                    ) : (
-                      <>
-                        <p className="run-score"><span>FINAL SCORE</span><b>{summary.run.score.toLocaleString()}</b></p>
-                        <div className="score-settlement">
-                          <span>BASE <b>{(summary.run.baseScore ?? summary.run.score).toLocaleString()}</b></span>
-                          <span>TIME <b>{formatRunTime(summary.run.durationSeconds)}</b></span>
-                          <span>PENALTY <b>−{(summary.run.timePenalty ?? 0).toLocaleString()}</b></span>
-                        </div>
-                        <p className="run-meta">
-                          {summary.isBest ? "NEW DEVICE BEST" : summary.best ? `DEVICE BEST ${summary.best.score.toLocaleString()}` : "FIRST RUN ON THIS DEVICE"}
-                        </p>
-                      </>
-                    )}
-
-                    {summary.awaitingInitials ? (
-                      <form
-                        className="initials-entry"
-                        onSubmit={(event) => {
-                          event.preventDefault();
-                          confirmInitials();
-                        }}
-                      >
-                        <label htmlFor="arcade-initials">ENTER YOUR INITIALS</label>
-                        <input
-                          id="arcade-initials"
-                          value={initialsEntry}
-                          maxLength={3}
-                          inputMode="text"
-                          enterKeyHint="done"
-                          autoCapitalize="characters"
-                          autoComplete="off"
-                          spellCheck={false}
-                          onFocus={beginInitialsEditing}
-                          onBlur={finishInitialsEditing}
-                          onChange={(event) => setInitialsEntry(normalizeInitials(event.target.value))}
-                          aria-describedby="initials-help"
-                        />
-                        <small id="initials-help">{initialsEntry.length}/3 · LETTERS OR NUMBERS</small>
-                        <button type="submit" className="run-action primary" disabled={initialsEntry.length !== 3}>LOCK SCORE</button>
-                      </form>
-                    ) : summary.run.practice ? (
-                      <div className="run-save"><p className="run-status">PRACTICE RUN // NOT SAVED TO LEADERBOARDS</p></div>
-                    ) : summary.run.difficulty === "survival" ? (
-                      <div className="run-save">
-                        <p className="run-status ok">
-                          {summary.survivalRank
-                            ? `RANKED #${summary.survivalRank} ON THIS DEVICE`
-                            : "RUN SAVED ON THIS DEVICE"}
-                        </p>
-                        {/*
-                          The public Survival board is not open yet, so a
-                          submission ordinarily reports the failure state. Say
-                          that plainly instead of dressing it as an error the
-                          player could act on.
-                        */}
-                        {summary.run.initials && saveState.status === "saving" ? <p className="run-status">SENDING TO THE SURVIVAL BOARD…</p> : null}
-                        {summary.run.initials && saveState.status === "saved" ? (
-                          <p className="run-status ok">
-                            SURVIVAL BOARD UPDATED{saveState.rank ? ` · #${saveState.rank}` : ""}
+                    <div className="run-report">
+                      <p className="run-outcome" data-outcome={summary.run.outcome}>
+                        {summary.restored ? "LAST RUN"
+                          : summary.run.difficulty === "survival" ? `RIFT LEVEL ${summary.run.riftLevel ?? 1} REACHED`
+                            : summary.run.practice ? "PRACTICE COMPLETE"
+                              : summary.run.outcome === "victory" ? "RIVAL ELIMINATED" : "SHIP DESTROYED"}
+                      </p>
+                      {/*
+                        Survival is scored on time, so time is what the card
+                        leads with. The base/penalty settlement below it belongs
+                        to the arcade modes and would only ever read as zero here.
+                      */}
+                      {summary.run.difficulty === "survival" ? (
+                        <>
+                          <p className="run-score"><span>SURVIVED</span><b>{formatRunTime(summary.run.durationSeconds)}</b></p>
+                          <div className="score-settlement">
+                            <span>RIFT LEVEL <b>{summary.run.riftLevel ?? 1}</b></span>
+                            <span>BREACHES <b>{summary.run.breaches ?? 0}</b></span>
+                            <span>SCORE <b>{summary.run.score.toLocaleString()}</b></span>
+                          </div>
+                          <p className="run-meta">
+                            {summary.survivalRank === 1
+                              ? "NEW DEVICE BEST"
+                              : summary.survivalRank
+                                ? `DEVICE RANK #${summary.survivalRank}${
+                                    summary.survivalBoard?.[0]
+                                      ? ` · BEST ${formatRunTime(summary.survivalBoard[0].durationSeconds)}`
+                                      : ""
+                                  }`
+                                : summary.survivalBoard?.[0]
+                                  ? `OFF THE BOARD · BEST ${formatRunTime(summary.survivalBoard[0].durationSeconds)}`
+                                  : "FIRST SURVIVAL RUN ON THIS DEVICE"}
                           </p>
-                        ) : null}
-                        {summary.run.initials && saveState.status === "error" ? (
-                          <p className="run-status">GLOBAL SURVIVAL BOARD NOT OPEN YET</p>
-                        ) : null}
-                      </div>
-                    ) : (
-                      <div className="run-save">
-                        <p className="run-status ok">
-                          {summary.run.initials
-                            ? `SCORE LOCKED // ${summary.run.initials} · SAVED ON THIS DEVICE`
-                            : "RUN SAVED ON THIS DEVICE"}
-                        </p>
-                        {summary.run.outcome === "victory" && mode === "pve" && saveState.status === "saving" ? <p className="run-status">ADDING SCORE TO GLOBAL BOARD…</p> : null}
-                        {summary.run.outcome === "victory" && mode === "pve" && saveState.status === "saved" ? (
-                          <p className="run-status ok">
-                            GLOBAL BOARD UPDATED{saveState.rank ? ` · #${saveState.rank}` : ""}
+                        </>
+                      ) : (
+                        <>
+                          <p className="run-score"><span>FINAL SCORE</span><b>{summary.run.score.toLocaleString()}</b></p>
+                          <div className="score-settlement">
+                            <span>BASE <b>{(summary.run.baseScore ?? summary.run.score).toLocaleString()}</b></span>
+                            <span>TIME <b>{formatRunTime(summary.run.durationSeconds)}</b></span>
+                            <span>PENALTY <b>−{(summary.run.timePenalty ?? 0).toLocaleString()}</b></span>
+                          </div>
+                          <p className="run-meta">
+                            {summary.isBest ? "NEW DEVICE BEST" : summary.best ? `DEVICE BEST ${summary.best.score.toLocaleString()}` : "FIRST RUN ON THIS DEVICE"}
                           </p>
-                        ) : null}
-                        {summary.run.outcome === "victory" && mode === "pve" && saveState.status === "error" ? (
-                          <>
-                            <p className="run-status warn">{saveState.message}</p>
-                            <button type="button" className="run-action" onClick={() => void saveRun(summary.run)}>TRY BOARD AGAIN</button>
-                          </>
-                        ) : null}
-                      </div>
-                    )}
+                        </>
+                      )}
 
-                    <div className={`death-info ${summary.run.outcome === "victory" ? "victory" : ""}`} role="status">
-                      <strong>FINAL EVENT</strong>
-                      <span>{finalEventLabel(summary.run)}</span>
+                      {/*
+                        The final event belongs with the result it explains, so it
+                        travels in the report group rather than the action group.
+                      */}
+                      <div className={`death-info ${summary.run.outcome === "victory" ? "victory" : ""}`} role="status">
+                        <strong>FINAL EVENT</strong>
+                        <span>{finalEventLabel(summary.run)}</span>
+                      </div>
                     </div>
 
-                    <div className="run-links" aria-label="End game actions">
+                    <div className="run-continue">
                       {summary.awaitingInitials ? (
-                        <p className="run-links-note" role="status">LOCK SCORE TO CONTINUE</p>
-                      ) : null}
-                      <button
-                        type="button"
-                        className="run-action primary"
-                        disabled={summary.awaitingInitials || (mode !== "pve" && Boolean(net?.rematch?.you))}
-                        onClick={() => {
-                          if (mode === "pve") start();
-                          else netRef.current?.requestRematch();
-                        }}
-                      >
-                        {mode !== "pve" && net?.rematch?.you
-                          ? net.rematch.opponent ? "REMATCH STARTING" : mode === "coop" ? "WAITING FOR ALLY" : "WAITING FOR OPPONENT"
-                          : "RUN AGAIN"}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={summary.awaitingInitials || (mode !== "pve" && Boolean(net?.rematch?.you))}
-                        onClick={() => {
-                          if (mode === "pve") setSummary(null);
-                          go("ships");
-                        }}
-                      >
-                        CHANGE SHIP
-                      </button>
-                      <button
-                        type="button"
-                        disabled={summary.awaitingInitials}
-                        onClick={() => {
-                          if (mode !== "pve") netRef.current?.leave();
-                          setSummary(null);
-                          setMenu(resetRoute("modes"));
-                        }}
-                      >
-                        CHANGE GAME MODE
-                      </button>
-                      {/*
-                        Each result card links to the board its run is actually
-                        ranked on. Sending a Survival run to the arcade board
-                        would be sending the player to look for a result that
-                        was never submitted there.
-                      */}
-                      {mode === "pve" ? (
-                        <button
-                          type="button"
-                          className="run-board-link"
-                          disabled={summary.awaitingInitials}
-                          onClick={() => {
-                            setBoardKind(summary.run.difficulty === "survival" ? "survival" : "arcade");
-                            go("leaderboard");
+                        <form
+                          className="initials-entry"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            confirmInitials();
                           }}
                         >
-                          {summary.run.difficulty === "survival" ? "SURVIVAL BOARD" : "GLOBAL BOARD"}
+                          <label htmlFor="arcade-initials">ENTER YOUR INITIALS</label>
+                          <input
+                            id="arcade-initials"
+                            value={initialsEntry}
+                            maxLength={3}
+                            inputMode="text"
+                            enterKeyHint="done"
+                            autoCapitalize="characters"
+                            autoComplete="off"
+                            spellCheck={false}
+                            onFocus={beginInitialsEditing}
+                            onBlur={finishInitialsEditing}
+                            onChange={(event) => setInitialsEntry(normalizeInitials(event.target.value))}
+                            aria-describedby="initials-help"
+                          />
+                          <small id="initials-help">{initialsEntry.length}/3 · LETTERS OR NUMBERS</small>
+                          <button type="submit" className="run-action primary" disabled={initialsEntry.length !== 3}>LOCK SCORE</button>
+                        </form>
+                      ) : summary.run.practice ? (
+                        <div className="run-save"><p className="run-status">PRACTICE RUN // NOT SAVED TO LEADERBOARDS</p></div>
+                      ) : summary.run.difficulty === "survival" ? (
+                        <div className="run-save">
+                          <p className="run-status ok">
+                            {summary.survivalRank
+                              ? `RANKED #${summary.survivalRank} ON THIS DEVICE`
+                              : "RUN SAVED ON THIS DEVICE"}
+                          </p>
+                          {/*
+                            The public Survival board is not open yet, so a
+                            submission ordinarily reports the failure state. Say
+                            that plainly instead of dressing it as an error the
+                            player could act on.
+                          */}
+                          {summary.run.initials && saveState.status === "saving" ? <p className="run-status">SENDING TO THE SURVIVAL BOARD…</p> : null}
+                          {summary.run.initials && saveState.status === "saved" ? (
+                            <p className="run-status ok">
+                              SURVIVAL BOARD UPDATED{saveState.rank ? ` · #${saveState.rank}` : ""}
+                            </p>
+                          ) : null}
+                          {summary.run.initials && saveState.status === "error" ? (
+                            <p className="run-status">GLOBAL SURVIVAL BOARD NOT OPEN YET</p>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <div className="run-save">
+                          <p className="run-status ok">
+                            {summary.run.initials
+                              ? `SCORE LOCKED // ${summary.run.initials} · SAVED ON THIS DEVICE`
+                              : "RUN SAVED ON THIS DEVICE"}
+                          </p>
+                          {summary.run.outcome === "victory" && mode === "pve" && saveState.status === "saving" ? <p className="run-status">ADDING SCORE TO GLOBAL BOARD…</p> : null}
+                          {summary.run.outcome === "victory" && mode === "pve" && saveState.status === "saved" ? (
+                            <p className="run-status ok">
+                              GLOBAL BOARD UPDATED{saveState.rank ? ` · #${saveState.rank}` : ""}
+                            </p>
+                          ) : null}
+                          {summary.run.outcome === "victory" && mode === "pve" && saveState.status === "error" ? (
+                            <>
+                              <p className="run-status warn">{saveState.message}</p>
+                              <button type="button" className="run-action" onClick={() => void saveRun(summary.run)}>TRY BOARD AGAIN</button>
+                            </>
+                          ) : null}
+                        </div>
+                      )}
+
+                      <div className="run-links" aria-label="End game actions">
+                        {summary.awaitingInitials ? (
+                          <p className="run-links-note" role="status">LOCK SCORE TO CONTINUE</p>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="run-action primary"
+                          disabled={summary.awaitingInitials || (mode !== "pve" && Boolean(net?.rematch?.you))}
+                          onClick={() => {
+                            if (mode === "pve") start();
+                            else netRef.current?.requestRematch();
+                          }}
+                        >
+                          {mode !== "pve" && net?.rematch?.you
+                            ? net.rematch.opponent ? "REMATCH STARTING" : mode === "coop" ? "WAITING FOR ALLY" : "WAITING FOR OPPONENT"
+                            : "RUN AGAIN"}
                         </button>
-                      ) : null}
+                        <button
+                          type="button"
+                          disabled={summary.awaitingInitials || (mode !== "pve" && Boolean(net?.rematch?.you))}
+                          onClick={() => {
+                            if (mode === "pve") setSummary(null);
+                            go("ships");
+                          }}
+                        >
+                          CHANGE SHIP
+                        </button>
+                        <button
+                          type="button"
+                          disabled={summary.awaitingInitials}
+                          onClick={() => {
+                            if (mode !== "pve") netRef.current?.leave();
+                            setSummary(null);
+                            setMenu(resetRoute("modes"));
+                          }}
+                        >
+                          CHANGE GAME MODE
+                        </button>
+                        {/*
+                          Each result card links to the board its run is actually
+                          ranked on. Sending a Survival run to the arcade board
+                          would be sending the player to look for a result that
+                          was never submitted there.
+                        */}
+                        {mode === "pve" ? (
+                          <button
+                            type="button"
+                            className="run-board-link"
+                            disabled={summary.awaitingInitials}
+                            onClick={() => {
+                              setBoardKind(summary.run.difficulty === "survival" ? "survival" : "arcade");
+                              go("leaderboard");
+                            }}
+                          >
+                            {summary.run.difficulty === "survival" ? "SURVIVAL BOARD" : "GLOBAL BOARD"}
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
                   </section>
                 </div>
