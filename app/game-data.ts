@@ -275,6 +275,13 @@ export const SENDABLE_POWERUPS: PowerId[] = [
 
 export const INSTANT_PICKUPS: PickupId[] = ["gun", "thrust", "retros", "shield", "clear", "health"];
 
+/** Complete player-facing catalogue: fired payloads plus contact pickups. */
+export const CODEX_PICKUPS: readonly PickupId[] = [
+  ...SENDABLE_POWERUPS,
+  ...INSTANT_PICKUPS,
+  "ricochet",
+];
+
 /** Hull and hit radius for each hostile. Internal ids are compatibility keys, not player-facing names. */
 export const ENEMY_STATS: Record<PowerId, { hp: number; radius: number }> = {
   heatseeker: { hp: 1, radius: 6 },

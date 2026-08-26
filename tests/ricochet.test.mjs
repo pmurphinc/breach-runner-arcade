@@ -16,6 +16,13 @@ test("Bankshot Matrix is a non-sendable utility pickup", () => {
   assert.match(art, /ricochet: bankshotIcon/);
 });
 
+test("Weapon Codex includes every intended pickup, including Bankshot Matrix", () => {
+  assert.match(data, /CODEX_PICKUPS:[^=]*= \[[\s\S]*\.\.\.SENDABLE_POWERUPS,[\s\S]*\.\.\.INSTANT_PICKUPS,[\s\S]*"ricochet"/);
+  assert.match(game, /const CODEX_ORDER:[^=]*= CODEX_PICKUPS/);
+  assert.match(game, /CODEX_ORDER\.map/);
+  assert.match(data, /ricochet:\s*\{[\s\S]*?name: "BANKSHOT MATRIX"/);
+});
+
 test("ricochet is temporary and capped to two wall contacts", () => {
   assert.match(ricochet, /RICOCHET_DURATION_SECONDS = 10/);
   assert.match(ricochet, /RICOCHET_BOUNCES = 2/);

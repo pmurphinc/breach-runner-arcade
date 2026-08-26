@@ -3,6 +3,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from "react";
 import {
   CATEGORY_LABELS,
+  CODEX_PICKUPS,
   ENEMY_COUNTS,
   ENEMY_STATS,
   FORM_SHIFT_PROFILES,
@@ -93,7 +94,7 @@ import {
 import { cannonPlaybackRate, hapticsAllow } from "./combat-feedback";
 import { pupInventoryLayout } from "./pup-inventory";
 import { RICOCHET_BOUNCES, RICOCHET_DURATION_SECONDS, reflectRicochet } from "./ricochet";
-import { EMPTY_GAMEPAD, readStandardGamepad } from "./gamepad";
+import { controllerStateForPads, EMPTY_GAMEPAD, headingDegrees, pressedOnce, type GamepadActions } from "./gamepad";
 import {
   MOVEMENT_CODES,
   applyIntent,
@@ -899,7 +900,7 @@ function WeaponCard({
   );
 }
 
-const CODEX_ORDER: PickupId[] = [...SENDABLE_POWERUPS, "gun", "thrust", "retros", "shield", "clear", "health"];
+const CODEX_ORDER: readonly PickupId[] = CODEX_PICKUPS;
 
 function WeaponCodex({ onClose, reducedMotion }: { onClose: () => void; reducedMotion: boolean }) {
   const [focused, setFocused] = useState<PickupId>(CODEX_ORDER[0]);
@@ -1690,6 +1691,8 @@ export default function WormholeGame() {
   const aimStickPointer = useRef<number | null>(null);
   const moveHeading = useRef<number | null>(null);
   const aimHeading = useRef<number | null>(null);
+  /** Isolated from keyboard, mouse and touch; disconnect clears only this ref. */
+  const controllerInput = useRef<GamepadActions>(EMPTY_GAMEPAD);
   const shipId = useSyncExternalStore(
     shipPreference.subscribe,
     shipPreference.get,
@@ -2738,8 +2741,8 @@ export default function WormholeGame() {
     let previous = EMPTY_GAMEPAD;
     let lastMenuMove = 0;
     const poll = (now: number) => {
-      const pad = Array.from(navigator.getGamepads?.() ?? []).find((candidate) => candidate?.connected && candidate.mapping === "standard");
-      const action = pad ? readStandardGamepad(pad) : EMPTY_GAMEPAD;
+      const action = controllerStateForPads(Array.from(navigator.getGamepads?.() ?? []));
+      controllerInput.current = action;
       if (menuOpenRef.current || Boolean(summary)) {
         const direction = action.menuY || action.menuX;
         if (direction && (!previous.menuX && !previous.menuY || now - lastMenuMove > 220)) {
@@ -2748,33 +2751,27 @@ export default function WormholeGame() {
           const current = Math.max(0, controls.indexOf(document.activeElement as HTMLElement));
           controls[(current + Math.sign(direction) + controls.length) % controls.length]?.focus();
         }
-        if (action.confirm && !previous.confirm) (document.activeElement as HTMLElement)?.click?.();
-        if (action.cancel && !previous.cancel) back();
+        if (pressedOnce(action.confirm, previous.confirm)) (document.activeElement as HTMLElement)?.click?.();
+        if (pressedOnce(action.cancel, previous.cancel)) back();
       } else {
-        moveHeading.current = Math.hypot(action.moveX, action.moveY) > 0 ? Math.atan2(action.moveY, action.moveX) : null;
-        aimHeading.current = Math.hypot(action.aimX, action.aimY) > 0 ? Math.atan2(action.aimY, action.aimX) : null;
-        keys.current.Space = action.fireMain;
-        if (action.firePup && !previous.firePup) keys.current.KeyE = true;
-        if (action.special && !previous.special) keys.current.KeyQ = true;
-        const pupStep = action.nextPup && !previous.nextPup ? 1 : action.previousPup && !previous.previousPup ? -1 : 0;
+        const pupStep = pressedOnce(action.nextPup, previous.nextPup) ? 1 : pressedOnce(action.previousPup, previous.previousPup) ? -1 : 0;
         if (pupStep) {
           const stock = gameRef.current.stock;
           if (stock.length) {
-            const current = inspect ? stock.lastIndexOf(inspect.id as PowerId) : stock.length - 1;
-            const id = stock[(Math.max(0, current) + pupStep + stock.length) % stock.length];
-            setInspect({ id, pinned: true });
+            setInspect((currentInspect) => {
+              const current = currentInspect ? stock.lastIndexOf(currentInspect.id as PowerId) : stock.length - 1;
+              return { id: stock[(Math.max(0, current) + pupStep + stock.length) % stock.length], pinned: true };
+            });
           }
         }
       }
-      if (action.pause && !previous.pause) toggleMenu();
-      if (!action.firePup) keys.current.KeyE = false;
-      if (!action.special) keys.current.KeyQ = false;
+      if (pressedOnce(action.pause, previous.pause)) toggleMenu();
       previous = action;
       frame = requestAnimationFrame(poll);
     };
     frame = requestAnimationFrame(poll);
-    return () => cancelAnimationFrame(frame);
-  }, [back, inspect, summary, toggleMenu]);
+    return () => { cancelAnimationFrame(frame); controllerInput.current = EMPTY_GAMEPAD; };
+  }, [back, summary, toggleMenu]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -3243,9 +3240,9 @@ export default function WormholeGame() {
       playCue(`overcharge:${spec.id}`, 0.3);
     };
 
-    const activateSpecial = (game: Game) => {
+    const activateSpecial = (game: Game, controllerPressed = false) => {
       const player = game.player;
-      const pressed = Boolean(keys.current.KeyQ);
+      const pressed = Boolean(keys.current.KeyQ) || controllerPressed;
       if (!pressed) {
         keys.current.__specialLatch = false;
         return;
@@ -3691,15 +3688,19 @@ export default function WormholeGame() {
       }
       if (contact.damage > 0) damageContact(game, contact.damage);
 
-      const firingHeading = aimHeading.current;
-      let fire = keys.current.Space || keys.current.MousePrimary;
-      const launch = keys.current.KeyE || keys.current.MouseSecondary;
+      const controller = controllerInput.current;
+      const controllerAimHeading = headingDegrees(controller.aimX, controller.aimY);
+      const controllerMoveHeading = headingDegrees(controller.moveX, controller.moveY);
+      const firingHeading = controllerAimHeading ?? aimHeading.current;
+      let fire = keys.current.Space || keys.current.MousePrimary || controller.fireMain;
+      const launch = keys.current.KeyE || keys.current.MouseSecondary || controller.firePup;
 
       // Resolve the input source before combining it. Stick and keys feed one
       // intent and one flight model, so Touch, PC and Hybrid fly identically.
       const stickIntent = intentFromStick(moveHeading.current);
       const keyboardIntent = intentFromKeys(keysFrom(keys.current));
-      let intent = resolveIntent(stickIntent, keyboardIntent);
+      const controllerIntent = intentFromStick(controllerMoveHeading);
+      let intent = resolveIntent(controllerIntent, resolveIntent(stickIntent, keyboardIntent));
       if (player.emp > 0) {
         // EMP still scrambles the pilot: the requested direction is inverted
         // and the trigger swaps with movement, as it always has.
@@ -3791,7 +3792,7 @@ export default function WormholeGame() {
         play("fire", 0.2);
       }
       if (!launch) keys.current.__launchLatch = false;
-      activateSpecial(game);
+      activateSpecial(game, controller.special);
 
       // The Flagship field is continuous rather than a one-tick impulse, so
       // enemy steering and pickup drag cannot erase the special immediately.

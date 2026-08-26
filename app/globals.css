@@ -1297,7 +1297,7 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
    the arena, with the utility row above the fire stick. Stop both rails above
    that entire control stack rather than letting them run behind it. */
 .touch-capable[data-sticks="overlay"][data-touch-controls="on"] .health-rails {
-  bottom: calc(var(--stick) + var(--touch-target) + 22px + max(8px, env(safe-area-inset-bottom)));
+  bottom: var(--touch-stack-reserve);
 }
 
 /* With sticks disabled, only the compact queue and utility buttons remain. */
@@ -2252,11 +2252,17 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
 .menu-screen[data-route="codex"] .codex { width: 100%; max-height: none; border: 0; box-shadow: none; }
 .codex-intro { margin: 0; padding: 12px 16px 0; color: var(--muted); font: 500 var(--fs-xs)/1.4 var(--mono); }
 
-/* Shared, symmetric vertical stick placement. Clamped offsets retain safe-area
-   clearance and move both sides as a single setting. */
-.touch-capable[data-touch-controls="on"][data-touch-height="low"] .touch-controls { transform: translateY(clamp(-8px, -2vh, -2px)); }
-.touch-capable[data-touch-controls="on"][data-touch-height="middle"] .touch-controls { transform: translateY(clamp(-52px, -7vh, -24px)); }
-.touch-capable[data-touch-controls="on"][data-touch-height="high"] .touch-controls { transform: translateY(clamp(-96px, -13vh, -48px)); }
+/* Shared, symmetric vertical stick placement. The lift participates in the
+   control-stack reservation; it is not a paint-only transform. Short screens
+   receive a smaller fluid lift so the high position stays below the measured
+   health/inventory header and above the device bottom safe area. */
+.touch-capable { --touch-lift: 0px; --touch-stack-reserve: calc(var(--stick) + var(--touch-target) + 22px + max(8px, env(safe-area-inset-bottom)) + var(--touch-lift)); }
+.touch-capable[data-touch-controls="on"][data-touch-height="middle"] { --touch-lift: clamp(12px, 4dvh, 34px); }
+.touch-capable[data-touch-controls="on"][data-touch-height="high"] { --touch-lift: clamp(24px, 8dvh, 64px); }
+.touch-capable[data-immersive="true"][data-sticks="docked"] .touch-controls { bottom: calc(max(8px, env(safe-area-inset-bottom)) + var(--touch-lift)); }
+.touch-capable[data-immersive="true"][data-sticks="docked"] .play-column { padding-bottom: calc(var(--touch-stack-reserve) + 70px); }
+.touch-capable[data-immersive="true"][data-sticks="docked"] .status-dock { bottom: calc(var(--touch-stack-reserve) + 4px); }
+.touch-capable[data-immersive="true"][data-sticks="overlay"] :is(.touch-flight, .touch-action) { bottom: calc(8px + var(--touch-lift)); }
 .touch-capable .play-column > .coach-strip { display: none; }
 .mode-card .option-check,
 .option-row[data-option="difficulty"] .option-check { color: var(--accent, var(--lime)); }

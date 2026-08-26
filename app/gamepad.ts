@@ -9,6 +9,16 @@ export type GamepadActions = {
 export const GAMEPAD_DEAD_ZONE = 0.2;
 const axis = (value = 0) => Math.abs(value) < GAMEPAD_DEAD_ZONE ? 0 : Math.sign(value) * (Math.abs(value) - GAMEPAD_DEAD_ZONE) / (1 - GAMEPAD_DEAD_ZONE);
 
+/** Canvas-space heading used by movement, facing and projectile code. */
+export function headingDegrees(x: number, y: number): number | null {
+  return Math.hypot(x, y) > 0 ? Math.atan2(y, x) * 180 / Math.PI : null;
+}
+
+/** Rising-edge helper. Holding a button never manufactures another press. */
+export function pressedOnce(current: boolean, previous: boolean) {
+  return current && !previous;
+}
+
 export function readStandardGamepad(pad: Gamepad): GamepadActions {
   const pressed = (index: number) => Boolean(pad.buttons[index]?.pressed);
   return {
@@ -22,3 +32,9 @@ export function readStandardGamepad(pad: Gamepad): GamepadActions {
 }
 
 export const EMPTY_GAMEPAD: GamepadActions = { moveX: 0, moveY: 0, aimX: 0, aimY: 0, fireMain: false, firePup: false, special: false, previousPup: false, nextPup: false, pause: false, confirm: false, cancel: false, menuX: 0, menuY: 0 };
+
+/** Hot-plug boundary: absence/disconnect yields controller-neutral state only. */
+export function controllerStateForPads(pads: readonly (Gamepad | null)[]): GamepadActions {
+  const pad = pads.find((candidate) => candidate?.connected && candidate.mapping === "standard");
+  return pad ? readStandardGamepad(pad) : EMPTY_GAMEPAD;
+}
