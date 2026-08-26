@@ -119,7 +119,15 @@ export function HomeScreen({
   return (
     <MenuScreen
       route="home"
-      title={PRODUCT_TITLE}
+      title={
+        <img
+          className="launch-brand-logo"
+          src="/branding/breach_runner_logo.webp"
+          alt={PRODUCT_TITLE}
+          width={800}
+          height={320}
+        />
+      }
       eyebrow={PRODUCT_TAGLINE}
       onBack={close}
       backLabel="Resume"

@@ -6,6 +6,7 @@ import { PRODUCT_TAGLINE, PRODUCT_TITLE } from "../app/product.ts";
 
 const game = fs.readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
 const layout = fs.readFileSync(new URL("../app/layout.tsx", import.meta.url), "utf8");
+const mainMenu = fs.readFileSync(new URL("../app/main-menu.tsx", import.meta.url), "utf8");
 const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
 const provenance = fs.readFileSync(new URL("../ASSET_PROVENANCE.md", import.meta.url), "utf8");
 
@@ -55,7 +56,10 @@ test("player-facing game copy no longer exposes legacy branding or old ability l
   for (const phrase of legacyVisibleGamePhrases) {
     assert.doesNotMatch(game, new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
   }
-  assert.match(game, /BREACH <em>RUNNER<\/em>/);
+  assert.match(game, /src="\/branding\/breach_runner_logo\.webp"/);
+  assert.match(game, /alt="Breach Runner"/);
+  assert.match(mainMenu, /className="launch-brand-logo"/);
+  assert.match(mainMenu, /src="\/branding\/breach_runner_logo\.webp"/);
   // The original-build provenance claim is a commercial-IP record, not player
   // copy. It used to sit in the Mission Intel panel; it belongs in the
   // provenance document, which is where a reviewer would actually look.
@@ -70,6 +74,10 @@ test("public metadata and README do not market the project as a recreation", () 
   assert.doesNotMatch(publicCopy, /browser recreation/i);
   assert.doesNotMatch(publicCopy, /original downloadable client/i);
   assert.doesNotMatch(layout, /og\.png/i);
+  assert.match(layout, /\/favicon\.ico/);
+  assert.match(layout, /\/favicon\.png/);
+  assert.match(layout, /\/apple-touch-icon\.png/);
+  assert.doesNotMatch(layout, /favicon\.svg/i);
 });
 
 test("commercial-use provenance covers replaced audio and current visual identity assets", () => {
@@ -77,6 +85,15 @@ test("commercial-use provenance covers replaced audio and current visual identit
     assert.match(provenance, new RegExp(file.replace(".", "\\.")));
   }
   assert.match(provenance, /newly generated original waveform/i);
-  assert.match(provenance, /favicon\.svg[\s\S]*Cleared for current project use/i);
+  for (const file of [
+    "breach_runner_logo.png",
+    "breach_runner_logo.webp",
+    "breach_runner_favicon.png",
+    "favicon.ico",
+    "favicon.png",
+    "apple-touch-icon.png",
+  ]) {
+    assert.match(provenance, new RegExp(`${file.replace(".", "\\.")}[\\s\\S]*Cleared for current project use`, "i"));
+  }
   assert.match(provenance, /og\.png[\s\S]*Dormant \/ not cleared/i);
 });

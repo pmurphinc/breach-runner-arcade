@@ -27,8 +27,12 @@ export const metadata: Metadata = {
     description: PRODUCT_TAGLINE,
   },
   icons: {
-    icon: "/favicon.svg",
-    shortcut: "/favicon.svg",
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/favicon.png", type: "image/png", sizes: "64x64" },
+    ],
+    shortcut: "/favicon.ico",
+    apple: { url: "/apple-touch-icon.png", type: "image/png", sizes: "180x180" },
   },
 };
 
