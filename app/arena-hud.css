@@ -111,4 +111,133 @@
   .touch-powerup-slots { gap: 1px; }
   .touch-powerup-loaded { width: clamp(76px, 24vw, 104px); }
 }
+
+/* Phone portrait is three deliberate vertical regions: measured HUD, flexible
+   arena, and a safe bottom control deck.  The generic touch canvas rule used
+   to size the canvas from its 1.6:1 world aspect ratio; on a tall phone that
+   left most of canvas-wrap as inert grid.  Here top and bottom edges define
+   the visible playfield instead, so it consumes every remaining CSS pixel. */
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"] {
+  --portrait-control-deck: calc(var(--stick) + 62px + var(--touch-lift, 0px) + max(8px, var(--safe-bottom)));
+}
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"] .canvas-wrap > canvas {
+  top: calc(var(--arena-playfield-top, 142px) + 6px);
+  right: 0;
+  bottom: var(--portrait-control-deck);
+  left: 0;
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  margin: 0;
+  transform: none;
+  border-block: 1px solid rgba(101, 232, 255, .4);
+}
+
+/* Only the first row shares horizontal space with the global controls. Score
+   and time get bounded columns; subsequent HUD rows may use the full width. */
+.touch-capable[data-immersive="true"][data-form="phone"] .difficulty-badge {
+  width: calc(100% - 154px - var(--safe-left) - var(--safe-right));
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  column-gap: 8px;
+}
+.touch-capable[data-immersive="true"][data-form="phone"] .difficulty-badge :is(.rule-score, .rule-time) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: clip;
+}
+.touch-capable[data-immersive="true"][data-form="phone"] .difficulty-badge .rule-time { justify-self: end; }
+.touch-capable[data-immersive="true"][data-form="phone"] .difficulty-badge .rule-mode {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.touch-capable[data-immersive="true"][data-form="phone"] .difficulty-badge .rule-context { display: none; }
+
+/* Health cards are equal, bounded grid cells. Text participates in each
+   card's own layout rather than being absolutely anchored across the pair. */
+.touch-capable[data-immersive="true"][data-form="phone"] .health-rails {
+  right: max(6px, var(--safe-right));
+  left: max(6px, var(--safe-left));
+  width: auto;
+  height: 26px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.touch-capable[data-immersive="true"][data-form="phone"] .health-rail {
+  min-width: 0;
+  height: 24px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+.touch-capable[data-immersive="true"][data-form="phone"] .health-rail span {
+  position: relative;
+  inset: auto;
+  max-width: 100%;
+  min-width: 0;
+  padding: 3px 5px;
+  overflow: hidden;
+  transform: none;
+  text-overflow: ellipsis;
+  font-size: clamp(10px, 2.8vw, 12px);
+}
+
+/* Inventory owns the full row below health, where the system controls no
+   longer compete for width. The loaded card keeps a readable allocation and
+   the nine queue cells fluidly share what remains. */
+.touch-capable[data-immersive="true"][data-form="phone"] .canvas-wrap > .touch-powerup-hud {
+  --pup-slot: auto;
+  top: calc(var(--health-bottom, 88px) + 6px);
+  right: max(6px, var(--safe-right));
+  left: max(6px, var(--safe-left));
+  width: auto;
+  height: 42px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(104px, 29vw, 126px);
+  gap: 4px;
+}
+.touch-capable[data-immersive="true"][data-form="phone"] .touch-powerup-slots {
+  min-width: 0;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 1px;
+}
+.touch-capable[data-immersive="true"][data-form="phone"] .touch-powerup-slot {
+  width: auto;
+  height: min(30px, 8vw);
+}
+.touch-capable[data-immersive="true"][data-form="phone"] .touch-powerup-loaded {
+  width: auto;
+  min-width: 0;
+  grid-template-rows: 12px minmax(0, 1fr);
+}
+.touch-capable[data-immersive="true"][data-form="phone"] .touch-powerup-loaded button {
+  justify-content: center;
+  overflow: hidden;
+}
+.touch-capable[data-immersive="true"][data-form="phone"] .touch-powerup-loaded .weapon-icon {
+  flex: 0 0 auto;
+  width: 24px;
+  max-height: 24px;
+}
+.touch-capable[data-immersive="true"][data-form="phone"] .touch-powerup-loaded strong {
+  font-size: clamp(9px, 2.6vw, 11px);
+}
+
+/* Landscape notices stay compact and attached to inventory.  Bounding their
+   stack prevents an announcement from descending into the left stick orbit. */
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .pup-notice-stack {
+  max-height: 34px;
+  overflow: hidden;
+}
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .pup-notice {
+  min-height: 28px;
+  max-width: min(54vw, 300px);
+  padding-block: 3px;
+}
+
+/* The optional left cluster is a genuine mirrored setting. In normal mode it
+   has no box; when enabled, each copy remains in its own stick's orbit. */
+.touch-capable[data-immersive="true"][data-form="phone"] .touch-utility-mirrored { visibility: hidden; }
+html[data-mirror-touch-actions="on"] .touch-capable[data-immersive="true"][data-form="phone"] .touch-utility-mirrored { visibility: visible; }
 .run-summary-layer { z-index: var(--z-dialog); }
