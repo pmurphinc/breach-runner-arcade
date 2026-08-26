@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from "react";
-import { canvasBackingSize } from "./canvas-sizing";
+import { canvasBackingSize, damageVignette } from "./canvas-sizing";
 import {
   CATEGORY_LABELS,
   CODEX_PICKUPS,
@@ -5142,15 +5142,22 @@ export default function WormholeGame() {
         ctx.fillText("RIVAL RIFT", cap(portalX, 60, W - 60), cap(portalY + 82 * camera.camScale * (W / VIEW_WIDTH), 12, H - 12));
       }
 
-      // Player-hit feedback: a brief red rim, never a full-screen wash.
+      // Player-hit feedback: a brief red rim, never a full-screen wash. The rim
+      // follows the canvas box, so a portrait phone gets the pulse on every
+      // edge instead of a square wash that stops partway down the arena.
       const invuln = game.player.invuln;
       if (invuln > 0 && game.player.health > 0 && profile.detail >= 0.35) {
         const strength = cap(invuln / 24, 0, 1) * 0.55;
-        const vignette = ctx.createRadialGradient(W / 2, W / 2, W * 0.32, W / 2, W / 2, W * 0.72);
+        const rim = damageVignette(W, H);
+        ctx.save();
+        ctx.translate(rim.centerX, rim.centerY);
+        ctx.scale(rim.scaleX, rim.scaleY);
+        const vignette = ctx.createRadialGradient(0, 0, rim.innerRadius, 0, 0, rim.outerRadius);
         vignette.addColorStop(0, "rgba(255,60,90,0)");
         vignette.addColorStop(1, `rgba(255,60,90,${strength})`);
         ctx.fillStyle = vignette;
-        ctx.fillRect(0, 0, W, W);
+        ctx.fillRect(-rim.extent / 2, -rim.extent / 2, rim.extent, rim.extent);
+        ctx.restore();
       }
 
       if (!game.running || game.paused || game.result) {
