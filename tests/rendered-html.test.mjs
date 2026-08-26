@@ -5,7 +5,7 @@ const title = /<title>Breach Runner<\/title>/i;
 const description = /<meta(?=[^>]*\bname=["']description["'])(?=[^>]*\bcontent=["'][^"']*volatile rift[^"']*["'])[^>]*>/i;
 const ogTitle = /<meta(?=[^>]*\bproperty=["']og:title["'])(?=[^>]*\bcontent=["']Breach Runner["'])[^>]*>/i;
 const ogTagline = /<meta(?=[^>]*\bproperty=["']og:description["'])(?=[^>]*\bcontent=["']Weaponize the rift\.["'])[^>]*>/i;
-const favicon = /<link(?=[^>]*\brel=["']icon["'])(?=[^>]*\bhref=["']\/favicon\.ico["'])[^>]*>/i;
+const favicon = /<link(?=[^>]*\brel=["']icon["'])(?=[^>]*\bhref=["'][^"']*\/favicon\.ico["'])[^>]*>/i;
 
 test("renders Breach Runner commercial metadata", async () => {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
