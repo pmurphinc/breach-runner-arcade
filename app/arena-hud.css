@@ -118,7 +118,12 @@
    left most of canvas-wrap as inert grid.  Here top and bottom edges define
    the visible playfield instead, so it consumes every remaining CSS pixel. */
 .touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"] {
-  --portrait-control-deck: calc(var(--stick) + 62px + var(--touch-lift, 0px) + max(8px, var(--safe-bottom)));
+  /* One proportional scale controls the complete canonical cluster. At 390px
+     and above it is full size; narrow phones approach the .72 floor. */
+  --stick: calc(var(--touch-base-stick) * var(--touch-control-scale));
+  --satellite: calc(52px * var(--touch-control-scale));
+  --control-space: calc(8px * var(--touch-control-scale));
+  --portrait-control-deck: calc(var(--stick) + 62px * var(--touch-control-scale) + var(--touch-lift, 0px) + max(8px, var(--safe-bottom)));
 }
 .touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"] .canvas-wrap > canvas {
   top: calc(var(--arena-playfield-top, 142px) + 6px);
@@ -244,9 +249,31 @@ html[data-mirror-touch-actions="on"] .touch-capable[data-immersive="true"][data-
 /* Wide-screen radial offsets converge at the centre on portrait phones.
    Stack each cluster above its own stick and preserve a clear centre lane. */
 .touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"][data-touch-controls="on"] :is(.touch-flight, .touch-action) .touch-utility { inset: 0; }
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"] .touch-flight { left: max(var(--control-space), var(--safe-left)); }
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"] .touch-action { right: max(var(--control-space), var(--safe-right)); }
 .touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"][data-touch-controls="on"] .touch-flight .touch-utility button { left: 22%; }
 .touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"][data-touch-controls="on"] .touch-action .touch-utility button { left: 78%; }
 .touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"][data-touch-controls="on"] :is(.touch-flight, .touch-action) .touch-pause { top: -72%; transform: translate(-50%, -50%); }
 .touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"][data-touch-controls="on"] :is(.touch-flight, .touch-action) .touch-special { top: -25%; transform: translate(-50%, -50%); }
 .touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"][data-touch-controls="on"] :is(.touch-flight, .touch-action) .touch-pup { top: 22%; right: auto; transform: translate(-50%, -50%); }
+
+/* Keep the visual cluster proportional while retaining a comfortable 44px
+   invisible hit surface when a narrow phone renders a smaller disc. */
+.touch-capable[data-immersive="true"][data-form="phone"][data-touch-controls="on"] .touch-utility button {
+  width: var(--satellite);
+  height: var(--satellite);
+  min-width: 0;
+  min-height: 0;
+}
+.touch-capable[data-immersive="true"][data-form="phone"][data-touch-controls="on"] .touch-utility button::before {
+  content: "";
+  position: absolute;
+  inset: min(0px, calc((var(--satellite) - 44px) / 2));
+  border-radius: 50%;
+}
+
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] {
+  --stick: calc(var(--touch-base-stick) * var(--touch-control-scale));
+  --satellite: calc(52px * var(--touch-control-scale));
+}
 .run-summary-layer { z-index: var(--z-dialog); }

@@ -75,3 +75,12 @@ test("plate identity is stable so the HUD only re-renders on a real change", () 
   assert.match(game, /type SpawnNotice = \{ id: number;/);
   assert.match(game, /a\.spawnNotices\.every\(\(plate, index\) => plate\.id === b\.spawnNotices\[index\]\.id\)/);
 });
+
+test("temporary notice content is excluded from arena resize observation", () => {
+  const observerStart = game.indexOf("const observer = new ResizeObserver(measure)");
+  const observerEnd = game.indexOf("return () => observer.disconnect()", observerStart);
+  const observedGeometry = game.slice(observerStart, observerEnd);
+  assert.doesNotMatch(observedGeometry, /pup-notice-stack/);
+  assert.match(observedGeometry, /touch-powerup-hud/,
+    "the permanent inventory remains part of the stable HUD measurement");
+});
