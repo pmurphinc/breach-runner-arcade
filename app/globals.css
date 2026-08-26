@@ -448,6 +448,7 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 .difficulty-badge i { color: #eafcff; font-style: normal; }
 .difficulty-badge .warn i { color: var(--amber); }
 .difficulty-badge.hazard .warn i { color: #ff5570; }
+.difficulty-badge .rule-context { display: none; }
 /* Small screens and the immersive shell get the mode line plus whichever
    readouts are actually in play, so the badge never eats the arena. */
 @media (max-width: 700px) {
@@ -1054,6 +1055,107 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 
 @media (max-width: 520px) {
   [data-immersive="true"] .brand-logo { width: 88px; }
+}
+
+/* =========================================================================
+   Phone gameplay presentation
+
+   Form and orientation are measured by layout-budget.ts from the live visual
+   viewport.  These are component states rather than width-breakpoint guesses:
+   tablets continue through the established rules above, while both phone
+   orientations get an intentional composition of their own.
+   ========================================================================= */
+.touch-capable[data-immersive="true"][data-form="phone"] {
+  --phone-edge: max(6px, var(--safe-left));
+}
+.touch-capable[data-immersive="true"][data-form="phone"] .topbar { display: none; }
+.touch-capable[data-immersive="true"][data-form="phone"] .cockpit,
+.touch-capable[data-immersive="true"][data-form="phone"] .play-column {
+  width: 100%; height: 100%; padding: 0; gap: 0;
+}
+.touch-capable[data-immersive="true"][data-form="phone"] .arena-stage {
+  width: 100%; height: 100%; max-width: none; margin: 0; flex: none;
+}
+.touch-capable[data-immersive="true"][data-form="phone"] .canvas-wrap {
+  width: 100%; height: 100%; border: 0; box-shadow: none;
+}
+.touch-capable[data-immersive="true"][data-form="phone"] .match-bar { display: none; }
+.touch-capable[data-immersive="true"][data-form="phone"] .canvas-wrap > canvas {
+  left: 0; margin: 0; transform: none; min-width: 0; box-sizing: border-box;
+}
+.touch-capable[data-immersive="true"][data-form="phone"] .difficulty-badge {
+  top: max(6px, var(--safe-top));
+  left: max(6px, var(--safe-left));
+  width: min(310px, calc(100% - 154px - var(--safe-left) - var(--safe-right)));
+  display: grid; grid-template-columns: auto auto; justify-content: start;
+  gap: 3px 14px; padding: 6px 8px; border-color: rgba(100,234,255,.22);
+  background: rgba(2,8,13,.76); backdrop-filter: blur(3px);
+}
+.touch-capable[data-immersive="true"][data-form="phone"] .difficulty-badge span {
+  display: block; font-size: 11px; line-height: 1.1; white-space: nowrap;
+}
+.touch-capable[data-immersive="true"][data-form="phone"] .difficulty-badge .rule-mode { grid-column: 1; color: var(--cyan); }
+.touch-capable[data-immersive="true"][data-form="phone"] .difficulty-badge .rule-rift-level { grid-column: 2; }
+.touch-capable[data-immersive="true"][data-form="phone"] .difficulty-badge :is(.rule-rift,.rule-shield,.rule-contact,.rule-enraged) { display: none; }
+.touch-capable[data-immersive="true"][data-form="phone"] .difficulty-badge .rule-context { grid-column: 1 / -1; color: #eafcff; }
+.touch-capable[data-immersive="true"][data-form="phone"] .health-rails {
+  top: calc(max(6px, var(--safe-top)) + 58px); right: auto; bottom: auto;
+  left: max(6px, var(--safe-left)); width: min(310px, calc(100% - 154px - var(--safe-left) - var(--safe-right)));
+  height: 26px; gap: 5px;
+}
+.touch-capable[data-immersive="true"][data-form="phone"] .health-rail { height: 24px; }
+.touch-capable[data-immersive="true"][data-form="phone"] .pilot-rail small { display: none; }
+.touch-capable[data-immersive="true"][data-form="phone"] .canvas-wrap > .touch-powerup-hud {
+  --pup-slot: clamp(18px, 4.5vw, 25px);
+  top: calc(max(6px, var(--safe-top)) + 90px); bottom: auto;
+  left: max(6px, var(--safe-left)); transform: none; width: auto; height: 38px;
+  gap: 3px; padding: 3px; background: rgba(2,9,15,.8); backdrop-filter: blur(3px);
+}
+.touch-capable[data-immersive="true"][data-form="phone"] .touch-powerup-loaded { width: clamp(78px, 22vw, 104px); }
+.touch-capable[data-immersive="true"][data-form="phone"] .pup-notice-stack { left: 0; align-items: start; transform: none; }
+.touch-capable[data-immersive="true"][data-form="phone"] .system-controls {
+  top: max(6px, var(--safe-top)); right: max(6px, var(--safe-right)); gap: 4px;
+}
+.touch-capable[data-immersive="true"][data-form="phone"] .system-text {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+.touch-capable[data-immersive="true"][data-form="phone"] .system-button {
+  width: 44px; min-width: 44px; height: 44px; min-height: 44px; padding: 0;
+  background: rgba(4,14,22,.72); box-shadow: none;
+}
+
+/* Landscape is one edge-to-edge playfield. All UI floats in safe thumb zones. */
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .canvas-wrap > canvas {
+  top: 0; width: 100%; height: 100%; border: 0;
+}
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .touch-controls {
+  position: fixed; inset: 0; z-index: 12;
+}
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] :is(.touch-flight,.touch-action) {
+  top: auto; bottom: max(8px, var(--safe-bottom)); transform: none;
+}
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .touch-flight { left: max(8px, var(--safe-left)); }
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .touch-action { right: max(8px, var(--safe-right)); left: auto; }
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .virtual-stick { opacity: .66; }
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .virtual-stick.active { opacity: 1; }
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .touch-utility {
+  left: auto; right: 0; bottom: calc(100% + 7px); transform: none;
+}
+
+/* Portrait reserves the compact top HUD and a shallow lower control deck;
+   the world fills everything between them, eliminating the former dead gap. */
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"] .canvas-wrap > canvas {
+  top: calc(max(6px, var(--safe-top)) + 136px);
+  width: 100%; height: calc(100% - max(6px, var(--safe-top)) - 136px - var(--stick) - 54px - max(8px, var(--safe-bottom)));
+  border-block: 1px solid rgba(101,232,255,.4);
+}
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"] .touch-controls {
+  position: fixed; inset: auto 0 max(8px, var(--safe-bottom)); z-index: 12; height: var(--stick);
+}
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"] .touch-flight { left: 8px; bottom: 0; transform: none; }
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"] .touch-action { right: 8px; left: auto; bottom: 0; transform: none; }
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"] .touch-utility {
+  left: 50%; bottom: calc(100% + 5px); transform: translateX(-50%);
 }
 
 /* ------------------------------------------------------------ a11y modes -- */
