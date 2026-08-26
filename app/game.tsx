@@ -1401,6 +1401,13 @@ function DifficultyBadge({
       ? "NO COLLISION SHIELD"
       : `SHIELD ${shield}`;
   const status = `${gameMode} · ${difficulty}${riftLevel > 0 ? ` | RIFT LEVEL ${riftLevel} · ${riftStage}` : ""} | RIFT ${wormhole} | ${shieldText} | CONTACT ${contact}${live && hud.enrageActive ? " | ENRAGED" : ""}`;
+  const context = live && hud.enrageActive
+    ? "ENRAGED"
+    : recharge > 0
+      ? `SHIELD RECHARGING ${recharge.toFixed(1)}s`
+      : hazardArmed
+        ? `CONTACT ${contact}`
+        : "CONTACT SAFE";
 
   return (
     <div className={`difficulty-badge ${contactActive ? "hazard" : ""}`} role="status" aria-live="polite" aria-label={`Score ${hud.score}. Active rules: ${status}`}>
@@ -1408,10 +1415,11 @@ function DifficultyBadge({
       <span className="rule-time">TIME {formatRunTime(hud.elapsedSeconds)}</span>
       <span className="rule-mode">{gameMode} · {difficulty}</span>
       {riftLevel > 0 ? <span className="rule-rift-level">LEVEL {riftLevel} · {riftStage}</span> : null}
-      <span>RIFT {wormhole}</span>
-      <span className={charge !== null && charge <= 0 ? "warn" : ""}>{shieldText}</span>
-      <span className={hazardArmed ? "warn" : ""}>CONTACT {contact}</span>
-      {live && hud.enrageActive ? <span className="warn">ENRAGED</span> : null}
+      <span className="rule-rift">RIFT {wormhole}</span>
+      <span className={`rule-shield ${charge !== null && charge <= 0 ? "warn" : ""}`}>{shieldText}</span>
+      <span className={`rule-contact ${hazardArmed ? "warn" : ""}`}>CONTACT {contact}</span>
+      {live && hud.enrageActive ? <span className="rule-enraged warn">ENRAGED</span> : null}
+      <span className="rule-context">{context}</span>
     </div>
   );
 }

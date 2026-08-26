@@ -150,7 +150,12 @@ export function budgetFor(input: ViewportInput, preset: ScreenPreset): LayoutBud
 
   const gap = CHROME.gap;
   const stickBase = orientation === "landscape"
-    ? Math.min(usableWidth * 0.16, usableHeight * 0.34)
+    // Phone landscape controls float over the playfield.  They deliberately
+    // use a smaller visual disc than tablet/desktop touch controls while the
+    // hit surface remains at least 78px (well above the 44px target).
+    ? form === "phone"
+      ? Math.min(usableWidth * 0.115, usableHeight * 0.25)
+      : Math.min(usableWidth * 0.16, usableHeight * 0.34)
     : Math.min(usableWidth * 0.3, usableHeight * 0.24);
   // Scale after clamping, not before: on a large tablet the natural size
   // already hits the ceiling, so scaling first meant the player's size
@@ -169,19 +174,27 @@ export function budgetFor(input: ViewportInput, preset: ScreenPreset): LayoutBud
   let trimmed = false;
 
   if (orientation === "landscape") {
-    // Beside the arena keeps it completely clear, but on a short wide screen
-    // the gutters cost more than floating the sticks over the lower corners.
-    const gutterWidth = showTouchControls ? 2 * (stick + 20) : 0;
-    // Gutters change how much *width* the arena gets, not how much height:
-    // the inventory and primary action still sit below it. Subtracting only
-    // the top bar here is what used to push the dock off a wide screen.
-    const gutterArena = Math.min(usableHeight - fixedChrome, usableWidth - gutterWidth - gap * 2);
-    // Same vertical budget as the gutter arrangement — overlaying the sticks
-    // changes what covers the arena, not how much height the chrome needs.
-    const overlayArena = Math.min(usableWidth - gap * 2, usableHeight - fixedChrome);
-    const preferOverlay = safePreset === "arena" || overlayArena > gutterArena * 1.15;
-    sticks = showTouchControls ? (preferOverlay ? "overlay" : "gutter") : "overlay";
-    arena = preferOverlay || !showTouchControls ? overlayArena : gutterArena;
+    if (form === "phone") {
+      // A phone is not a miniature tablet.  Its arena is a viewport and the
+      // HUD/sticks overlay it; no portrait-shaped centre column or gutters.
+      sticks = "overlay";
+      arena = usableHeight < MIN_ARENA + 80 ? MIN_ARENA : usableWidth;
+      trimmed = usableHeight < MIN_ARENA + 80;
+    } else {
+      // Beside the arena keeps it completely clear, but on a short wide screen
+      // the gutters cost more than floating the sticks over the lower corners.
+      const gutterWidth = showTouchControls ? 2 * (stick + 20) : 0;
+      // Gutters change how much *width* the arena gets, not how much height:
+      // the inventory and primary action still sit below it. Subtracting only
+      // the top bar here is what used to push the dock off a wide screen.
+      const gutterArena = Math.min(usableHeight - fixedChrome, usableWidth - gutterWidth - gap * 2);
+      // Same vertical budget as the gutter arrangement — overlaying the sticks
+      // changes what covers the arena, not how much height the chrome needs.
+      const overlayArena = Math.min(usableWidth - gap * 2, usableHeight - fixedChrome);
+      const preferOverlay = safePreset === "arena" || overlayArena > gutterArena * 1.15;
+      sticks = showTouchControls ? (preferOverlay ? "overlay" : "gutter") : "overlay";
+      arena = preferOverlay || !showTouchControls ? overlayArena : gutterArena;
+    }
   } else {
     const full = usableWidth - gap * 2;
     // Prefer the arrangement where nothing overlaps the arena, but only while
@@ -195,7 +208,7 @@ export function budgetFor(input: ViewportInput, preset: ScreenPreset): LayoutBud
 
   // Fit Screen never lets the arena win an argument with a control. Balanced
   // gives the arena more room; Arena Focus gives it everything left over.
-  if (safePreset === "fit") {
+  if (safePreset === "fit" && !(form === "phone" && orientation === "landscape")) {
     const ceiling = Math.min(usableWidth - gap * 2, usableHeight - fixedChrome);
     if (arena > ceiling) {
       arena = ceiling;

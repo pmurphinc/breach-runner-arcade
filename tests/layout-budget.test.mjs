@@ -75,7 +75,8 @@ test("the arena never claims space the fixed chrome needs, on any device", () =>
       const budget = budgetFor(input, preset);
       const usedVertically = budget.arena + requiredChrome;
       assert.ok(
-        usedVertically <= budget.usableHeight || budget.arena === MIN_ARENA,
+        (budget.form === "phone" && budget.orientation === "landscape") ||
+          usedVertically <= budget.usableHeight || budget.arena === MIN_ARENA,
         `${name} / ${preset}: arena ${budget.arena} + chrome ${requiredChrome} exceeds ${budget.usableHeight}`
       );
       assert.ok(
@@ -92,7 +93,8 @@ test("Fit Screen fits everything, everywhere", () => {
     const budget = budgetFor(input, "fit");
     const ceiling = budget.usableHeight - (CHROME.top + CHROME.dock + CHROME.gap * 3);
     assert.ok(
-      budget.arena <= Math.max(ceiling, MIN_ARENA) + 1,
+      (budget.form === "phone" && budget.orientation === "landscape") ||
+        budget.arena <= Math.max(ceiling, MIN_ARENA) + 1,
       `${name}: Fit Screen arena ${budget.arena} exceeds its ceiling ${ceiling}`
     );
   }
@@ -208,6 +210,41 @@ test("thumbsticks land in the arrangement each orientation expects", () => {
   // Arena Focus always overlays, so the arena keeps the full width.
   const focus = budgetFor(viewport({ width: 1024, height: 768, touch: true, coarse: true }), "arena");
   assert.equal(focus.sticks, "overlay");
+});
+
+test("phones use dedicated orientation layouts independent of control mode", () => {
+  const portrait = budgetFor(viewport({ width: 390, height: 700, touch: true, coarse: true }), "fit");
+  const tallPortrait = budgetFor(viewport({ width: 430, height: 932, touch: true, coarse: true }), "fit");
+  const landscape = budgetFor(viewport({ width: 844, height: 390, touch: true, coarse: true }), "fit");
+  const shortLandscape = budgetFor(viewport({ width: 740, height: 320, touch: true, coarse: true }), "fit");
+  const noSticks = budgetFor(viewport({ width: 844, height: 390, touch: true, coarse: true, touchControls: "hide" }), "fit");
+
+  for (const result of [portrait, tallPortrait]) {
+    assert.equal(result.form, "phone");
+    assert.equal(result.orientation, "portrait");
+  }
+  for (const result of [landscape, shortLandscape, noSticks]) {
+    assert.equal(result.form, "phone");
+    assert.equal(result.orientation, "landscape");
+    assert.equal(result.sticks, "overlay");
+    assert.equal(result.arena, result.usableWidth, "landscape playfield uses the available width");
+  }
+  assert.ok(landscape.stick <= 98, "phone landscape discs stay compact");
+  assert.equal(noSticks.showTouchControls, false, "presentation does not override the control choice");
+});
+
+test("safe-area and fullscreen-sized phone viewports recalculate deterministically", () => {
+  const browser = viewport({ width: 390, height: 700, touch: true, coarse: true, safeTop: 47, safeBottom: 34 });
+  const fullscreen = { ...browser, height: 844, safeTop: 0 };
+  const before = budgetFor(browser, "fit");
+  const expanded = budgetFor(fullscreen, "fit");
+  const rotated = budgetFor({ ...fullscreen, width: 844, height: 390, safeLeft: 47, safeRight: 34 }, "fit");
+  const returned = budgetFor(browser, "fit");
+
+  assert.ok(expanded.usableHeight > before.usableHeight);
+  assert.equal(rotated.orientation, "landscape");
+  assert.equal(rotated.arena, rotated.usableWidth);
+  assert.ok(budgetsEqual(before, returned), "portrait → landscape → portrait returns to the same layout");
 });
 
 test("a viewport too small for everything holds the arena at its minimum", () => {
