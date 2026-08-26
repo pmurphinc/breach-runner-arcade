@@ -29,7 +29,7 @@ export const metadata: Metadata = {
     type: "website",
     images: [
       {
-        url: "/og.png",
+        url: "/og.png?v=breach-runner-1",
         width: 1200,
         height: 630,
         alt: "Breach Runner — Weaponize the Rift",
@@ -40,7 +40,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: PRODUCT_TITLE,
     description: PRODUCT_TAGLINE,
-    images: ["/og.png"],
+    images: ["/og.png?v=breach-runner-1"],
   },
   icons: {
     icon: [
