@@ -240,6 +240,85 @@ test("the primary action stays visible on wide and short touch screens", { skip 
   }
 });
 
+test("touch-stick height has safe symmetric computed geometry in every arrangement", { skip }, async () => {
+  const { chromium } = playwright;
+  const browser = await chromium.launch({ executablePath: CHROME });
+  const cases = [
+    { name: "phone portrait docked", width: 390, height: 844, sticks: "docked" },
+    { name: "phone landscape overlay", width: 844, height: 390, sticks: "overlay" },
+    { name: "tablet landscape overlay", width: 1280, height: 800, sticks: "overlay" },
+    { name: "tablet landscape gutter", width: 1280, height: 800, sticks: "gutter" },
+    { name: "fold cover docked", width: 344, height: 882, sticks: "docked" },
+  ];
+  try {
+    for (const sample of cases) {
+      const { context, page, errors } = await openShell(browser, { ...sample, touch: true });
+      const positions = [];
+      for (const height of ["low", "middle", "high"]) {
+        await page.evaluate((next) => {
+          const key = "wormhole-arcade:settings:v1";
+          const stored = JSON.parse(localStorage.getItem(key) || "{}");
+          localStorage.setItem(key, JSON.stringify({ ...stored, version: 1, viewMode: "touch", thumbsticks: true, touchControlHeight: next }));
+        }, height);
+        await page.reload({ waitUntil: "networkidle" });
+        await page.waitForTimeout(300);
+        await enterArena(page);
+        await page.locator(".app-shell").evaluate((shell, sticks) => { shell.dataset.sticks = sticks; }, sample.sticks);
+        await page.waitForTimeout(100);
+
+        const geometry = await page.evaluate(() => {
+          const rect = (selector) => {
+            const box = document.querySelector(selector)?.getBoundingClientRect();
+            return box ? { top: box.top, bottom: box.bottom, left: box.left, right: box.right, width: box.width, height: box.height } : null;
+          };
+          const overlaps = (a, b) => Boolean(a && b && a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top);
+          const move = rect(".touch-flight .virtual-stick");
+          const aim = rect(".touch-action .virtual-stick");
+          const protectedHud = [rect(".health-rails"), rect(".touch-powerup-hud"), rect(".pup-notification"), rect(".system-controls")];
+          const interactive = [
+            move, aim,
+            ...[...document.querySelectorAll(".touch-controls .touch-utility button")].map((item) => {
+              const box = item.getBoundingClientRect();
+              return { top: box.top, bottom: box.bottom, left: box.left, right: box.right, width: box.width, height: box.height };
+            }),
+          ];
+          return {
+            move, aim,
+            inside: interactive.every((box) => box && box.left >= -1 && box.right <= innerWidth + 1 && box.top >= -1 && box.bottom <= innerHeight + 1),
+            clear: interactive.every((control) => protectedHud.every((hud) => !overlaps(control, hud))),
+          };
+        });
+        assert.ok(geometry.move && geometry.aim, `${sample.name} ${height} must render both sticks`);
+        assert.ok(Math.abs(geometry.move.top - geometry.aim.top) <= 1, `${sample.name} ${height} sides are not symmetric`);
+        assert.equal(geometry.inside, true, `${sample.name} ${height} escaped the safe viewport`);
+        assert.equal(geometry.clear, true, `${sample.name} ${height} overlapped protected HUD`);
+        positions.push(geometry.move.top);
+      }
+      assert.ok(positions[0] > positions[1] && positions[1] > positions[2], `${sample.name} heights did not move low → middle → high: ${positions}`);
+
+      await page.evaluate(() => {
+        const key = "wormhole-arcade:settings:v1";
+        const stored = JSON.parse(localStorage.getItem(key) || "{}");
+        localStorage.setItem(key, JSON.stringify({ ...stored, thumbsticks: false, touchControlHeight: "high" }));
+      });
+      await page.reload({ waitUntil: "networkidle" });
+      await enterArena(page);
+      const hidden = await page.evaluate(() => ({
+        stick: getComputedStyle(document.querySelector(".virtual-stick")).display,
+        lift: getComputedStyle(document.querySelector(".app-shell")).getPropertyValue("--touch-lift"),
+        size: getComputedStyle(document.querySelector(".app-shell")).getPropertyValue("--stick"),
+      }));
+      assert.equal(hidden.stick, "none", `${sample.name} hidden stick remained visible`);
+      assert.match(hidden.size.trim(), /^0px$/, `${sample.name} hidden sticks retained movable size`);
+      assert.equal(hidden.lift.trim(), "0px", `${sample.name} hidden sticks retained height lift`);
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+  } finally {
+    await browser.close();
+  }
+});
+
 const PRESET_VIEWPORTS = [
   { name: "2048x1152 desktop", width: 2048, height: 1152, touch: false },
   { name: "2048x1152 touch desktop", width: 2048, height: 1152, touch: true },

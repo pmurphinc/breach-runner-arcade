@@ -161,6 +161,7 @@ test('touch-stick height participates in the shared safe-area reservation', () =
   assert.match(css, /data-touch-height="high"[^}]*--touch-lift:\s*clamp\(24px, 8dvh, 64px\)/);
   assert.match(css, /data-sticks="docked"[^}]*\.touch-controls[^}]*bottom:[^;]*var\(--touch-lift\)/);
   assert.match(css, /data-sticks="overlay"[^}]*touch-action[^}]*bottom:[^;]*var\(--touch-lift\)/);
+  assert.match(css, /data-sticks="gutter"[^}]*touch-action[^}]*top:\s*calc\(50% - var\(--touch-lift/);
   assert.doesNotMatch(css, /data-touch-height="high"[^}]*transform:/);
 });
 
@@ -227,8 +228,10 @@ test('landscape tablets reuse the full arena shell and corner controls', () => {
   );
   assert.match(tablet, /data-form="tablet"\]\[data-orientation="landscape"/);
   assert.match(tablet, /\.arena-stage\s*\{[\s\S]*?width:\s*100%/);
-  assert.match(tablet, /\.touch-flight\s*\{[\s\S]*?bottom:\s*max\(12px,[\s\S]*?left:\s*max\(12px/);
-  assert.match(tablet, /\.touch-action\s*\{[\s\S]*?right:\s*max\(12px,[\s\S]*?bottom:\s*max\(12px/);
+  assert.match(tablet, /data-sticks="overlay"[^}]*\.touch-flight\s*\{[\s\S]*?bottom:\s*calc\(max\(12px,[^;]*var\(--touch-lift\)/);
+  assert.match(tablet, /data-sticks="overlay"[^}]*\.touch-action\s*\{[\s\S]*?bottom:\s*calc\(max\(12px,[^;]*var\(--touch-lift\)/);
+  assert.match(tablet, /data-sticks="gutter"[^}]*\.touch-flight\s*\{[\s\S]*?top:\s*calc\(50% - var\(--touch-lift\)/);
+  assert.match(tablet, /data-sticks="gutter"[^}]*\.touch-action\s*\{[\s\S]*?top:\s*calc\(50% - var\(--touch-lift\)/);
   assert.doesNotMatch(tablet, /scale|dead.?zone|accel|inertia/i,
     'tablet layout must not alter touch response or gameplay');
 });

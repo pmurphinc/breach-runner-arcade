@@ -1023,8 +1023,8 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 [data-immersive="true"][data-sticks="gutter"] .play-column { justify-content: center; }
 [data-immersive="true"][data-sticks="gutter"] .match-bar { position: absolute; top: 4px; left: 4px; z-index: 4; width: max(150px, calc((100% - var(--arena-size)) / 2 - 12px)); grid-template-columns: minmax(0, 1fr); gap: 6px; background: rgba(4, 13, 21, .86); pointer-events: none; }
 [data-immersive="true"][data-sticks="gutter"] .status-dock { position: absolute; bottom: 4px; left: 50%; z-index: 4; width: var(--arena-size); transform: translateX(-50%); background: rgba(4, 13, 21, .86); }
-[data-immersive="true"][data-sticks="gutter"] .touch-flight { top: 50%; right: calc(100% + 12px); left: auto; transform: translateY(-50%); }
-[data-immersive="true"][data-sticks="gutter"] .touch-action { top: 50%; left: calc(100% + 12px); right: auto; transform: translateY(-50%); }
+[data-immersive="true"][data-sticks="gutter"] .touch-flight { top: calc(50% - var(--touch-lift, 0px)); right: calc(100% + 12px); left: auto; transform: translateY(-50%); }
+[data-immersive="true"][data-sticks="gutter"] .touch-action { top: calc(50% - var(--touch-lift, 0px)); left: calc(100% + 12px); right: auto; transform: translateY(-50%); }
 [data-immersive="true"][data-sticks="gutter"] .touch-utility { top: calc(100% + 8px); bottom: auto; }
 
 
@@ -1530,20 +1530,40 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
     margin: 0;
   }
 
-  .touch-capable[data-immersive="true"][data-form="tablet"][data-orientation="landscape"] .touch-flight {
+  .touch-capable[data-immersive="true"][data-form="tablet"][data-orientation="landscape"][data-sticks="overlay"] .touch-flight {
     top: auto;
     right: auto;
-    bottom: max(12px, env(safe-area-inset-bottom));
+    bottom: calc(max(12px, env(safe-area-inset-bottom)) + var(--touch-lift));
     left: max(12px, env(safe-area-inset-left));
     transform: none;
   }
 
-  .touch-capable[data-immersive="true"][data-form="tablet"][data-orientation="landscape"] .touch-action {
+  .touch-capable[data-immersive="true"][data-form="tablet"][data-orientation="landscape"][data-sticks="overlay"] .touch-action {
     top: auto;
     right: max(12px, env(safe-area-inset-right));
-    bottom: max(12px, env(safe-area-inset-bottom));
+    bottom: calc(max(12px, env(safe-area-inset-bottom)) + var(--touch-lift));
     left: auto;
     transform: none;
+  }
+
+  /* A tablet can still receive the gutter budget. Keep the pair reflected at
+     the viewport sides and move their shared centreline with the same lift as
+     docked and overlay controls. Explicit layout selectors prevent this block
+     from overriding overlay's bottom-based placement. */
+  .touch-capable[data-immersive="true"][data-form="tablet"][data-orientation="landscape"][data-sticks="gutter"] .touch-flight {
+    top: calc(50% - var(--touch-lift));
+    right: auto;
+    bottom: auto;
+    left: max(12px, env(safe-area-inset-left));
+    transform: translateY(-50%);
+  }
+
+  .touch-capable[data-immersive="true"][data-form="tablet"][data-orientation="landscape"][data-sticks="gutter"] .touch-action {
+    top: calc(50% - var(--touch-lift));
+    right: max(12px, env(safe-area-inset-right));
+    bottom: auto;
+    left: auto;
+    transform: translateY(-50%);
   }
 
   .touch-capable[data-immersive="true"][data-form="tablet"][data-orientation="landscape"] .touch-powerup-hud {
