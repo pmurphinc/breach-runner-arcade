@@ -123,16 +123,51 @@
   --stick: calc(var(--touch-base-stick) * var(--touch-control-scale));
   --satellite: calc(52px * var(--touch-control-scale));
   --control-space: calc(8px * var(--touch-control-scale));
+  /* Stick, the orbit of utility buttons above it, the player's Low/Middle/High
+     lift, and the device's bottom inset. Everything the arena must clear. */
   --portrait-control-deck: calc(var(--stick) + 62px * var(--touch-control-scale) + var(--touch-lift, 0px) + max(8px, var(--safe-bottom)));
 }
+/* --arena-playfield-top is published on .canvas-wrap by the shell, and a
+   custom property is substituted where it is declared — so this has to be
+   declared on the wrap too. Declared on .app-shell it silently resolved to
+   its own fallback and the arena stopped tracking the measured HUD. */
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"] .canvas-wrap {
+  --portrait-arena-top: calc(var(--arena-playfield-top, 142px) + 6px);
+}
+/* canvas-wrap has to be the whole viewport for the deck arithmetic below to
+   mean anything. The docked padding-bottom rule further down globals.css was
+   shortening it by an entire control stack, so the arena was already boxed
+   into the top two thirds before the canvas sized itself at all; the Fit
+   preset's max-height shortened it again by the safe-area insets, which put
+   its bottom edge a cutout's height above the bottom the fixed thumbsticks
+   measure from. Every child of the wrap already insets itself from the safe
+   area, so the wrap itself is simply the viewport. */
+.touch-capable[data-immersive="true"][data-form="phone"] .play-column {
+  padding: 0;
+  max-height: none;
+}
+/* The lift is a real position, not decoration: portrait pinned the deck to the
+   bottom inset alone, so Low/Middle/High moved the arena budget without moving
+   the sticks. Both now read the same variable. */
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"] .touch-controls {
+  bottom: calc(max(8px, var(--safe-bottom)) + var(--touch-lift, 0px));
+}
 .touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"] .canvas-wrap > canvas {
-  top: calc(var(--arena-playfield-top, 142px) + 6px);
+  top: var(--portrait-arena-top);
   right: 0;
-  bottom: var(--portrait-control-deck);
+  /* A canvas is a replaced element with an intrinsic ratio, so `top` + `bottom`
+     with `height: auto` does not stretch it: the ratio wins and `bottom` is
+     dropped as over-constrained. That is what left the dead strip between the
+     arena and the sticks. State the height instead, and the box really does
+     fill the region. The camera follows the measured CSS box (see
+     canvas-sizing.ts), so a taller-than-world viewport shows more world rather
+     than a distorted one. */
+  bottom: auto;
   left: 0;
   width: 100%;
   min-width: 0;
-  height: auto;
+  height: calc(100% - var(--portrait-arena-top) - var(--portrait-control-deck));
+  aspect-ratio: auto;
   margin: 0;
   transform: none;
   border-block: 1px solid rgba(101, 232, 255, .4);
@@ -140,8 +175,14 @@
 
 /* Only the first row shares horizontal space with the global controls. Score
    and time get bounded columns; subsequent HUD rows may use the full width. */
+.touch-capable[data-immersive="true"][data-form="phone"] {
+  /* The lane the global Menu / Settings / Fullscreen cluster occupies at the
+     top right, including its clearance. Any HUD band that rides up beside it
+     stops here rather than running underneath it. */
+  --system-lane: 154px;
+}
 .touch-capable[data-immersive="true"][data-form="phone"] .difficulty-badge {
-  width: calc(100% - 154px - var(--safe-left) - var(--safe-right));
+  width: calc(100% - var(--system-lane) - var(--safe-left) - var(--safe-right));
   min-width: 0;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   column-gap: 8px;
@@ -246,16 +287,15 @@
 .touch-capable[data-immersive="true"][data-form="phone"] .touch-utility-mirrored { visibility: hidden; }
 html[data-mirror-touch-actions="on"] .touch-capable[data-immersive="true"][data-form="phone"] .touch-utility-mirrored { visibility: visible; }
 
-/* Wide-screen radial offsets converge at the centre on portrait phones.
-   Stack each cluster above its own stick and preserve a clear centre lane. */
-.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"][data-touch-controls="on"] :is(.touch-flight, .touch-action) .touch-utility { inset: 0; }
+/* Portrait keeps only its edge insets. The radial arrangement itself is the
+   shared --pause-x/--spec-x/--pup-x geometry in globals.css, which is stated
+   as percentages of --stick and therefore scales with the control size in
+   either orientation. The hand-tuned portrait offsets that used to live here
+   (left 22%/78%, top -72%/-25%/22%) existed only to compensate for a portrait
+   .touch-utility rule that shifted the orbit half a stick sideways; with that
+   rule gone, both orientations describe the same cluster. */
 .touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"] .touch-flight { left: max(var(--control-space), var(--safe-left)); }
 .touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"] .touch-action { right: max(var(--control-space), var(--safe-right)); }
-.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"][data-touch-controls="on"] .touch-flight .touch-utility button { left: 22%; }
-.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"][data-touch-controls="on"] .touch-action .touch-utility button { left: 78%; }
-.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"][data-touch-controls="on"] :is(.touch-flight, .touch-action) .touch-pause { top: -72%; transform: translate(-50%, -50%); }
-.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"][data-touch-controls="on"] :is(.touch-flight, .touch-action) .touch-special { top: -25%; transform: translate(-50%, -50%); }
-.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"][data-touch-controls="on"] :is(.touch-flight, .touch-action) .touch-pup { top: 22%; right: auto; transform: translate(-50%, -50%); }
 
 /* Keep the visual cluster proportional while retaining a comfortable 44px
    invisible hit surface when a narrow phone renders a smaller disc. */
@@ -276,4 +316,151 @@ html[data-mirror-touch-actions="on"] .touch-capable[data-immersive="true"][data-
   --stick: calc(var(--touch-base-stick) * var(--touch-control-scale));
   --satellite: calc(52px * var(--touch-control-scale));
 }
+
+/* --------------------------------------------------- phone landscape HUD --
+   A 390px-tall viewport cannot spare a third of itself to a header. Nothing
+   is dropped here — the same score, time, mode, hull, rival, inventory and
+   loaded card are all still shown. They are laid out shallower: the rules
+   rail becomes one row instead of two now that landscape has width to spare,
+   and each band below it attaches to the measured bottom of the band above
+   rather than to a stacked constant, so the whole header collapses together.
+   Portrait is untouched; the taller viewport does not need this. */
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .difficulty-badge {
+  grid-template-columns: repeat(4, auto);
+  justify-content: start;
+  column-gap: 14px;
+  row-gap: 0;
+  padding: 3px 8px;
+}
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .difficulty-badge span {
+  line-height: 1.1;
+}
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .difficulty-badge
+  :is(.rule-score, .rule-time, .rule-mode, .rule-rift-level) {
+  grid-column: auto;
+  justify-self: start;
+}
+/* --rules-bottom and --health-bottom are measured by the shell each layout
+   pass, so these bands track whatever the rail above them actually needed. */
+/* Landscape lifts the bars into the same band as the global controls, so they
+   yield the system lane the rules rail above them already yields. */
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .health-rails {
+  top: calc(var(--rules-bottom, 32px) + 4px);
+  right: calc(max(6px, var(--safe-right)) + var(--system-lane) - 6px);
+  height: 20px;
+}
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .health-rail {
+  height: 20px;
+}
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .health-rail span {
+  padding: 1px 5px;
+  font-size: 11px;
+}
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .canvas-wrap > .touch-powerup-hud {
+  top: calc(var(--health-bottom, 56px) + 4px);
+  height: 32px;
+}
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .touch-powerup-slot {
+  height: min(24px, 6.5vw);
+}
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .touch-powerup-loaded {
+  grid-template-rows: 10px minmax(0, 1fr);
+}
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .touch-powerup-loaded .weapon-icon {
+  width: 20px;
+  max-height: 20px;
+}
+/* ------------------------------------------------------- end-game menu -- */
+/* The run summary is a dialog, not a HUD element. Anchoring it inside
+   canvas-wrap capped it at whatever the arena happened to be — 545px of an
+   844px portrait viewport — and then scrolled the difference. On a phone it
+   takes the whole safe-area viewport and centres in it, so the height it is
+   allowed to use is the height the player can actually see. */
 .run-summary-layer { z-index: var(--z-dialog); }
+.touch-capable[data-immersive="true"][data-form="phone"] .run-summary-layer {
+  position: fixed;
+  inset: 0;
+  padding:
+    max(6px, var(--safe-top))
+    max(6px, var(--safe-right))
+    max(6px, var(--safe-bottom))
+    max(6px, var(--safe-left));
+}
+/* One column everywhere except phone landscape, exactly as before. */
+.run-report,
+.run-continue {
+  display: contents;
+}
+.touch-capable[data-immersive="true"][data-form="phone"] .run-summary {
+  max-height: 100%;
+  gap: 6px;
+  padding: 12px;
+  align-content: start;
+}
+.touch-capable[data-immersive="true"][data-form="phone"] :is(.run-save, .run-links) {
+  gap: 6px;
+  padding-top: 6px;
+}
+.touch-capable[data-immersive="true"][data-form="phone"] .score-settlement span {
+  padding: 4px;
+}
+.touch-capable[data-immersive="true"][data-form="phone"] .initials-entry {
+  gap: 5px;
+  padding: 6px 8px;
+}
+/* The character counter sits between the field and LOCK SCORE in the markup,
+   and because it spans both columns it pushed the button onto a fourth row —
+   two full rows of card height for one line of controls. Place the pair on the
+   same row explicitly and let the counter follow underneath. */
+.touch-capable[data-immersive="true"][data-form="phone"] .initials-entry input {
+  min-height: 44px;
+  font-size: clamp(20px, 4.5vw, 30px);
+  grid-area: 2 / 1;
+}
+.touch-capable[data-immersive="true"][data-form="phone"] .initials-entry .run-action {
+  grid-area: 2 / 2;
+}
+.touch-capable[data-immersive="true"][data-form="phone"] .initials-entry small {
+  grid-area: 3 / 1 / auto / -1;
+}
+.touch-capable[data-immersive="true"][data-form="phone"] .death-info {
+  gap: 2px;
+  padding: 6px 10px;
+}
+.touch-capable[data-immersive="true"][data-form="phone"] .run-status {
+  line-height: 1.25;
+}
+
+/* Landscape has width and no height, so the result reads across rather than
+   down: the report on one side, everything the player can do next on the
+   other. Both groups are real grid items here and `display: contents`
+   everywhere else, so there is one set of markup for every orientation. */
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .run-summary {
+  width: min(560px, 100%);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 6px 12px;
+  padding: 10px 12px;
+}
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"]
+  :is(.run-report, .run-continue) {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+/* Dismiss belongs with the result it dismisses. Left where it is it would sit
+   over the first line of the actions column, which .run-outcome's own
+   padding-right cannot reach across the gutter. */
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .run-close {
+  right: calc(50% + 6px);
+}
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .run-score b {
+  font-size: clamp(20px, 4.4vw, 28px);
+}
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] :is(.run-save, .run-links) {
+  padding-top: 0;
+  border-top: 0;
+}
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"] .run-summary {
+  width: min(360px, 100%);
+}

@@ -88,7 +88,12 @@ test('settings are consolidated into Controls, Audio and Display', () => {
 
 test('initials are a remembered device identity with no Discord prompt', () => {
   const settingsScreen = menu.slice(menu.indexOf('export function SettingsScreen'), menu.indexOf('export function InfoScreen'));
-  const summary = game.slice(game.indexOf('{summary.awaitingInitials ? ('), game.indexOf('className={`death-info'));
+  // The lock/save region, bounded by the action row that follows it. Anchoring
+  // on death-info tied this to where the final-event card happened to sit.
+  const summary = game.slice(
+    game.indexOf('{summary.awaitingInitials ? ('),
+    game.indexOf('aria-label="End game actions"')
+  );
   assert.match(settingsScreen, /menu-player-initials/);
   assert.match(settingsScreen, /Used automatically for future scores/);
   assert.match(settings, /playerInitials: normalizePlayerInitials/);
@@ -130,10 +135,30 @@ test('phone portrait reserves measured HUD and control rows around a flexible ar
   assert.doesNotMatch(geometryObserver, /pup-notice-stack/,
     'temporary notices must not participate in HUD measurement or renderer resize');
   assert.match(arenaHudCss, /--portrait-control-deck:[^;]*var\(--stick\)[^;]*var\(--touch-lift/);
-  const portraitCanvas = arenaHudCss.match(/data-orientation="portrait"\] \.canvas-wrap > canvas \{[^}]+\}/s)?.[0] ?? '';
-  assert.match(portraitCanvas, /top:\s*calc\(var\(--arena-playfield-top/);
-  assert.match(portraitCanvas, /bottom:\s*var\(--portrait-control-deck\)/);
-  assert.match(portraitCanvas, /height:\s*auto/);
+  // The deck the arena reserves and the deck the thumbsticks actually sit in
+  // have to be the same one, or the control height moves only the budget.
+  assert.match(
+    arenaHudCss,
+    /data-orientation="portrait"\] \.touch-controls \{[^}]*bottom:[^;]*var\(--touch-lift/s,
+    'portrait sticks must honour the Low/Middle/High lift, not just reserve for it'
+  );
+  // --arena-playfield-top is published on .canvas-wrap, so the derived offset
+  // has to be declared there too; declared on the shell it resolves to its own
+  // fallback and the arena stops tracking the measured HUD.
+  assert.match(
+    arenaHudCss,
+    /data-orientation="portrait"\] \.canvas-wrap \{[^}]*--portrait-arena-top:\s*calc\(var\(--arena-playfield-top/s
+  );
+  const portraitCanvas = arenaHudCss.match(/data-orientation="portrait"\] \.canvas-wrap > canvas \{.+?\n\}/s)?.[0] ?? '';
+  assert.match(portraitCanvas, /top:\s*var\(--portrait-arena-top\)/);
+  // A canvas is a replaced element: `top` plus `bottom` with an automatic
+  // height keeps its intrinsic ratio and drops `bottom`, which is what left a
+  // dead strip above the sticks. The height has to be stated.
+  assert.match(
+    portraitCanvas,
+    /height:\s*calc\(100% - var\(--portrait-arena-top\) - var\(--portrait-control-deck\)\)/
+  );
+  assert.doesNotMatch(portraitCanvas, /^\s*height:\s*auto;/m);
 });
 
 test('phone controls use one bounded proportional scale without changing their orbit', () => {
