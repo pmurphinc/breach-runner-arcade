@@ -3665,7 +3665,8 @@ export default function WormholeGame() {
 
       game.cycles += 1;
       game.elapsedTicks += 1;
-      if (game.mode === "coop" && game.cycles % 5 === 0) {
+      // PvpClient owns the single 33ms (~30Hz) position cadence.
+      if (game.mode === "coop") {
         netRef.current?.reportPosition(player.x, player.y, player.angle);
       }
       game.shotCycle -= 1;
@@ -4711,7 +4712,7 @@ export default function WormholeGame() {
           ctx.restore();
         }
 
-        const teammate = netRef.current?.state.teammate;
+        const teammate = netRef.current?.renderedTeammate(time);
         if (game.mode === "coop" && teammate) {
           const allyPulse = 32 + Math.sin(time * 0.01) * 4;
           const allyAngle = teammate.angle * DEG;

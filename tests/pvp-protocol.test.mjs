@@ -39,6 +39,17 @@ test("the match service resolves to the game's own origin", () => {
   assert.equal(matchServiceUrl(), "", "no window means no URL, rather than a guess");
 });
 
+test("position packets require sequence, timestamp, and finite coordinates", () => {
+  const valid = parseClientMessage(JSON.stringify({ type: "position", seq: 7, sentAt: 123456, x: 20, y: 30, angle: 361 }));
+  assert.equal(valid.ok, true);
+  assert.deepEqual(valid.message, { type: "position", seq: 7, sentAt: 123456, x: 20, y: 30, angle: 1 });
+  for (const invalid of [
+    { type: "position", sentAt: 123, x: 1, y: 2, angle: 3 },
+    { type: "position", seq: 1, x: 1, y: 2, angle: 3 },
+    { type: "position", seq: 1, sentAt: 123, x: NaN, y: 2, angle: 3 },
+  ]) assert.equal(parseClientMessage(JSON.stringify(invalid)).ok, false);
+});
+
 
 test("co-op world snapshots preserve rotating beam direction", () => {
   const parsed = parseClientMessage(JSON.stringify({
