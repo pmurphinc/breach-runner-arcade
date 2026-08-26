@@ -1458,6 +1458,19 @@ function MultiplayerLobby({
 
   const busy = status.kind === "searching" || status.kind === "waiting" || status.kind === "connecting";
   const offline = status.kind === "offline";
+  const readyRoom = net?.kind === "coop" && Boolean(net.opponent);
+  const result = net?.result ?? null;
+  const ownShip = selectedShip((net?.you?.ship ?? "wing") as ShipId);
+  const allyShip = selectedShip((net?.opponent?.ship ?? "wing") as ShipId);
+  const cycleShip = (direction: number) => {
+    const index = SHIPS.findIndex((ship) => ship.id === ownShip.id);
+    onShip(SHIPS[(index + direction + SHIPS.length) % SHIPS.length].id);
+  };
+  const finalCause = WEAPONS[result?.cause as PowerId]?.short?.toUpperCase()
+    ?? defeatCauseLabel(result?.cause ?? "unknown");
+  const resultEvent = result?.outcome === "victory"
+    ? `RIVAL RIFT DESTROYED BY ${result.finisherName ? `${result.finisherName}'S ` : ""}${finalCause}`
+    : `${result?.eliminatedName ?? "A PILOT"} WAS DESTROYED BY ${finalCause}`;
 
   return (
     <div className="codex-backdrop" role="presentation" onClick={onClose}>
@@ -1470,7 +1483,7 @@ function MultiplayerLobby({
         onClick={(event) => event.stopPropagation()}
       >
         <div className="codex-head">
-          <h2 id="lobby-heading">MULTIPLAYER LOBBY</h2>
+          <h2 id="lobby-heading">{readyRoom ? `PVE CO-OP // ${net?.difficulty.toUpperCase()}` : "MULTIPLAYER LOBBY"}</h2>
           <p>{net?.kind === "coop" ? "Two pilots share one PvE objective and win or lose together." : "Real-time 1v1 under Easy rules."} No sign-in — guests get a callsign.</p>
           <button ref={closeRef} type="button" className="codex-close" onClick={onClose} aria-label="Close lobby">✕</button>
         </div>
@@ -1478,30 +1491,45 @@ function MultiplayerLobby({
         <div className="lobby-body">
           {net?.opponent ? (
             <div className="lobby-match">
+              {readyRoom && result ? (
+                <section className="last-round" aria-label="Last round result">
+                  <strong data-outcome={result.outcome}>LAST ROUND // {result.outcome.toUpperCase()}</strong>
+                  <span>{resultEvent}</span>
+                  <small>TEAM SCORE {result.teamScore.toLocaleString()} · TIME {formatRunTime(result.durationSeconds)}</small>
+                </section>
+              ) : null}
               <p className="lobby-status" aria-live="polite">
                 {net.phase === "countdown"
                   ? `LAUNCHING IN ${Math.ceil(net.countdownMs / 1000)}…`
                   : net?.kind === "coop" ? "ALLY FOUND — CHOOSE YOUR SHIP" : "OPPONENT FOUND — CHOOSE YOUR SHIP"}
               </p>
               <div className="lobby-versus">
-                <div>
+                <div className="ready-player own">
                   <span>YOU</span>
                   <b>{net.name}</b>
-                  <small>{net.you?.ship ? selectedShip(net.you.ship as ShipId).name.toUpperCase() : "—"}</small>
+                  <MenuShip id={ownShip.id} size={88} />
+                  <div className="ship-cycle" aria-label="Choose your ship">
+                    <button type="button" disabled={net.phase === "countdown"} onClick={() => cycleShip(-1)} aria-label="Previous ship">◀</button>
+                    <strong>{ownShip.name.toUpperCase()}</strong>
+                    <button type="button" disabled={net.phase === "countdown"} onClick={() => cycleShip(1)} aria-label="Next ship">▶</button>
+                  </div>
+                  <small>HULL {ownShip.health} · CANNON MK{ownShip.gun} · {SHIP_SPECIALS[ownShip.id].name}</small>
                   <i className={net.you?.ready ? "ok" : ""}>{net.you?.ready ? "READY" : "NOT READY"}</i>
                 </div>
                 <em aria-hidden="true">{net?.kind === "coop" ? "+" : "VS"}</em>
-                <div>
+                <div className="ready-player ally">
                   <span>{net?.kind === "coop" ? "ALLY" : "OPPONENT"}</span>
                   <b>{net.opponent.name}</b>
-                  <small>{selectedShip(net.opponent.ship as ShipId).name.toUpperCase()}</small>
+                  <MenuShip id={allyShip.id} size={88} />
+                  <strong className="ally-ship">{allyShip.name.toUpperCase()}</strong>
+                  <small>HULL {allyShip.health} · CANNON MK{allyShip.gun} · {SHIP_SPECIALS[allyShip.id].name}</small>
                   <i className={net.opponent.ready ? "ok" : ""}>
                     {net.opponent.connected ? (net.opponent.ready ? "READY" : "NOT READY") : "DISCONNECTED"}
                   </i>
                 </div>
               </div>
 
-              <label className="lobby-ship">
+              {!readyRoom ? <label className="lobby-ship">
                 <span>YOUR SHIP</span>
                 <select
                   value={net.you?.ship ?? "wing"}
@@ -1512,7 +1540,7 @@ function MultiplayerLobby({
                     <option key={ship.id} value={ship.id}>{ship.name} — {ship.role}</option>
                   ))}
                 </select>
-              </label>
+              </label> : null}
 
               <button
                 type="button"
@@ -1523,9 +1551,12 @@ function MultiplayerLobby({
                 {net.phase === "countdown"
                   ? "LOCKED IN"
                   : net.you?.ready
-                    ? "CANCEL READY"
-                    : "READY"}
+                    ? "READY ✓"
+                    : "READY UP"}
               </button>
+              {net.phase !== "countdown" ? <p className="lobby-waiting">
+                {net.you?.ready && !net.opponent.ready ? `WAITING FOR ${net.opponent.name}` : !net.you?.ready && net.opponent.ready ? `${net.opponent.name} IS READY` : "CHOOSE SHIPS AND READY UP"}
+              </p> : null}
               {net.error ? <p className="lobby-status warn">{net.error}</p> : null}
               <div className="lobby-foot">
                 <button type="button" onClick={onCancel}>LEAVE MATCH</button>
@@ -2431,13 +2462,15 @@ export default function WormholeGame() {
     if (!netResult) return;
     const game = gameRef.current;
     if (game.mode === "pve") return;
-    if (game.mode === "coop" && netResult.outcome === "victory") {
-      // Reuse the full Release C collapse/explosion sequence for a shared win.
-      game.rivalHealth = 0;
-      game.victorySequence = ticksForSeconds(VICTORY_TOTAL_SECONDS);
-      game.victoryExplosionFired = false;
-      game.notice = "CO-OP VICTORY // REALITY LOCKED";
-      game.noticeLife = 180;
+    if (game.mode === "coop") {
+      // Multiplayer results leave the arena immediately. The persistent room
+      // is the sole post-round surface and therefore owns touch/controller input.
+      game.running = false;
+      game.paused = false;
+      game.result = null;
+      setSummary(null);
+      setMenu(resetRoute("lobby"));
+      sync();
       return;
     }
     game.running = false;
@@ -2449,7 +2482,7 @@ export default function WormholeGame() {
           ? `${netResult.opponent} DESTROYED`
           : game.mode === "coop" ? "CO-OP TEAM DESTROYED" : "SHIP DESTROYED";
     game.noticeLife = 180;
-  }, [netResult]);
+  }, [netResult, sync]);
 
   useEffect(() => {
     if (net?.rematch?.status !== "starting") return;

@@ -203,6 +203,8 @@ export class MatchServer {
       lastWorldAt: 0,
       rematchVotes: new Set(),
       rematchExpiresAt: 0,
+      lastResult: null,
+      roundStartedAt: 0,
     };
     this.rooms.set(code, room);
     player.room = room;
@@ -247,6 +249,8 @@ export class MatchServer {
       lastWorldAt: 0,
       rematchVotes: new Set(),
       rematchExpiresAt: 0,
+      lastResult: null,
+      roundStartedAt: 0,
     };
     this.rooms.set(code, room);
     a.room = room;
@@ -318,6 +322,11 @@ export class MatchServer {
   activate(room, now = Date.now()) {
     room.phase = PHASES.ACTIVE;
     room.touchedAt = now;
+    room.roundStartedAt = now;
+    if (room.kind === "coop") {
+      room.rivalHealth = room.rivalMaxHealth;
+      room.teamScore = 0;
+    }
     for (const player of room.players) {
       player.combat = createCombatState(SHIP_HULL[player.ship] ?? 240);
       player.lastDamageSeq = -1;
@@ -392,7 +401,7 @@ export class MatchServer {
       const eventId = `${room.code}:${(room.transmitSeq += 1)}`;
       this.broadcast(room, { type: "state", sent: weapon, eventId, by: player.id });
       this.broadcastState(room, now);
-      if (room.rivalHealth <= 0) this.finishCoop(room, "victory", "rival", now, null, weapon, finalDamage);
+      if (room.rivalHealth <= 0) this.finishCoop(room, "victory", "rival", now, null, weapon, finalDamage, player);
       return { ok: true, eventId, damage };
     }
 
@@ -431,23 +440,33 @@ export class MatchServer {
     return { ok: true };
   }
 
-  finishCoop(room, outcome, reason, now = Date.now(), eliminated = null, cause = "unknown", finalDamage = 0) {
-    if (room.phase === PHASES.FINISHED) return;
-    room.phase = PHASES.FINISHED;
+  finishCoop(room, outcome, reason, now = Date.now(), eliminated = null, cause = "unknown", finalDamage = 0, finisher = null) {
+    if (room.phase !== PHASES.ACTIVE) return;
     room.touchedAt = now;
+    room.lastResult = {
+      outcome,
+      reason,
+      opponent: outcome === "victory" ? "RIVAL WORMHOLE" : "CO-OP TEAM",
+      eliminatedId: eliminated?.id ?? null,
+      eliminatedName: eliminated?.name ?? null,
+      cause,
+      finalDamage,
+      finisherId: finisher?.id ?? null,
+      finisherName: finisher?.name ?? null,
+      teamScore: room.teamScore,
+      durationSeconds: room.roundStartedAt ? Math.max(0, Math.round((now - room.roundStartedAt) / 1000)) : 0,
+    };
     for (const player of room.players) {
       this.sendTo(player, {
         type: "result",
-        outcome,
-        reason,
-        opponent: outcome === "victory" ? "RIVAL WORMHOLE" : "CO-OP TEAM",
-        eliminatedId: eliminated?.id ?? null,
-        eliminatedName: eliminated?.name ?? null,
+        ...room.lastResult,
         youEliminated: Boolean(eliminated && player.id === eliminated.id),
-        cause,
-        finalDamage,
       });
+      player.combat = null;
     }
+    // Co-op results are a transition, not a terminal room phase. Reuse the
+    // original selection state so the socket, invite code and ship choices live on.
+    this.beginSelect(room, now);
   }
 
   finish(room, winner, reason, now = Date.now(), eliminated = null, cause = "unknown", finalDamage = 0) {
@@ -501,10 +520,10 @@ export class MatchServer {
     return { ok: true, starting: false };
   }
 
-  /** Leave a finished match and return both pilots to a clean lobby state. */
+  /** Leave a room and return both pilots to a clean lobby state. */
   leaveMatch(player) {
     const room = player.room;
-    if (!room || room.phase !== PHASES.FINISHED) return { ok: false, code: ERRORS.WRONG_PHASE };
+    if (!room || room.phase === PHASES.ACTIVE) return { ok: false, code: ERRORS.WRONG_PHASE };
     const opponent = this.opponentOf(room, player);
     this.removeRoom(room);
     player.ready = false;
@@ -614,6 +633,7 @@ export class MatchServer {
               connected: opponent.connected,
             }
           : null,
+        lastResult: room.lastResult,
       });
     }
   }

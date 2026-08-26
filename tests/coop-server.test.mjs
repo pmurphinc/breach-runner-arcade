@@ -114,7 +114,7 @@ test("stale co-op world revisions are ignored", () => {
 
 
 test("co-op defeat identifies the eliminated pilot and final damage source", () => {
-  const { server, a, b } = activeCoop();
+  const { server, a, b, room } = activeCoop();
   // Reported until the pilot is actually gone rather than a fixed number of
   // hits, so a hull rebalance cannot silently stop this reaching elimination.
   const HIT = 60;
@@ -122,11 +122,11 @@ test("co-op defeat identifies the eliminated pilot and final damage source", () 
   const finalHit = remainder === 0 ? HIT : remainder;
   let seq = 1;
   let now = 6000;
-  while (a.player.combat.hull > 0 && seq < 100) {
+  while (room.phase === "active" && seq < 100) {
     server.reportDamage(a.player, { seq: seq++, source: "impact", amount: HIT, cause: "nuke_blast" }, now);
     now += 1100;
   }
-  assert.equal(a.player.combat.hull, 0);
+  assert.equal(room.phase, "select");
   const ownResult = a.messages.findLast((message) => message.type === "result");
   const allyResult = b.messages.findLast((message) => message.type === "result");
   assert.equal(ownResult.youEliminated, true);
@@ -139,16 +139,56 @@ test("co-op defeat identifies the eliminated pilot and final damage source", () 
   assert.equal(allyResult.finalDamage, finalHit);
 });
 
-test("a co-op retry can store a new ship before both pilots accept", () => {
+test("a completed co-op round immediately becomes the same persistent ready room", () => {
   const { server, a, b, room } = activeCoop();
+  const code = room.code;
+  const ships = room.players.map((player) => player.ship);
   server.finishCoop(room, "defeat", "pilot_hull", 5000, a.player, "mines_collision");
-  const first = server.requestRematch(a.player, 5100, "tank");
-  assert.equal(first.starting, false);
-  assert.equal(a.player.ship, "tank");
-  const second = server.requestRematch(b.player, 5200);
-  assert.equal(second.starting, true);
   assert.equal(room.phase, "select");
+  assert.equal(server.rooms.get(code), room);
+  assert.deepEqual(room.players.map((player) => player.ship), ships);
+  assert.deepEqual(room.players.map((player) => player.ready), [false, false]);
+  assert.equal(a.player.room, room);
+  assert.equal(b.player.room, room);
+  const match = a.messages.findLast((message) => message.type === "match");
+  assert.equal(match.lastResult.eliminatedName, a.player.name);
+  assert.equal(match.lastResult.cause, "mines_collision");
+});
+
+test("post-round ship changes synchronize, clear ready, and launch without recreating the room", () => {
+  const { server, a, b, room } = activeCoop();
+  const code = room.code;
+  server.finishCoop(room, "defeat", "pilot_hull", 5000, a.player, "beam");
+  server.setReady(a.player, true, 5100);
+  server.setShip(a.player, "tank");
+  assert.equal(a.player.ready, false);
+  assert.equal(b.messages.findLast((message) => message.type === "match").opponent.ship, "tank");
+  server.setReady(a.player, true, 5200);
+  server.setReady(b.player, true, 5201);
+  assert.equal(room.phase, "countdown");
+  server.sweep(8201);
+  assert.equal(room.phase, "active");
+  assert.equal(room.code, code);
+  assert.equal(server.rooms.size, 1);
   assert.equal(a.player.ship, "tank");
+});
+
+test("three consecutive co-op rounds reuse state without leaking ready votes", () => {
+  const { server, a, b, room } = activeCoop();
+  const code = room.code;
+  for (let round = 1; round <= 3; round += 1) {
+    server.finishCoop(room, round === 3 ? "victory" : "defeat", round === 3 ? "rival" : "pilot_hull", round * 10_000, round === 3 ? null : a.player, round === 3 ? "nuke" : "beam");
+    assert.equal(room.phase, "select");
+    assert.deepEqual(room.players.map((player) => player.ready), [false, false]);
+    assert.equal(room.code, code);
+    if (round < 3) {
+      server.setReady(a.player, true, round * 10_000 + 1);
+      server.setReady(b.player, true, round * 10_000 + 2);
+      server.activate(room, round * 10_000 + 3002);
+    }
+  }
+  assert.equal(room.lastResult.outcome, "victory");
+  assert.equal(server.rooms.get(code), room);
 });
 
 
