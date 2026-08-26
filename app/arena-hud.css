@@ -1,111 +1,61 @@
-/*
- * Arena HUD placement and stacking
- * --------------------------------
- * Imported after globals.css so this file owns the final placement of the
- * touch power-up inventory and the end-of-run dialog without duplicating the
- * rest of the arena styling.
- */
-
-/* Keep the compact Touch/Hybrid inventory with the other critical combat
-   readouts: centered at the top of the arena, directly below the health bars
-   (including the pilot shield status line). */
-.touch-capable .canvas-wrap > .touch-powerup-hud {
-  top: calc(var(--rules-bottom, 52px) + 64px);
+/* Final arena HUD placement; imported after globals.css. */
+.touch-capable .canvas-wrap > .touch-powerup-hud,
+.touch-capable[data-touch-controls="off"] .touch-powerup-hud {
+  --pup-slot: clamp(20px, 3.8vw, 32px);
+  top: calc(var(--rules-bottom, 52px) + 12px);
   bottom: auto;
   z-index: var(--z-hud-float);
-}
-
-/* Disabling the sticks must not send the inventory back to the bottom edge. */
-.touch-capable[data-touch-controls="off"] .touch-powerup-hud {
-  top: calc(var(--rules-bottom, 52px) + 64px);
-  bottom: auto;
-}
-
-/* The landscape-tablet rule in globals.css previously pinned this HUD to the
-   lower safe area. Keep the same top-center cluster in that layout too. */
-@media (orientation: landscape) and (min-width: 700px) and (min-height: 430px) {
-  .touch-capable[data-immersive="true"][data-form="tablet"][data-orientation="landscape"] .touch-powerup-hud {
-    top: calc(var(--rules-bottom, 52px) + 64px);
-    bottom: auto;
-  }
-}
-
-/* End-of-run UI is a dialog, not ordinary HUD. It must paint above the power
-   inventory, sticks, health bars, and every other arena overlay. */
-.run-summary-layer {
-  z-index: var(--z-dialog);
-}
-
-/* The touch HUD is the same ten-entry firing queue as the desktop bin, only
-   condensed to icons. It wraps to two rows of five rather than truncating on
-   narrow cover displays. */
-.touch-capable .canvas-wrap > .touch-powerup-hud {
-  width: min(360px, calc(100% - 116px));
-  min-width: 210px;
-  height: auto;
-  min-height: 46px;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 5px;
-  padding: 4px 6px;
-}
-
-.touch-powerup-count {
-  position: static;
-  min-width: 38px;
-  padding: 3px 5px;
-  text-align: center;
-}
-
-.touch-powerup-slots {
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(5, minmax(26px, 1fr));
-  gap: 3px;
-  list-style: none;
-}
-
-.touch-powerup-slot { position: relative; min-width: 0; height: 28px; }
-.touch-powerup-slot > span,
-.touch-powerup-slot > button {
-  width: 100%;
-  height: 100%;
+  width: auto;
   min-width: 0;
-  min-height: 0;
-  display: grid;
-  place-items: center;
-  padding: 1px;
-  color: var(--pup);
-  border: 1px solid rgba(100, 234, 255, .18);
-  border-radius: 3px;
-  background: rgba(2, 9, 15, .78);
+  height: 44px;
+  display: flex;
+  align-items: stretch;
+  gap: clamp(2px, .5vw, 6px);
+  padding: 3px;
+}
+.touch-powerup-slots {
+  margin: 0; padding: 0; display: grid;
+  grid-template-columns: repeat(9, var(--pup-slot));
+  gap: clamp(1px, .35vw, 4px); align-items: center; list-style: none;
+}
+.touch-powerup-slot { min-width: 0; height: var(--pup-slot); }
+.touch-powerup-slot > span, .touch-powerup-slot > button {
+  width: 100%; height: 100%; min-width: 0; min-height: 0;
+  display: grid; place-items: center; padding: 1px; color: var(--pup);
+  border: 1px solid rgba(100, 234, 255, .2); border-radius: 3px;
+  background: rgba(2, 9, 15, .82);
 }
 .touch-powerup-slot.occupied > button {
   border-color: color-mix(in srgb, var(--pup) 62%, transparent);
   background: color-mix(in srgb, var(--pup) 12%, rgba(2, 9, 15, .94));
-  box-shadow: inset 0 0 7px color-mix(in srgb, var(--pup) 18%, transparent);
 }
-.touch-powerup-slot.next > button {
-  border-color: var(--pup);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--pup) 55%, transparent), inset 0 0 8px color-mix(in srgb, var(--pup) 24%, transparent);
+.touch-powerup-loaded {
+  width: clamp(92px, 17vw, 142px); min-width: 0; display: grid;
+  grid-template-rows: 11px 1fr; color: var(--pup); overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--pup) 78%, transparent); border-radius: 3px;
+  background: color-mix(in srgb, var(--pup) 13%, rgba(2, 9, 15, .97));
+  box-shadow: 0 0 9px color-mix(in srgb, var(--pup) 38%, transparent);
 }
-.touch-powerup-slot em {
-  position: absolute;
-  z-index: 2;
-  top: -3px;
-  left: 1px;
-  color: #fff;
-  background: #071019;
-  font: 900 7px/1 var(--mono);
-  letter-spacing: .02em;
-  pointer-events: none;
+.touch-powerup-loaded small {
+  display: flex; justify-content: space-between; padding: 1px 4px;
+  color: #eaffff; font: 900 7px/1 var(--mono); letter-spacing: .04em;
 }
-
-@media (max-width: 420px) {
-  .touch-capable .canvas-wrap > .touch-powerup-hud {
-    width: min(270px, calc(100% - 104px));
-    min-width: 210px;
+.touch-powerup-loaded small b { color: var(--lime); }
+.touch-powerup-loaded button {
+  min-width: 0; border: 0; display: flex; align-items: center; gap: 4px;
+  padding: 0 4px; color: var(--pup); background: transparent;
+}
+.touch-powerup-loaded strong {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: inherit; font: 900 clamp(8px, 1.25vw, 11px)/1 var(--mono);
+}
+.touch-powerup-loaded > span { display: grid; place-items: center; color: var(--muted); }
+@media (max-width: 560px) {
+  .touch-capable .canvas-wrap > .touch-powerup-hud,
+  .touch-capable[data-touch-controls="off"] .touch-powerup-hud {
+    --pup-slot: clamp(16px, 5vw, 24px); gap: 2px; height: 38px;
   }
+  .touch-powerup-slots { gap: 1px; }
+  .touch-powerup-loaded { width: clamp(76px, 24vw, 104px); }
 }
+.run-summary-layer { z-index: var(--z-dialog); }

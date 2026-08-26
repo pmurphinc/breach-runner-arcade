@@ -90,6 +90,7 @@ import {
   type ScreenPreset,
 } from "./layout-budget";
 import { cannonPlaybackRate, hapticsAllow } from "./combat-feedback";
+import { pupInventoryLayout } from "./pup-inventory";
 import { RICOCHET_BOUNCES, RICOCHET_DURATION_SECONDS, reflectRicochet } from "./ricochet";
 import {
   MOVEMENT_CODES,
@@ -1916,6 +1917,12 @@ export default function WormholeGame() {
       const canvasWidth = Math.max(1, Math.floor(Math.min(wrapRect.width, availableHeight * WORLD_WIDTH / WORLD_HEIGHT)));
       const canvasHeight = Math.max(1, Math.floor(canvasWidth * WORLD_HEIGHT / WORLD_WIDTH));
       wrap.style.setProperty("--rules-bottom", `${Math.max(0, bottomOf(".difficulty-badge"))}px`);
+      // HTML paints above the canvas, so make canvas spawn/tracker nameplates
+      // start below the inventory instead of allowing that panel to cover them.
+      const inventoryBottom = bottomOf(".touch-powerup-hud");
+      hudInsetRef.current = inventoryBottom > 0
+        ? Math.ceil(inventoryBottom) + 8
+        : immersive && layout.sticks === "overlay" ? 44 : 0;
       wrap.style.setProperty("--arena-playfield-top", `${playfieldTop}px`);
       wrap.style.setProperty("--arena-canvas-width", `${canvasWidth}px`);
       wrap.style.setProperty("--arena-canvas-height", `${canvasHeight}px`);
@@ -1929,7 +1936,7 @@ export default function WormholeGame() {
       if (element) observer.observe(element);
     }
     return () => observer.disconnect();
-  }, [layout.arena, layout.preset, mode, net?.phase, viewProfile.verticalRails]);
+  }, [immersive, layout.arena, layout.preset, layout.sticks, mode, net?.phase, viewProfile.verticalRails]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -5234,22 +5241,17 @@ export default function WormholeGame() {
                   ? `${hud.stock.length} of ${STOCK_LIMIT} power-ups stored. ${WEAPONS[queued].name} fires next.`
                   : `0 of ${STOCK_LIMIT} power-ups stored.`}
               >
-                <span className="touch-powerup-count">{hud.stock.length}/{STOCK_LIMIT}</span>
-                <ol className="touch-powerup-slots" aria-label="Power-up firing queue">
-                  {Array.from({ length: STOCK_LIMIT }, (_, index) => {
-                    // Stock is a stack: the final array entry is fired first.
-                    // Present it first, then walk backward in actual firing order.
-                    const stockIndex = hud.stock.length - 1 - index;
-                    const item = stockIndex >= 0 ? hud.stock[stockIndex] : null;
+                <ol className="touch-powerup-slots" aria-label="Stored power-ups in loading order">
+                  {pupInventoryLayout(hud.stock, STOCK_LIMIT).stored.map((itemId, index) => {
+                    const item = itemId as PickupId | null;
                     const meta = item ? WEAPONS[item] : null;
                     return (
                       <li
                         key={index}
-                        className={`touch-powerup-slot ${meta ? "occupied" : "empty"} ${index === 0 && meta ? "next" : ""}`}
+                        className={`touch-powerup-slot ${meta ? "occupied" : "empty"}`}
                         style={{ "--pup": meta?.color ?? "var(--muted)" } as React.CSSProperties}
-                        aria-label={meta ? `${index + 1}. ${meta.name}${index === 0 ? ", fires next" : ""}` : `${index + 1}. Empty`}
+                        aria-label={meta ? `${meta.name}${index === STOCK_LIMIT - 2 ? ", loads next" : ""}` : "Empty slot"}
                       >
-                        {index === 0 && meta ? <em aria-hidden="true">NEXT</em> : null}
                         {meta ? (
                           <button type="button" onClick={() => pinSlot(meta.id)} aria-label={`View ${meta.name}`}>
                             <WeaponIcon id={meta.id} size={22} />
@@ -5259,6 +5261,16 @@ export default function WormholeGame() {
                     );
                   })}
                 </ol>
+                {(() => {
+                  const loaded = pupInventoryLayout(hud.stock, STOCK_LIMIT).loaded;
+                  const meta = loaded ? WEAPONS[loaded] : null;
+                  return <div className={`touch-powerup-loaded ${meta ? "occupied" : "empty"}`} style={{ "--pup": meta?.color ?? "var(--muted)" } as React.CSSProperties}>
+                    <small>LOADED PUP <b>{hud.stock.length}/{STOCK_LIMIT}</b></small>
+                    {meta ? <button type="button" onClick={() => pinSlot(meta.id)} aria-label={`View loaded ${meta.name}`}>
+                      <WeaponIcon id={meta.id} size={28} /><strong>{meta.name}</strong>
+                    </button> : <span aria-label="No PUP loaded">—</span>}
+                  </div>;
+                })()}
               </div>
               <div className="pilot-health">
                 <span><em>PILOT HULL</em><b>{hud.health}/{hud.maxHealth}</b></span>
