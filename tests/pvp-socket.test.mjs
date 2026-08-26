@@ -110,13 +110,27 @@ test("a disallowed browser origin is refused", async () => {
   }
 });
 
-test("the production origin is accepted in production", async () => {
+test("the Breach Runner production origin is accepted in production", async () => {
   const harness = await startHarness({ NODE_ENV: "production" });
   try {
-    const client = connect(harness.url, { origin: "https://wormhole.murphtournaments.com" });
+    const client = connect(harness.url, { origin: "https://breachrunner.murphtournaments.com" });
     await client.open();
     await client.waitFor("welcome");
     client.close();
+  } finally {
+    await harness.close();
+  }
+});
+
+test("the retired wormhole production origin is refused", async () => {
+  const harness = await startHarness({ NODE_ENV: "production" });
+  try {
+    const legacy = new WebSocket(harness.url, { origin: "https://wormhole.murphtournaments.com" });
+    const outcome = await new Promise((resolve) => {
+      legacy.on("error", () => resolve("refused"));
+      legacy.on("open", () => resolve("accepted"));
+    });
+    assert.equal(outcome, "refused", "the retired production hostname must not remain trusted");
   } finally {
     await harness.close();
   }
