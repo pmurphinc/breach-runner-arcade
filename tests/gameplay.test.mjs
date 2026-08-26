@@ -231,7 +231,7 @@ test("HARD: the contact hazard is armed and the wormhole moves", { skip }, async
  */
 const shipAt = (page) =>
   page.evaluate(() => {
-    const canvas = document.querySelector(".canvas-wrap canvas");
+    const canvas = document.querySelector(".canvas-wrap > canvas");
     const context = canvas.getContext("2d");
     const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
     let sx = 0;

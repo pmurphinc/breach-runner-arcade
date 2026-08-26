@@ -70,14 +70,39 @@
   color: inherit; font: 900 clamp(8px, 1.25vw, 11px)/1 var(--mono);
 }
 .touch-powerup-loaded > span { display: grid; place-items: center; color: var(--muted); }
-.pup-notification {
-  position: absolute; top: 100%; left: 0; right: 0; margin: 3px 0 0;
-  min-height: 22px; padding: 4px 7px; overflow: hidden; text-overflow: ellipsis;
-  color: #dffaff; border: 1px solid rgba(100,234,255,.32); border-radius: 3px;
-  background: rgba(2,9,15,.94); font: 800 clamp(7px,1.4vw,10px)/1.25 var(--mono);
-  white-space: nowrap; text-align: center; pointer-events: none;
+/* Spawn notices hang off the bottom edge of the inventory panel, so they
+   travel with it through every responsive rule above instead of carrying
+   their own viewport offsets. */
+.pup-notice-stack {
+  position: absolute; top: 100%; left: 50%; margin-top: 4px;
+  display: grid; gap: 4px; justify-items: center;
+  transform: translateX(-50%); pointer-events: none;
 }
-.pup-notification.alert { color: #fff; border-color: rgba(255,89,199,.65); }
+.pup-notice {
+  margin: 0; display: flex; align-items: center; gap: 7px;
+  padding: 4px 10px 4px 5px; max-width: min(78vw, 340px);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: #eafcff; border: 1px solid color-mix(in srgb, var(--notice-accent) 67%, transparent);
+  background: rgba(2, 7, 12, .86);
+  font: 800 clamp(9px, 1.7vw, 13px)/1.25 var(--mono);
+  animation: pup-notice-life linear both;
+}
+.pup-notice.hostile { color: #ffd9de; }
+.pup-notice .weapon-icon {
+  position: static; width: 18px; height: 18px;
+  aspect-ratio: 1; object-fit: contain; transform: none;
+}
+/* Matches the alpha curve the canvas plate used: a quick rise, a long hold,
+   then a faster fall as the spawn record runs out of life. */
+@keyframes pup-notice-life {
+  0% { opacity: 0; }
+  8% { opacity: 1; }
+  78% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pup-notice { animation: none; opacity: 1; }
+}
 @media (max-width: 560px) {
   .touch-capable .canvas-wrap > .touch-powerup-hud,
   .touch-capable[data-touch-controls="off"] .touch-powerup-hud {
