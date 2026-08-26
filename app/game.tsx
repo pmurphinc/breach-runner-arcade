@@ -95,6 +95,7 @@ import { cannonPlaybackRate, hapticsAllow } from "./combat-feedback";
 import { pupInventoryLayout } from "./pup-inventory";
 import { RICOCHET_BOUNCES, RICOCHET_DURATION_SECONDS, reflectRicochet } from "./ricochet";
 import { controllerStateForPads, EMPTY_GAMEPAD, headingDegrees, pressedOnce, type GamepadActions } from "./gamepad";
+import { controllerCancelTarget, moveControllerFocus, visibleControllerControls } from "./controller-navigation";
 import {
   MOVEMENT_CODES,
   applyIntent,
@@ -1211,6 +1212,7 @@ function Leaderboard({ onClose, initialBoard = "arcade" }: { onClose: () => void
     <div className="codex-backdrop" role="presentation" onClick={onClose}>
       <div
         className="codex board"
+        data-controller-surface
         role="dialog"
         aria-modal="true"
         aria-labelledby="board-heading"
@@ -1445,6 +1447,7 @@ function MultiplayerLobby({
     <div className="codex-backdrop" role="presentation" onClick={onClose}>
       <div
         className="codex lobby"
+        data-controller-surface
         role="dialog"
         aria-modal="true"
         aria-labelledby="lobby-heading"
@@ -1775,6 +1778,8 @@ export default function WormholeGame() {
   const menuRef = useRef<MenuStack>(INITIAL_STACK);
   const menuOpenRef = useRef(false);
   const codexOpenRef = useRef(false);
+  /** Route-aware Cancel target, kept stable across controller button holds. */
+  const controllerCancelRef = useRef<() => void>(() => {});
   const soundRef = useRef(true);
   const soundLevelRef = useRef<SoundLevel>("medium");
   const combatHapticsRef = useRef<CombatHaptics>("both");
@@ -2530,6 +2535,33 @@ export default function WormholeGame() {
     setMenu(resetRoute("home"));
   }, [closeMenu, setPaused]);
 
+  const openSettings = useCallback(() => {
+    setCodexOpen(false);
+    if (activeRoute(menuRef.current) === "settings") return;
+    const game = gameRef.current;
+    if (game.running && !game.result && !menuIsOpen(menuRef.current)) {
+      // setPaused freezes solo only; network matches keep their established
+      // live behavior while sharing the same Pause → Settings return path.
+      setPaused(true);
+      setMenu(["pause", "settings"]);
+      return;
+    }
+    setMenu((stack) => pushRoute(stack, "settings"));
+  }, [setPaused]);
+
+  const controllerCancel = useCallback(() => controllerCancelRef.current(), []);
+  useEffect(() => {
+    controllerCancelRef.current = () => {
+      const target = controllerCancelTarget({ codex: codexOpen, summary: Boolean(summary), route });
+      if (target === "close-codex") { setCodexOpen(false); return; }
+      // A result has no inert cockpit behind it. Cancel leaves its valid action
+      // surface in place instead of dismissing or navigating underneath it.
+      if (target === "hold-summary" || target === "none") return;
+      if (target === "resume") { resumeOrClose(); return; }
+      back();
+    };
+  }, [back, codexOpen, resumeOrClose, route, summary]);
+
   /**
    * End the current run, then go somewhere.
    *
@@ -2743,16 +2775,15 @@ export default function WormholeGame() {
     const poll = (now: number) => {
       const action = controllerStateForPads(Array.from(navigator.getGamepads?.() ?? []));
       controllerInput.current = action;
-      if (menuOpenRef.current || Boolean(summary)) {
+      const controls = visibleControllerControls();
+      if (controls.length > 0) {
         const direction = action.menuY || action.menuX;
         if (direction && (!previous.menuX && !previous.menuY || now - lastMenuMove > 220)) {
           lastMenuMove = now;
-          const controls = [...document.querySelectorAll<HTMLElement>(".menu-panel button:not(:disabled), .run-summary button:not(:disabled), .menu-panel input")].filter((item) => item.offsetParent !== null);
-          const current = Math.max(0, controls.indexOf(document.activeElement as HTMLElement));
-          controls[(current + Math.sign(direction) + controls.length) % controls.length]?.focus();
+          moveControllerFocus(controls, action.menuX, action.menuY);
         }
         if (pressedOnce(action.confirm, previous.confirm)) (document.activeElement as HTMLElement)?.click?.();
-        if (pressedOnce(action.cancel, previous.cancel)) back();
+        if (pressedOnce(action.cancel, previous.cancel)) controllerCancel();
       } else {
         const pupStep = pressedOnce(action.nextPup, previous.nextPup) ? 1 : pressedOnce(action.previousPup, previous.previousPup) ? -1 : 0;
         if (pupStep) {
@@ -2771,7 +2802,7 @@ export default function WormholeGame() {
     };
     frame = requestAnimationFrame(poll);
     return () => { cancelAnimationFrame(frame); controllerInput.current = EMPTY_GAMEPAD; };
-  }, [back, summary, toggleMenu]);
+  }, [controllerCancel, toggleMenu]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -5333,7 +5364,7 @@ export default function WormholeGame() {
               <i className="reticle bl" aria-hidden="true" /><i className="reticle br" aria-hidden="true" />
               {summary ? (
                 <div className="run-summary-layer">
-                  <section className="run-summary" aria-live="polite" aria-label="Run result">
+                  <section className="run-summary" data-controller-surface aria-live="polite" aria-label="Run result">
                     {!summary.awaitingInitials ? <button className="run-close" type="button" onClick={() => setSummary(null)} aria-label="Dismiss run summary">✕</button> : null}
                     <p className="run-outcome" data-outcome={summary.run.outcome}>
                       {summary.restored ? "LAST RUN"
@@ -5656,7 +5687,7 @@ export default function WormholeGame() {
       <GlobalSystemControls
         menuOpen={menuOpen}
         onToggleMenu={toggleMenu}
-        onOpenSettings={() => { setCodexOpen(false); if (route !== "settings") go("settings"); }}
+        onOpenSettings={openSettings}
         fullscreen={fullscreen.active}
         fullscreenSupported={fullscreen.supported}
         onToggleFullscreen={() => { void fullscreen.toggle(); }}
