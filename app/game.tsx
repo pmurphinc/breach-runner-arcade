@@ -101,6 +101,7 @@ import {
 import { cannonPlaybackRate, hapticsAllow } from "./combat-feedback";
 import { PUP_INVENTORY_CAPACITY, consumeLoadedPup, pupInventoryLayout } from "./pup-inventory";
 import { pupRegenHull } from "./pup-regen.js";
+import { salvageLinkHitsPup } from "./salvage-link";
 import { inventoryPayloadIconLayout, inventoryPupVisual } from "./pup-inventory-visual";
 import { pupPickupSoundProfile, type PupPickupSoundProfile } from "./pup-audio";
 import { RICOCHET_BOUNCES, RICOCHET_DURATION_SECONDS, reflectRicochet } from "./ricochet";
@@ -317,6 +318,8 @@ type Bullet = {
   bouncesLeft?: number;
   /** Steering authority in radians per tick. Absent means it flies straight. */
   turnRadians?: number;
+  /** Set only on Kestrel cannon rounds fired while SALVAGE LINK is active. */
+  salvageLinked?: boolean;
 };
 
 /**
@@ -450,6 +453,8 @@ type Player = {
   viperGuidance: number;
   /** Ticks remaining on the Flagship's continuous attraction/repulsion field. */
   flagshipField: number;
+  /** Ticks remaining in Kestrel's SALVAGE LINK collection window. */
+  salvageLink: number;
   flashMode: "tank" | "squid";
 };
 
@@ -669,6 +674,7 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
       overchargeFlash: 0,
       viperGuidance: 0,
       flagshipField: 0,
+      salvageLink: 0,
       flashMode: "tank",
     },
     portalAngle: 0,
@@ -3652,16 +3658,60 @@ export default function WormholeGame() {
         player.flagshipField = ticksForSeconds(3);
         game.notice = "GRAVITY PULSE // 3S";
       } else if (ship === "kestrel") {
-        // Schema-compatible placeholder only; the collector active is future work.
-        game.notice = "ACTIVE SYSTEM // NOT INSTALLED";
+        player.salvageLink = ticksForSeconds(spec.activeSeconds ?? 0);
+        game.notice = `SALVAGE LINK // ${spec.activeSeconds ?? 0}S`;
       }
 
       player.specialCooldown = ticksForSeconds(spec.cooldownSeconds);
       game.noticeLife = 90;
       if (!overcharge) {
         burst(game, player.x, player.y, "#68f2ff", 26, 8);
-        play("magic", 0.22);
+        if (ship === "kestrel") playCue("salvage-link-active", 0.22);
+        else play("magic", 0.22);
       }
+    };
+
+    /**
+     * Authoritative local pickup path shared by hull contact and SALVAGE LINK.
+     * A false result means a sendable PUP could not enter the full bin; every
+     * other pickup applies its existing effect and completes collection.
+     */
+    const resolvePlayerPickup = (game: Game, pickup: Pickup) => {
+      const player = game.player;
+      const type = pickup.type;
+      if (WEAPONS[type].sendable && game.stock.length >= STOCK_LIMIT) {
+        game.notice = "POWERUP BIN FULL";
+        game.noticeLife = 75;
+        playCue("inventory-full", 0.2);
+        return false;
+      }
+
+      pickup.life = 0;
+      game.score += 50;
+      if (type === "gun") player.gun = Math.min(3, player.gun + 1);
+      else if (type === "thrust") player.thrust = Math.min(3, player.thrust + 1);
+      else if (type === "retros") player.retros = Math.min(RETRO_MAX_LEVEL, player.retros + 1);
+      else if (type === "shield") player.shield = Math.max(450, player.shield + 200);
+      else if (type === "clear") {
+        const coopGuest = game.mode === "coop" && netRef.current?.state.you?.id !== netRef.current?.state.hostId;
+        if (coopGuest) netRef.current?.reportWorldAction("clear");
+        else game.enemies.forEach((enemy) => destroyEnemy(game, enemy));
+      }
+      else if (type === "health") player.health = Math.min(player.maxHealth, player.health + 30);
+      else if (type === "ricochet") player.ricochetTicks = ticksForSeconds(RICOCHET_DURATION_SECONDS);
+      else {
+        const wasBelowCapacity = game.stock.length === STOCK_LIMIT - 1;
+        game.stock.push(type);
+        // This is the existing sequenced delta event. The server still owns
+        // capacity and ordering; no absolute inventory count crosses the wire.
+        if (game.mode !== "pve") netRef.current?.reportInventory("collect", type);
+        if (wasBelowCapacity) playCue("inventory-full", 0.2);
+      }
+      game.notice = `${WEAPONS[type].short} COLLECTED`;
+      game.noticeLife = 100;
+      burst(game, pickup.x, pickup.y, POWER_COLORS[type], 16, 5);
+      playPupPickupSound(WEAPONS[type].pupClass);
+      return true;
     };
 
     /**
@@ -4083,6 +4133,7 @@ export default function WormholeGame() {
       if (player.riderTicks === 0) { player.riderAcceleration = 1; player.riderMaxSpeed = 1; }
       player.overchargeFlash = Math.max(0, player.overchargeFlash - 1);
       player.viperGuidance = Math.max(0, player.viperGuidance - 1);
+      player.salvageLink = Math.max(0, player.salvageLink - 1);
       player.emp = Math.max(0, player.emp - 1);
       player.ricochetTicks = Math.max(0, player.ricochetTicks - 1);
       // Wormhole motion is a rule, not a constant: EASY locks it dead centre
@@ -4248,7 +4299,7 @@ export default function WormholeGame() {
         const offsets = shot.shots === 2 ? [-0.05, 0.05] : [0];
         offsets.forEach((offset) => {
           const angle = player.angle * DEG + offset;
-          game.bullets.push({ x: player.x + Math.cos(angle) * 12, y: player.y + Math.sin(angle) * 12, vx: Math.cos(angle) * 10 + player.vx, vy: Math.sin(angle) * 10 + player.vy, damage: shot.damage, life: 110, enemy: false, color: shot.color, bouncesLeft: player.ricochetTicks > 0 ? RICOCHET_BOUNCES : 0 });
+          game.bullets.push({ x: player.x + Math.cos(angle) * 12, y: player.y + Math.sin(angle) * 12, vx: Math.cos(angle) * 10 + player.vx, vy: Math.sin(angle) * 10 + player.vy, damage: shot.damage, life: 110, enemy: false, color: shot.color, bouncesLeft: player.ricochetTicks > 0 ? RICOCHET_BOUNCES : 0, salvageLinked: game.ship.id === "kestrel" && player.salvageLink > 0 });
           game.playerShots += 1;
         });
         game.shotCycle = shot.delay;
@@ -4342,6 +4393,22 @@ export default function WormholeGame() {
           if (dist(bullet, player) < 13) { bullet.life = 0; damagePlayer(game, bullet.damage, "hostile_projectile"); }
           return;
         }
+        // Additional cannon/PUP contact only: combat checks below are intact
+        // for every round that did not actually touch a loose collectible.
+        if (bullet.life > 0 && bullet.salvageLinked) {
+          const pickup = game.pickups.find((item) => item.life > 0 && salvageLinkHitsPup(game.ship.id, bullet, item));
+          if (pickup) {
+            const collected = resolvePlayerPickup(game, pickup);
+            // Consume on both success and a full bin so this one round cannot
+            // retry every frame or collect a second PUP in the same row.
+            bullet.life = 0;
+            if (collected) {
+              burst(game, pickup.x, pickup.y, "#75ffd0", 8, 3.5);
+              playCue("salvage-link", 0.14);
+            }
+          }
+        }
+        if (bullet.life <= 0) return;
         if (dist(bullet, { x: game.portalX, y: game.portalY }) < 43) {
           bullet.life = 0;
           game.portalCharge += bullet.damage;
@@ -4470,31 +4537,7 @@ export default function WormholeGame() {
         pickup.phase += PUP_SPIN;
         pickup.life -= 1;
         if (pupCollected(pickup, player)) {
-          pickup.life = 0;
-          game.score += 50;
-          const type = pickup.type;
-          if (type === "gun") player.gun = Math.min(3, player.gun + 1);
-          else if (type === "thrust") player.thrust = Math.min(3, player.thrust + 1);
-          else if (type === "retros") player.retros = Math.min(RETRO_MAX_LEVEL, player.retros + 1);
-          else if (type === "shield") player.shield = Math.max(450, player.shield + 200);
-          else if (type === "clear") {
-            const coopGuest = game.mode === "coop" && netRef.current?.state.you?.id !== netRef.current?.state.hostId;
-            if (coopGuest) netRef.current?.reportWorldAction("clear");
-            else game.enemies.forEach((enemy) => destroyEnemy(game, enemy));
-          }
-          else if (type === "health") player.health = Math.min(player.maxHealth, player.health + 30);
-          else if (type === "ricochet") player.ricochetTicks = ticksForSeconds(RICOCHET_DURATION_SECONDS);
-          else if (game.stock.length < STOCK_LIMIT) {
-            const wasBelowCapacity = game.stock.length === STOCK_LIMIT - 1;
-            game.stock.push(type);
-            if (game.mode !== "pve") netRef.current?.reportInventory("collect", type);
-            if (wasBelowCapacity) playCue("inventory-full", 0.2);
-          }
-          else { game.notice = "POWERUP BIN FULL"; game.noticeLife = 75; return; }
-          game.notice = `${WEAPONS[type].short} COLLECTED`;
-          game.noticeLife = 100;
-          burst(game, pickup.x, pickup.y, POWER_COLORS[type], 16, 5);
-          playPupPickupSound(WEAPONS[pickup.type].pupClass);
+          resolvePlayerPickup(game, pickup);
         }
       });
 
@@ -5075,10 +5118,10 @@ export default function WormholeGame() {
           ctx.arc(bullet.x, bullet.y, 2.4, 0, Math.PI * 2);
           ctx.fill();
         } else {
-          if (profile.shadows) { ctx.shadowColor = bullet.color; ctx.shadowBlur = bullet.special ? 13 : 7; }
+          if (profile.shadows) { ctx.shadowColor = bullet.salvageLinked ? "#75ffd0" : bullet.color; ctx.shadowBlur = bullet.special ? 13 : bullet.salvageLinked ? 11 : 7; }
           const bankshot = !bullet.special && (bullet.bouncesLeft ?? 0) > 0;
-          ctx.strokeStyle = bankshot ? "#73f6b0" : bullet.color;
-          ctx.lineWidth = bullet.special ? 4.4 : bankshot ? 3.4 : 2.6;
+          ctx.strokeStyle = bullet.salvageLinked ? "#75ffd0" : bankshot ? "#73f6b0" : bullet.color;
+          ctx.lineWidth = bullet.special ? 4.4 : bullet.salvageLinked ? 3.4 : bankshot ? 3.4 : 2.6;
           ctx.lineCap = "round";
           ctx.beginPath();
           ctx.moveTo(bullet.x, bullet.y);
@@ -5171,6 +5214,14 @@ export default function WormholeGame() {
         drawShipShape(ctx, game.ship.id, (game.ship.id === "flagship" ? .82 : 1) * 1.15);
         ctx.fill();
         ctx.stroke();
+        if (player.salvageLink > 0) {
+          ctx.strokeStyle = "#75ffd0";
+          ctx.globalAlpha = 0.42 + Math.sin(time * 0.012) * 0.18;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(0, 0, 23 + Math.sin(time * 0.009) * 2, 0, Math.PI * 2);
+          ctx.stroke();
+        }
         if (player.shield > 0 || player.invuln > 0) {
           ctx.strokeStyle = player.invuln > 0 ? "#ffffff" : "#76a7ff";
           ctx.globalAlpha = .7;

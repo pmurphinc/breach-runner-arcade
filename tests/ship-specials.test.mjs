@@ -20,3 +20,12 @@ test("ability names are unique so HUD feedback identifies the activation", () =>
   const names = Object.values(SHIP_SPECIALS).map((special) => special.name);
   assert.equal(new Set(names).size, SHIPS.length);
 });
+
+test("Kestrel exposes the tuned SALVAGE LINK active instead of its placeholder", () => {
+  const kestrel = SHIPS.find(({ id }) => id === "kestrel");
+  assert.equal(SHIP_SPECIALS.kestrel.name, "SALVAGE LINK");
+  assert.equal(SHIP_SPECIALS.kestrel.activeSeconds, 5);
+  assert.equal(SHIP_SPECIALS.kestrel.cooldownSeconds, 20);
+  assert.match(kestrel.special, /For 5 seconds, cannon shots collect loose PUPs on impact/);
+  assert.doesNotMatch(kestrel.special, /PENDING|not yet installed/i);
+});
