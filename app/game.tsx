@@ -152,6 +152,13 @@ import {
 } from "./survival-board";
 import { formatRunTime, normalizeInitials, settleScore } from "./run-scoring";
 import {
+  AUTO_GUN_DAMAGE,
+  AUTO_GUN_PROJECTILE_SPEED,
+  AUTO_GUN_PROJECTILE_TICKS,
+  autoGunDelayTicks,
+  selectAutoGunTarget,
+} from "./auto-gun";
+import {
   VIPER_GUIDANCE_SECONDS,
   hostileTrackingVector,
   steerHomingVelocity,
@@ -320,6 +327,8 @@ type Bullet = {
   turnRadians?: number;
   /** Set only on Kestrel cannon rounds fired while SALVAGE LINK is active. */
   salvageLinked?: boolean;
+  /** Warden passive rounds bypass the cannon budget, pickups and the Rift. */
+  autoGun?: boolean;
 };
 
 /**
@@ -455,6 +464,8 @@ type Player = {
   flagshipField: number;
   /** Ticks remaining in Kestrel's SALVAGE LINK collection window. */
   salvageLink: number;
+  autoGunCooldown: number;
+  autoGunAngle: number;
   flashMode: "tank" | "squid";
 };
 
@@ -675,6 +686,8 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
       viperGuidance: 0,
       flagshipField: 0,
       salvageLink: 0,
+      autoGunCooldown: 0,
+      autoGunAngle: -90,
       flashMode: "tank",
     },
     portalAngle: 0,
@@ -4125,6 +4138,7 @@ export default function WormholeGame() {
         netRef.current?.reportPosition(player.x, player.y, player.angle);
       }
       game.shotCycle -= 1;
+      player.autoGunCooldown = Math.max(0, player.autoGunCooldown - 1);
       game.botTimer -= 1;
       game.noticeLife = Math.max(0, game.noticeLife - 1);
       game.portalPulse = Math.max(0, game.portalPulse - 0.012);
@@ -4310,6 +4324,34 @@ export default function WormholeGame() {
         play("fire", 0.12, cannonPlaybackRate(player.gun));
       }
 
+      // The Warden reacquires from live authoritative entities every fixed
+      // simulation tick. This neither reads nor mutates cannon input/state.
+      if (game.ship.id === "warden") {
+        const target = selectAutoGunTarget(player, game.enemies.map((enemy) => ({
+          id: enemyIdentity(game, enemy), x: enemy.x, y: enemy.y, hp: enemy.hp,
+          kind: enemy.kind, hostile: true,
+        })));
+        if (target) {
+          const angle = Math.atan2(target.y - player.y, target.x - player.x);
+          player.autoGunAngle = angle / DEG;
+          if (player.autoGunCooldown <= 0) {
+            game.bullets.push({
+              x: player.x + Math.cos(angle) * 15,
+              y: player.y + Math.sin(angle) * 15,
+              vx: Math.cos(angle) * AUTO_GUN_PROJECTILE_SPEED,
+              vy: Math.sin(angle) * AUTO_GUN_PROJECTILE_SPEED,
+              damage: AUTO_GUN_DAMAGE,
+              life: AUTO_GUN_PROJECTILE_TICKS,
+              enemy: false,
+              color: "#ffd166",
+              autoGun: true,
+            });
+            player.autoGunCooldown = autoGunDelayTicks(TICK_MS);
+            burst(game, player.x + Math.cos(angle) * 16, player.y + Math.sin(angle) * 16, "#ffd166", 3, 2);
+          }
+        }
+      }
+
       if (launch && game.stock.length > 0 && !keys.current.__launchLatch) {
         keys.current.__launchLatch = true;
         const type = consumeLoadedPup(game.stock)!;
@@ -4399,7 +4441,7 @@ export default function WormholeGame() {
         }
         // Additional cannon/PUP contact only: combat checks below are intact
         // for every round that did not actually touch a loose collectible.
-        if (bullet.life > 0 && bullet.salvageLinked) {
+        if (bullet.life > 0 && bullet.salvageLinked && !bullet.autoGun) {
           const pickup = game.pickups.find((item) => item.life > 0 && salvageLinkHitsPup(game.ship.id, bullet, item));
           if (pickup) {
             const collected = resolvePlayerPickup(game, pickup, "salvage-link");
@@ -4413,7 +4455,7 @@ export default function WormholeGame() {
           }
         }
         if (bullet.life <= 0) return;
-        if (dist(bullet, { x: game.portalX, y: game.portalY }) < 43) {
+        if (!bullet.autoGun && dist(bullet, { x: game.portalX, y: game.portalY }) < 43) {
           bullet.life = 0;
           game.portalCharge += bullet.damage;
           // This is where cannon damage is actually applied to the rift — the
@@ -4439,7 +4481,7 @@ export default function WormholeGame() {
           if (dist(bullet, enemy) < enemy.radius + 4) {
             bullet.life = 0;
             const coopGuest = game.mode === "coop" && netRef.current?.state.you?.id !== netRef.current?.state.hostId;
-            if (coopGuest) netRef.current?.reportEnemyHit(enemyIdentity(game, enemy), bullet.damage, bullet.special ? "overcharge" : "cannon");
+            if (coopGuest) netRef.current?.reportEnemyHit(enemyIdentity(game, enemy), bullet.damage, bullet.autoGun ? "projectile" : bullet.special ? "overcharge" : "cannon");
             else damageEnemy(game, enemy, bullet.damage);
             burst(game, bullet.x, bullet.y, POWER_COLORS[enemy.kind], 4, 2.5);
             cannonImpactFeedback(game, bullet);
@@ -4623,7 +4665,7 @@ export default function WormholeGame() {
       let liveShots = 0;
       compact(game.bullets, (item) => {
         const alive = item.life > 0 && item.x > -30 && item.x < game.worldWidth + 30 && item.y > -30 && item.y < game.worldHeight + 30;
-        if (alive && countsTowardShotBudget(item)) liveShots += 1;
+        if (alive && !item.autoGun && countsTowardShotBudget(item)) liveShots += 1;
         return alive;
       });
       game.playerShots = liveShots;
@@ -5234,6 +5276,20 @@ export default function WormholeGame() {
           ctx.stroke();
         }
         ctx.restore();
+
+        if (game.ship.id === "warden") {
+          // Independent barrel: world-space rotation is intentionally outside
+          // the hull transform, so it cannot alter the ship/cannon heading.
+          ctx.save();
+          ctx.translate(player.x, player.y);
+          ctx.rotate(player.autoGunAngle * DEG);
+          ctx.strokeStyle = "#ffd166";
+          ctx.fillStyle = "#152331";
+          ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.arc(0, 0, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(3, 0); ctx.lineTo(17, 0); ctx.stroke();
+          ctx.restore();
+        }
 
         if (player.emp > 0) {
           ctx.save();

@@ -42,6 +42,8 @@ export const SHIP_SHAPES = {
   // A needle nose and tightly swept wings give the light scavenger a narrow,
   // quick interceptor read without borrowing another frame's broad outline.
   kestrel: [[20, 0], [1, -3], [-9, -11], [-6, -3], [-15, -2], [-11, 0], [-15, 2], [-6, 3], [-9, 11], [1, 3]],
+  // Broad shoulders and a central hardpoint distinguish the medium gunship.
+  warden: [[20, 0], [8, -11], [-8, -13], [-16, -6], [-13, 0], [-16, 6], [-8, 13], [8, 11]],
 } as const satisfies Record<ShipId, ShipShape>;
 
 function poly(ctx: CanvasRenderingContext2D, points: readonly (readonly [number, number])[], close = true) {

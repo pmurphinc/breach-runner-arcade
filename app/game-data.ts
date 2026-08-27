@@ -1,4 +1,4 @@
-export type ShipId = "tank" | "wing" | "squid" | "rabbit" | "turtle" | "flash" | "hunter" | "flagship" | "kestrel";
+export type ShipId = "tank" | "wing" | "squid" | "rabbit" | "turtle" | "flash" | "hunter" | "flagship" | "kestrel" | "warden";
 
 export type ShipSpec = {
   id: ShipId;
@@ -36,6 +36,7 @@ export const SHIPS: ShipSpec[] = [
   { id: "hunter", name: "Talon", role: "Siege brawler", turn: 5.5, maxSpeed: 2.9, acceleration: 0.08, health: 220, gun: 2, thrust: 1, special: "Q: Detonates on your hull, gutting hostiles within 340 units.", unlock: "OPEN" },
   { id: "flagship", name: "Leviathan", role: "Command vessel", turn: 2, maxSpeed: 1.8, acceleration: 0.04, health: 300, gun: 0, thrust: 2, special: "Q: Projects a three-second field that pulls in pickups and shoves enemies away.", unlock: "OPEN" },
   { id: "kestrel", name: "Kestrel", role: "Light / Scavenger", turn: 10, maxSpeed: 3.7, acceleration: 0.15, health: 120, gun: 1, thrust: 1, special: "Q: For 5 seconds, cannon shots collect loose PUPs on impact.", unlock: "OPEN" },
+  { id: "warden", name: "Warden", role: "Medium / Gunship", turn: 6, maxSpeed: 3, acceleration: 0.09, health: 200, gun: 1, thrust: 1, special: "Q: Active system is not installed; the hull auto-cannon remains passive.", unlock: "OPEN" },
 ];
 
 /**
@@ -72,6 +73,7 @@ export const SHIP_SPECIALS: Record<ShipId, ShipSpecial> = {
   hunter: { name: "CORE OVERCHARGE", cooldownSeconds: 18, balancePoints: 22 },
   flagship: { name: "GRAVITY PULSE", cooldownSeconds: 10, balancePoints: 30 },
   kestrel: { name: "SALVAGE LINK", cooldownSeconds: 20, activeSeconds: 5, balancePoints: 14 },
+  warden: { name: "SYSTEM PENDING", cooldownSeconds: 1, balancePoints: 20 },
 };
 
 export type PowerId = "heatseeker" | "turret" | "mines" | "ufo" | "inflator" | "minelayer" | "gunship" | "scarab" | "nuke" | "wallcrawler" | "beam" | "emp" | "ghost" | "artillery";

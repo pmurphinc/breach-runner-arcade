@@ -42,6 +42,7 @@ export const SHIP_HULL = {
   hunter: 220,
   flagship: 300,
   kestrel: 120,
+  warden: 200,
 };
 
 const COOP_RIVAL_HEALTH = { practice: 200, easy: 200, difficult: 400, hard: 700 };

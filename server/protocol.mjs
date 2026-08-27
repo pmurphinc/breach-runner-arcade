@@ -86,6 +86,7 @@ export const SHIP_IDS = [
   "hunter",
   "flagship",
   "kestrel",
+  "warden",
 ];
 
 // ------------------------------------------------------------------ limits --

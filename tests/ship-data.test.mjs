@@ -17,7 +17,7 @@ import {
 } from "../app/ship-data.ts";
 
 test("every ship has a profile, in the shipped order", () => {
-  assert.equal(SHIP_ORDER.length, 9);
+  assert.equal(SHIP_ORDER.length, 10);
   assert.deepEqual(SHIP_ORDER, SHIPS.map((s) => s.id));
   for (const ship of SHIPS) assert.ok(SHIP_PROFILES[ship.id], `missing profile for ${ship.id}`);
 });
@@ -57,8 +57,8 @@ test("specials come from the shared special table with both input prompts", () =
   }
 });
 
-test("all eight ships are open until a real progression system exists", () => {
-  assert.equal(SHIP_ORDER.length, 9);
+test("all canonical ships are open until a real progression system exists", () => {
+  assert.equal(SHIP_ORDER.length, 10);
   for (const ship of SHIPS) {
     const profile = SHIP_PROFILES[ship.id];
     assert.equal(ship.unlock, "OPEN", `${ship.id} must not advertise a fake rank gate`);
