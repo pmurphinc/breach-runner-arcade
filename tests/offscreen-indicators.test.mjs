@@ -23,7 +23,14 @@ import {
   slideClearOfBlockedRegions,
 } from "../app/offscreen-indicators.ts";
 import { PUP_FRAME_COLORS, PUP_FRAME_SHAPES, PUP_RADIUS } from "../app/pup-world.ts";
-import { POWER_COLORS, WEAPONS } from "../app/game-data.ts";
+import {
+  ENEMY_COUNTS,
+  ENEMY_STATS,
+  MAJOR_OFFSCREEN_HAZARDS,
+  POWER_COLORS,
+  WEAPONS,
+  isMajorOffscreenHazard,
+} from "../app/game-data.ts";
 
 const game = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
 const helper = readFileSync(new URL("../app/offscreen-indicators.ts", import.meta.url), "utf8");
@@ -158,8 +165,9 @@ test("the ally marker is co-op only — never solo PvE, Survival, or a PvP rival
 
 test("every marked target shares one positioning helper and one inset", () => {
   const block = renderBlock();
-  // Rift, ally, loose PUP, hostile — four call sites, one helper, one inset.
-  assert.equal((block.match(/offscreenIndicatorFor\(/g) ?? []).length, 4);
+  // Rift, ally, major hazard, loose PUP, ordinary hostile — five call sites,
+  // one helper, one inset.
+  assert.equal((block.match(/offscreenIndicatorFor\(/g) ?? []).length, 5);
   assert.equal((block.match(/OFFSCREEN_INDICATOR_INSET/g) ?? []).length, 1);
   assert.match(block, /const markerInset = OFFSCREEN_INDICATOR_INSET \/ camScale/);
   // No second implementation of the maths anywhere in the render path.
@@ -694,7 +702,7 @@ test("a dead or despawned hostile produces no marker at all", () => {
   assert.deepEqual(enemyMarkers([]), []);
   const block = enemyBlock();
   assert.match(block, /for \(const enemy of game\.enemies\)/);
-  assert.match(block, /if \(enemy\.hp <= 0\) continue;/);
+  assert.match(block, /if \(enemy\.hp <= 0 \|\| isMajorOffscreenHazard\(enemy\.kind\)\) continue;/);
   // No cache and no marker state written back onto a hostile.
   assert.doesNotMatch(block, /enemyMarkerCache|lastEnemyMarkers|useRef/);
   assert.doesNotMatch(block, /enemy\.(?:marker|indicator|offscreen)/);
@@ -871,4 +879,367 @@ test("hostile markers follow every camera mode without touching the camera", () 
   assert.equal(panning[3], null, "the camera has caught up and the marker is gone");
   // Bounds are the only camera input: no view mode is named in the hostile pass.
   assert.doesNotMatch(enemyBlock(), /fullArena|shipLock|zoom|viewMode|camScale =/);
+});
+
+// ------------------------------------------------------- major hazards --
+//
+// A few hostiles can reach the pilot from outside the frame, and those get a
+// louder marker than the ordinary threat badge. These cover the three things
+// that can go wrong with that: the classification drifting out of one place,
+// an entity picking up two markers, and an urgent warning being crowded off
+// the edge by a wave of ordinary hostiles.
+
+/**
+ * The render path's two hostile passes, replayed against the shared helper in
+ * the order the block runs them: major hazards first, ordinary hostiles after.
+ *
+ * Deliberately not a reimplementation of either — it asks the same shared
+ * classifier the game asks, so the partition it proves is the game's own.
+ */
+const hostileMarkers = (enemies, bounds = BOUNDS, blocked = []) => {
+  const placed = [];
+  for (const hostile of enemies) {
+    if (hostile.hp <= 0 || !isMajorOffscreenHazard(hostile.kind)) continue;
+    const marker = offscreenIndicatorFor(hostile, bounds, inset, { blocked });
+    if (!marker) continue;
+    placed.push({ hostile, marker, style: "hazard" });
+    blocked.push(markerBlockFor(marker));
+  }
+  for (const hostile of enemies) {
+    if (hostile.hp <= 0 || isMajorOffscreenHazard(hostile.kind)) continue;
+    const marker = offscreenIndicatorFor(hostile, bounds, inset, { blocked });
+    if (!marker) continue;
+    placed.push({ hostile, marker, style: "enemy" });
+    blocked.push(markerBlockFor(marker));
+  }
+  return placed;
+};
+
+/** The hazard placement pass, from its blocked list to where the PUPs start. */
+const hazardBlock = () => {
+  const block = renderBlock();
+  return block.slice(block.indexOf("const hazardPlacement"), block.indexOf("const pupPlacement"));
+};
+
+/** The hazard marker's own drawing, up to where the hostile badge begins. */
+const hazardArt = () => {
+  const block = renderBlock();
+  return block.slice(block.indexOf("drawOffscreenHazardMarker = ("), block.indexOf("drawOffscreenEnemyMarker = ("));
+};
+
+const bomb = (x, y, hp = 100) => enemy(x, y, "nuke", ENEMY_STATS.nuke.radius, hp);
+const emitter = (x, y, hp = 10) => enemy(x, y, "beam", ENEMY_STATS.beam.radius, hp);
+
+test("major hazards are classified in one place, off canonical hostile ids", () => {
+  // The whole vocabulary lives in game-data, next to the hostiles themselves.
+  assert.deepEqual([...MAJOR_OFFSCREEN_HAZARDS], ["nuke", "beam"]);
+  for (const kind of MAJOR_OFFSCREEN_HAZARDS) {
+    assert.ok(kind in ENEMY_STATS, `${kind} is not a canonical hostile id`);
+    assert.ok(kind in ENEMY_COUNTS, `${kind} is not a hostile the rival fields`);
+    assert.equal(WEAPONS[kind].id, kind);
+  }
+  assert.equal(isMajorOffscreenHazard("nuke"), true);
+  assert.equal(isMajorOffscreenHazard("beam"), true);
+  // Deliberately not every hostile: the ordinary rival hulls stay ordinary.
+  for (const kind of Object.keys(ENEMY_STATS)) {
+    if (MAJOR_OFFSCREEN_HAZARDS.includes(kind)) continue;
+    assert.equal(isMajorOffscreenHazard(kind), false, `${kind} should not be a major hazard`);
+  }
+  assert.ok(Object.keys(ENEMY_STATS).length - MAJOR_OFFSCREEN_HAZARDS.length >= 10);
+
+  // The render path asks the classifier and never names a hostile itself.
+  const block = renderBlock();
+  assert.equal((block.match(/isMajorOffscreenHazard\(enemy\.kind\)/g) ?? []).length, 2);
+  for (const kind of Object.keys(ENEMY_STATS)) {
+    assert.ok(!block.includes(`"${kind}"`), `the render path names the hostile id ${kind}`);
+  }
+  assert.doesNotMatch(block, /kind === |\.kind ===|threat >|category ===|ENEMY_STATS/);
+  // And no second copy of the list anywhere in the client.
+  assert.equal((codeOnly(game).match(/MAJOR_OFFSCREEN_HAZARDS/g) ?? []).length, 0);
+  assert.match(
+    readFileSync(new URL("../app/game-data.ts", import.meta.url), "utf8"),
+    /export function isMajorOffscreenHazard\(kind: PowerId\): boolean/,
+  );
+});
+
+test("the CORE BOMB is an existing hostile, and its own marker gets the hazard style", () => {
+  // It already lives in game.enemies — no second entity, no second marker.
+  assert.equal(ENEMY_STATS.nuke.hp, 100);
+  assert.match(codeOnly(game), /enemy\.kind === "nuke"/);
+  assert.match(codeOnly(game), /game\.enemies\.push\(makeEnemy\(/);
+
+  const placed = hostileMarkers([bomb(-400, 300)]);
+  assert.equal(placed.length, 1);
+  assert.equal(placed[0].style, "hazard");
+  assert.equal(placed[0].marker.x, BOUNDS.left + inset);
+  assert.equal(degrees(placed[0].marker.angle), 180);
+
+  // The hazard pass is the only thing that draws it, and it is handed the
+  // hostile's own kind, so CORE BOMB reads as CORE BOMB and not as a dot.
+  const block = hazardBlock();
+  assert.match(block, /if \(enemy\.hp <= 0 \|\| !isMajorOffscreenHazard\(enemy\.kind\)\) continue;/);
+  assert.match(block, /\(hazardMarkers \?\?= \[\]\)\.push\(\{ marker, kind: enemy\.kind \}\)/);
+  assert.match(renderBlock(), /drawOffscreenHazardMarker\(hazard\.marker, hazard\.kind\)/);
+  assert.match(hazardArt(), /ctx\.strokeStyle = POWER_COLORS\[kind\];/);
+  assert.equal(POWER_COLORS.nuke, WEAPONS.nuke.color);
+});
+
+test("the SWEEP BEAM emitter is the hostile that gets marked, not the beam", () => {
+  // The emitter is a live enemy record anchored at the rival portal; the sweep
+  // itself is an effect drawn from it, with no entity of its own.
+  assert.match(codeOnly(game), /enemy\.kind === "beam"/);
+  assert.match(codeOnly(game), /enemy\.x = game\.portalX;\s*enemy\.y = game\.portalY;/);
+  const placed = hostileMarkers([emitter(1500, 300)]);
+  assert.equal(placed.length, 1);
+  assert.equal(placed[0].style, "hazard");
+  assert.equal(placed[0].marker.x, BOUNDS.right - inset);
+  // One emitter, one marker, however far the sweep reaches or how long it runs.
+  assert.equal(hostileMarkers([emitter(1500, 300, 10)]).length, 1);
+  assert.equal(hostileMarkers([{ ...emitter(1500, 300), phase: 2.4, age: 200 }]).length, 1);
+  // The emitter's sweep angle never reaches the marker: the chevron points at
+  // the emitter, not down the beam line.
+  assert.doesNotMatch(hazardArt(), /phase|rotationDir|advanceBeamAngle|BEAM_/);
+});
+
+test("no marker is created for a projectile, a blast or any other effect", () => {
+  // Only two world lists are ever walked for markers, and hostiles come from
+  // game.enemies — never from the bullets, shells, blast rings or particles
+  // the hazards themselves throw.
+  const block = renderBlock();
+  assert.deepEqual([...new Set(block.match(/game\.(?:bullets|powers|blasts|particles|spawns|enemies|pickups)/g) ?? [])].sort(),
+    ["game.enemies", "game.pickups"]);
+  assert.doesNotMatch(block, /blastRadius|countdown|segment|beamSegments|\.life\b/);
+  // A live CORE BOMB mid-detonation and a sweeping emitter are still one
+  // marker each, no matter what they have in the air.
+  const detonating = { ...bomb(-500, 300), countdown: 0, blastRadius: 640 };
+  const sweeping = { ...emitter(1500, 300), age: 200, phase: 1.1 };
+  assert.equal(hostileMarkers([detonating, sweeping]).length, 2);
+});
+
+test("one world entity produces at most one marker, hazard or ordinary", () => {
+  const world = [
+    bomb(-400, 300), emitter(1500, 300),
+    enemy(-420, 120), enemy(-440, 480, "gunship", 25), enemy(1520, 90, "artillery", 20),
+    enemy(500, -400, "mines", 8), enemy(500, 1100, "ghost", 16),
+  ];
+  const placed = hostileMarkers(world);
+  assert.equal(placed.length, world.length);
+  // Every entity appears exactly once, and the two styles never overlap.
+  for (const hostile of world) {
+    assert.equal(placed.filter((entry) => entry.hostile === hostile).length, 1, `${hostile.kind} marked twice`);
+  }
+  const hazards = placed.filter((entry) => entry.style === "hazard").map((entry) => entry.hostile.kind);
+  const ordinary = placed.filter((entry) => entry.style === "enemy").map((entry) => entry.hostile.kind);
+  assert.deepEqual(hazards, ["nuke", "beam"]);
+  assert.deepEqual(ordinary.filter((kind) => isMajorOffscreenHazard(kind)), []);
+
+  // In the source the two loops are exact complements of the one classifier,
+  // so nothing can fall into both and nothing can fall out of both.
+  assert.match(hazardBlock(), /if \(enemy\.hp <= 0 \|\| !isMajorOffscreenHazard\(enemy\.kind\)\) continue;/);
+  assert.match(enemyBlock(), /if \(enemy\.hp <= 0 \|\| isMajorOffscreenHazard\(enemy\.kind\)\) continue;/);
+  assert.equal((renderBlock().match(/for \(const enemy of game\.enemies\)/g) ?? []).length, 3);
+});
+
+test("a major hazard takes its edge position before any ordinary hostile", () => {
+  // Twenty ordinary hostiles crowd the left edge, and the CORE BOMB is offered
+  // its spot last in world order — the pass order still gives it the position
+  // that actually points at it.
+  const swarm = Array.from({ length: 20 }, (_, index) => enemy(-200 - index * 15, 40 + index * 28));
+  const alone = hostileMarkers([bomb(-500, 300)])[0].marker;
+  const crowded = hostileMarkers([...swarm, bomb(-500, 300)]);
+  const hazard = crowded.find((entry) => entry.style === "hazard");
+  assert.equal(crowded.length, 21);
+  assert.deepEqual(hazard.marker, alone, "the wave pushed the warning off its spot");
+  // And it is placed first: every ordinary marker keeps clear of it, not the
+  // other way round.
+  for (const entry of crowded.filter((item) => item.style === "enemy")) {
+    const gap = Math.hypot(entry.marker.x - hazard.marker.x, entry.marker.y - hazard.marker.y);
+    assert.ok(gap >= radius * 2 - 1e-6, `an ordinary marker overlaps the hazard (gap ${gap})`);
+  }
+  // In the source: placed before the PUPs and the ordinary hostiles, painted
+  // after them so a hazard is never the one underneath.
+  const block = renderBlock();
+  const hazardPlace = block.indexOf("const hazardPlacement");
+  const pupPlace = block.indexOf("const pupPlacement");
+  const enemyPlace = block.indexOf("const enemyPlacement");
+  const enemyDraw = block.indexOf("drawOffscreenEnemyMarker(marker, enemy.kind)");
+  const hazardDraw = block.indexOf("drawOffscreenHazardMarker(hazard.marker");
+  assert.ok(hazardPlace > 0 && pupPlace > hazardPlace && enemyPlace > pupPlace);
+  assert.ok(hazardDraw > enemyDraw);
+});
+
+test("major hazards stay below the Rift and the ally", () => {
+  const blocked = [BADGE];
+  const rift = offscreenIndicatorFor({ x: -700, y: -500, radius: RIFT_RADIUS }, BOUNDS, inset, { blocked });
+  const ally = offscreenIndicatorFor({ x: -650, y: -450, radius: ALLY_RADIUS }, BOUNDS, inset, {
+    blocked: [...blocked, markerBlockFor(rift)],
+  });
+  const occupied = [...blocked, markerBlockFor(rift), markerBlockFor(ally)];
+  const [{ marker }] = hostileMarkers([bomb(-620, -420)], BOUNDS, [...occupied]);
+  // The hazard yields to both of them rather than displacing either.
+  for (const [name, other] of [["Rift", rift], ["ally", ally]]) {
+    const gap = Math.hypot(marker.x - other.x, marker.y - other.y);
+    assert.ok(gap >= radius * 2 - 1e-6, `the hazard marker overlaps the ${name} marker (gap ${gap})`);
+  }
+  assert.deepEqual(offscreenIndicatorFor({ x: -700, y: -500, radius: RIFT_RADIUS }, BOUNDS, inset, { blocked }), rift);
+
+  // In the source: the Rift and ally are placed first and are blocked regions
+  // for the hazard pass, and both still paint on top of it.
+  const block = renderBlock();
+  assert.ok(block.indexOf("const riftMarker") < block.indexOf("const hazardPlacement"));
+  assert.match(hazardBlock(), /riftMarker \? \[markerBlockFor\(riftMarker, safePlacement\.markerRadius\)\] : \[\]/);
+  assert.match(hazardBlock(), /allyMarker \? \[markerBlockFor\(allyMarker, safePlacement\.markerRadius\)\] : \[\]/);
+  assert.ok(block.indexOf("drawOffscreenHazardMarker(hazard.marker") < block.indexOf("drawOffscreenMarker(riftMarker"));
+  assert.ok(block.indexOf("drawOffscreenHazardMarker(hazard.marker") < block.indexOf("drawOffscreenMarker(allyMarker"));
+});
+
+test("a hazard marker slides out from under a HUD panel, keeping its heading", () => {
+  const centre = cameraBoundsCenter(BOUNDS);
+  const hazard = bomb(-600, 40);
+  const [{ marker }] = hostileMarkers([hazard], BOUNDS, [BADGE]);
+  assert.ok(clearOf(marker, [BADGE]), "the hazard marker landed under the rules badge");
+  assert.equal(marker.angle, Math.atan2(hazard.y - centre.y, hazard.x - centre.x));
+  assert.ok(marker.x >= BOUNDS.left + inset && marker.y >= BOUNDS.top + inset);
+  // Repositioning is the shared slide, applied to the same blocked list every
+  // other marker gets — not a rule of the hazard's own.
+  assert.match(hazardBlock(), /offscreenIndicatorFor\(enemy, cameraBounds, markerInset, hazardPlacement\)/);
+  assert.match(hazardBlock(), /\.\.\.safePlacement\.blocked/);
+  assert.doesNotMatch(hazardBlock(), /markerRadius: [\d.]|OFFSCREEN_INDICATOR_INSET|Math\.atan2/);
+  assert.match(hazardBlock(), /markerRadius: safePlacement\.markerRadius/);
+});
+
+test("a hazard nudged along a crowded edge still points at the hazard", () => {
+  const centre = cameraBoundsCenter(BOUNDS);
+  // Two hazards and the Rift all off the same corner: everything moves except
+  // the headings.
+  const rift = offscreenIndicatorFor({ x: -800, y: -600, radius: RIFT_RADIUS }, BOUNDS, inset);
+  const hazards = [bomb(-500, -320), emitter(-520, -300)];
+  const placed = hostileMarkers(hazards, BOUNDS, [markerBlockFor(rift)]);
+  assert.equal(placed.length, 2);
+  for (const { hostile, marker } of placed) {
+    assert.equal(marker.angle, Math.atan2(hostile.y - centre.y, hostile.x - centre.x));
+    assert.ok(marker.x >= BOUNDS.left + inset && marker.x <= BOUNDS.right - inset);
+    assert.ok(marker.y >= BOUNDS.top + inset && marker.y <= BOUNDS.bottom - inset);
+  }
+  const gap = Math.hypot(placed[0].marker.x - placed[1].marker.x, placed[0].marker.y - placed[1].marker.y);
+  assert.ok(gap >= radius * 2 - 1e-6, `two hazard markers overlap (gap ${gap})`);
+});
+
+test("a hazard the pilot can see gets no marker", () => {
+  assert.deepEqual(hostileMarkers([bomb(500, 300), emitter(500, 300)]), []);
+  // Well inside the border, on every side, is visible too.
+  assert.deepEqual(hostileMarkers([bomb(60, 560), emitter(940, 40)]), []);
+  // Visibility is the shared body-aware rule, unchanged: half a hull inside.
+  assert.equal(isTargetOffscreen(bomb(20, 300), BOUNDS), false);
+  assert.equal(isTargetOffscreen(bomb(9, 300), BOUNDS), true);
+  assert.equal(isTargetOffscreen(bomb(500, 300), BOUNDS), false);
+  // Full Arena shows the whole world, so nothing is marked at all.
+  assert.deepEqual(hostileMarkers([bomb(2200, 1300), emitter(60, 40)], { left: 0, top: 0, right: 2400, bottom: 1400 }), []);
+  // The hazard pass adds no visibility maths of its own.
+  assert.doesNotMatch(hazardBlock(), /isTargetOffscreen|OFFSCREEN_VISIBLE_BODY|radius:/);
+});
+
+test("a destroyed or despawned hazard stops producing a marker", () => {
+  assert.deepEqual(hostileMarkers([{ ...bomb(-400, 300), hp: 0 }]), []);
+  assert.deepEqual(hostileMarkers([{ ...emitter(1500, 300), hp: 0 }]), []);
+  const alive = bomb(-400, 300);
+  assert.equal(hostileMarkers([alive, { ...emitter(1500, 300), hp: 0 }]).length, 1);
+  // Despawn takes it out of the world list, and nothing else is remembered.
+  assert.deepEqual(hostileMarkers([]), []);
+  const block = hazardBlock();
+  assert.match(block, /for \(const enemy of game\.enemies\)/);
+  assert.doesNotMatch(block, /hazardCache|lastHazard|useRef|Ref\.current/);
+  assert.doesNotMatch(block, /enemy\.(?:marker|indicator|offscreen)/);
+  // The held list is rebuilt each frame and stays null when nothing is marked.
+  assert.match(block, /let hazardMarkers: \{ marker: OffscreenIndicator; kind: PowerId \}\[\] \| null = null;/);
+});
+
+test("the hazard marker reads as an alarm, not as the ordinary threat badge", () => {
+  const art = hazardArt();
+  // Alarm red, a warning triangle, and a heavier double outline.
+  assert.match(codeOnly(game), /const OFFSCREEN_HAZARD_ACCENT = "#ff2f2f";/);
+  assert.match(art, /const accent = OFFSCREEN_HAZARD_ACCENT;/);
+  assert.doesNotMatch(art, /OFFSCREEN_ENEMY_ACCENT|OFFSCREEN_ENEMY_BADGE|ctx\.ellipse|drawPupFrame|pupFrameColor/);
+  // Not the Rift's colours, not the ally's, not a PUP class colour.
+  for (const color of ["#ff4cbe", "#ff2a3f", "#b6ff57"]) assert.ok(!art.includes(color));
+  for (const color of Object.values(PUP_FRAME_COLORS)) assert.ok(!art.includes(color));
+  // The badge is a triangle and it stays upright; only the chevron turns.
+  assert.match(art, /ctx\.rotate\(indicator\.angle\);[\s\S]*?ctx\.restore\(\);[\s\S]*?ctx\.moveTo\(0, -8\.4\)/);
+  const upright = art.slice(art.indexOf("ctx.moveTo(0, -8.4)"));
+  assert.doesNotMatch(upright, /ctx\.rotate\(/);
+  // Same compact footprint as every other marker — a louder badge, not a bigger one.
+  const points = [...art.matchAll(/ctx\.(?:moveTo|lineTo|arc)\((-?[\d.]+), (-?[\d.]+)/g)];
+  assert.ok(points.length > 0);
+  for (const [, x, y] of points) assert.ok(Math.abs(Number(x)) <= 14 && Math.abs(Number(y)) <= 14);
+  assert.match(renderBlock(), /ctx\.scale\(1 \/ camScale, 1 \/ camScale\)/);
+  // The identifying core is the hazard's own kind colour, from the same table
+  // its hull is drawn from, so CORE BOMB and SWEEP BEAM stay distinguishable.
+  assert.match(art, /ctx\.fillStyle = POWER_COLORS\[kind\];/);
+  assert.notEqual(POWER_COLORS.nuke, POWER_COLORS.beam);
+});
+
+test("the hazard pulse is a badge alpha only, and flattens for reduced motion", () => {
+  const art = hazardArt();
+  assert.match(art, /const pulse = reducedMotionRef\.current \? 1 : 0\.86 \+ 0\.14 \* Math\.sin\(time \* 0\.006\)/);
+  assert.match(art, /ctx\.globalAlpha = 0\.86 \* pulse;/);
+  // Alpha only: nothing grows, nothing moves, and the screen is untouched.
+  assert.doesNotMatch(art, /pulse \*|\* pulse[^;]|fillRect|globalCompositeOperation|W, H|shake/);
+  // Named once and spent once: the alpha is the only thing it touches.
+  assert.equal((art.match(/pulse/g) ?? []).length, 2);
+  // The steady value stays bright, so the warning never depends on animation.
+  const steady = 0.86 * 1;
+  const dimmest = 0.86 * (0.86 - 0.14);
+  assert.ok(steady > 0.8 && dimmest > 0.6, "the pulse must never dim the warning away");
+});
+
+test("ordinary hostiles, the Rift, the ally and the PUPs are untouched", () => {
+  // The ordinary threat badge keeps its colour, its star and its call site.
+  assert.match(codeOnly(game), /const OFFSCREEN_ENEMY_ACCENT = "#ff9a4d";/);
+  const ordinaryArt = (() => {
+    const block = renderBlock();
+    return block.slice(block.indexOf("drawOffscreenEnemyMarker = ("), block.indexOf("const riftBody"));
+  })();
+  assert.match(ordinaryArt, /const accent = OFFSCREEN_ENEMY_ACCENT;/);
+  assert.match(ordinaryArt, /OFFSCREEN_ENEMY_BADGE/);
+  assert.doesNotMatch(ordinaryArt, /OFFSCREEN_HAZARD_ACCENT|pulse|isMajorOffscreenHazard/);
+  assert.match(enemyBlock(), /drawOffscreenEnemyMarker\(marker, enemy\.kind\)/);
+
+  // A wave of ordinary hostiles lands exactly where it did before hazards
+  // existed, as long as no hazard is out there with them.
+  const swarm = Array.from({ length: 12 }, (_, index) => enemy(-200 - index * 40, 60 + index * 40));
+  assert.deepEqual(hostileMarkers(swarm).map((entry) => entry.marker), enemyMarkers(swarm).map((entry) => entry.marker));
+
+  // And the three higher-priority markers are unchanged by a hazard being out.
+  const blocked = [BADGE];
+  const rift = offscreenIndicatorFor({ x: -700, y: -500, radius: RIFT_RADIUS }, BOUNDS, inset, { blocked });
+  const ally = offscreenIndicatorFor({ x: 1400, y: 320, radius: ALLY_RADIUS }, BOUNDS, inset, { blocked });
+  const pups = selection([pup(-300, 300), pup(-400, 320)]);
+  hostileMarkers([bomb(-500, 300), emitter(1500, 300), ...swarm], BOUNDS, [...blocked]);
+  assert.deepEqual(offscreenIndicatorFor({ x: -700, y: -500, radius: RIFT_RADIUS }, BOUNDS, inset, { blocked }), rift);
+  assert.deepEqual(offscreenIndicatorFor({ x: 1400, y: 320, radius: ALLY_RADIUS }, BOUNDS, inset, { blocked }), ally);
+  assert.deepEqual(selection([pup(-300, 300), pup(-400, 320)]), pups);
+  assert.equal(MAX_OFFSCREEN_PUP_INDICATORS, 5);
+  const block = renderBlock();
+  assert.match(block, /drawOffscreenPupMarker\(marker, WEAPONS\[pickup\.type\]\.pupClass\)/);
+  assert.match(block, /if \(riftMarker\) drawOffscreenMarker\(riftMarker, game\.enrageActive \? "#ff2a3f" : "#ff4cbe", false\)/);
+  assert.match(block, /if \(allyMarker\) drawOffscreenMarker\(allyMarker, "#b6ff57", true\)/);
+});
+
+test("hazard markers are local presentation: no protocol, no HUD toggle, no sound", () => {
+  const block = hazardBlock();
+  assert.doesNotMatch(block, /send|emit|socket|report|publish|message|netRef|playCue|audio|sfx/i);
+  // Read-only over the world list: nothing spawned, damaged, moved or killed.
+  assert.doesNotMatch(block, /game\.enemies\s*=|damageEnemy|destroyEnemy|makeEnemy|spawn/);
+  assert.doesNotMatch(block, /enemy\.(?:x|y|vx|vy|hp|radius|kind|cooldown|countdown|blastRadius|phase|armed)\s*=/);
+  // Nothing was added to the wire protocol or the client's outbound calls.
+  const protocol = readFileSync(new URL("../server/protocol.mjs", import.meta.url), "utf8");
+  const client = readFileSync(new URL("../app/pvp-client.ts", import.meta.url), "utf8");
+  for (const source of [protocol, client]) {
+    assert.doesNotMatch(source, /offscreen|indicator|hazardMarker|MAJOR_OFFSCREEN/i);
+  }
+  // No new setting: the view-settings vocabulary is untouched by any of this.
+  const settings = readFileSync(new URL("../app/view-settings.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(settings, /hazard|offscreen|indicator/i);
+  // And no cue was added for it.
+  assert.doesNotMatch(hazardArt(), /playCue|play\(|Audio|beep|alarmSound/);
 });

@@ -15,6 +15,7 @@ import {
   SHIP_SPECIALS,
   SHOT_LEVELS,
   WEAPONS,
+  isMajorOffscreenHazard,
   rivalDamageFor,
   type PickupId,
   type PupClass,
@@ -63,7 +64,7 @@ import {
   type ZoomLevel,
 } from "./view-settings";
 import { aimGuideSegment } from "./aim-guide";
-import { MAX_OFFSCREEN_PUP_INDICATORS, OFFSCREEN_INDICATOR_INSET, OFFSCREEN_MARKER_RADIUS, isTargetOffscreen, markerBlockFor, nearestOffscreenTargets, offscreenIndicatorFor, type BlockedRegion } from "./offscreen-indicators";
+import { MAX_OFFSCREEN_PUP_INDICATORS, OFFSCREEN_INDICATOR_INSET, OFFSCREEN_MARKER_RADIUS, isTargetOffscreen, markerBlockFor, nearestOffscreenTargets, offscreenIndicatorFor, type BlockedRegion, type OffscreenIndicator } from "./offscreen-indicators";
 import GlobalSystemControls, { useFullscreen } from "./system-controls";
 import { MenuScreen } from "./ui-system";
 import {
@@ -222,6 +223,18 @@ const ALLY_VISUAL_RADIUS = 34;
  * the Rift's magenta, the ally's green, or any of the PUP class colours.
  */
 const OFFSCREEN_ENEMY_ACCENT = "#ff9a4d";
+
+/**
+ * The alarm red a major hazard's off-screen marker is drawn in.
+ *
+ * Deliberately a flat, saturated red rather than the hostile badge's hazard
+ * orange: at marker size the pilot has to tell "something is out there" from
+ * "the thing that is about to take the whole arena" at a glance, and hue is
+ * the part of that pair that survives being small. It is not the Rift's
+ * magenta or its enrage crimson, not the ally's green, and not a PUP class
+ * colour, so a hazard cannot be mistaken for somewhere to fly toward.
+ */
+const OFFSCREEN_HAZARD_ACCENT = "#ff2f2f";
 
 /**
  * The enemy badge outline in marker units: eight vertices alternating between
@@ -5404,6 +5417,83 @@ export default function WormholeGame() {
         };
 
         /**
+         * A major hazard's marker: the same compact footprint as every other
+         * marker, but wearing an alarm-red warning triangle instead of the
+         * hostile threat star, with a heavier outline and a slow pulse.
+         *
+         * Three things separate it from the ordinary hostile badge, and all
+         * three are legible at marker size: the hue is alarm red rather than
+         * hazard orange, the silhouette is a warning triangle rather than a
+         * four-point star, and the outline is drawn twice — once wide and
+         * translucent as a halo, once tight — so the badge carries visible
+         * weight without growing. The bang inside it is painted in the
+         * hazard's own kind colour, read from the same table its hull is drawn
+         * from, so CORE BOMB and SWEEP BEAM stay distinguishable from each
+         * other the way ordinary hostiles already are.
+         *
+         * The chevron outside stays exactly the hostile chevron, in the new
+         * colour: heading is heading, and the pilot should not have to relearn
+         * which end of the marker points at the thing.
+         *
+         * The pulse rides the badge's alpha only — nothing grows, nothing
+         * moves, and the screen is untouched — and it flattens to a steady
+         * bright badge when the pilot has asked for reduced motion, so the
+         * warning never depends on the animation to be readable.
+         */
+        const drawOffscreenHazardMarker = (
+          indicator: { x: number; y: number; angle: number },
+          kind: PowerId,
+        ) => {
+          const accent = OFFSCREEN_HAZARD_ACCENT;
+          const pulse = reducedMotionRef.current ? 1 : 0.86 + 0.14 * Math.sin(time * 0.006);
+          ctx.save();
+          ctx.translate(indicator.x, indicator.y);
+          ctx.scale(1 / camScale, 1 / camScale);
+          ctx.globalAlpha = 0.86 * pulse;
+          ctx.lineJoin = "round";
+          ctx.lineCap = "round";
+          if (profile.shadows) { ctx.shadowColor = accent; ctx.shadowBlur = 9; }
+          ctx.save();
+          ctx.rotate(indicator.angle);
+          ctx.strokeStyle = accent;
+          ctx.lineWidth = 2.1;
+          ctx.beginPath();
+          ctx.moveTo(8, -5.5);
+          ctx.lineTo(13.5, 0);
+          ctx.lineTo(8, 5.5);
+          ctx.stroke();
+          ctx.restore();
+          // Upright: the warning triangle is an identity, not a heading.
+          ctx.beginPath();
+          ctx.moveTo(0, -8.4);
+          ctx.lineTo(7.6, 5.4);
+          ctx.lineTo(-7.6, 5.4);
+          ctx.closePath();
+          // Wide translucent pass first, then the tight one over it: a heavier
+          // outline than any other marker carries, at the same footprint.
+          ctx.strokeStyle = `${accent}5c`;
+          ctx.lineWidth = 4.4;
+          ctx.stroke();
+          ctx.fillStyle = `${accent}40`;
+          ctx.strokeStyle = accent;
+          ctx.lineWidth = 1.8;
+          ctx.fill();
+          ctx.stroke();
+          // The bang, in the hazard's own kind colour.
+          ctx.strokeStyle = POWER_COLORS[kind];
+          ctx.fillStyle = POWER_COLORS[kind];
+          ctx.lineWidth = 1.9;
+          ctx.beginPath();
+          ctx.moveTo(0, -4.2);
+          ctx.lineTo(0, 0.6);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(0, 3.1, 1.15, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        };
+
+        /**
          * A hostile's marker: one consistent threat badge in hazard orange,
          * carrying that hostile's own kind colour at its core, with a small
          * open chevron outside it for the heading.
@@ -5506,6 +5596,46 @@ export default function WormholeGame() {
           : null;
 
         /**
+         * Major hazards, placed straight after the Rift and the ally and ahead
+         * of everything else on the edge.
+         *
+         * Which hostiles those are is not decided here: the render path asks
+         * the one shared classifier, so the arena's idea of "this one is worth
+         * an alarm" cannot drift away from the marker's. Today that is the
+         * CORE BOMB and the SWEEP BEAM emitter, both of which can reach the
+         * pilot from outside the frame.
+         *
+         * They are placed before the PUPs and the ordinary hostiles precisely
+         * so a dense wave cannot push an urgent warning somewhere unreadable:
+         * a hazard takes the edge position that actually points at it, and the
+         * hostiles that arrive afterwards slide around it. This is the same
+         * blocked-region mechanism every other marker already uses — nothing
+         * about the geometry is special-cased for hazards.
+         *
+         * The markers are held and painted after the ordinary hostiles rather
+         * than drawn here, so that on the rare frame where a crowded edge
+         * leaves nowhere clear, the hazard is the one on top. Nothing is kept
+         * between frames: the list is rebuilt from whatever is alive right now,
+         * and stays null on the ordinary frame where no hazard is off screen.
+         */
+        const hazardPlacement = {
+          blocked: [
+            ...safePlacement.blocked,
+            ...(riftMarker ? [markerBlockFor(riftMarker, safePlacement.markerRadius)] : []),
+            ...(allyMarker ? [markerBlockFor(allyMarker, safePlacement.markerRadius)] : []),
+          ],
+          markerRadius: safePlacement.markerRadius,
+        };
+        let hazardMarkers: { marker: OffscreenIndicator; kind: PowerId }[] | null = null;
+        for (const enemy of game.enemies) {
+          if (enemy.hp <= 0 || !isMajorOffscreenHazard(enemy.kind)) continue;
+          const marker = offscreenIndicatorFor(enemy, cameraBounds, markerInset, hazardPlacement);
+          if (!marker) continue;
+          (hazardMarkers ??= []).push({ marker, kind: enemy.kind });
+          hazardPlacement.blocked.push(markerBlockFor(marker, hazardPlacement.markerRadius));
+        }
+
+        /**
          * Loose PUPs, drawn under the Rift and ally markers because those two
          * are the objective and the teammate and must stay the loudest things
          * on the edge.
@@ -5517,15 +5647,12 @@ export default function WormholeGame() {
          * a cluster of PUPs off the same corner spreads along the edge instead
          * of stacking into one smudge. Only the position moves; every marker
          * still points at its own PUP.
+         *
+         * The blocked list is the one the hazards have been filling, used as-is
+         * rather than copied, so a PUP already avoids the HUD panels, the Rift,
+         * the ally and every hazard marker.
          */
-        const pupPlacement = {
-          blocked: [
-            ...safePlacement.blocked,
-            ...(riftMarker ? [markerBlockFor(riftMarker, safePlacement.markerRadius)] : []),
-            ...(allyMarker ? [markerBlockFor(allyMarker, safePlacement.markerRadius)] : []),
-          ],
-          markerRadius: safePlacement.markerRadius,
-        };
+        const pupPlacement = hazardPlacement;
         const loosePups = nearestOffscreenTargets(
           game.pickups,
           cameraBounds,
@@ -5549,13 +5676,17 @@ export default function WormholeGame() {
          * because those two are the objective and the teammate and must stay
          * the loudest things on the edge.
          *
-         * Every live hostile is offered a marker — there is no cap. The point
-         * of the marker is that a hostile outside the frame stays detectable,
-         * and a limit would silently drop exactly the one about to arrive. A
-         * dense wave spreads along the edge instead, because each marker placed
-         * becomes a blocked region for the next, the same mechanism the PUPs
-         * already use. Only the position slides; every marker still points at
-         * its own hostile.
+         * Every live hostile that is not a major hazard is offered a marker.
+         * The two loops are exact complements of the one shared classifier, so
+         * a hostile is either an alarm or a threat badge and never both: one
+         * world entity, at most one marker.
+         *
+         * There is no cap on them. The point of the marker is that a hostile
+         * outside the frame stays detectable, and a limit would silently drop
+         * exactly the one about to arrive. A dense wave spreads along the edge
+         * instead, because each marker placed becomes a blocked region for the
+         * next, the same mechanism the PUPs already use. Only the position
+         * slides; every marker still points at its own hostile.
          *
          * Nothing is remembered between frames and no marker state is written
          * back to a hostile: the list is whatever is alive in the arena right
@@ -5569,7 +5700,7 @@ export default function WormholeGame() {
          */
         const enemyPlacement = pupPlacement;
         for (const enemy of game.enemies) {
-          if (enemy.hp <= 0) continue;
+          if (enemy.hp <= 0 || isMajorOffscreenHazard(enemy.kind)) continue;
           // The live hostile is handed straight to the shared helper: it is
           // already { x, y, radius }, so its drawn body decides visibility
           // without a wrapper object per hostile per frame.
@@ -5578,6 +5709,8 @@ export default function WormholeGame() {
           drawOffscreenEnemyMarker(marker, enemy.kind);
           enemyPlacement.blocked.push(markerBlockFor(marker, enemyPlacement.markerRadius));
         }
+
+        if (hazardMarkers) for (const hazard of hazardMarkers) drawOffscreenHazardMarker(hazard.marker, hazard.kind);
 
         if (riftMarker) drawOffscreenMarker(riftMarker, game.enrageActive ? "#ff2a3f" : "#ff4cbe", false);
         if (allyMarker) drawOffscreenMarker(allyMarker, "#b6ff57", true);
