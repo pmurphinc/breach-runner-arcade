@@ -323,6 +323,45 @@ export const ENEMY_COUNTS: Record<PowerId, number> = {
   artillery: 2,
 };
 
+/**
+ * The hostiles whose lethal reach extends far past their own hull, so they can
+ * hurt the pilot while they are still outside the frame.
+ *
+ * That reach is the whole test, and it is read off the hostiles' current
+ * behaviour rather than off their threat rating:
+ *
+ * - `nuke` (CORE BOMB) sits still, counts down, and then throws a blast ring
+ *   that grows to a 1000-unit radius. Nothing about being off screen protects
+ *   the pilot from it, and the only answers — kill it before the timer or be
+ *   somewhere else — both need to start before it is visible.
+ * - `beam` (SWEEP BEAM) anchors to the rival portal and sweeps a continuous
+ *   damage line clean across the arena. The line reaches the pilot long before
+ *   the emitter does, and the emitter is the thing worth flying at.
+ *
+ * Everything else the rival fields has to close on the pilot or put a shell in
+ * the air first, and both of those arrive on screen where they can be seen and
+ * answered, so they stay ordinary hostiles. `emp` has comparable reach but does
+ * no damage — and it rides the pilot's own position, so it is never off screen
+ * to begin with.
+ *
+ * This list is the single source of truth for that question. It exists so no
+ * call site has to name a hostile id to decide how loudly to warn about it.
+ */
+export const MAJOR_OFFSCREEN_HAZARDS: readonly PowerId[] = ["nuke", "beam"];
+
+const MAJOR_OFFSCREEN_HAZARD_IDS: ReadonlySet<string> = new Set(MAJOR_OFFSCREEN_HAZARDS);
+
+/**
+ * Is this hostile kind a major hazard — one worth a stronger warning than the
+ * ordinary threat badge?
+ *
+ * Takes the canonical hostile id, so it can be asked of a live enemy record, a
+ * codex entry or a wave definition without any of them agreeing on a shape.
+ */
+export function isMajorOffscreenHazard(kind: PowerId): boolean {
+  return MAJOR_OFFSCREEN_HAZARD_IDS.has(kind);
+}
+
 /** Damage a transmitted power-up deals to the rival's integrity. */
 export function rivalDamageFor(type: PowerId) {
   if (type === "nuke") return 24;
