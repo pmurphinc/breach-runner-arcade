@@ -95,6 +95,7 @@ import {
 } from "./layout-budget";
 import { cannonPlaybackRate, hapticsAllow } from "./combat-feedback";
 import { consumeLoadedPup, pupInventoryLayout } from "./pup-inventory";
+import { inventoryPupVisual } from "./pup-inventory-visual";
 import { pupPickupSoundProfile, type PupPickupSoundProfile } from "./pup-audio";
 import { RICOCHET_BOUNCES, RICOCHET_DURATION_SECONDS, reflectRicochet } from "./ricochet";
 import { controllerStateForPads, EMPTY_GAMEPAD, headingDegrees, pressedOnce, type GamepadActions } from "./gamepad";
@@ -824,7 +825,7 @@ function useReducedMotion() {
 }
 
 /** Static weapon silhouette. One draw per prop change — no animation loop. */
-const WeaponIcon = memo(function WeaponIcon({ id, size = 26, dim = false }: { id: PickupId; size?: number; dim?: boolean }) {
+const WeaponIcon = memo(function WeaponIcon({ id, size = 26, dim = false, inventoryFrame = false }: { id: PickupId; size?: number; dim?: boolean; inventoryFrame?: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const canvas = ref.current;
@@ -837,8 +838,20 @@ const WeaponIcon = memo(function WeaponIcon({ id, size = 26, dim = false }: { id
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, size, size);
     ctx.translate(size / 2, size / 2);
+    if (inventoryFrame) {
+      const visual = inventoryPupVisual(id);
+      ctx.save();
+      ctx.strokeStyle = visual.color;
+      ctx.fillStyle = `${visual.color}24`;
+      ctx.lineWidth = Math.max(1.5, size * 0.075);
+      ctx.lineJoin = "round";
+      drawPupFrame(ctx, visual.pupClass, size * 0.46, 0);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
     drawWeaponGlyph(ctx, id, size * 0.37, 0, { detail: 1, alpha: dim ? 0.5 : 1 });
-  }, [id, size, dim]);
+  }, [id, size, dim, inventoryFrame]);
   return <canvas ref={ref} className="weapon-icon" style={{ width: size, height: size }} aria-hidden="true" />;
 });
 
@@ -5189,13 +5202,21 @@ export default function WormholeGame() {
       const queued = nextWeapon(game.stock);
       if (queued && game.running && !game.result && viewProfileRef.current.canvasQueue) {
         const meta = WEAPONS[queued];
+        const visual = inventoryPupVisual(queued);
         const chipH = Math.round(fs(12) * 3);
         const chipW = cap(W * 0.4, 176, 250);
         const chipX = W - pad - chipW;
         const chipY = H - pad - chipH;
-        panel(chipX, chipY, chipW, chipH, `${meta.color}66`);
+        panel(chipX, chipY, chipW, chipH, `${visual.color}66`);
         ctx.save();
         ctx.translate(chipX + chipH * 0.5, chipY + chipH * 0.5);
+        ctx.strokeStyle = visual.color;
+        ctx.fillStyle = `${visual.color}24`;
+        ctx.lineWidth = 2;
+        ctx.lineJoin = "round";
+        drawPupFrame(ctx, visual.pupClass, chipH * 0.39, 0);
+        ctx.fill();
+        ctx.stroke();
         drawWeaponGlyph(ctx, queued, chipH * 0.28, time, { detail: profile.detail });
         ctx.restore();
         ctx.textAlign = "left";
@@ -5578,16 +5599,17 @@ export default function WormholeGame() {
                   {pupInventoryLayout(hud.stock, STOCK_LIMIT).stored.map((itemId, index) => {
                     const item = itemId as PickupId | null;
                     const meta = item ? WEAPONS[item] : null;
+                    const visual = item ? inventoryPupVisual(item) : null;
                     return (
                       <li
                         key={index}
                         className={`touch-powerup-slot ${meta ? "occupied" : "empty"}`}
-                        style={{ "--pup": meta?.color ?? "var(--muted)" } as React.CSSProperties}
+                        style={{ "--pup": visual?.color ?? "var(--muted)" } as React.CSSProperties}
                         aria-label={meta ? `${meta.name}${index === STOCK_LIMIT - 2 ? ", loads next" : ""}` : "Empty slot"}
                       >
                         {meta ? (
                           <button type="button" onClick={() => pinSlot(meta.id)} aria-label={`View ${meta.name}`}>
-                            <WeaponIcon id={meta.id} size={22} />
+                            <WeaponIcon id={meta.id} size={22} inventoryFrame />
                           </button>
                         ) : <span aria-hidden="true" />}
                       </li>
@@ -5597,10 +5619,11 @@ export default function WormholeGame() {
                 {(() => {
                   const loaded = pupInventoryLayout(hud.stock, STOCK_LIMIT).loaded;
                   const meta = loaded ? WEAPONS[loaded] : null;
-                  return <div className={`touch-powerup-loaded ${meta ? "occupied" : "empty"}`} style={{ "--pup": meta?.color ?? "var(--muted)" } as React.CSSProperties}>
+                  const visual = loaded ? inventoryPupVisual(loaded) : null;
+                  return <div className={`touch-powerup-loaded ${meta ? "occupied" : "empty"}`} style={{ "--pup": visual?.color ?? "var(--muted)" } as React.CSSProperties}>
                     <small>LOADED PUP <b>{hud.stock.length}/{STOCK_LIMIT}</b></small>
                     {meta ? <button type="button" onClick={() => pinSlot(meta.id)} aria-label={`View loaded ${meta.name}`}>
-                      <WeaponIcon id={meta.id} size={28} /><strong>{meta.name}</strong>
+                      <WeaponIcon id={meta.id} size={28} inventoryFrame /><strong>{meta.name}</strong>
                     </button> : <span aria-label="No PUP loaded">—</span>}
                   </div>;
                 })()}
@@ -5918,10 +5941,11 @@ export default function WormholeGame() {
                     );
                   }
                   const meta = WEAPONS[item];
+                  const visual = inventoryPupVisual(item);
                   const isNext = index === hud.stock.length - 1;
                   const duplicates = stockCounts.get(item) ?? 1;
                   return (
-                    <li key={index} className={`slot loaded ${isNext ? "next" : ""}`} style={{ "--pup": meta.color } as React.CSSProperties}>
+                    <li key={index} className={`slot loaded ${isNext ? "next" : ""}`} style={{ "--pup": visual.color } as React.CSSProperties}>
                       <button
                         type="button"
                         aria-label={`Slot ${index + 1}: ${meta.name}, ${CATEGORY_LABELS[meta.category]}${isNext ? ", fires next with E or PUP" : ""}${duplicates > 1 ? `, ${duplicates} held` : ""}. Activate for details.`}
@@ -5933,7 +5957,7 @@ export default function WormholeGame() {
                         onBlur={unhoverSlot}
                       >
                         {isNext ? <em className="slot-next" aria-hidden="true">NEXT</em> : <span className="slot-index" aria-hidden="true">{index + 1}</span>}
-                        <WeaponIcon id={item} size={24} />
+                        <WeaponIcon id={item} size={24} inventoryFrame />
                         <b className="slot-name">{meta.name}</b>
                         <b className="slot-short">{meta.short}</b>
                         <b className="slot-abbr">{meta.abbr}</b>
