@@ -17,7 +17,7 @@ import { SHIP_ORDER, SHIP_PROFILES } from "./ship-data";
 import { DIFFICULTIES, DIFFICULTY_ORDER, type DifficultyId, type GameMode } from "./difficulty";
 import { PRODUCT_TAGLINE, PRODUCT_TITLE } from "./product";
 import type { MenuRoute } from "./menu-routes";
-import { settingsStore, type CombatHaptics, type SoundLevel, type TouchControlHeight, type TouchControlSize, type ViewMode, type ZoomLevel } from "./view-settings";
+import { settingsStore, type AimGuide, type CombatHaptics, type SoundLevel, type TouchControlHeight, type TouchControlSize, type ViewMode, type ZoomLevel } from "./view-settings";
 import { GAMEPAD_BINDINGS } from "./gamepad";
 
 /** One line each. A mode a player cannot summarise is a mode they will not pick. */
@@ -470,6 +470,8 @@ export function SettingsScreen({
   onCombatHaptics,
   cannonHitSound,
   onCannonHitSound,
+  aimGuide,
+  onAimGuide,
   cameraLock,
   onCameraLock,
   zoom,
@@ -494,6 +496,8 @@ export function SettingsScreen({
   onCombatHaptics: (next: CombatHaptics) => void;
   cannonHitSound: boolean;
   onCannonHitSound: (next: boolean) => void;
+  aimGuide: AimGuide;
+  onAimGuide: (next: AimGuide) => void;
   cameraLock: boolean;
   onCameraLock: (next: boolean) => void;
   zoom: ZoomLevel;
@@ -682,7 +686,16 @@ export function SettingsScreen({
       </MenuSection> : null}
 
       {activeTab === "hud" ? <MenuSection title="HUD">
-        <p className="menu-hint settings-empty-state">No HUD presentation options are currently available.</p>
+        <OptionRow
+          label="Aim Guide"
+          value={aimGuide}
+          options={[
+            { id: "off", label: "Off" },
+            { id: "short", label: "Short" },
+            { id: "long", label: "Long" },
+          ]}
+          onChange={onAimGuide}
+        />
       </MenuSection> : null}
 
       {activeTab === "gameInfo" ? <MenuSection title="Game Info">

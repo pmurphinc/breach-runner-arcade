@@ -5,6 +5,7 @@ export type TouchControlHeight = "low" | "middle" | "high";
 export type SoundLevel = "low" | "medium" | "high";
 export type ZoomLevel = "wide" | "standard" | "close" | "closer";
 export type CombatHaptics = "off" | "gun" | "hull" | "both";
+export type AimGuide = "off" | "short" | "long";
 
 export type DeviceSettings = {
   version: 1;
@@ -27,6 +28,8 @@ export type DeviceSettings = {
   /** Combat-only vibration. Control-press and victory haptics remain separate. */
   combatHaptics: CombatHaptics;
   cannonHitSound: boolean;
+  /** Optional world-space reference drawn along the local cannon heading. */
+  aimGuide: AimGuide;
   thumbsticks: boolean;
   touchControlSize: TouchControlSize;
   /** Shared vertical placement for the mirrored touch-stick pair. */
@@ -49,6 +52,7 @@ export const DEFAULT_SETTINGS: DeviceSettings = {
   soundLevel: "medium",
   combatHaptics: "both",
   cannonHitSound: true,
+  aimGuide: "off",
   thumbsticks: true,
   touchControlSize: "medium",
   touchControlHeight: "middle",
@@ -68,6 +72,7 @@ const isHeight = (value: unknown): value is TouchControlHeight => value === "low
 const isLevel = (value: unknown): value is SoundLevel => value === "low" || value === "medium" || value === "high";
 const isZoom = (value: unknown): value is ZoomLevel => value === "wide" || value === "standard" || value === "close" || value === "closer";
 const isCombatHaptics = (value: unknown): value is CombatHaptics => value === "off" || value === "gun" || value === "hull" || value === "both";
+const isAimGuide = (value: unknown): value is AimGuide => value === "off" || value === "short" || value === "long";
 const normalizePlayerInitials = (value: unknown) => {
   if (typeof value !== "string") return "";
   const normalized = value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 3);
@@ -86,6 +91,7 @@ export function migrateSettings(value: unknown): DeviceSettings {
     soundLevel: isLevel(candidate.soundLevel) ? candidate.soundLevel : "medium",
     combatHaptics: isCombatHaptics(candidate.combatHaptics) ? candidate.combatHaptics : "both",
     cannonHitSound: typeof candidate.cannonHitSound === "boolean" ? candidate.cannonHitSound : true,
+    aimGuide: isAimGuide(candidate.aimGuide) ? candidate.aimGuide : "off",
     thumbsticks: typeof candidate.thumbsticks === "boolean" ? candidate.thumbsticks : true,
     touchControlSize: isSize(candidate.touchControlSize) ? candidate.touchControlSize : "medium",
     touchControlHeight: isHeight(candidate.touchControlHeight) ? candidate.touchControlHeight : "middle",
