@@ -86,6 +86,14 @@
    * question "can this cover that?" has one answer written down. The system
    * layer is last on purpose: Menu and Fullscreen outrank every screen, modal
    * and HUD element that exists or will exist.
+   *
+   * --z-dialog is the end-game menu: a dialog that belongs to the arena and
+   * covers the HUD. --z-modal is the layer above it, for a modal a player
+   * opens *from* one of those surfaces — the codex and the leaderboard. The
+   * end-game menu links straight to the board, so a board on --z-overlay was
+   * opened underneath the very card that opened it; the ordering between the
+   * two is written here rather than left to whichever happened to render
+   * later in the tree.
    */
   --z-arena: 0;
   --z-hud: 10;
@@ -93,6 +101,7 @@
   --z-screen: 100;
   --z-overlay: 200;
   --z-dialog: 300;
+  --z-modal: 350;
   --z-system: 400;
 }
 
@@ -800,7 +809,7 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 /* ---------------------------------------------------------------- codex -- */
 .codex-trigger { width: 100%; min-height: var(--touch-target); margin-top: 15px; color: #061119; border: 1px solid var(--cyan); border-radius: 3px; background: rgba(100, 234, 255, .88); cursor: pointer; font: 800 var(--fs-micro)/1 var(--mono); letter-spacing: .08em; }
 .codex-trigger:hover { background: var(--cyan); }
-.codex-backdrop { position: fixed; inset: 0; z-index: var(--z-overlay); display: grid; place-items: center; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); background: rgba(1, 4, 8, .82); }
+.codex-backdrop { position: fixed; inset: 0; z-index: var(--z-modal); display: grid; place-items: center; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); background: rgba(1, 4, 8, .82); }
 .codex { width: min(920px, 100%); max-height: 92dvh; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 4px; background: linear-gradient(180deg, rgba(8, 20, 30, .99), rgba(3, 9, 15, .99)); box-shadow: 0 28px 70px rgba(0, 0, 0, .7); }
 .codex-head { position: relative; padding: 16px 58px 14px 18px; border-bottom: 1px solid var(--line); }
 .codex-head h2 { margin: 0; font-size: var(--fs-lg); letter-spacing: .06em; }

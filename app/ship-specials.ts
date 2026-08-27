@@ -16,8 +16,14 @@ export const VIPER_GUIDANCE_SECONDS = 3;
  * Steering vector for a hostile, reversed while it is scrambled.
  *
  * The reversal used to belong to Phantom's old Phase Veil, which flipped every
- * hostile in the arena at once. It is now per-hostile state, so a scrambler
- * pulse only turns around what it actually reached.
+ * hostile in the arena at once. It is per-hostile state now, so whatever
+ * scrambles a hostile only turns around what it actually reached.
+ *
+ * No shipped ability scrambles a hostile at present — Phantom's special is the
+ * LANCE OVERCHARGE beam, and the pulse that used to do it went with the old
+ * one. The mechanism is left intact rather than torn out: it is generic, it
+ * costs nothing while nothing drives it, and `OverchargeBlast.scrambleSeconds`
+ * is the single field a future special would set to use it again.
  */
 export function hostileTrackingVector(
   enemyX: number,

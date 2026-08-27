@@ -10,12 +10,16 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { ENEMY_COUNTS, SHIPS, SHIP_SPECIALS, WEAPONS } from "../app/game-data.ts";
 import { TICK_MS } from "../app/difficulty.ts";
+import { BEAM_LENGTH } from "../app/beam-motion.ts";
 import {
+  PHANTOM_BEAM_SECONDS,
   SCRAMBLE_DAMAGE_MULTIPLIER,
   SHIP_OVERCHARGES,
+  blastAnnihilates,
   blastDamageAt,
   blastRadiusAt,
   blastRingRadii,
+  blastSweepReached,
   cannonShotBudgetUsed,
   countsTowardShotBudget,
   overchargeFor,
@@ -78,11 +82,30 @@ test("the swarm overcharges the tracker wave rather than copying it", () => {
   assert.ok(swarm.volley.speed > 7, "a hostile tracker flies at 7");
 });
 
-test("the scrambler pulse out-reaches the pickup it is built from", () => {
-  const scrambler = overchargeFor("squid");
-  // The ordinary PULSE SCRAMBLER dies once its single ring passes 320.
-  assert.ok(scrambler.blast.radius > 320);
-  assert.ok(scrambler.blast.rings > 1);
+test("the lance overcharges the sweep beam rather than copying it", () => {
+  const lance = overchargeFor("squid");
+  assert.ok(lance.beam, "Phantom's special is a held beam");
+  assert.equal(lance.beam.seconds, PHANTOM_BEAM_SECONDS);
+  // The rift's own SWEEP BEAM chews 8 hull a tick and reaches 1200 units. The
+  // overcharged build trades reach for lethality: shorter, but everything
+  // hostile it touches dies rather than being worn down.
+  assert.ok(lance.beam.length < BEAM_LENGTH, "the hull-mounted build is shorter than the rift's");
+  assert.equal(lance.beam.annihilates, true);
+  assert.equal(lance.beam.clearsHostileFire, true);
+  // A beam is not a blast: it must not quietly carry an expanding ring too.
+  assert.equal(lance.blast, undefined);
+});
+
+test("the lance is aimed for four seconds and is over before it can be re-fired", () => {
+  const lance = overchargeFor("squid");
+  const ticks = overchargeTicks(lance);
+  assert.equal(ticks.beam, Math.round(PHANTOM_BEAM_SECONDS * 1000 / TICK_MS));
+  assert.ok(ticks.beam > 0);
+  assert.ok(ticks.cooldown > ticks.beam, "the beam must not outlive its own cooldown");
+  // Every other special reports zero here, so the loop cannot light a beam
+  // for a ship that does not have one.
+  assert.equal(overchargeTicks(overchargeFor("hunter")).beam, 0);
+  assert.equal(overchargeTicks(overchargeFor("wing")).beam, 0);
 });
 
 test("the core blast hits harder than the bomb it is built from", () => {
@@ -126,18 +149,55 @@ test("blast damage falls off with distance and stops at the rim", () => {
   assert.ok(blastDamageAt(core.radius / 2, core) > core.edgeDamage);
 
   // A pure control pulse must never leak damage at any distance.
-  const scrambler = overchargeFor("squid").blast;
+  const pulse = { ...core, damage: 0, edgeDamage: 0 };
   for (const distance of [0, 50, 200, 430, 900]) {
-    assert.equal(blastDamageAt(distance, scrambler), 0);
+    assert.equal(blastDamageAt(distance, pulse), 0);
   }
 });
 
 test("ring radii trail the leading edge and never go negative", () => {
-  const scrambler = overchargeFor("squid").blast;
-  const radii = blastRingRadii(4, scrambler);
-  assert.equal(radii.length, scrambler.rings);
+  const core = overchargeFor("hunter").blast;
+  const radii = blastRingRadii(4, core);
+  assert.equal(radii.length, core.rings);
   for (let i = 1; i < radii.length; i += 1) assert.ok(radii[i] <= radii[i - 1]);
-  for (const radius of blastRingRadii(0, scrambler)) assert.ok(radius >= 0);
+  for (const radius of blastRingRadii(0, core)) assert.ok(radius >= 0);
+});
+
+test("a damaging blast is measured to the hull, so what it engulfs it catches", () => {
+  const core = overchargeFor("hunter").blast;
+  // A point target is caught exactly on the tick the band crosses it.
+  assert.equal(blastSweepReached(100, 0, 90, 110), true);
+  assert.equal(blastSweepReached(100, 0, 110, 130), false, "and never a second time");
+  assert.equal(blastSweepReached(100, 0, 50, 90), false, "nor before the band arrives");
+
+  // A Plasma Bloom grown to 200 units across is reached when the ring touches
+  // its edge, not when it finally reaches the point at its middle.
+  assert.equal(blastSweepReached(300, 200, 90, 110), true);
+
+  // Sweeping tick by tick, a target is still caught once and only once.
+  let previous = 0;
+  let hits = 0;
+  for (let age = 1; age <= core.expandTicks * 2; age += 1) {
+    const radius = blastRadiusAt(age, core);
+    if (radius > previous) {
+      if (blastSweepReached(150, 20, previous, radius)) hits += 1;
+      previous = radius;
+    }
+  }
+  assert.equal(hits, 1);
+});
+
+test("a damaging blast destroys a Plasma Bloom whatever health it has grown", () => {
+  const core = overchargeFor("hunter").blast;
+  // A bloom gains a point of health every other tick with no ceiling, so
+  // falloff damage alone can never be enough late in a run.
+  assert.equal(blastAnnihilates("inflator", core), true);
+  // Nothing else is destroyed outright — the falloff curve still decides.
+  for (const kind of ["gunship", "nuke", "wallcrawler", "mines"]) {
+    assert.equal(blastAnnihilates(kind, core), false, `${kind} must still take normal blast damage`);
+  }
+  // A pure control pulse annihilates nothing, however wide it sweeps.
+  assert.equal(blastAnnihilates("inflator", { ...core, damage: 0, edgeDamage: 0 }), false);
 });
 
 test("a rider scales handling in either direction and is inert when absent", () => {

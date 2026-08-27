@@ -45,6 +45,34 @@ export const SURVIVAL_BASE_POWER_UP_CHARGE = 150;
 export const SURVIVAL_BASE_INTEGRITY = DIFFICULTIES.survival.rivalIntegrity;
 
 /**
+ * Survival score paid for one point of damage the rift actually absorbs.
+ *
+ * One for one. A power-up costs the rift `powerUpCharge` cannon damage — 150
+ * at Rift Level 1 — so a full charge cycle is worth roughly seven and a half
+ * seconds of survival at the opening rate, and a little less as the run
+ * escalates and both numbers climb. That is the shape the mode wants: shooting
+ * the rift is never the wrong thing to be doing, and it never out-earns simply
+ * staying alive deep into a run.
+ *
+ * Every rift-damage award in the game multiplies by this one constant, so
+ * rebalancing the whole conversion is editing this line.
+ */
+export const SURVIVAL_RIFT_DAMAGE_SCORE = 1;
+
+/**
+ * Survival score for `damage` points landed on the rift.
+ *
+ * Callers pass the damage the rift *absorbed*, not the damage a projectile was
+ * built with, so overkill on the last point of a charge cycle is not paid
+ * twice. Non-finite and negative inputs score nothing rather than poisoning
+ * the run total.
+ */
+export function survivalRiftDamageScore(damage: number) {
+  if (!Number.isFinite(damage) || damage <= 0) return 0;
+  return damage * SURVIVAL_RIFT_DAMAGE_SCORE;
+}
+
+/**
  * Hostiles allowed on screen before a scheduled wave is skipped.
  *
  * An endless mode has no natural end to spawning, so without a ceiling a long
@@ -331,6 +359,13 @@ export type SurvivalState = {
   beamIn: number;
   /** Ticks until the next whole second of survival is scored. */
   secondIn: number;
+  /**
+   * Total damage the rift has absorbed this run, cannon and payload alike.
+   *
+   * Kept as damage rather than as score so the conversion stays in one place,
+   * and so a test can prove the loop counts a hit exactly once.
+   */
+  riftDamage: number;
 };
 
 export function createSurvivalState(): SurvivalState {
@@ -344,6 +379,7 @@ export function createSurvivalState(): SurvivalState {
     mineStormIn: 0,
     beamIn: 0,
     secondIn: ticksForSeconds(1),
+    riftDamage: 0,
   };
 }
 
@@ -418,4 +454,19 @@ export function armSurvivalLevel(state: SurvivalState, escalation: SurvivalEscal
     : state.beamIn > 0
       ? Math.min(state.beamIn, escalation.beamIntervalTicks)
       : escalation.beamIntervalTicks;
+}
+
+/**
+ * Records damage the rift absorbed and returns the score it is worth.
+ *
+ * The one place a Survival run converts rift damage into score. The game loop
+ * calls it from wherever damage is *applied* — never from where a projectile
+ * is spawned or a hit is predicted — so a round that is refunded, absorbed by
+ * a shield or clamped at zero integrity cannot be paid for.
+ */
+export function scoreRiftDamage(state: SurvivalState, damage: number) {
+  const scored = survivalRiftDamageScore(damage);
+  if (scored <= 0) return 0;
+  state.riftDamage += damage;
+  return scored;
 }

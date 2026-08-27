@@ -24,8 +24,11 @@ import {
   secondsForRiftLevel,
   stageBeginsAtLevel,
   stageForLevel,
+  SURVIVAL_RIFT_DAMAGE_SCORE,
+  scoreRiftDamage,
   survivalBreachBonus,
   survivalBreachIntegrity,
+  survivalRiftDamageScore,
   survivalRulesFor,
 } from "../app/survival.ts";
 import { DIFFICULTIES, PVP_RULES, RULESET_IDS, rulesFor, ticksForSeconds } from "../app/difficulty.ts";
@@ -406,4 +409,92 @@ test("the result card reports what survival actually asked of the player", () =>
   assert.match(gameCode, /recordSurvivalRun\(identifiedRun\)/);
   assert.match(gameCode, /<span>SURVIVED<\/span>/);
   assert.match(gameCode, /RIFT LEVEL <b>\{summary\.run\.riftLevel \?\? 1\}<\/b>/);
+});
+
+
+/* ------------------------------------------- rift damage as score ------- */
+
+test("damage the rift absorbs is worth score, one for one", () => {
+  assert.equal(SURVIVAL_RIFT_DAMAGE_SCORE, 1);
+  assert.equal(survivalRiftDamageScore(10), 10);
+  assert.equal(survivalRiftDamageScore(150), 150);
+
+  // A whole charge cycle is worth having, without out-earning the clock: at
+  // Rift Level 1 the rift sheds a power-up for 150 cannon damage, which is
+  // worth a few seconds of simply staying alive.
+  const opening = escalationForLevel(1);
+  const cycle = survivalRiftDamageScore(opening.powerUpCharge);
+  assert.ok(cycle > opening.secondScore, "shooting the rift has to be worth doing");
+  assert.ok(cycle < opening.secondScore * 20, "and must not eclipse surviving");
+});
+
+test("shooting the rift always scores, at every level of a run", () => {
+  for (const level of LEVELS) {
+    assert.ok(
+      survivalRiftDamageScore(escalationForLevel(level).powerUpCharge) > 0,
+      `rift damage must never stop paying, level ${level}`,
+    );
+  }
+});
+
+test("a run's rift damage accumulates and never double-counts one hit", () => {
+  const state = createSurvivalState();
+  assert.equal(state.riftDamage, 0);
+
+  let score = 0;
+  for (let shot = 0; shot < 12; shot += 1) score += scoreRiftDamage(state, 10);
+
+  assert.equal(state.riftDamage, 120, "each hit is recorded exactly once");
+  assert.equal(score, 120);
+
+  // The same total arriving as one large hit is worth exactly the same, so a
+  // duplicated collision event cannot be laundered into extra score by being
+  // split up, and a single event cannot be paid twice by being replayed.
+  const single = createSurvivalState();
+  assert.equal(scoreRiftDamage(single, 120), score);
+  assert.equal(single.riftDamage, state.riftDamage);
+});
+
+test("damage the rift never actually took scores nothing", () => {
+  const state = createSurvivalState();
+  // A round refunded, a hit fully swallowed by an enrage shield, or an impact
+  // on a rift already at zero all arrive here as nothing to pay for.
+  for (const nothing of [0, -40, Number.NaN, Number.POSITIVE_INFINITY, undefined]) {
+    assert.equal(scoreRiftDamage(state, nothing), 0, `${nothing} must not score`);
+  }
+  assert.equal(state.riftDamage, 0);
+});
+
+test("rift damage is paid on top of the score sources survival already had", () => {
+  // The roadmap's existing sources are untouched by the new one.
+  assert.ok(escalationForLevel(1).secondScore > 0, "time survived still pays");
+  assert.ok(survivalBreachBonus(1, 0) > 0, "breaching still pays");
+  const state = createSurvivalState();
+  scoreRiftDamage(state, 50);
+  assert.equal(state.level, 1, "scoring rift damage must not disturb the level clock");
+  assert.equal(state.breaches, 0);
+});
+
+test("the loop pays for rift damage where it is applied, not where it is fired", () => {
+  // One award site per place the rift actually takes damage, and both of them
+  // go through the same helper — which is what makes the conversion editable
+  // in one place and impossible to double up by accident.
+  assert.equal((gameCode.match(/awardRiftDamage\(game, /g) ?? []).length, 2);
+  assert.match(gameCode, /const awardRiftDamage = \(game: Game, damage: number\)/);
+  assert.match(gameCode, /game\.score \+= scoreRiftDamage\(survival, damage\)/);
+
+  // Cannon damage is paid for beside the charge it actually adds to the rift.
+  assert.match(
+    gameCode,
+    /game\.portalCharge \+= bullet\.damage;\s*awardRiftDamage\(game, bullet\.damage\);/,
+  );
+  // A payload is paid for on the integrity actually removed — never on the
+  // projectile's nominal damage, which an enrage shield may have swallowed.
+  assert.match(gameCode, /awardRiftDamage\(game, game\.lastRivalDamage\)/);
+  assert.doesNotMatch(gameCode, /awardRiftDamage\(game, damage\)/);
+
+  // Nothing outside survival is disturbed: the helper leaves every other mode
+  // alone, and the existing PvE payout is still there beside it.
+  assert.match(gameCode, /const survival = game\.survival;\s*if \(!survival \|\| game\.result\) return;/);
+  assert.match(gameCode, /game\.score \+= 750 \+ damage \* 10;/);
 });

@@ -99,13 +99,22 @@ import { controllerStateForPads, EMPTY_GAMEPAD, headingDegrees, pressedOnce, typ
 import { controllerCancelTarget, moveControllerFocus, visibleControllerControls } from "./controller-navigation";
 import {
   MOVEMENT_CODES,
+  RETRO_MAX_LEVEL,
   applyIntent,
+  engineHandling,
   facingFor,
   intentFromKeys,
   intentFromStick,
   keysFrom,
   resolveIntent,
 } from "./movement";
+import {
+  PUP_GLYPH_RADIUS,
+  PUP_RADIUS,
+  PUP_SPIN,
+  advancePup,
+  pupCollected,
+} from "./pup-world";
 import {
   MURPH_SITE_URL,
   createArcadeRunId,
@@ -136,9 +145,12 @@ import {
 } from "./ship-specials";
 import {
   OVERCHARGE_FLASH_TICKS,
+  beamDestroysHostile,
+  blastAnnihilates,
   blastDamageAt,
   blastRadiusAt,
   blastRingRadii,
+  blastSweepReached,
   countsTowardShotBudget,
   overchargeFor,
   overchargeSource,
@@ -147,6 +159,7 @@ import {
   riderHandling,
   scrambledDamage,
   volleyHeadings,
+  type OverchargeBeam,
   type OverchargeSpec,
 } from "./overcharge";
 import {
@@ -162,6 +175,7 @@ import {
   advanceSurvival,
   createSurvivalState,
   escalationForLevel,
+  scoreRiftDamage,
   survivalBreachBonus,
   survivalBreachIntegrity,
   type SurvivalState,
@@ -183,8 +197,6 @@ const WORLD_HEIGHT = 940;
 /** Cannon damage the rift absorbs per power-up, before any escalation. */
 const PORTAL_THRESHOLD = 150;
 const DEG = Math.PI / 180;
-const THRUST_ACCEL_BONUS = 0.035;
-const THRUST_SPEED_BONUS = 0.25;
 const STOCK_LIMIT = 10;
 const ticksForSeconds = (seconds: number) => Math.round(seconds * 1000 / TICK_MS);
 const wholeSecondsForTicks = (ticks: number) => Math.max(0, Math.ceil(ticks * TICK_MS / 1000));
@@ -340,9 +352,25 @@ type Player = {
   invuln: number;
   gun: number;
   thrust: number;
-  retros: boolean;
+  /**
+   * Retro-thruster marks fitted, 0 to `RETRO_MAX_LEVEL`.
+   *
+   * Was a boolean, which is why the pickup did nothing for seven of the eight
+   * frames: they were all seeded `true`. Seeding the mark count at the level
+   * the frame already flew with keeps every hull's baseline handling exactly
+   * where it was while giving the pickup somewhere to go.
+   */
+  retros: number;
   specialCooldown: number;
   emp: number;
+  /**
+   * Ticks left on a held beam special, and the spec that is firing it.
+   *
+   * The beam owns no position of its own: it is re-derived from the hull and
+   * the ship's aim every tick, which is what makes it track.
+   */
+  beamTicks: number;
+  beam: OverchargeBeam | null;
   /** Ticks remaining on the temporary Bankshot Matrix utility. */
   ricochetTicks: number;
   /**
@@ -454,7 +482,8 @@ type Hud = {
   shield: number;
   gun: number;
   thrust: number;
-  retros: boolean;
+  /** Retro marks fitted, so the readout can show the mark rather than a lamp. */
+  retros: number;
   score: number;
   elapsedSeconds: number;
   /** Normalized rival integrity percentage for UI and saved-run compatibility. */
@@ -567,9 +596,11 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
       invuln: 0,
       gun: ship.gun,
       thrust: ship.thrust,
-      retros: ship.thrust > 0,
+      retros: ship.thrust > 0 ? 1 : 0,
       specialCooldown: 0,
       emp: 0,
+      beamTicks: 0,
+      beam: null,
       ricochetTicks: 0,
       riderTicks: 0,
       riderTotal: 0,
@@ -3270,6 +3301,24 @@ export default function WormholeGame() {
     };
 
     /**
+     * Pays a Survival run for damage the rift has *already* absorbed.
+     *
+     * The one place rift damage becomes score. Callers hand it the amount the
+     * rift actually took — never a projectile's nominal damage, never a
+     * predicted hit — so a round that was refunded, absorbed by an enrage
+     * shield or clamped at zero integrity cannot be paid for, and a single
+     * impact cannot be paid for twice by two different call sites.
+     *
+     * A no-op outside Survival: the other modes settle their scores their own
+     * way and nothing here changes them.
+     */
+    const awardRiftDamage = (game: Game, damage: number) => {
+      const survival = game.survival;
+      if (!survival || game.result) return;
+      game.score += scoreRiftDamage(survival, damage);
+    };
+
+    /**
      * The rift has been driven to zero integrity in Survival.
      *
      * There is no victory to award — the mode is endless — so a breach is a
@@ -3337,6 +3386,17 @@ export default function WormholeGame() {
             turnRadians: volley.turnRadians,
           });
         }
+      }
+
+      if (spec.beam) {
+        // The lance keeps no position of its own — it is re-derived from the
+        // hull and the ship's aim on every tick of `tickPlayerBeam`, which is
+        // what makes it track rather than fire and forget.
+        player.beam = spec.beam;
+        player.beamTicks = timing.beam;
+      } else {
+        player.beam = null;
+        player.beamTicks = 0;
       }
 
       if (spec.blast) {
@@ -3433,6 +3493,62 @@ export default function WormholeGame() {
     };
 
     /**
+     * Burns Phantom's lance for one tick.
+     *
+     * The line is rebuilt from the hull and the current facing every tick, so
+     * the pilot keeps aiming it for the whole four seconds. What it touches is
+     * decided by one rule with one deliberate exclusion list:
+     *
+     *   - hostiles die, through `damageEnemy` at their own current health, so
+     *     the ordinary death path runs and explosions, drops, score and the
+     *     co-op hooks all happen exactly as they would from cannon fire;
+     *   - hostile fire in the air is burned out of it;
+     *   - a Phase Shade is untouched, because "cannot be shot down, only a
+     *     Nova Burst removes it" is the whole of that hostile's design and a
+     *     new weapon is not a reason to quietly revoke it;
+     *   - loose power-ups are untouched. The rift's own SWEEP BEAM eats them;
+     *     the overcharged build pointedly does not, and a special that
+     *     destroyed the thing the mode is about would be unusable;
+     *   - the pilot, the pilot's own rounds and every friendly object are
+     *     never considered — the loop only ever inspects `game.enemies` and
+     *     bullets already flagged `enemy`.
+     */
+    const tickPlayerBeam = (game: Game) => {
+      const player = game.player;
+      const beam = player.beam;
+      if (!beam || player.beamTicks <= 0) return;
+      player.beamTicks -= 1;
+      if (player.beamTicks <= 0) {
+        player.beam = null;
+        player.beamTicks = 0;
+      }
+
+      const angle = player.angle * DEG;
+      const coopGuest = game.mode === "coop"
+        && netRef.current?.state.you?.id !== netRef.current?.state.hostId;
+
+      for (const enemy of game.enemies) {
+        if (enemy.hp <= 0 || !beamDestroysHostile(enemy.kind, beam)) continue;
+        if (!pointTouchesBeam(player.x, player.y, angle, enemy.x, enemy.y, beam.width + enemy.radius, beam.length)) continue;
+        // Enough damage to guarantee the kill, delivered through the ordinary
+        // damage path so the death runs: explosion, drop, score, co-op hooks.
+        const lethal = Math.max(1, enemy.hp);
+        if (coopGuest) netRef.current?.reportEnemyHit(enemyIdentity(game, enemy), lethal, "overcharge");
+        else damageEnemy(game, enemy, lethal);
+        burst(game, enemy.x, enemy.y, "#b58bff", 6, 5);
+      }
+
+      if (beam.clearsHostileFire) {
+        for (const bullet of game.bullets) {
+          if (!bullet.enemy || bullet.life <= 0) continue;
+          if (!pointTouchesBeam(player.x, player.y, angle, bullet.x, bullet.y, beam.width + 4, beam.length)) continue;
+          bullet.life = 0;
+          burst(game, bullet.x, bullet.y, "#b58bff", 3, 3);
+        }
+      }
+    };
+
+    /**
      * Advances one overcharged detonation and applies it to whatever the
      * expanding band reaches this tick.
      *
@@ -3455,7 +3571,10 @@ export default function WormholeGame() {
         const dx = enemy.x - fx.x;
         const dy = enemy.y - fx.y;
         const d = Math.hypot(dx, dy);
-        if (d > radius || d <= previous) continue;
+        // Measured to the hull rather than the centre, so a hostile the ring
+        // visibly swallows is caught by it. A Plasma Bloom that has grown to
+        // a couple of hundred units across is the case that matters.
+        if (!blastSweepReached(d, enemy.radius, previous, radius)) continue;
 
         if (blast.knockback > 0) {
           const away = Math.max(1, d);
@@ -3466,8 +3585,16 @@ export default function WormholeGame() {
         // fair game, because scramble steers rather than damages.
         if (scrambleTicks > 0) enemy.scrambled = Math.max(enemy.scrambled ?? 0, scrambleTicks);
 
-        const damage = blastDamageAt(d, blast);
-        if (damage <= 0 || enemy.kind === "ghost") continue;
+        const falloff = blastDamageAt(d, blast);
+        if (falloff <= 0 || enemy.kind === "ghost") continue;
+        // A Plasma Bloom's health has no ceiling, so falloff damage alone
+        // meant a mature bloom survived a detonation that plainly engulfed
+        // it. Raising the damage to its current health kills it through
+        // `damageEnemy` — explosion, drop, score and co-op hooks intact —
+        // rather than reaching past the death path with a flag.
+        const damage = blastAnnihilates(enemy.kind, blast)
+          ? Math.max(falloff, enemy.hp)
+          : falloff;
         damageEnemy(game, enemy, damage, blast.guaranteedDrops);
         burst(game, enemy.x, enemy.y, fx.spec.accent, 6, 4);
       }
@@ -3689,6 +3816,10 @@ export default function WormholeGame() {
           game.bullets.length = 0;
           game.powers.length = 0;
           game.blasts.length = 0;
+          // The lance is player state rather than a world object, so the
+          // sweep that empties the arena has to put it out explicitly.
+          player.beam = null;
+          player.beamTicks = 0;
           game.spawns.length = 0;
           game.particles = game.particles.filter((item) => {
             const keep = pullObject(item, 5 + visual.phaseProgress * 5);
@@ -3858,11 +3989,13 @@ export default function WormholeGame() {
       }
 
       const handling = game.ship.id === "flash" ? FORM_SHIFT_PROFILES[player.flashMode] : game.ship;
-      const baseMaxSpeed = handling.maxSpeed + player.thrust * THRUST_SPEED_BONUS;
-      const baseAcceleration = handling.acceleration + player.thrust * THRUST_ACCEL_BONUS;
+      // ENGINE UPGRADE is applied relative to whatever this frame — or, for
+      // Switchback, whichever form it is currently in — was tuned with, so the
+      // marks make each hull more itself rather than converging the fleet.
+      const engine = engineHandling(handling, player.thrust);
       const specialHandling = riderHandling(
-        baseAcceleration,
-        baseMaxSpeed,
+        engine.acceleration,
+        engine.maxSpeed,
         player.riderTicks > 0
           ? { seconds: 0, accelerationScale: player.riderAcceleration, maxSpeedScale: player.riderMaxSpeed }
           : null,
@@ -3891,9 +4024,21 @@ export default function WormholeGame() {
         player.vy += (dy / pull) * gravity;
       }
 
-      if (intent.active && intent.heading !== null && game.cycles % 3 === 0) {
+      // An upgraded engine says so out of the back of the ship: the existing
+      // exhaust burst fires on every other tick instead of every third, and
+      // throws a couple more sparks a little harder per mark. No new artwork,
+      // and nothing here touches how the ship actually flies.
+      const exhaustEvery = player.thrust > 0 ? 2 : 3;
+      if (intent.active && intent.heading !== null && game.cycles % exhaustEvery === 0) {
         const exhaust = intent.heading * DEG;
-        burst(game, player.x - Math.cos(exhaust) * 14, player.y - Math.sin(exhaust) * 14, "#63efff", 2, 2.5);
+        burst(
+          game,
+          player.x - Math.cos(exhaust) * 14,
+          player.y - Math.sin(exhaust) * 14,
+          player.thrust > 1 ? "#9dfbff" : "#63efff",
+          2 + player.thrust,
+          2.5 + player.thrust * 0.5,
+        );
       }
 
       // The hull turns toward travel unless the player is aiming, and keeps its
@@ -4012,6 +4157,11 @@ export default function WormholeGame() {
         if (dist(bullet, { x: game.portalX, y: game.portalY }) < 43) {
           bullet.life = 0;
           game.portalCharge += bullet.damage;
+          // This is where cannon damage is actually applied to the rift — the
+          // coach line calls it damage and the charge meter measures it — so
+          // it is where Survival pays for it. Awarding at the muzzle instead
+          // would pay for rounds that never arrive.
+          awardRiftDamage(game, bullet.damage);
           game.portalPulse = Math.max(game.portalPulse, 0.4);
           burst(game, bullet.x, bullet.y, "#ff5ac8", 4, 2.5);
           cannonImpactFeedback(game, bullet);
@@ -4069,6 +4219,11 @@ export default function WormholeGame() {
               game.lastRivalDamage = Math.min(game.rivalHealth, integrityDamage);
               game.rivalHealth -= integrityDamage;
               game.score += 750 + damage * 10;
+              // A payload landing is the second — and only other — place the
+              // rift takes damage. What is paid for is the integrity actually
+              // removed, so the part an enrage shield swallowed scores
+              // nothing and a hit on a rift already at zero scores nothing.
+              awardRiftDamage(game, game.lastRivalDamage);
               game.notice = enrageHit.absorbed > 0
                 ? `${WEAPONS[power.type].short} SENT // RIFT SHIELD −${Math.round(enrageHit.absorbed)}${integrityDamage > 0 ? ` // RIVAL −${Math.round(integrityDamage)}` : ""}`
                 : `${WEAPONS[power.type].short} SENT // RIVAL −${damage}`;
@@ -4118,19 +4273,21 @@ export default function WormholeGame() {
       });
 
       game.pickups.forEach((pickup) => {
-        pickup.x += pickup.vx;
-        pickup.y += pickup.vy;
-        pickup.vx *= 0.995;
-        pickup.vy *= 0.995;
-        pickup.phase += 0.08;
+        // A loose PUP now belongs to the arena rather than drifting out of it:
+        // `advancePup` carries the float it always had and bounces its whole
+        // body — not its centre — off the boundary.
+        if (advancePup(pickup, { width: game.worldWidth, height: game.worldHeight })) {
+          burst(game, pickup.x, pickup.y, POWER_COLORS[pickup.type], 3, 2);
+        }
+        pickup.phase += PUP_SPIN;
         pickup.life -= 1;
-        if (dist(pickup, player) < 25) {
+        if (pupCollected(pickup, player)) {
           pickup.life = 0;
           game.score += 50;
           const type = pickup.type;
           if (type === "gun") player.gun = Math.min(3, player.gun + 1);
           else if (type === "thrust") player.thrust = Math.min(3, player.thrust + 1);
-          else if (type === "retros") player.retros = true;
+          else if (type === "retros") player.retros = Math.min(RETRO_MAX_LEVEL, player.retros + 1);
           else if (type === "shield") player.shield = Math.max(450, player.shield + 200);
           else if (type === "clear") {
             const coopGuest = game.mode === "coop" && netRef.current?.state.you?.id !== netRef.current?.state.hostId;
@@ -4204,6 +4361,7 @@ export default function WormholeGame() {
         game.botTimer = Math.max(330, 580 - Math.floor(game.cycles / 140));
       }
 
+      tickPlayerBeam(game);
       game.blasts.forEach((fx) => updateBlast(game, fx));
       game.enemies.forEach((enemy) => { if (enemy.hp > 0) updateEnemy(game, enemy); });
       if (coopIsHost && game.cycles % 6 === 0) {
@@ -4659,25 +4817,27 @@ export default function WormholeGame() {
       // Friendly pickups sit in a bright hexagonal cradle so they never read as
       // an incoming hostile hull.
       for (const pickup of game.pickups) {
-        if (!visible(pickup.x, pickup.y, 26)) continue;
+        if (!visible(pickup.x, pickup.y, PUP_RADIUS + 7)) continue;
         const color = POWER_COLORS[pickup.type];
         ctx.save();
         ctx.translate(pickup.x, pickup.y);
         if (profile.shadows) { ctx.shadowColor = color; ctx.shadowBlur = 12; }
         ctx.strokeStyle = "rgba(233,251,255,.85)";
-        ctx.lineWidth = 1.6;
+        ctx.lineWidth = 1.8;
         ctx.beginPath();
         for (let i = 0; i < 6; i += 1) {
           const a = (i / 6) * Math.PI * 2 + pickup.phase * 0.35;
-          const x = Math.cos(a) * 19;
-          const y = Math.sin(a) * 19;
+          const x = Math.cos(a) * PUP_RADIUS;
+          const y = Math.sin(a) * PUP_RADIUS;
           if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
         }
         ctx.closePath();
         ctx.stroke();
         ctx.fillStyle = `${color}22`;
         ctx.fill();
-        drawWeaponGlyph(ctx, pickup.type, 11, time, { detail });
+        // The glyph is sized from the cradle, so the icon keeps its share of
+        // the badge instead of rattling around inside a bigger hexagon.
+        drawWeaponGlyph(ctx, pickup.type, PUP_GLYPH_RADIUS, time, { detail });
         ctx.restore();
       }
 
@@ -4751,6 +4911,37 @@ export default function WormholeGame() {
       }
       ctx.globalAlpha = 1;
 
+      // Phantom's lance, drawn from the hull along the current facing with the
+      // same two-pass stroke the rift's own SWEEP BEAM uses: a wide coloured
+      // body under a thin white core. Drawn before the hull so the ship sits
+      // on top of its own emitter, and kept to eleven units wide so it reads
+      // as a lance rather than washing out the arena.
+      if (player.health > 0 && player.beam && player.beamTicks > 0) {
+        const beam = player.beam;
+        const flicker = quiet ? 1 : 0.88 + Math.sin(time * 0.05) * 0.12;
+        ctx.save();
+        ctx.translate(player.x, player.y);
+        ctx.rotate(player.angle * DEG);
+        if (profile.shadows) { ctx.shadowColor = "#b58bff"; ctx.shadowBlur = 16; }
+        ctx.lineCap = "round";
+        ctx.globalAlpha = 0.42 * flicker;
+        ctx.strokeStyle = "#b58bff";
+        ctx.lineWidth = beam.width * 2;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(beam.length, 0);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.globalAlpha = 0.95 * flicker;
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(beam.length, 0);
+        ctx.stroke();
+        ctx.restore();
+      }
+
       if (player.health > 0) {
         ctx.save();
         // A player hull must never inherit transparent or destructive canvas
@@ -4764,9 +4955,9 @@ export default function WormholeGame() {
         ctx.lineDashOffset = 0;
         ctx.translate(player.x, player.y);
         ctx.rotate(player.angle * DEG);
-        // Phantom's pulse phases the hull out while it lands, so the frame
+        // Phantom phases the hull out while the lance burns, so the frame
         // reads as untouchable rather than merely lucky.
-        if (shipOvercharge?.id === "scrambler" && player.riderTicks > 0) {
+        if (shipOvercharge?.id === "lance" && player.riderTicks > 0) {
           ctx.globalAlpha = 0.42 + Math.sin(time * 0.02) * 0.12;
         }
         ctx.strokeStyle = player.invuln > 0 ? "#ffffff" : "#69ecff";
@@ -5834,7 +6025,7 @@ export default function WormholeGame() {
           <div className="intel-card">
             <div><span>GUN</span><b>MK {hud.gun + 1}/4</b></div>
             <div><span>THRUST</span><b>MK {hud.thrust}/3</b></div>
-            <div><span>RETROS</span><b>{hud.retros ? "ONLINE" : "OFFLINE"}</b></div>
+            <div><span>RETROS</span><b>{hud.retros > 0 ? `MK ${hud.retros}/${RETRO_MAX_LEVEL}` : "OFFLINE"}</b></div>
             <div><span>RIFT</span><b>{hud.portalCharge}%</b></div>
           </div>
           <div className={`incoming-card ${hud.incoming ? "hot" : ""}`}>
