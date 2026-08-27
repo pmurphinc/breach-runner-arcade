@@ -243,6 +243,11 @@ function handle(matches, player, message, now, send) {
       if (!result.ok) send({ type: "error", code: result.code });
       return;
     }
+    case "inventory": {
+      const result = matches.updateInventory(player, message, now);
+      if (!result.ok) send({ type: "error", code: result.code });
+      return;
+    }
     case "transmit": {
       const result = matches.transmit(player, message, now);
       if (!result.ok) send({ type: "error", code: result.code });

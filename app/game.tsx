@@ -100,6 +100,7 @@ import {
 } from "./layout-budget";
 import { cannonPlaybackRate, hapticsAllow } from "./combat-feedback";
 import { consumeLoadedPup, pupInventoryLayout } from "./pup-inventory";
+import { pupRegenHull } from "./pup-regen.js";
 import { inventoryPayloadIconLayout, inventoryPupVisual } from "./pup-inventory-visual";
 import { pupPickupSoundProfile, type PupPickupSoundProfile } from "./pup-audio";
 import { RICOCHET_BOUNCES, RICOCHET_DURATION_SECONDS, reflectRicochet } from "./ricochet";
@@ -3650,6 +3651,9 @@ export default function WormholeGame() {
       } else if (ship === "flagship") {
         player.flagshipField = ticksForSeconds(3);
         game.notice = "GRAVITY PULSE // 3S";
+      } else if (ship === "kestrel") {
+        // Schema-compatible placeholder only; the collector active is future work.
+        game.notice = "ACTIVE SYSTEM // NOT INSTALLED";
       }
 
       player.specialCooldown = ticksForSeconds(spec.cooldownSeconds);
@@ -4051,6 +4055,16 @@ export default function WormholeGame() {
 
       game.cycles += 1;
       game.elapsedTicks += 1;
+      if (game.mode === "pve") {
+        const beforeRegen = player.health;
+        player.health = pupRegenHull(game.ship.id, player.health, player.maxHealth, game.stock.length, TICK_MS / 1000);
+        // The existing particle renderer is enough for a faint repair pulse.
+        if (player.health > beforeRegen && game.cycles % 24 === 0) {
+          game.particles.push({ x: player.x + range(-12, 12), y: player.y + range(-12, 12), vx: 0, vy: -0.25, color: "#6dffd6", size: 1.5, life: 18, maxLife: 18 });
+        }
+      } else {
+        netRef.current?.reportInventory(game.stock.length);
+      }
       // PvpClient owns the single 33ms (~30Hz) position cadence.
       if (game.mode === "coop") {
         netRef.current?.reportPosition(player.x, player.y, player.angle);

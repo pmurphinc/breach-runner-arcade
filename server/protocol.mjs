@@ -24,6 +24,7 @@ export const CLIENT_MESSAGES = [
   "ship",
   "ready",
   "damage",
+  "inventory",
   "transmit",
   "position",
   "world",
@@ -84,6 +85,7 @@ export const SHIP_IDS = [
   "flash",
   "hunter",
   "flagship",
+  "kestrel",
 ];
 
 // ------------------------------------------------------------------ limits --
@@ -246,6 +248,12 @@ export function parseClientMessage(raw) {
           cause: typeof parsed.cause === "string" && /^[a-z0-9_]{1,32}$/.test(parsed.cause) ? parsed.cause : "unknown",
         },
       };
+    }
+    case "inventory": {
+      if (!Number.isInteger(parsed.seq) || parsed.seq < 0 || !Number.isInteger(parsed.count) || parsed.count < 0 || parsed.count > 10) {
+        return { ok: false, code: ERRORS.BAD_MESSAGE, detail: "bad inventory" };
+      }
+      return { ok: true, message: { type, seq: parsed.seq, count: parsed.count } };
     }
     case "transmit": {
       if (!Number.isInteger(parsed.seq) || parsed.seq < 0) {

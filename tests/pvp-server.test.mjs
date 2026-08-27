@@ -293,6 +293,26 @@ test("hull is seeded from the chosen ship when the match activates", () => {
   assert.equal(a.last("state").you.hull, SHIP_HULL.wing);
 });
 
+test("Kestrel regeneration is applied by multiplayer health authority", () => {
+  const { server, a, b } = readiedMatch(1000, "kestrel", "wing");
+  server.reportDamage(a.player, { seq: 1, source: "impact", amount: 20 }, 6000);
+  server.reportDamage(b.player, { seq: 1, source: "impact", amount: 20 }, 6000);
+  const shieldBefore = a.player.combat.shieldCharge;
+
+  server.updateInventory(a.player, { seq: 1, count: 5 }, 6000);
+  server.updateInventory(b.player, { seq: 1, count: 5 }, 6000);
+  server.sweep(7000);
+
+  assert.equal(a.player.combat.hull, 101.25, "server accrues 1.25 hull for five stored PUPs");
+  assert.equal(b.player.combat.hull, SHIP_HULL.wing - 20, "other ships do not inherit the passive");
+  assert.equal(a.player.combat.shieldCharge, shieldBefore, "passive never touches shield state");
+
+  server.updateInventory(a.player, { seq: 2, count: 4 }, 7000);
+  server.sweep(8000);
+  assert.equal(a.player.combat.hull, 102.25, "new inventory count takes effect immediately");
+  assert.equal(a.player.storedPups, 4, "healing does not consume server inventory state");
+});
+
 test("reported collision damage spends the shield, not the hull", () => {
   const { server, a } = readiedMatch();
   const now = 6000;

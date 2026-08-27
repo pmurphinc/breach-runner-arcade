@@ -27,6 +27,7 @@ import {
   rollWindow,
 } from "./protocol.mjs";
 import { applyDamage, createCombatState, snapshot } from "./rules.mjs";
+import { pupRegenHull } from "../app/pup-regen.js";
 
 /** Hull by ship, mirroring app/game-data.ts. Asserted by the protocol test. */
 export const SHIP_HULL = {
@@ -38,6 +39,7 @@ export const SHIP_HULL = {
   flash: 190,
   hunter: 220,
   flagship: 300,
+  kestrel: 120,
 };
 
 const COOP_RIVAL_HEALTH = { practice: 200, easy: 200, difficult: 400, hard: 700 };
@@ -71,6 +73,9 @@ export function createPlayer(send, { now = Date.now(), random = Math.random } = 
     disconnectedAt: 0,
     combat: null,
     lastDamageSeq: -1,
+    lastInventorySeq: -1,
+    storedPups: 0,
+    lastRegenAt: now,
     lastTransmitSeq: -1,
     lastEnemyHitSeq: -1,
     lastWorldActionSeq: -1,
@@ -350,6 +355,9 @@ export class MatchServer {
     for (const player of room.players) {
       player.combat = createCombatState(SHIP_HULL[player.ship] ?? 240);
       player.lastDamageSeq = -1;
+      player.lastInventorySeq = -1;
+      player.storedPups = 0;
+      player.lastRegenAt = now;
       player.lastTransmitSeq = -1;
       player.lastEnemyHitSeq = -1;
       player.lastWorldActionSeq = -1;
@@ -386,6 +394,7 @@ export class MatchServer {
     player.window.damageTotal += amount;
     player.lastDamageSeq = seq;
 
+    this.applyPassiveRegen(player, now);
     const hullBefore = player.combat.hull;
     const outcome = applyDamage(player.combat, source, amount, now);
     const finalDamage = Math.min(hullBefore, outcome.toHull);
@@ -397,6 +406,27 @@ export class MatchServer {
       else this.finish(room, this.opponentOf(room, player), "hull", now, player, cause, finalDamage);
     }
     return { ok: true, ...outcome };
+  }
+
+  applyPassiveRegen(player, now = Date.now()) {
+    if (!player.combat) return false;
+    const elapsedSeconds = Math.max(0, now - player.lastRegenAt) / 1000;
+    player.lastRegenAt = now;
+    const before = player.combat.hull;
+    player.combat.hull = pupRegenHull(player.ship, before, player.combat.maxHull, player.storedPups, elapsedSeconds);
+    return player.combat.hull !== before;
+  }
+
+  updateInventory(player, { seq, count }, now = Date.now()) {
+    const room = player.room;
+    if (!room || room.phase !== PHASES.ACTIVE || !player.combat) return { ok: false, code: ERRORS.NOT_IN_MATCH };
+    if (seq <= player.lastInventorySeq) return { ok: true, duplicate: true };
+    this.applyPassiveRegen(player, now);
+    player.lastInventorySeq = seq;
+    player.storedPups = count;
+    room.touchedAt = now;
+    this.broadcastState(room, now);
+    return { ok: true };
   }
 
   /** A collected attack power-up sent through the wormhole to the opponent. */
@@ -609,6 +639,11 @@ export class MatchServer {
    */
   sweep(now = Date.now()) {
     for (const room of [...this.rooms.values()]) {
+      if (room.phase === PHASES.ACTIVE) {
+        let healed = false;
+        for (const player of room.players) healed = this.applyPassiveRegen(player, now) || healed;
+        if (healed) this.broadcastState(room, now);
+      }
       if (room.phase === PHASES.COUNTDOWN && now >= room.countdownEndsAt) {
         this.activate(room, now);
         continue;
