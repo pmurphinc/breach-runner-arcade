@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { pupInventoryLayout } from "../app/pup-inventory.js";
+import { consumeLoadedPup, pupInventoryLayout } from "../app/pup-inventory.js";
 
 test("loaded and stored PUPs preserve firing order", () => {
   const layout = pupInventoryLayout(["oldest", "middle", "next", "loaded"], 10);
@@ -33,4 +33,24 @@ test("arena canvas rules cannot capture nested inventory icon canvases", async (
   const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
   assert.doesNotMatch(css, /\.canvas-wrap\s+canvas\s*\{/);
   assert.match(css, /\.canvas-wrap\s*>\s*canvas\s*\{/);
+});
+
+test("hostile beam consumption removes exactly the loaded next-to-fire payload", () => {
+  const stock = ["turret", "mines", "beam"];
+  assert.equal(consumeLoadedPup(stock), "beam");
+  assert.deepEqual(stock, ["turret", "mines"]);
+  assert.equal(consumeLoadedPup(stock), "mines", "normal firing order remains LIFO");
+});
+
+test("hostile beam consumption is safe for an empty payload inventory", () => {
+  const stock = [];
+  assert.equal(consumeLoadedPup(stock), null);
+  assert.deepEqual(stock, []);
+});
+
+test("consuming inventory cannot reduce applied upgrades or ship state", () => {
+  const stock = ["turret"];
+  const ship = { gun: 3, thrust: 2, retros: 1, health: 150, shield: 450, ricochetTicks: 90 };
+  consumeLoadedPup(stock);
+  assert.deepEqual(ship, { gun: 3, thrust: 2, retros: 1, health: 150, shield: 450, ricochetTicks: 90 });
 });
