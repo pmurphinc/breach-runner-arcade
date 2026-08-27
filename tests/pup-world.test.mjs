@@ -16,6 +16,7 @@ import {
   PUP_RADIUS,
   PUP_WALL_BOUNCE,
   advancePup,
+  drawLooseArenaPup,
   drawPupFrame,
   pupFrameColor,
   pupFrameShape,
@@ -157,7 +158,7 @@ test("the game loop moves PUPs through this module rather than inline", () => {
   assert.doesNotMatch(game, /dist\(pickup, player\) < 25/);
   // The badge and the glyph are drawn from the shared constants, so the thing
   // the player aims at is the thing the collision test uses.
-  assert.match(game, /drawPupFrame\(ctx, WEAPONS\[pickup\.type\]\.pupClass, PUP_RADIUS, pickup\.phase \* 0\.35\)/);
+  assert.match(game, /drawLooseArenaPup\(ctx, \{/);
   assert.match(game, /drawWeaponGlyph\(ctx, pickup\.type, PUP_GLYPH_RADIUS/);
 });
 
@@ -193,6 +194,41 @@ test("polygon frames use the expected vertices while recovery traces a circle", 
   assert.equal(trace("upgrade").filter(([op]) => op === "moveTo" || op === "lineTo").length, 8);
   assert.equal(trace("rare").filter(([op]) => op === "moveTo" || op === "lineTo").length, 4);
   assert.deepEqual(trace("recovery").map(([op]) => op), ["beginPath", "arc", "closePath"]);
+});
+
+test("loose arena rendering draws one class frame followed by the existing glyph", () => {
+  const calls = [];
+  const ctx = {
+    shadowBlur: 12,
+    save: () => calls.push("save"),
+    restore: () => calls.push("restore"),
+    beginPath: () => calls.push("class-frame"),
+    moveTo: () => {},
+    lineTo: () => {},
+    arc: () => {},
+    closePath: () => {},
+    fill: () => calls.push("fill-class-frame"),
+    stroke: () => calls.push("stroke-class-frame"),
+  };
+
+  drawLooseArenaPup(ctx, {
+    pupClass: "payload",
+    frameColor: pupFrameColor("payload"),
+    rotation: 0.4,
+  }, () => calls.push("glyph"));
+
+  assert.equal(calls.filter((call) => call === "class-frame").length, 1);
+  assert.deepEqual(calls, ["save", "class-frame", "fill-class-frame", "stroke-class-frame", "glyph", "restore"]);
+});
+
+test("the loose pickup loop has no parallel legacy outer-frame path", () => {
+  const start = game.indexOf("for (const pickup of game.pickups) {", game.indexOf("// Friendly pickups sit"));
+  const end = game.indexOf("for (const enemy of game.enemies)", start);
+  const renderer = game.slice(start, end);
+  assert.match(renderer, /drawLooseArenaPup\(ctx, \{/);
+  assert.doesNotMatch(renderer, /drawPupFrame\(/);
+  assert.doesNotMatch(renderer, /ctx\.(?:fill|stroke)\(\)/);
+  assert.match(renderer, /drawWeaponGlyph\(ctx, pickup\.type, PUP_GLYPH_RADIUS/);
 });
 
 test("world shape selection is metadata-driven rather than keyed by PUP ID", () => {

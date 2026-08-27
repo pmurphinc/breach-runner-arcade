@@ -124,6 +124,36 @@ export function drawPupFrame(
   ctx.closePath();
 }
 
+export type LooseArenaPupVisual = {
+  pupClass: import("./game-data").PupClass;
+  frameColor: string;
+  rotation: number;
+};
+
+/**
+ * Draw the complete loose-arena PUP stack through one authoritative path.
+ *
+ * The callback deliberately owns only the established centre glyph. Keeping
+ * the outer-body operations here prevents the former generic pickup cradle
+ * from being drawn alongside the class frame by the world renderer.
+ */
+export function drawLooseArenaPup(
+  ctx: CanvasRenderingContext2D,
+  visual: LooseArenaPupVisual,
+  drawGlyph: () => void,
+) {
+  ctx.save();
+  if (ctx.shadowBlur > 0) ctx.shadowColor = visual.frameColor;
+  ctx.strokeStyle = "rgba(233,251,255,.85)";
+  ctx.fillStyle = `${visual.frameColor}22`;
+  ctx.lineWidth = 1.8;
+  drawPupFrame(ctx, visual.pupClass, PUP_RADIUS, visual.rotation);
+  ctx.fill();
+  ctx.stroke();
+  drawGlyph();
+  ctx.restore();
+}
+
 /**
  * Speed below which a wall bounce parks the axis instead of nudging it.
  *
