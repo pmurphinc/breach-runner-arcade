@@ -122,10 +122,7 @@ test("two guests play a PvP match end to end", { skip, timeout: 240_000 }, async
     );
 
     await bravo.locator(".lobby-ready").click();
-    await alpha.waitForFunction(
-      () => /LAUNCHING/.test(document.querySelector(".lobby-status")?.textContent ?? ""),
-      null, { timeout: 15_000 }
-    );
+    await alpha.waitForSelector(".launch-countdown", { timeout: 15_000 });
     assert.equal(
       await alpha.locator(".lobby-ship select").isDisabled(),
       true,
@@ -137,6 +134,9 @@ test("two guests play a PvP match end to end", { skip, timeout: 240_000 }, async
       alpha.waitForSelector(".match-bar .rival.pvp", { timeout: 30_000 }),
       bravo.waitForSelector(".match-bar .rival.pvp", { timeout: 30_000 }),
     ]);
+    const firstRoundId = Number(await alpha.locator(".match-bar").getAttribute("data-round-id"));
+    const alphaOpponent = (await alpha.locator(".match-bar .rival.pvp").innerText()).split("\n")[0];
+    const bravoOpponent = (await bravo.locator(".match-bar .rival.pvp").innerText()).split("\n")[0];
 
     assert.match(
       (await alpha.locator(".vitals").innerText()).replace(/\s+/g, " "),
@@ -217,6 +217,47 @@ test("two guests play a PvP match end to end", { skip, timeout: 240_000 }, async
 
     assert.equal(hullAfter, startHull, "hull must be untouched while the shield absorbs");
     assert.doesNotMatch(shieldLine, /SHIELD 100%/, "the shield should have taken the hit");
+
+    // Deterministically destroy BRAVO through the same client report and
+    // authoritative server damage path used by arena impacts.
+    for (let hit = 0; hit < 5; hit += 1) {
+      await bravo.evaluate(() => window.dispatchEvent(new Event("breach-runner:test-pvp-damage")));
+      await bravo.waitForTimeout(300);
+    }
+
+    await Promise.all([
+      alpha.waitForSelector(".lobby .last-round", { timeout: 20_000 }),
+      bravo.waitForSelector(".lobby .last-round", { timeout: 20_000 }),
+    ]);
+    assert.match(await alpha.locator(".last-round strong").innerText(), /VICTORY/);
+    assert.match(await bravo.locator(".last-round strong").innerText(), /DEFEAT/);
+    assert.doesNotMatch(await alpha.locator(".last-round").innerText(), /TEAM SCORE/);
+    assert.equal(await alpha.getByText("SHIP DESTROYED", { exact: true }).count(), 0);
+    assert.equal(await alpha.getByText("RIVAL ELIMINATED", { exact: true }).count(), 0);
+
+    for (const page of [alpha, bravo]) {
+      const readiness = await page.locator(".ready-player i").allInnerTexts();
+      assert.deepEqual(readiness, ["NOT READY", "NOT READY"]);
+    }
+    await alpha.waitForTimeout(3500);
+    assert.equal(await alpha.locator(".launch-countdown").count(), 0, "no round starts automatically");
+
+    await alpha.locator(".lobby-ready").click();
+    await alpha.waitForTimeout(500);
+    assert.equal(await alpha.locator(".launch-countdown").count(), 0, "one READY must wait");
+    await bravo.locator(".lobby-ready").click();
+    await Promise.all([
+      alpha.waitForSelector(".launch-countdown", { timeout: 15_000 }),
+      bravo.waitForSelector(".launch-countdown", { timeout: 15_000 }),
+    ]);
+    await Promise.all([
+      alpha.waitForSelector(".match-bar .rival.pvp", { timeout: 30_000 }),
+      bravo.waitForSelector(".match-bar .rival.pvp", { timeout: 30_000 }),
+    ]);
+    const secondRoundId = Number(await alpha.locator(".match-bar").getAttribute("data-round-id"));
+    assert.ok(secondRoundId > firstRoundId, "the next launch has a new round id");
+    assert.equal((await alpha.locator(".match-bar .rival.pvp").innerText()).split("\n")[0], alphaOpponent);
+    assert.equal((await bravo.locator(".match-bar .rival.pvp").innerText()).split("\n")[0], bravoOpponent);
 
     assert.deepEqual(errors, [], "no console errors in either browser");
   } finally {

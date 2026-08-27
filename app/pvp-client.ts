@@ -364,6 +364,7 @@ export class PvpClient {
         if (message.phase === "active" || message.you) {
           if (this.snapshot.phase !== "active") { this.teammateMotion.reset(); patch.teammate = null; patch.world = null; }
           patch.phase = "active";
+          patch.result = null;
           this.stopCountdownTimer();
         }
         if (typeof message.roundId === "number") patch.roundId = message.roundId;

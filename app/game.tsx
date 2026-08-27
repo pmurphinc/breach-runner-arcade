@@ -1508,7 +1508,7 @@ function MultiplayerLobby({
 
   const busy = status.kind === "searching" || status.kind === "waiting" || status.kind === "connecting";
   const offline = status.kind === "offline";
-  const readyRoom = net?.kind === "coop" && Boolean(net.opponent);
+  const readyRoom = Boolean(net?.opponent);
   const result = net?.result ?? null;
   const ownShip = selectedShip((net?.you?.ship ?? "wing") as ShipId);
   const allyShip = selectedShip((net?.opponent?.ship ?? "wing") as ShipId);
@@ -1518,9 +1518,11 @@ function MultiplayerLobby({
   };
   const finalCause = WEAPONS[result?.cause as PowerId]?.short?.toUpperCase()
     ?? defeatCauseLabel(result?.cause ?? "unknown");
-  const resultEvent = result?.outcome === "victory"
-    ? `RIVAL RIFT DESTROYED BY ${result.finisherName ? `${result.finisherName}'S ` : ""}${finalCause}`
-    : `${result?.eliminatedName ?? "A PILOT"} WAS DESTROYED BY ${finalCause}`;
+  const resultEvent = net?.kind === "coop"
+    ? result?.outcome === "victory"
+      ? `RIVAL RIFT DESTROYED BY ${result.finisherName ? `${result.finisherName}'S ` : ""}${finalCause}`
+      : `${result?.eliminatedName ?? "A PILOT"} WAS DESTROYED BY ${finalCause}`
+    : `${result?.eliminatedName ?? "A PILOT"} WAS ELIMINATED BY ${finalCause} · ${result?.finisherName ?? "OPPONENT"} WON`;
 
   return (
     <div className="codex-backdrop" role="presentation" onClick={onClose}>
@@ -1533,19 +1535,19 @@ function MultiplayerLobby({
         onClick={(event) => event.stopPropagation()}
       >
         <div className="codex-head">
-          <h2 id="lobby-heading">{readyRoom ? `PVE CO-OP // ${net?.difficulty.toUpperCase()}` : "MULTIPLAYER LOBBY"}</h2>
+          <h2 id="lobby-heading">{net?.kind === "coop" && readyRoom ? `PVE CO-OP // ${net?.difficulty.toUpperCase()}` : "MULTIPLAYER LOBBY"}</h2>
           <p>{net?.kind === "coop" ? "Two pilots share one PvE objective and win or lose together." : "Real-time 1v1 under Easy rules."} No sign-in — guests get a callsign.</p>
           <button ref={closeRef} type="button" className="codex-close" onClick={onClose} aria-label="Close lobby">✕</button>
         </div>
 
         <div className="lobby-body">
           {net?.opponent ? (
-            <div className="lobby-match">
+            <div className="lobby-match" data-round-id={net.roundId}>
               {readyRoom && result ? (
                 <section className="last-round" aria-label="Last round result">
                   <strong data-outcome={result.outcome}>LAST ROUND // {result.outcome.toUpperCase()}</strong>
                   <span>{resultEvent}</span>
-                  <small>TEAM SCORE {result.teamScore.toLocaleString()} · TIME {formatRunTime(result.durationSeconds)}</small>
+                  <small>{net.kind === "coop" ? `TEAM SCORE ${result.teamScore.toLocaleString()} · ` : ""}TIME {formatRunTime(result.durationSeconds)}</small>
                 </section>
               ) : null}
               {net.phase === "countdown" ? <div className="launch-countdown" aria-live="assertive"><span>LAUNCHING IN</span><strong>{countdownLabel(net.countdownMs)}</strong></div> : <p className="lobby-status" aria-live="polite">{net?.kind === "coop" ? "ALLY FOUND — CHOOSE YOUR SHIP" : "OPPONENT FOUND — CHOOSE YOUR SHIP"}</p>}
@@ -1575,7 +1577,7 @@ function MultiplayerLobby({
                 </div>
               </div>
 
-              {!readyRoom ? <label className="lobby-ship">
+              {net.kind === "pvp" ? <label className="lobby-ship">
                 <span>YOUR SHIP</span>
                 <select
                   value={net.you?.ship ?? "wing"}
@@ -2182,6 +2184,15 @@ export default function WormholeGame() {
     return () => window.removeEventListener("breach-runner:test-stock", seedStock);
   }, [sync]);
 
+  /* The two-browser lifecycle test ends a real server-owned PvP round without
+     depending on random arena collisions. Production builds omit this hook. */
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    const damage = () => netRef.current?.reportDamage("impact", 50, "hostile_projectile");
+    window.addEventListener("breach-runner:test-pvp-damage", damage);
+    return () => window.removeEventListener("breach-runner:test-pvp-damage", damage);
+  }, []);
+
   /* Spawn notices are wave-timed, so tests ask for one rather than waiting out
      the rift's own schedule. This pushes the same record `pushSpawn` does. */
   useEffect(() => {
@@ -2464,35 +2475,15 @@ export default function WormholeGame() {
     if (!netResult) return;
     const game = gameRef.current;
     if (game.mode === "pve") return;
-    if (game.mode === "coop") {
-      // Multiplayer results leave the arena immediately. The persistent room
-      // is the sole post-round surface and therefore owns touch/controller input.
-      game.running = false;
-      game.paused = false;
-      game.result = null;
-      setSummary(null);
-      setMenu(resetRoute("lobby"));
-      sync();
-      return;
-    }
+    // Multiplayer results leave the arena immediately. The persistent room
+    // is the sole post-round surface and therefore owns touch/controller input.
     game.running = false;
-    game.result = netResult.outcome === "victory" ? "victory" : "defeat";
-    game.notice =
-      netResult.reason === "forfeit"
-        ? `${netResult.opponent} DID NOT RETURN`
-        : netResult.outcome === "victory"
-          ? `${netResult.opponent} DESTROYED`
-          : game.mode === "coop" ? "CO-OP TEAM DESTROYED" : "SHIP DESTROYED";
-    game.noticeLife = 180;
+    game.paused = false;
+    game.result = null;
+    setSummary(null);
+    setMenu(resetRoute("lobby"));
+    sync();
   }, [netResult, sync]);
-
-  useEffect(() => {
-    if (net?.rematch?.status !== "starting") return;
-    queueMicrotask(() => {
-      setSummary(null);
-      setMenu(resetRoute("lobby"));
-    });
-  }, [net?.rematch?.status]);
 
   const confirmInitials = useCallback(() => {
     const initials = normalizeInitials(initialsEntry);
@@ -5521,7 +5512,7 @@ export default function WormholeGame() {
         </aside>
 
         <section className="play-column">
-          <div className="match-bar">
+          <div className="match-bar" data-round-id={net?.roundId ?? 0}>
             <div className="score"><span>SCORE</span><b>{hud.score.toLocaleString().padStart(6, "0")}</b></div>
             <div className="match-hull"><span>HULL</span><div className="meter hull"><i style={{ width: `${healthPct}%` }} /></div><b>{hud.health}</b></div>
             {mode === "pvp" ? (

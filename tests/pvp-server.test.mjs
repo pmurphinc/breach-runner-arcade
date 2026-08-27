@@ -339,7 +339,7 @@ test("victory identifies the eliminated pilot and final damage source for both p
   const { server, a, b } = readiedMatch();
   let seq = 1;
   let now = 6000;
-  while (a.player.combat.hull > 0 && seq < 400) {
+  while (!a.last("result") && seq < 400) {
     server.reportDamage(
       a.player,
       { seq: seq++, source: "impact", amount: 50, cause: "hostile_projectile" },
@@ -349,7 +349,7 @@ test("victory identifies the eliminated pilot and final damage source for both p
   }
   const defeated = a.last("result");
   const winner = b.last("result");
-  assert.equal(a.player.combat.hull, 0);
+  assert.equal(a.player.combat, null, "finished combat state is cleared in the lobby");
   assert.equal(defeated.outcome, "defeat");
   assert.equal(winner.outcome, "victory");
   assert.equal(winner.reason, "hull");
@@ -360,6 +360,14 @@ test("victory identifies the eliminated pilot and final damage source for both p
   assert.equal(defeated.cause, "hostile_projectile");
   assert.equal(winner.cause, "hostile_projectile");
   assert.equal(defeated.finalDamage, winner.finalDamage);
+  assert.equal(defeated.finisherName, "BRAVO");
+  assert.equal(winner.finisherName, "BRAVO");
+  assert.ok(defeated.durationSeconds > 0);
+  assert.equal(a.player.room.phase, "select", "a result immediately returns the room to select");
+  assert.equal(a.player.ready, false);
+  assert.equal(b.player.ready, false);
+  assert.equal(a.last("match").lastResult.outcome, "defeat", "last result stays personalized");
+  assert.equal(b.last("match").lastResult.outcome, "victory", "winner gets their own perspective");
   const remainder = SHIP_HULL.wing % 50;
   assert.equal(
     defeated.finalDamage,
@@ -435,7 +443,7 @@ test("failing to return inside the grace period forfeits the match", () => {
   assert.equal(server.reconnect(a.player.resume, () => {}, 7000 + RECONNECT_GRACE_MS + 2), null);
 });
 
-test("finished and abandoned rooms are swept away", () => {
+test("post-round and abandoned rooms are swept away", () => {
   const { server, a, b } = readiedMatch();
   assert.equal(server.rooms.size, 1);
 
@@ -491,27 +499,26 @@ test("origin policy is strict in production and permissive only on loopback", as
 });
 
 
-test("a rematch waits for both players and returns them to ship select", () => {
+test("a completed PvP round requires both players to ready before the next countdown", () => {
   const { server, a, b } = readiedMatch();
   server.finish(a.player.room, a.player, "hull", 7000);
-
-  const first = server.requestRematch(a.player, 7100);
-  assert.equal(first.ok, true);
-  assert.equal(first.starting, false);
-  assert.equal(a.last("rematch").you, true);
-  assert.equal(b.last("rematch").opponent, true);
-  assert.equal(a.player.room.phase, "finished");
-
-  const second = server.requestRematch(b.player, 7200);
-  assert.equal(second.starting, true);
-  assert.equal(a.last("rematch").status, "starting");
-  assert.equal(b.last("rematch").status, "starting");
   assert.equal(a.player.room.phase, "select");
   assert.equal(a.player.ready, false);
   assert.equal(b.player.ready, false);
+
+  server.setReady(a.player, true, 7100);
+  assert.equal(a.player.room.phase, "select", "one ready pilot must keep waiting");
+  server.setReady(b.player, true, 7200);
+  assert.equal(a.player.room.phase, "countdown");
+
+  const previousRound = a.player.room.roundId;
+  server.activate(a.player.room, 10_200);
+  assert.equal(a.player.room.roundId, previousRound + 1);
+  assert.equal(a.player.ship, "wing", "ship selection persists between rounds");
+  assert.equal(b.player.ship, "tank", "opponent ship selection persists between rounds");
 });
 
-test("leaving a finished match returns both pilots to the lobby", () => {
+test("leaving a post-round lobby returns both pilots to the main lobby", () => {
   const { server, a, b } = readiedMatch();
   server.finish(a.player.room, a.player, "hull", 7000);
   const result = server.leaveMatch(a.player);

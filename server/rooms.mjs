@@ -215,6 +215,7 @@ export class MatchServer {
       rematchVotes: new Set(),
       rematchExpiresAt: 0,
       lastResult: null,
+      lastResults: new Map(),
       roundStartedAt: 0,
       roundId: 0,
     };
@@ -264,6 +265,7 @@ export class MatchServer {
       rematchVotes: new Set(),
       rematchExpiresAt: 0,
       lastResult: null,
+      lastResults: new Map(),
       roundStartedAt: 0,
       roundId: 0,
     };
@@ -516,12 +518,11 @@ export class MatchServer {
   }
 
   finish(room, winner, reason, now = Date.now(), eliminated = null, cause = "unknown", finalDamage = 0) {
-    if (room.phase === PHASES.FINISHED) return;
-    room.phase = PHASES.FINISHED;
+    if (room.phase !== PHASES.ACTIVE) return;
     room.touchedAt = now;
+    room.lastResults.clear();
     for (const player of room.players) {
-      this.sendTo(player, {
-        type: "result",
+      const result = {
         outcome: player === winner ? "victory" : "defeat",
         reason,
         opponent: this.opponentOf(room, player)?.name ?? "OPPONENT",
@@ -530,8 +531,18 @@ export class MatchServer {
         youEliminated: Boolean(eliminated && player.id === eliminated.id),
         cause,
         finalDamage,
-      });
+        finisherId: winner?.id ?? null,
+        finisherName: winner?.name ?? null,
+        teamScore: 0,
+        durationSeconds: room.roundStartedAt ? Math.max(0, Math.round((now - room.roundStartedAt) / 1000)) : 0,
+      };
+      room.lastResults.set(player.id, result);
+      this.sendTo(player, { type: "result", ...result });
+      player.combat = null;
     }
+    // PvP uses the same persistent selection lobby as co-op. Results are
+    // personalized above, then both pilots must explicitly ready for another round.
+    this.beginSelect(room, now);
   }
 
   /** A rematch starts only after both players explicitly accept. */
@@ -680,7 +691,7 @@ export class MatchServer {
               connected: opponent.connected,
             }
           : null,
-        lastResult: room.lastResult,
+        lastResult: room.lastResults?.get(player.id) ?? room.lastResult,
       });
     }
   }
