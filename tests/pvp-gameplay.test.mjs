@@ -134,15 +134,20 @@ test("two guests play a PvP match end to end", { skip, timeout: 240_000 }, async
 
     // Both arenas go live on the server's timing.
     await Promise.all([
-      alpha.waitForSelector(".pvp-hud", { timeout: 30_000 }),
-      bravo.waitForSelector(".pvp-hud", { timeout: 30_000 }),
+      alpha.waitForSelector(".match-bar .rival.pvp", { timeout: 30_000 }),
+      bravo.waitForSelector(".match-bar .rival.pvp", { timeout: 30_000 }),
     ]);
 
-    const hud = (await alpha.locator(".pvp-hud").innerText()).replace(/\s+/g, " ");
-    assert.match(hud, /PVP \/\/ EASY RULES/);
-    assert.match(hud, /LINK OK/);
-    assert.match(hud, /280\/280/, "tank hull comes from the server");
-    assert.match(hud, /170\/170/, "squid hull comes from the server");
+    assert.match(
+      (await alpha.locator(".vitals").innerText()).replace(/\s+/g, " "),
+      /HULL 280\/280 SHIELD 100%/,
+      "tank hull and shield come from the server"
+    );
+    assert.match(
+      (await alpha.locator(".match-bar .rival.pvp").innerText()).replace(/\s+/g, " "),
+      /OPPONENT HULL 170/,
+      "squid hull comes from the server"
+    );
 
     assert.match(
       (await alpha.locator(".difficulty-badge").innerText()).replace(/\s+/g, " "),
@@ -199,26 +204,19 @@ test("two guests play a PvP match end to end", { skip, timeout: 240_000 }, async
     await alpha.waitForTimeout(300);
 
     // Collisions spend the server-held shield before any hull is lost.
-    const hullOf = () => alpha.locator(".pvp-side.you > span > i").innerText();
+    const hullOf = () => alpha.locator(".vitals span").filter({ hasText: "HULL" }).innerText();
     const startHull = await hullOf();
     await alpha.keyboard.down("ArrowUp");
     await alpha.waitForFunction(
-      () => !/SHIELD 100%/.test(document.querySelector(".pvp-side.you small")?.textContent ?? "SHIELD 100%"),
+      () => !/SHIELD\s+100%/.test(document.querySelector(".vitals")?.textContent ?? "SHIELD 100%"),
       null, { timeout: 20_000 }
     );
-    const shieldLine = await alpha.locator(".pvp-side.you small").innerText();
+    const shieldLine = await alpha.locator(".vitals span").filter({ hasText: "SHIELD" }).innerText();
     const hullAfter = await hullOf();
     await alpha.keyboard.up("ArrowUp");
 
     assert.equal(hullAfter, startHull, "hull must be untouched while the shield absorbs");
     assert.doesNotMatch(shieldLine, /SHIELD 100%/, "the shield should have taken the hit");
-
-    // Shield state is shared, not local: the opponent sees it too.
-    assert.match(
-      await bravo.locator(".pvp-side.them small").innerText(),
-      /SHIELD \d+%/,
-      "each player sees the opponent's shield"
-    );
 
     assert.deepEqual(errors, [], "no console errors in either browser");
   } finally {

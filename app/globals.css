@@ -465,26 +465,6 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
   .difficulty-badge { gap: 2px; padding: 5px 7px; }
 }
 
-/* --------------------------------------------------------------- pvp hud -- */
-/* Pinned over the arena like the difficulty badge, so it survives every
-   layout mode without touching the tuned match-bar grid. */
-.pvp-hud { position: absolute; z-index: 4; top: 10px; right: 10px; width: min(210px, 42%); display: grid; gap: 7px; padding: 8px 9px; border: 1px solid rgba(100, 234, 255, .3); border-radius: 3px; background: rgba(2, 8, 13, .88); pointer-events: none; }
-.pvp-rules { display: grid; gap: 2px; }
-.pvp-rules b { color: var(--cyan); font: 900 var(--fs-nano)/1 var(--mono); letter-spacing: .1em; }
-.pvp-rules span { font: 700 var(--fs-nano)/1 var(--mono); letter-spacing: .08em; }
-.pvp-rules .ok { color: var(--lime); }
-.pvp-rules .warn { color: var(--amber); }
-.pvp-side { display: grid; gap: 4px; padding-top: 6px; border-top: 1px solid var(--line); }
-.pvp-side span { display: flex; justify-content: space-between; gap: 8px; }
-.pvp-side em { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #d7eff4; font: 800 var(--fs-nano)/1 var(--mono); font-style: normal; letter-spacing: .06em; }
-.pvp-side i { color: white; font: 800 var(--fs-nano)/1 var(--mono); font-style: normal; }
-.pvp-side small { color: var(--muted); font: 700 var(--fs-nano)/1 var(--mono); letter-spacing: .07em; }
-.pvp-side .meter { height: 7px; }
-.pvp-side .meter.pvp-shield { height: 4px; }
-.pvp-side .meter.pvp-shield i { background: linear-gradient(90deg, #2f8fb5, var(--cyan)); }
-.pvp-side.them em { color: #ffc9d3; }
-.pvp-incoming { margin: 0; padding: 5px 6px; text-align: center; color: #0a0406; border-radius: 2px; background: var(--amber); font: 900 var(--fs-nano)/1.2 var(--mono); letter-spacing: .07em; }
-
 /* Match flow inside the lobby dialog. */
 .lobby-match { display: grid; gap: 12px; }
 .lobby-versus { display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: center; }
@@ -504,7 +484,6 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 .lobby-ready:disabled { opacity: .55; cursor: not-allowed; }
 
 @media (max-width: 700px) {
-  .pvp-hud { width: min(160px, 46%); padding: 6px 7px; gap: 5px; }
   .lobby-versus { grid-template-columns: 1fr; }
   .lobby-versus em { display: none; }
 }
