@@ -21,6 +21,7 @@ import {
   RECONNECT_GRACE_MS,
   REMATCH_TIMEOUT_MS,
   ROOM_IDLE_TIMEOUT_MS,
+  SENDABLE_WEAPONS,
   createRateWindow,
   guestName,
   randomCode,
@@ -28,6 +29,7 @@ import {
 } from "./protocol.mjs";
 import { applyDamage, createCombatState, snapshot } from "./rules.mjs";
 import { pupRegenHull } from "../app/pup-regen.js";
+import { PUP_INVENTORY_CAPACITY } from "../app/pup-inventory.js";
 
 /** Hull by ship, mirroring app/game-data.ts. Asserted by the protocol test. */
 export const SHIP_HULL = {
@@ -43,6 +45,7 @@ export const SHIP_HULL = {
 };
 
 const COOP_RIVAL_HEALTH = { practice: 200, easy: 200, difficult: 400, hard: 700 };
+export { PUP_INVENTORY_CAPACITY };
 const COOP_POWER_DAMAGE = { nuke: 24, beam: 18, artillery: 18, gunship: 18 };
 const coopPowerDamage = (weapon) => COOP_POWER_DAMAGE[weapon] ?? 12;
 
@@ -74,7 +77,8 @@ export function createPlayer(send, { now = Date.now(), random = Math.random } = 
     combat: null,
     lastDamageSeq: -1,
     lastInventorySeq: -1,
-    storedPups: 0,
+    pupInventory: [],
+    launchedPups: [],
     lastRegenAt: now,
     lastTransmitSeq: -1,
     lastEnemyHitSeq: -1,
@@ -356,7 +360,8 @@ export class MatchServer {
       player.combat = createCombatState(SHIP_HULL[player.ship] ?? 240);
       player.lastDamageSeq = -1;
       player.lastInventorySeq = -1;
-      player.storedPups = 0;
+      player.pupInventory = [];
+      player.launchedPups = [];
       player.lastRegenAt = now;
       player.lastTransmitSeq = -1;
       player.lastEnemyHitSeq = -1;
@@ -413,17 +418,32 @@ export class MatchServer {
     const elapsedSeconds = Math.max(0, now - player.lastRegenAt) / 1000;
     player.lastRegenAt = now;
     const before = player.combat.hull;
-    player.combat.hull = pupRegenHull(player.ship, before, player.combat.maxHull, player.storedPups, elapsedSeconds);
+    player.combat.hull = pupRegenHull(player.ship, before, player.combat.maxHull, player.pupInventory.length, elapsedSeconds);
     return player.combat.hull !== before;
   }
 
-  updateInventory(player, { seq, count }, now = Date.now()) {
+  updateInventory(player, { seq, action, weapon }, now = Date.now()) {
     const room = player.room;
     if (!room || room.phase !== PHASES.ACTIVE || !player.combat) return { ok: false, code: ERRORS.NOT_IN_MATCH };
     if (seq <= player.lastInventorySeq) return { ok: true, duplicate: true };
+    if (!Number.isInteger(seq) || !["collect", "launch", "remove"].includes(action) || !SENDABLE_WEAPONS.includes(weapon)) {
+      return { ok: false, code: ERRORS.BAD_MESSAGE };
+    }
     this.applyPassiveRegen(player, now);
     player.lastInventorySeq = seq;
-    player.storedPups = count;
+    // The arena still reports the concrete collision event (as it reports
+    // incoming damage), but it never supplies the resulting count. This
+    // server-owned typed LIFO ledger makes count jumps, replay, overflow,
+    // fabricated removal, and transmission without a launch impossible.
+    if (action === "collect") {
+      if (player.pupInventory.length >= PUP_INVENTORY_CAPACITY) return { ok: false, code: ERRORS.BAD_MESSAGE };
+      player.pupInventory.push(weapon);
+    } else {
+      const loaded = player.pupInventory[player.pupInventory.length - 1];
+      if (loaded !== weapon) return { ok: false, code: ERRORS.INVALID_WEAPON };
+      player.pupInventory.pop();
+      if (action === "launch") player.launchedPups.push(weapon);
+    }
     room.touchedAt = now;
     this.broadcastState(room, now);
     return { ok: true };
@@ -434,6 +454,8 @@ export class MatchServer {
     const room = player.room;
     if (!room || room.phase !== PHASES.ACTIVE) return { ok: false, code: ERRORS.NOT_IN_MATCH };
     if (seq <= player.lastTransmitSeq) return { ok: true, duplicate: true };
+    const launchedIndex = player.launchedPups.indexOf(weapon);
+    if (launchedIndex < 0) return { ok: false, code: ERRORS.INVALID_WEAPON };
 
     rollWindow(player.window, now);
     if (player.window.transmits >= MAX_TRANSMITS_PER_WINDOW) {
@@ -441,6 +463,7 @@ export class MatchServer {
     }
     player.window.transmits += 1;
     player.lastTransmitSeq = seq;
+    player.launchedPups.splice(launchedIndex, 1);
     room.touchedAt = now;
 
     // Co-op power-ups damage one server-owned shared wormhole instead of

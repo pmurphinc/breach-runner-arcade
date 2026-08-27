@@ -31,7 +31,7 @@ import {
   createCombatState,
   snapshot,
 } from "../server/rules.mjs";
-import { MatchServer, PVP_QUICK_MATCH_QUEUE, SHIP_HULL, createPlayer } from "../server/rooms.mjs";
+import { MatchServer, PUP_INVENTORY_CAPACITY, PVP_QUICK_MATCH_QUEUE, SHIP_HULL, createPlayer } from "../server/rooms.mjs";
 
 // ------------------------------------------------------------------- drift --
 
@@ -299,18 +299,47 @@ test("Kestrel regeneration is applied by multiplayer health authority", () => {
   server.reportDamage(b.player, { seq: 1, source: "impact", amount: 20 }, 6000);
   const shieldBefore = a.player.combat.shieldCharge;
 
-  server.updateInventory(a.player, { seq: 1, count: 5 }, 6000);
-  server.updateInventory(b.player, { seq: 1, count: 5 }, 6000);
+  for (let seq = 1; seq <= 5; seq += 1) {
+    server.updateInventory(a.player, { seq, action: "collect", weapon: "mines" }, 6000);
+    server.updateInventory(b.player, { seq, action: "collect", weapon: "mines" }, 6000);
+  }
   server.sweep(7000);
 
   assert.equal(a.player.combat.hull, 101.25, "server accrues 1.25 hull for five stored PUPs");
   assert.equal(b.player.combat.hull, SHIP_HULL.wing - 20, "other ships do not inherit the passive");
   assert.equal(a.player.combat.shieldCharge, shieldBefore, "passive never touches shield state");
 
-  server.updateInventory(a.player, { seq: 2, count: 4 }, 7000);
+  server.updateInventory(a.player, { seq: 6, action: "launch", weapon: "mines" }, 7000);
   server.sweep(8000);
   assert.equal(a.player.combat.hull, 102.25, "new inventory count takes effect immediately");
-  assert.equal(a.player.storedPups, 4, "healing does not consume server inventory state");
+  assert.equal(a.player.pupInventory.length, 4, "healing does not consume server inventory state");
+});
+
+test("multiplayer inventory is a bounded server ledger, not a client-provided count", () => {
+  const { server, a } = readiedMatch(1000, "kestrel");
+  server.reportDamage(a.player, { seq: 1, source: "impact", amount: 20 }, 5500);
+  const directClaim = parseClientMessage(JSON.stringify({ type: "inventory", seq: 1, count: 10 }));
+  assert.equal(directClaim.ok, false, "raw count claims are not part of the protocol");
+  assert.equal(server.updateInventory(a.player, { seq: 1, count: 10 }, 6000).ok, false);
+  server.sweep(7000);
+  assert.equal(a.player.combat.hull, 100, "an arbitrary upward count cannot grant healing");
+  for (const count of [-1, 10.5, PUP_INVENTORY_CAPACITY + 1, "5", null]) {
+    assert.equal(parseClientMessage(JSON.stringify({ type: "inventory", seq: 1, count })).ok, false);
+  }
+
+  for (let seq = 2; seq <= PUP_INVENTORY_CAPACITY + 1; seq += 1) {
+    assert.equal(server.updateInventory(a.player, { seq, action: "collect", weapon: "beam" }, 6000).ok, true);
+  }
+  const overflow = server.updateInventory(a.player, { seq: 12, action: "collect", weapon: "beam" }, 6000);
+  assert.equal(overflow.ok, false);
+  assert.equal(a.player.pupInventory.length, PUP_INVENTORY_CAPACITY);
+
+  const wrongLaunch = server.updateInventory(a.player, { seq: 13, action: "launch", weapon: "nuke" }, 6000);
+  assert.equal(wrongLaunch.ok, false, "client cannot remove or launch a PUP it does not own next");
+  assert.equal(a.player.pupInventory.length, PUP_INVENTORY_CAPACITY);
+
+  const unownedTransmit = server.transmit(a.player, { seq: 1, weapon: "nuke" }, 6100);
+  assert.equal(unownedTransmit.ok, false, "transmission requires a server-recorded launch");
 });
 
 test("reported collision damage spends the shield, not the hull", () => {
@@ -398,6 +427,8 @@ test("victory identifies the eliminated pilot and final damage source for both p
 
 test("transmissions reach the opponent, tagged so duplicates can be dropped", () => {
   const { server, a, b } = readiedMatch();
+  server.updateInventory(a.player, { seq: 1, action: "collect", weapon: "nuke" }, 5900);
+  server.updateInventory(a.player, { seq: 2, action: "launch", weapon: "nuke" }, 5950);
   const result = server.transmit(a.player, { seq: 1, weapon: "nuke" }, 6000);
   assert.equal(result.ok, true);
 

@@ -250,10 +250,12 @@ export function parseClientMessage(raw) {
       };
     }
     case "inventory": {
-      if (!Number.isInteger(parsed.seq) || parsed.seq < 0 || !Number.isInteger(parsed.count) || parsed.count < 0 || parsed.count > 10) {
+      if (!Number.isInteger(parsed.seq) || parsed.seq < 0
+        || !["collect", "launch", "remove"].includes(parsed.action)
+        || !SENDABLE_WEAPONS.includes(parsed.weapon)) {
         return { ok: false, code: ERRORS.BAD_MESSAGE, detail: "bad inventory" };
       }
-      return { ok: true, message: { type, seq: parsed.seq, count: parsed.count } };
+      return { ok: true, message: { type, seq: parsed.seq, action: parsed.action, weapon: parsed.weapon } };
     }
     case "transmit": {
       if (!Number.isInteger(parsed.seq) || parsed.seq < 0) {

@@ -145,7 +145,6 @@ export class PvpClient {
   private damageSeq = 0;
   private transmitSeq = 0;
   private inventorySeq = 0;
-  private reportedInventory = -1;
   private resume: string | null = null;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private attempts = 0;
@@ -495,12 +494,10 @@ export class PvpClient {
     this.send({ type: "damage", seq: this.damageSeq, source, amount: Math.round(amount), cause });
   }
 
-  /** Reports only available PUP inventory transitions, never loose pickups. */
-  reportInventory(count: number) {
-    if (count === this.reportedInventory) return false;
-    this.reportedInventory = count;
+  /** Reports the concrete simulation event; the server owns the resulting count. */
+  reportInventory(action: "collect" | "launch" | "remove", weapon: string) {
     this.inventorySeq += 1;
-    return this.send({ type: "inventory", seq: this.inventorySeq, count });
+    return this.send({ type: "inventory", seq: this.inventorySeq, action, weapon });
   }
 
   reportPosition(x: number, y: number, angle: number, now = performance.now()) {

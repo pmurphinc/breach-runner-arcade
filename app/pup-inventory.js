@@ -1,3 +1,6 @@
+/** Shared gameplay/network ceiling for available payload PUPs. */
+export const PUP_INVENTORY_CAPACITY = 10;
+
 /** Build the LIFO stock's left-to-right HUD presentation. */
 /** @template T
  * @param {readonly T[]} stock
