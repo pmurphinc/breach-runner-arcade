@@ -5,8 +5,9 @@
  * module replaces that for the frames that use the pattern: a special is now
  * declared as an *overcharged build of a power-up the game already has*, so the
  * player is never learning a second vocabulary. TRACKER SWARM is still a swarm
- * of homing missiles and CORE BOMB is still an expanding blast — the special
- * version is the same idea with the limiter taken off.
+ * of homing missiles, SWEEP BEAM is still a continuous beam and CORE BOMB is
+ * still an expanding blast — the special version is the same idea with the
+ * limiter taken off.
  *
  * Everything here is data plus pure maths. The render loop owns no ability
  * rules, and adding the pattern to a fourth ship is a new entry in
@@ -18,7 +19,7 @@ import { ticksForSeconds } from "./difficulty.ts";
 import { POWER_COLORS, WEAPONS, type PowerId, type ShipId } from "./game-data.ts";
 
 /** Every overcharge in the game. One per ship that opts into the pattern. */
-export type OverchargeId = "swarm" | "scrambler" | "core";
+export type OverchargeId = "swarm" | "lance" | "core";
 
 /**
  * An expanding ring that sweeps outward from the hull.
@@ -58,6 +59,36 @@ export type OverchargeVolley = {
   turnRadians: number;
 };
 
+/**
+ * A continuous beam fired from the hull for a fixed span of seconds.
+ *
+ * The one special in the fleet that is *held* rather than thrown: it has a
+ * duration instead of a projectile, and it re-derives its line from the ship's
+ * aim every tick, so where it points is a thing the pilot keeps deciding.
+ *
+ * `annihilates` is what makes it read as a beam rather than a very strong gun.
+ * Anything hostile the line touches dies outright — but through the ordinary
+ * death path, at enough damage to guarantee it, rather than by a flag that
+ * skips explosions, drops, score and the co-op hooks.
+ */
+export type OverchargeBeam = {
+  /** Seconds the beam stays lit. The single source for the duration. */
+  seconds: number;
+  /** How far down the aim line it reaches, in arena units. */
+  length: number;
+  /** Half-width of the damaging line, before a target's own radius. */
+  width: number;
+  /**
+   * True when contact is lethal to a hostile regardless of its health.
+   *
+   * Applied as damage rather than as an instant kill, so a hostile that has
+   * cleanup to do on death still does it.
+   */
+  annihilates: boolean;
+  /** Whether the line also burns hostile projectiles out of the air. */
+  clearsHostileFire: boolean;
+};
+
 /** A temporary handling change applied to the pilot by the special. */
 export type OverchargeRider = {
   seconds: number;
@@ -79,6 +110,7 @@ export type OverchargeSpec = {
   invulnSeconds: number;
   blast?: OverchargeBlast;
   volley?: OverchargeVolley;
+  beam?: OverchargeBeam;
   rider?: OverchargeRider;
   /**
    * Fraction of the pilot's momentum left after firing, for a special that
@@ -96,6 +128,87 @@ export type OverchargeSpec = {
 
 /** Ticks the hull flare runs for after any overcharge. */
 export const OVERCHARGE_FLASH_TICKS = 26;
+
+/**
+ * How long Phantom's lance stays lit, in seconds.
+ *
+ * The one place the duration is written. `overchargeTicks` converts it, the
+ * spec below reads it, and the game loop reads the spec — so there is no
+ * second number anywhere that could disagree with this one.
+ */
+export const PHANTOM_BEAM_SECONDS = 4;
+
+/**
+ * Hostiles a beam cannot destroy.
+ *
+ * Exactly one entry, and it is not an oversight. A Phase Shade's whole design
+ * is "cannot be shot down — fly around it, or clear it with a NOVA BURST", and
+ * the codex tells the player so. A new weapon is not a reason to quietly
+ * revoke a rule the game has already taught; the shade is the hazard you route
+ * around, lance or no lance.
+ *
+ * Everything *not* on this list dies: enemy ships, Plasma Blooms, Core Bombs,
+ * Void Mines, Rim Crawlers, Sweep Beam emitters and the rest. Loose power-ups,
+ * the pilot and every friendly object never reach this function at all — the
+ * loop only ever offers it hostiles.
+ */
+export const BEAM_IMMUNE: readonly PowerId[] = ["ghost"];
+
+/** Whether the lance destroys a hostile of this kind on contact. */
+export function beamDestroysHostile(kind: PowerId, beam: OverchargeBeam) {
+  return beam.annihilates && !BEAM_IMMUNE.includes(kind);
+}
+
+/**
+ * Hostiles a damaging overcharge blast destroys outright, whatever their
+ * health.
+ *
+ * A Plasma Bloom is the case this exists for. It gains a point of health every
+ * other tick for as long as it lives, so a bloom that has been on screen for
+ * twenty seconds carries several hundred — far past the 95 a CORE OVERCHARGE
+ * lands at its centre. Talon's detonation visibly engulfing a bloom and
+ * leaving it alive is the blast failing to mean what it looks like. The fix is
+ * scoped to the hostile whose health is unbounded rather than applied to
+ * everything the ring touches, and it is a guaranteed *kill*, not a bypass:
+ * the damage is raised to whatever the bloom currently has, and the ordinary
+ * death path runs.
+ */
+export const BLAST_ANNIHILATES: readonly PowerId[] = ["inflator"];
+
+/** Whether `kind` is one a damaging blast destroys outright. */
+export function blastAnnihilates(kind: PowerId, blast: OverchargeBlast) {
+  return blast.damage > 0 && BLAST_ANNIHILATES.includes(kind);
+}
+
+/**
+ * Whether an expanding band reached a target this tick.
+ *
+ * Measured to the nearest point of the target's hull rather than to its
+ * centre, so a hostile the ring visibly engulfs is caught by it — which for a
+ * Plasma Bloom grown to a couple of hundred units across is the difference
+ * between the blast doing what the player watched it do and not.
+ *
+ * The "exactly once" property the band sweep depends on survives: the surface
+ * distance is a single number, and the band crosses it on one tick and then
+ * leaves it behind `previousRadius` forever.
+ *
+ * The first band is closed at both ends and every later one is open at the
+ * bottom. That asymmetry is not fussiness: a hostile whose body already
+ * overlaps the detonation point has a surface distance of exactly zero, and a
+ * band that excludes its own lower bound would never sweep past it — so a
+ * Plasma Bloom sitting on top of Talon would be the one thing his detonation
+ * could not kill.
+ */
+export function blastSweepReached(
+  distance: number,
+  bodyRadius: number,
+  previousRadius: number,
+  radius: number,
+) {
+  const surface = Math.max(0, distance - Math.max(0, bodyRadius));
+  if (surface > radius) return false;
+  return previousRadius <= 0 || surface > previousRadius;
+}
 
 /**
  * Extra damage a scrambled hostile takes.
@@ -136,31 +249,28 @@ export const SHIP_OVERCHARGES: Partial<Record<ShipId, OverchargeSpec>> = {
    * inverted controls this time, and Phantom phases out while it lands.
    */
   squid: {
-    id: "scrambler",
+    id: "lance",
     ship: "squid",
-    name: "SCRAMBLER OVERCHARGE",
-    source: "emp",
+    name: "LANCE OVERCHARGE",
+    source: "beam",
     accent: "#b58bff",
     cooldownSeconds: 14,
     invulnSeconds: 2.5,
-    blast: {
-      radius: 430,
-      expandTicks: 34,
-      rings: 3,
-      damage: 0,
-      edgeDamage: 0,
-      knockback: 2.4,
-      scrambleSeconds: 4,
-      guaranteedDrops: false,
+    beam: {
+      seconds: PHANTOM_BEAM_SECONDS,
+      length: 900,
+      width: 11,
+      annihilates: true,
+      clearsHostileFire: true,
     },
     rider: { seconds: 2.5, accelerationScale: 1, maxSpeedScale: 1.15 },
     differences: [
-      "Scrambles every hostile it sweeps instead of scrambling you.",
-      "Three rings rather than one, out to 430 units against 320.",
-      "Fires the instant you press it, with no arming delay to wait out.",
-      "Scrambled hostiles fly backwards and hold their fire for four seconds.",
-      "They also take 50% more damage while the scramble holds.",
-      "Phantom phases for 2.5 seconds and gains 15% top speed to reposition.",
+      "Fires from your hull rather than out of the rift mouth.",
+      "You aim it: the line follows your nose for the whole four seconds.",
+      "Anything hostile it touches is destroyed outright, not merely damaged.",
+      "It burns hostile fire out of the air instead of dealing you 8 a tick.",
+      "Loose power-ups pass through it untouched — the rift's beam eats them.",
+      "Phantom phases for 2.5 seconds and gains 15% top speed while it burns.",
     ],
   },
 
@@ -315,5 +425,7 @@ export function overchargeTicks(spec: OverchargeSpec) {
     scramble: spec.blast ? ticksForSeconds(spec.blast.scrambleSeconds) : 0,
     /** How long the visual is kept alive after the band reaches the rim. */
     blast: spec.blast ? spec.blast.expandTicks + 26 : 0,
+    /** How long a held beam stays lit. Zero for a special that fires no beam. */
+    beam: spec.beam ? ticksForSeconds(spec.beam.seconds) : 0,
   };
 }

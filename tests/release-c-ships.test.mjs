@@ -6,7 +6,7 @@ import {
   hostileTrackingVector,
   steerHomingVelocity,
 } from "../app/ship-specials.ts";
-import { overchargeFor } from "../app/overcharge.ts";
+import { PHANTOM_BEAM_SECONDS, overchargeFor } from "../app/overcharge.ts";
 
 test("guided-strike frame keeps its gameplay while using the commercial identity", () => {
   const needle = SHIPS.find((ship) => ship.id === "rabbit");
@@ -40,23 +40,31 @@ test("Starling trades hull for the handling and volley of a skirmisher", () => {
   assert.equal(swarm.rider.maxSpeedScale, 1.35);
 });
 
-test("Phantom scramble reverses a hostile rather than every hostile at once", () => {
+test("Phantom fires a beam it keeps aiming rather than a pulse it throws once", () => {
   const phantom = SHIPS.find((ship) => ship.id === "squid");
   assert.ok(phantom);
   assert.equal(phantom.health, 170);
   assert.equal(phantom.gun, 1, "MK0 was the reason it could not fight anything");
-  assert.equal(SHIP_SPECIALS.squid.name, "SCRAMBLER OVERCHARGE");
+  assert.equal(SHIP_SPECIALS.squid.name, "LANCE OVERCHARGE");
+  assert.match(phantom.special, /beam/i, "the selection screen has to describe what it now does");
 
-  // The geometry is unchanged; only who it applies to moved from the whole
-  // arena to the hostiles a pulse actually swept.
+  const lance = overchargeFor("squid");
+  assert.ok(lance);
+  assert.equal(lance.source, "beam", "an overcharged build of the rift's own SWEEP BEAM");
+  assert.equal(lance.beam.seconds, PHANTOM_BEAM_SECONDS);
+  assert.equal(lance.beam.annihilates, true, "contact is lethal, not chip damage");
+  assert.ok(lance.beam.width > 0 && lance.beam.length > 0);
+  assert.ok(
+    lance.differences.some((line) => /power-up/i.test(line)),
+    "the one thing it must not destroy has to be stated on the card",
+  );
+});
+
+test("scramble geometry survives the frame that used to carry it", () => {
+  // Phantom no longer scrambles anything, but the per-hostile reversal is a
+  // shared mechanic and still has to steer a scrambled hostile backwards.
   assert.deepEqual(hostileTrackingVector(10, 10, 30, 40, false), { dx: 20, dy: 30 });
   assert.deepEqual(hostileTrackingVector(10, 10, 30, 40, true), { dx: -20, dy: -30 });
-
-  const scrambler = overchargeFor("squid");
-  assert.ok(scrambler);
-  assert.equal(scrambler.source, "emp");
-  assert.equal(scrambler.blast.damage, 0, "control, not damage");
-  assert.equal(scrambler.blast.scrambleSeconds, 4);
 });
 
 test("Talon pays for its detonation with mobility", () => {

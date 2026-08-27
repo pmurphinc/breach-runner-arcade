@@ -29,7 +29,7 @@ export type ShipSpec = {
 export const SHIPS: ShipSpec[] = [
   { id: "tank", name: "Ironclad", role: "Heavy brawler", turn: 5, maxSpeed: 2.7, acceleration: 0.04, health: 280, gun: 2, thrust: 0, special: "Q: Grants three seconds of collision immunity.", unlock: "OPEN" },
   { id: "wing", name: "Starling", role: "Strike skirmisher", turn: 9, maxSpeed: 3.5, acceleration: 0.13, health: 175, gun: 1, thrust: 1, special: "Q: Launches twelve homing trackers, then afterburns for three seconds.", unlock: "OPEN" },
-  { id: "squid", name: "Phantom", role: "Disruption scout", turn: 8, maxSpeed: 3.8, acceleration: 0.12, health: 170, gun: 1, thrust: 1, special: "Q: Reverses and disarms every hostile it sweeps for four seconds.", unlock: "OPEN" },
+  { id: "squid", name: "Phantom", role: "Disruption scout", turn: 8, maxSpeed: 3.8, acceleration: 0.12, health: 170, gun: 1, thrust: 1, special: "Q: Burns a four-second beam along your aim that destroys any hostile it touches.", unlock: "OPEN" },
   { id: "rabbit", name: "Needle", role: "Guided-strike corvette", turn: 12, maxSpeed: 3, acceleration: 0.14, health: 150, gun: 1, thrust: 2, special: "Q: Steers every power-up launched in the next three seconds into the rival rift.", unlock: "OPEN" },
   { id: "turtle", name: "Rampart", role: "Defensive bruiser", turn: 4.5, maxSpeed: 2.4, acceleration: 0.06, health: 250, gun: 1, thrust: 1, special: "Q: Clears nearby threats at a cost to your own hull.", unlock: "OPEN" },
   { id: "flash", name: "Switchback", role: "Shape-shifter", turn: 1, maxSpeed: 1, acceleration: 0.1, health: 190, gun: 3, thrust: 3, special: "Q: Swaps between heavy and scout handling profiles.", unlock: "OPEN" },
@@ -62,7 +62,7 @@ export type ShipSpecial = {
 export const SHIP_SPECIALS: Record<ShipId, ShipSpecial> = {
   tank: { name: "IMPACT GUARD", cooldownSeconds: 12, balancePoints: 20 },
   wing: { name: "SWARM OVERCHARGE", cooldownSeconds: 10, balancePoints: 18 },
-  squid: { name: "SCRAMBLER OVERCHARGE", cooldownSeconds: 14, balancePoints: 19 },
+  squid: { name: "LANCE OVERCHARGE", cooldownSeconds: 14, balancePoints: 19 },
   rabbit: { name: "TARGET LINK", cooldownSeconds: 20, balancePoints: 14 },
   turtle: { name: "REACTOR BURST", cooldownSeconds: 14, balancePoints: 25 },
   flash: { name: "FORM SHIFT", cooldownSeconds: 1, balancePoints: 20 },
@@ -122,15 +122,15 @@ export const WEAPONS: Record<PickupId, WeaponMeta> = {
     id: "thrust", name: "ENGINE UPGRADE", short: "ENGINE", abbr: "EN", color: "#6dffd6",
     category: "utility", sendable: false, threat: 1,
     summary: "Engine tuning module collected on contact.",
-    behavior: "Applies immediately; nothing is stored in the bin.",
-    role: "Raises acceleration and top speed, up to MK 3.",
+    behavior: "Applies immediately and stacks; nothing is stored in the bin.",
+    role: "Raises this frame's own acceleration and top speed, up to MK 3.",
   },
   retros: {
     id: "retros", name: "RETRO THRUSTERS", short: "RETROS", abbr: "RT", color: "#bcff66",
     category: "utility", sendable: false, threat: 1,
     summary: "Retro-thruster package collected on contact.",
-    behavior: "Passive once installed; nothing is stored in the bin.",
-    role: "Bleeds off drift when you stop thrusting, for tighter turns.",
+    behavior: "Applies immediately and stacks; nothing is stored in the bin.",
+    role: "Shortens braking and sharpens direction changes, up to MK 3.",
   },
   shield: {
     id: "shield", name: "SHIELD FIELD", short: "SHIELD", abbr: "SH", color: "#8f9cff",

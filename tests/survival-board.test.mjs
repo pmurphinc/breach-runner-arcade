@@ -23,6 +23,8 @@ import {
 import { fetchSurvivalLeaderboard, saveSurvivalScoreToMurph } from "../app/arcade-scores.ts";
 
 const game = await readFile(new URL("../app/game.tsx", import.meta.url), "utf8");
+const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+const hudCss = await readFile(new URL("../app/arena-hud.css", import.meta.url), "utf8");
 const stripComments = (source) =>
   source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 const gameCode = stripComments(game);
@@ -249,4 +251,58 @@ test("the leaderboard screen keeps the two boards apart", () => {
   // leaves the player something to beat.
   assert.match(gameCode, /THIS DEVICE/);
   assert.match(gameCode, /global Survival board is not open yet/);
+});
+
+test("the board opens above the end-game menu that links to it", () => {
+  // The end-game card is the surface that sends the player here, so a board
+  // ranked below it was opening behind the very thing that opened it. The
+  // ordering is a documented step on the one z-index scale, not a bare number
+  // and not a race between whichever rendered later in the tree.
+  const scale = css.slice(css.indexOf("--z-arena"), css.indexOf("--z-system") + 40);
+  const layer = (name) => Number(scale.match(new RegExp(`--z-${name}:\\s*(\\d+)`))[1]);
+
+  assert.ok(layer("modal") > layer("dialog"), "a modal has to outrank the end-game dialog");
+  assert.ok(layer("dialog") > layer("screen"), "which still outranks the screens below it");
+  assert.ok(layer("system") > layer("modal"), "Menu and Fullscreen stay on top of everything");
+
+  // The leaderboard and the codex share one backdrop, and it sits on the
+  // modal layer. The end-game card stays on the dialog layer beneath it.
+  assert.match(css, /\.codex-backdrop\s*\{[^}]*z-index:\s*var\(--z-modal\)/s);
+  assert.match(hudCss, /\.run-summary-layer\s*\{[^}]*z-index:\s*var\(--z-dialog\)/s);
+  // No rule anywhere reaches past the scale to win this by brute force.
+  assert.doesNotMatch(css, /z-index:\s*9{4,}/);
+  assert.doesNotMatch(hudCss, /z-index:\s*9{4,}/);
+});
+
+test("the board is usable above the end-game menu on every form factor", () => {
+  // Phone immersive promotes the end-game layer to a full-viewport fixed
+  // element in both orientations. Nothing there may re-rank it above the
+  // modal layer, or the board would be buried again on phones only.
+  const summaryRules = hudCss.match(/[^}]*\.run-summary-layer[^{]*\{[^}]*\}/g) ?? [];
+  assert.ok(summaryRules.length > 0);
+  for (const rule of summaryRules) {
+    assert.ok(
+      !/z-index/.test(rule) || /z-index:\s*var\(--z-dialog\)/.test(rule),
+      `a form-factor override re-ranked the end-game layer: ${rule}`,
+    );
+  }
+  // The backdrop is fixed and inset on all four sides, so it covers the
+  // end-game card whatever box that card is anchored in.
+  assert.match(css, /\.codex-backdrop\s*\{[^}]*position:\s*fixed[^}]*inset:\s*0/s);
+  // Its own controls stay hittable: the card stops the backdrop's dismiss
+  // click rather than the backdrop swallowing presses meant for the buttons.
+  assert.match(gameCode, /onClick=\{\(event\) => event\.stopPropagation\(\)\}/);
+});
+
+test("closing the board returns to the end-game menu rather than dismissing it", () => {
+  // The board is a route pushed on the menu stack; closing pops it. The run
+  // summary is separate state and is never cleared on the way back, so the
+  // player lands on the card they left.
+  assert.match(gameCode, /route === "leaderboard" \? <Leaderboard onClose=\{back\}/);
+  const boardLink = gameCode.slice(
+    gameCode.indexOf('className="run-board-link"'),
+    gameCode.indexOf('className="run-board-link"') + 400,
+  );
+  assert.match(boardLink, /go\("leaderboard"\)/);
+  assert.doesNotMatch(boardLink, /setSummary\(null\)/);
 });

@@ -7,16 +7,24 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { SHIPS } from "../app/game-data.ts";
+import { FORM_SHIFT_PROFILES } from "../app/game-data.ts";
 import {
+  ENGINE_MAX_LEVEL,
   IDLE_DRAG,
   NO_INTENT,
+  RETRO_MAX_LEVEL,
   STOP_SPEED,
   applyIntent,
+  engineHandling,
   facingFor,
   intentFromKeys,
   intentFromStick,
   keysFrom,
   resolveIntent,
+  retroBrakeAssist,
+  retroIdleDrag,
+  retroLevel,
+  retroReverseDrag,
 } from "../app/movement.ts";
 
 const none = { up: false, down: false, left: false, right: false };
@@ -215,6 +223,215 @@ test("retro thrusters still brake harder than the shared drag", () => {
   const braking = applyIntent(moving, NO_INTENT, ship, { retros: true });
   assert.ok(braking.vx < plain.vx, "retros must beat the baseline drag");
   assert.ok(braking.vx > 0, "retros slow the ship without stopping it dead");
+});
+
+/* -------------------------------------------------- ENGINE UPGRADE ------ */
+
+/** Ticks of a straight burn from a standstill before the ship is at its cap. */
+function ticksToTop(handling) {
+  let velocity = { vx: 0, vy: 0 };
+  const intent = intentFromKeys(keys({ right: true }));
+  for (let tick = 1; tick <= 2000; tick += 1) {
+    velocity = applyIntent(velocity, intent, handling);
+    if (speedOf(velocity) >= handling.maxSpeed - 1e-9) return tick;
+  }
+  return Infinity;
+}
+
+/** Distance covered in `ticks` of a straight burn from a standstill. */
+function burnDistance(handling, ticks) {
+  let velocity = { vx: 0, vy: 0 };
+  const intent = intentFromKeys(keys({ right: true }));
+  let travelled = 0;
+  for (let tick = 0; tick < ticks; tick += 1) {
+    velocity = applyIntent(velocity, intent, handling);
+    travelled += speedOf(velocity);
+  }
+  return travelled;
+}
+
+test("an engine mark measurably raises both top speed and acceleration", () => {
+  for (const ship of SHIPS) {
+    const base = engineHandling(ship, 0);
+    const mark = engineHandling(ship, 1);
+    assert.ok(mark.maxSpeed > base.maxSpeed, `${ship.id} top speed must move`);
+    assert.ok(mark.acceleration > base.acceleration, `${ship.id} acceleration must move`);
+    // "Too weak to perceive" is the bug being fixed. A tenth is the floor for
+    // a change a player notices without a stopwatch.
+    assert.ok(
+      mark.maxSpeed / base.maxSpeed > 1.1,
+      `${ship.id} gains only ${(mark.maxSpeed / base.maxSpeed - 1) * 100}% top speed`,
+    );
+    assert.ok(
+      mark.acceleration / base.acceleration > 1.25,
+      `${ship.id} gains only ${(mark.acceleration / base.acceleration - 1) * 100}% acceleration`,
+    );
+    // ...and not so much that the frame becomes unflyable.
+    assert.ok(mark.maxSpeed / base.maxSpeed < 1.6, `${ship.id} top speed runs away in one mark`);
+  }
+});
+
+test("engine marks are linear, capped, and never compound", () => {
+  const ship = { acceleration: 0.1, maxSpeed: 3 };
+  const step = engineHandling(ship, 1).maxSpeed - ship.maxSpeed;
+  for (let level = 1; level <= ENGINE_MAX_LEVEL; level += 1) {
+    const fitted = engineHandling(ship, level);
+    assert.ok(
+      Math.abs(fitted.maxSpeed - (ship.maxSpeed + step * level)) < 1e-9,
+      "each mark must be worth the same as the first, not more",
+    );
+  }
+  // Past the cap nothing further is granted, and junk never becomes a bonus.
+  assert.deepEqual(engineHandling(ship, 9), engineHandling(ship, ENGINE_MAX_LEVEL));
+  assert.deepEqual(engineHandling(ship, -4), engineHandling(ship, 0));
+  assert.deepEqual(engineHandling(ship, Number.NaN), engineHandling(ship, 0));
+});
+
+test("engine marks scale a frame rather than flattening the fleet", () => {
+  // A flat bonus converges the fleet: the slowest frame gains the most in
+  // relative terms and every hull ends up flying the same. The upgrade has to
+  // keep the fastest frame the fastest, by a wider margin than before.
+  const fastest = SHIPS.find((ship) => ship.id === "squid");
+  const slowest = SHIPS.find((ship) => ship.id === "flagship");
+  const gap = fastest.maxSpeed - slowest.maxSpeed;
+  const upgraded =
+    engineHandling(fastest, ENGINE_MAX_LEVEL).maxSpeed
+    - engineHandling(slowest, ENGINE_MAX_LEVEL).maxSpeed;
+  assert.ok(upgraded > gap, `fully upgraded frames must stay apart, ${upgraded} vs ${gap}`);
+});
+
+test("no frame loses handling it used to have at the same mark", () => {
+  // The old model was a flat +0.25 top speed and +0.035 acceleration a mark.
+  // Every hull starts at its own mark, so a rework that took anything away
+  // would silently nerf seven of the eight frames on the launch pad.
+  const hulls = [...SHIPS, ...Object.values(FORM_SHIFT_PROFILES)];
+  for (const hull of hulls) {
+    for (let level = 0; level <= ENGINE_MAX_LEVEL; level += 1) {
+      const fitted = engineHandling(hull, level);
+      assert.ok(fitted.maxSpeed >= hull.maxSpeed + level * 0.25 - 1e-9, "top speed regressed");
+      assert.ok(fitted.acceleration >= hull.acceleration + level * 0.035 - 1e-9, "acceleration regressed");
+    }
+  }
+});
+
+test("an upgraded engine actually reaches speed sooner in the flight model", () => {
+  for (const ship of SHIPS) {
+    const base = engineHandling(ship, 0);
+    const upgraded = engineHandling(ship, 1);
+    assert.ok(
+      ticksToTop(upgraded) <= ticksToTop(base),
+      `${ship.id} must not take longer to reach a higher cap`,
+    );
+    assert.ok(
+      burnDistance(upgraded, 45) > burnDistance(base, 45) * 1.1,
+      `${ship.id} must cross visibly more ground in the same burn`,
+    );
+  }
+});
+
+/* ------------------------------------------------- RETRO THRUSTERS ------ */
+
+/** Ticks and distance spent coasting to a stop from top speed. */
+function coastToStop(handling, retros) {
+  let velocity = { vx: handling.maxSpeed, vy: 0 };
+  let ticks = 0;
+  let travelled = 0;
+  while (speedOf(velocity) > 0 && ticks < 600) {
+    velocity = applyIntent(velocity, NO_INTENT, handling, { retros });
+    travelled += speedOf(velocity);
+    ticks += 1;
+  }
+  return { ticks, travelled };
+}
+
+/** Ticks spent flying flat out one way before moving the other way. */
+function ticksToReverse(handling, retros) {
+  const intent = intentFromKeys(keys({ left: true }));
+  let velocity = { vx: handling.maxSpeed, vy: 0 };
+  for (let tick = 1; tick <= 600; tick += 1) {
+    velocity = applyIntent(velocity, intent, handling, { retros });
+    if (velocity.vx <= 0) return tick;
+  }
+  return Infinity;
+}
+
+test("a retro mark measurably shortens braking, on every frame", () => {
+  for (const ship of SHIPS) {
+    const one = coastToStop(ship, 1);
+    const three = coastToStop(ship, RETRO_MAX_LEVEL);
+    assert.ok(three.travelled < one.travelled * 0.75, `${ship.id} braking distance barely moved`);
+    assert.ok(three.ticks < one.ticks, `${ship.id} must come to rest sooner`);
+    // Inertia is reduced, never removed: the ship still glides.
+    assert.ok(three.travelled > 0);
+    assert.ok(three.ticks > 1, `${ship.id} must not stop dead the tick input is released`);
+  }
+});
+
+test("a retro mark measurably shortens a direction reversal", () => {
+  for (const ship of SHIPS) {
+    const none = ticksToReverse(ship, 0);
+    const full = ticksToReverse(ship, RETRO_MAX_LEVEL);
+    assert.ok(full < none, `${ship.id} reversal did not improve: ${full} vs ${none}`);
+    assert.ok(full >= 1, "a reversal is still a manoeuvre, not a teleport");
+  }
+});
+
+test("engine and retro marks do different jobs and coexist", () => {
+  const ship = { acceleration: 0.1, maxSpeed: 3 };
+
+  // Retros never raise the ceiling...
+  assert.equal(engineHandling(ship, 0).maxSpeed, ship.maxSpeed);
+  const coasting = { vx: 3, vy: 0 };
+  assert.equal(
+    applyIntent(coasting, NO_INTENT, engineHandling(ship, 3), { retros: 0 }).vx,
+    applyIntent(coasting, NO_INTENT, ship, { retros: 0 }).vx,
+    "an engine mark must not shorten a coast",
+  );
+  // ...and engines never shorten a stop.
+  assert.ok(
+    coastToStop(engineHandling(ship, ENGINE_MAX_LEVEL), 0).ticks
+      >= coastToStop(ship, 0).ticks,
+  );
+
+  // Fitted together, both effects are still present.
+  const both = engineHandling(ship, ENGINE_MAX_LEVEL);
+  assert.ok(both.maxSpeed > ship.maxSpeed);
+  assert.ok(coastToStop(both, RETRO_MAX_LEVEL).ticks < coastToStop(both, 0).ticks);
+  assert.ok(ticksToReverse(both, RETRO_MAX_LEVEL) < ticksToReverse(both, 0));
+});
+
+test("retro marks are linear, capped, and read the old boolean", () => {
+  // The field used to be a boolean; `true` has to keep meaning one mark so
+  // nothing that still passes one silently loses its braking.
+  assert.equal(retroLevel(true), 1);
+  assert.equal(retroLevel(false), 0);
+  assert.equal(retroLevel(undefined), 0);
+  assert.equal(retroLevel(9), RETRO_MAX_LEVEL);
+  assert.equal(retroLevel(-2), 0);
+
+  for (let level = 0; level < RETRO_MAX_LEVEL; level += 1) {
+    assert.ok(retroIdleDrag(level + 1) > retroIdleDrag(level));
+    assert.ok(retroReverseDrag(level + 1) > retroReverseDrag(level));
+    assert.ok(retroBrakeAssist(level + 1) > retroBrakeAssist(level));
+  }
+  // Mark zero is the untouched shared model, and no mark ever removes inertia.
+  assert.equal(retroIdleDrag(0), IDLE_DRAG);
+  assert.equal(retroBrakeAssist(0), 1);
+  assert.ok(retroIdleDrag(RETRO_MAX_LEVEL) < 1);
+  assert.ok(retroReverseDrag(RETRO_MAX_LEVEL) < 1);
+});
+
+test("a retro mark never raises top speed on any heading", () => {
+  const ship = { acceleration: 0.5, maxSpeed: 4 };
+  const intent = intentFromKeys(keys({ right: true, down: true }));
+  let plain = { vx: 0, vy: 0 };
+  let braked = { vx: 0, vy: 0 };
+  for (let tick = 0; tick < 300; tick += 1) {
+    plain = applyIntent(plain, intent, ship, { retros: 0 });
+    braked = applyIntent(braked, intent, ship, { retros: RETRO_MAX_LEVEL });
+  }
+  assert.ok(speedOf(braked) <= speedOf(plain) + 1e-9, "retros are brakes, not an engine");
+  assert.ok(speedOf(braked) <= ship.maxSpeed + 1e-9);
 });
 
 test("reversing direction bites instead of sliding on", () => {
