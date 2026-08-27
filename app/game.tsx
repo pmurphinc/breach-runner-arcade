@@ -1681,69 +1681,6 @@ function MultiplayerLobby({
 }
 
 /**
- * PvP overlay: both pilots' hull and collision shield, the connection state,
- * and incoming-attack warnings.
- *
- * Pilot hull is the victory condition here, so it is the largest thing on the
- * panel and is labelled as hull — deliberately distinct from the wormhole
- * charge readout, which is a PvE objective and decides nothing in a match.
- */
-function PvpHud({ net }: { net: PvpSnapshot }) {
-  const you = net.yourCombat;
-  const them = net.opponentCombat;
-  const fresh = net.incoming;
-
-  const bar = (combat: typeof you) => {
-    const hullPct = combat && combat.maxHull ? (combat.hull / combat.maxHull) * 100 : 0;
-    return (
-      <>
-        <div className="meter hull"><i style={{ width: `${hullPct}%` }} /></div>
-        <div className="meter pvp-shield">
-          <i style={{ width: `${combat?.shieldPct ?? 0}%` }} />
-        </div>
-      </>
-    );
-  };
-
-  return (
-    <div className="pvp-hud">
-      <div className="pvp-rules">
-        <b>PVP // EASY RULES</b>
-        <span className={net.connected ? "ok" : "warn"}>
-          {net.reconnecting ? "RECONNECTING…" : net.connected ? "LINK OK" : "LINK LOST"}
-        </span>
-      </div>
-
-      <div className="pvp-side you">
-        <span><em>{net.name || "YOU"}</em><i>{you ? `${Math.round(you.hull)}/${you.maxHull}` : "—"}</i></span>
-        {bar(you)}
-        <small>
-          SHIELD {you ? (you.rechargeMs > 0 ? `RECHARGING ${(you.rechargeMs / 1000).toFixed(1)}s` : `${you.shieldPct}%`) : "—"}
-        </small>
-      </div>
-
-      <div className="pvp-side them">
-        <span>
-          <em>{net.opponent?.name ?? "OPPONENT"}</em>
-          <i>{them ? `${Math.round(them.hull)}/${them.maxHull}` : "—"}</i>
-        </span>
-        {bar(them)}
-        <small>
-          SHIELD {them ? `${them.shieldPct}%` : "—"}
-          {net.opponent && !net.opponent.connected ? " · DISCONNECTED" : ""}
-        </small>
-      </div>
-
-      {fresh ? (
-        <p className="pvp-incoming" role="status">
-          INCOMING {WEAPONS[fresh.weapon as PowerId]?.short ?? fresh.weapon.toUpperCase()} FROM {fresh.from}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-/**
  * Ship silhouette for the menu, drawn with the same routine the arena uses so
  * the art in the menu is literally the art in the game.
  */
@@ -5692,9 +5629,6 @@ export default function WormholeGame() {
                 <div className="meter hull"><i style={{ width: `${healthPct}%` }} /></div>
               </div>
               <DifficultyBadge hud={hud} pending={pendingRules} pendingMode={mode} live={badgeLive} />
-              {mode === "pvp" && net && (net.phase === "active" || net.phase === "finished") ? (
-                <PvpHud net={net} />
-              ) : null}
               <i className="reticle tl" aria-hidden="true" /><i className="reticle tr" aria-hidden="true" />
               <i className="reticle bl" aria-hidden="true" /><i className="reticle br" aria-hidden="true" />
               {summary ? (
