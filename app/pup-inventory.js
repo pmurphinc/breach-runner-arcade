@@ -13,3 +13,14 @@ export function pupInventoryLayout(stock, capacity) {
     stored: Array(Math.max(0, storedCapacity - stored.length)).fill(null).concat(stored),
   };
 }
+
+/**
+ * Remove the payload currently loaded to fire from the LIFO inventory.
+ * Applied upgrades never enter this array, so this cannot alter ship stats.
+ * @template T
+ * @param {T[]} stock
+ * @returns {T | null}
+ */
+export function consumeLoadedPup(stock) {
+  return stock.pop() ?? null;
+}

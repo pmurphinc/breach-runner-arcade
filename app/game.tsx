@@ -94,7 +94,7 @@ import {
   type ScreenPreset,
 } from "./layout-budget";
 import { cannonPlaybackRate, hapticsAllow } from "./combat-feedback";
-import { pupInventoryLayout } from "./pup-inventory";
+import { consumeLoadedPup, pupInventoryLayout } from "./pup-inventory";
 import { pupPickupSoundProfile, type PupPickupSoundProfile } from "./pup-audio";
 import { RICOCHET_BOUNCES, RICOCHET_DURATION_SECONDS, reflectRicochet } from "./ricochet";
 import { controllerStateForPads, EMPTY_GAMEPAD, headingDegrees, pressedOnce, type GamepadActions } from "./gamepad";
@@ -189,6 +189,7 @@ import {
   BEAM_LENGTH,
   BEAM_PICKUP_WIDTH,
   advanceBeamAngle,
+  hostileBeamContact,
   pointTouchesBeam,
   randomBeamDirection,
   type BeamDirection,
@@ -337,6 +338,8 @@ type Enemy = {
   cooldown: number;
   phase: number;
   rotationDir?: BeamDirection;
+  /** True after this beam has charged the inventory penalty for its current contact. */
+  playerBeamContact?: boolean;
   armed?: boolean;
   countdown?: number;
   blastRadius?: number;
@@ -3008,7 +3011,7 @@ export default function WormholeGame() {
      */
     const damagePlayer = (game: Game, amount: number, cause = "hostile_projectile") => {
       const player = game.player;
-      if (game.result || player.invuln > 0 || player.shield > 0) return;
+      if (game.result || player.invuln > 0 || player.shield > 0) return false;
       player.invuln = 24;
       burst(game, player.x, player.y, "#ff5570", 18, 7);
       play("explosion", 0.24);
@@ -3016,6 +3019,7 @@ export default function WormholeGame() {
       game.lastDamageAmount = Math.min(player.health, amount);
       report(game, "impact", amount, cause);
       applyHullDamage(game, amount);
+      return true;
     };
 
     /**
@@ -3630,12 +3634,16 @@ export default function WormholeGame() {
         enemy.phase = advanceBeamAngle(enemy.phase, enemy.rotationDir ?? 1);
         enemy.x = game.portalX;
         enemy.y = game.portalY;
+        const touchesPlayer = pointTouchesBeam(
+          game.portalX, game.portalY, enemy.phase, player.x, player.y, BEAM_HIT_WIDTH
+        );
+        if (!touchesPlayer) enemy.playerBeamContact = false;
         if (!scrambled && enemy.age > 45 && enemy.age < 365) {
-          if (
-            enemy.age % 16 === 0
-            && pointTouchesBeam(game.portalX, game.portalY, enemy.phase, player.x, player.y, BEAM_HIT_WIDTH)
-          ) {
-            damagePlayer(game, 8, "beam");
+          if (enemy.age % 16 === 0 && touchesPlayer) {
+            const hit = damagePlayer(game, 8, "beam");
+            const contact = hostileBeamContact(Boolean(enemy.playerBeamContact), touchesPlayer, hit);
+            enemy.playerBeamContact = contact.active;
+            if (contact.consume) consumeLoadedPup(game.stock);
           }
           for (const pickup of game.pickups) {
             if (
@@ -4011,7 +4019,7 @@ export default function WormholeGame() {
 
       if (launch && game.stock.length > 0 && !keys.current.__launchLatch) {
         keys.current.__launchLatch = true;
-        const type = game.stock.pop()!;
+        const type = consumeLoadedPup(game.stock)!;
         const angle = player.angle * DEG;
         const homing = game.ship.id === "rabbit" && player.viperGuidance > 0;
         game.powers.push({ x: player.x + Math.cos(angle) * 12, y: player.y + Math.sin(angle) * 12, vx: Math.cos(angle) * 10 + player.vx, vy: Math.sin(angle) * 10 + player.vy, type, life: homing ? 320 : 160, homing });

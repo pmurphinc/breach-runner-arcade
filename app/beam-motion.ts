@@ -5,6 +5,25 @@ export const BEAM_PICKUP_WIDTH = 20;
 
 export type BeamDirection = -1 | 1;
 
+export type HostileBeamContact = {
+  active: boolean;
+  consume: boolean;
+};
+
+/**
+ * Gate the inventory penalty to the first confirmed hit in one continuous
+ * contact. Callers still run their normal beam damage cadence independently.
+ */
+export function hostileBeamContact(
+  active: boolean,
+  touching: boolean,
+  confirmedHit: boolean,
+): HostileBeamContact {
+  if (!touching) return { active: false, consume: false };
+  if (confirmedHit && !active) return { active: true, consume: true };
+  return { active, consume: false };
+}
+
 export function randomBeamDirection(random = Math.random): BeamDirection {
   return random() < 0.5 ? -1 : 1;
 }
