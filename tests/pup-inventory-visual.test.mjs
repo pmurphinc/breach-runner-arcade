@@ -3,7 +3,11 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 
 import { WEAPONS, SENDABLE_POWERUPS } from "../app/game-data.ts";
-import { inventoryPupVisual } from "../app/pup-inventory-visual.ts";
+import {
+  INVENTORY_PUP_ROTATION,
+  inventoryPayloadIconLayout,
+  inventoryPupVisual,
+} from "../app/pup-inventory-visual.ts";
 import { PUP_FRAME_COLORS, pupFrameColor } from "../app/pup-world.ts";
 
 const game = await readFile(new URL("../app/game.tsx", import.meta.url), "utf8");
@@ -21,13 +25,31 @@ test("stored payload visuals use the canonical Payload triangle and color", () =
 test("the frame never replaces individual center-glyph identity", () => {
   for (const id of SENDABLE_POWERUPS) assert.equal(inventoryPupVisual(id).glyphId, id);
   assert.notEqual(inventoryPupVisual("nuke").glyphId, inventoryPupVisual("beam").glyphId);
-  assert.match(game, /drawWeaponGlyph\(ctx, id, size \* 0\.37/);
+  assert.match(game, /drawWeaponGlyph\(ctx, visual\.glyphId, layout\.glyphRadius, 0/);
 });
 
 test("mobile, desktop, and loaded renderers share the framed inventory icon", () => {
   assert.equal((game.match(/<WeaponIcon[^>]+inventoryFrame/g) ?? []).length, 3);
   assert.match(game, /const visual = inventoryPupVisual\(queued\)/);
-  assert.match(game, /drawPupFrame\(ctx, visual\.pupClass, chipH \* 0\.39, 0\)/);
+  assert.match(game, /drawPupFrame\(ctx, visual\.pupClass, iconLayout\.frameRadius, iconLayout\.rotation\)/);
+});
+
+test("inventory Payload triangles are static and centered with padded glyphs", () => {
+  const layout = inventoryPayloadIconLayout({ width: 32, height: 24 });
+  assert.equal(INVENTORY_PUP_ROTATION, 0);
+  assert.equal(layout.rotation, 0);
+  assert.equal(layout.centerX, 16);
+  assert.equal(layout.centerY, 12);
+  assert.ok(layout.glyphRadius < layout.frameRadius / 2);
+  assert.match(game, /ctx\.translate\(layout\.centerX, layout\.centerY\)/);
+});
+
+test("triangle sizing follows the smallest available icon bound", () => {
+  const compact = inventoryPayloadIconLayout({ width: 20, height: 40 });
+  const large = inventoryPayloadIconLayout({ width: 30, height: 40 });
+  assert.ok(large.frameRadius > compact.frameRadius);
+  assert.ok(large.glyphRadius > compact.glyphRadius);
+  assert.ok(large.frameRadius <= 15);
 });
 
 test("inventory framing does not alter mobile HUD geometry", () => {
