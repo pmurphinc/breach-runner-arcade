@@ -3671,15 +3671,19 @@ export default function WormholeGame() {
       }
     };
 
+    /** The two legitimate paths into the one authoritative pickup resolver. */
+    type PickupCollectionSource = "physical" | "salvage-link";
+
     /**
      * Authoritative local pickup path shared by hull contact and SALVAGE LINK.
-     * A false result means a sendable PUP could not enter the full bin; every
-     * other pickup applies its existing effect and completes collection.
+     * Physical contact retains the original full-bin behavior (consume the
+     * loose PUP), while a failed remote shot deliberately leaves it available.
      */
-    const resolvePlayerPickup = (game: Game, pickup: Pickup) => {
+    const resolvePlayerPickup = (game: Game, pickup: Pickup, source: PickupCollectionSource) => {
       const player = game.player;
       const type = pickup.type;
       if (WEAPONS[type].sendable && game.stock.length >= STOCK_LIMIT) {
+        if (source === "physical") pickup.life = 0;
         game.notice = "POWERUP BIN FULL";
         game.noticeLife = 75;
         playCue("inventory-full", 0.2);
@@ -4398,7 +4402,7 @@ export default function WormholeGame() {
         if (bullet.life > 0 && bullet.salvageLinked) {
           const pickup = game.pickups.find((item) => item.life > 0 && salvageLinkHitsPup(game.ship.id, bullet, item));
           if (pickup) {
-            const collected = resolvePlayerPickup(game, pickup);
+            const collected = resolvePlayerPickup(game, pickup, "salvage-link");
             // Consume on both success and a full bin so this one round cannot
             // retry every frame or collect a second PUP in the same row.
             bullet.life = 0;
@@ -4537,7 +4541,7 @@ export default function WormholeGame() {
         pickup.phase += PUP_SPIN;
         pickup.life -= 1;
         if (pupCollected(pickup, player)) {
-          resolvePlayerPickup(game, pickup);
+          resolvePlayerPickup(game, pickup, "physical");
         }
       });
 
