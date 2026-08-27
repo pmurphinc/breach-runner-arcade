@@ -19,6 +19,8 @@ import {
 } from "./protocol.mjs";
 import { MatchServer, createPlayer } from "./rooms.mjs";
 
+const mountedServers = new WeakSet();
+
 const PRODUCTION_ORIGIN = "https://breachrunner.murphtournaments.com";
 
 /**
@@ -65,6 +67,10 @@ export function isOriginAllowed(origin, origins, env = process.env) {
  * Returns a handle so the caller can shut it down cleanly.
  */
 export function attachPvpServer(httpServer, { log = console.log, env = process.env } = {}) {
+  if (mountedServers.has(httpServer)) {
+    throw new Error("PvP MatchServer is already attached to this HTTP server");
+  }
+  mountedServers.add(httpServer);
   const origins = allowedOrigins(env);
   // Without a scheduler the countdown would only fire on the next sweep, so a
   // 3s countdown could sit for up to 15s before the match went live.
@@ -184,6 +190,7 @@ export function attachPvpServer(httpServer, { log = console.log, env = process.e
       clearInterval(sweeper);
       for (const ws of sockets.keys()) ws.terminate();
       wss.close();
+      mountedServers.delete(httpServer);
     },
   };
 }

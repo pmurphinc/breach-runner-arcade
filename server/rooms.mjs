@@ -44,6 +44,9 @@ const COOP_RIVAL_HEALTH = { practice: 200, easy: 200, difficult: 400, hard: 700 
 const COOP_POWER_DAMAGE = { nuke: 24, beam: 18, artillery: 18, gunship: 18 };
 const coopPowerDamage = (weapon) => COOP_POWER_DAMAGE[weapon] ?? 12;
 
+/** The sole logical public PvP queue. Client properties never contribute to it. */
+export const PVP_QUICK_MATCH_QUEUE = "PVP_1V1_QUICK_MATCH";
+
 const PHASES = {
   LOBBY: "lobby",
   SELECT: "select",
@@ -159,13 +162,17 @@ export class MatchServer {
 
   enqueue(player, options = {}, now = Date.now()) {
     if (typeof options === "number") { now = options; options = {}; }
-    const { kind = "pvp", difficulty = "easy" } = options;
+    const { kind = "pvp" } = options;
+    // PvP difficulty is both server-owned and deliberately absent from its
+    // matchmaking key. Co-op retains its difficulty-specific public queues.
+    const difficulty = kind === "pvp" ? "easy" : (options.difficulty ?? "easy");
+    const queueKey = kind === "pvp" ? PVP_QUICK_MATCH_QUEUE : `coop:${difficulty}`;
     if (player.room) return;
     this.leaveQueue(player);
-    const waiting = this.queue.find((entry) => entry.player.connected && entry.kind === kind && entry.difficulty === difficulty);
+    const waiting = this.queue.find((entry) => entry.player.connected && entry.queueKey === queueKey);
 
     if (!waiting) {
-      this.queue.push({ player, at: now, kind, difficulty });
+      this.queue.push({ player, at: now, queueKey, kind, difficulty });
       this.sendTo(player, { type: "lobby", state: "searching" });
       return;
     }
@@ -180,7 +187,8 @@ export class MatchServer {
 
   createPrivate(player, options = {}, now = Date.now()) {
     if (typeof options === "number") { now = options; options = {}; }
-    const { kind = "pvp", difficulty = "easy" } = options;
+    const { kind = "pvp" } = options;
+    const difficulty = kind === "pvp" ? "easy" : (options.difficulty ?? "easy");
     if (player.room) return null;
     this.leaveQueue(player);
 
@@ -231,6 +239,8 @@ export class MatchServer {
   }
 
   startRoom(a, b, { now, isPrivate, kind = "pvp", difficulty = "easy" }) {
+    // Defense in depth: no caller can create PvP with PvE rules.
+    if (kind === "pvp") difficulty = "easy";
     let code = randomCode(this.random);
     let guard = 0;
     while (this.rooms.has(code) && guard++ < 50) code = randomCode(this.random);

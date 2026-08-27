@@ -149,6 +149,23 @@ All are optional:
 | `NEXT_PUBLIC_MURPH_API_BASE` | Override the score API base. |
 | `NEXT_PUBLIC_GAME_TITLE` | Override the commercial product title for staging or testing. |
 
+## Matchmaking deployment invariant
+
+PvP 1v1 Quick Match has one server-owned logical queue,
+`PVP_1V1_QUICK_MATCH`. Difficulty and all other client metadata are excluded
+from its key, and every PvP room is normalized to Easy gameplay rules. Co-op
+queues and private-code rooms remain separate.
+
+The production entry point creates one HTTP server and mounts exactly one
+`MatchServer` on it; a second mount on the same server is rejected. The current
+Railway deployment is operated as one service replica/process, so all `/pvp`
+WebSockets reach that in-memory `MatchServer`. **This service must remain at one
+Railway replica.** The repository has no shared cross-replica queue: increasing
+Railway replica count (or running a Node cluster) would fragment matchmaking
+and requires moving queue and room coordination to a shared transactional
+backend before scaling. Railway's live replica count is deployment state and
+cannot be verified from this source checkout.
+
 The current development domain remains allowed by the multiplayer origin policy. Installed Android and Steam client origins will be addressed during the later packaging/networking phase.
 
 ## Run locally

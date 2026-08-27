@@ -198,7 +198,11 @@ export function parseClientMessage(raw) {
     case "queue":
     case "create": {
       const kind = SESSION_KINDS.includes(parsed.kind) ? parsed.kind : "pvp";
-      const difficulty = DIFFICULTY_IDS.includes(parsed.difficulty) ? parsed.difficulty : "easy";
+      // PvP rules are server-owned. Accept legacy/arbitrary client difficulty
+      // payloads, but never let them select rules or a matchmaking partition.
+      const difficulty = kind === "pvp"
+        ? "easy"
+        : (DIFFICULTY_IDS.includes(parsed.difficulty) ? parsed.difficulty : "easy");
       return { ok: true, message: { type, kind, difficulty } };
     }
     case "join": {
