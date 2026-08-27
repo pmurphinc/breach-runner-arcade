@@ -60,6 +60,51 @@ async function startService() {
   return { base, stop: () => child.kill("SIGKILL") };
 }
 
+/**
+ * How long a control that is supposed to be on screen is allowed to take.
+ *
+ * Deliberately far below Playwright's 30s default. A destination that cannot
+ * be opened is a broken menu, not a slow one, and the whole point of the
+ * failure this file was repaired from was eight tests each burning 30 seconds
+ * waiting for a button that no longer exists.
+ */
+const OPEN_TIMEOUT = 5_000;
+
+/**
+ * The main menu's destinations, addressed the way a player addresses them.
+ *
+ * `open` is the control's accessible name, `arrived` is the surface that
+ * proves the intended destination is the one that actually opened.
+ *
+ * This replaces `.menu-nav button:nth-child(N)`. Settings is no longer one of
+ * the secondary nav tiles — it lives on the always-present system layer next
+ * to Menu and Fullscreen — so the grid holds three tiles, not four. Every
+ * index past Settings had shifted: the "settings" step was silently opening
+ * Game Info and passing, and the "info" step was waiting on a fourth tile that
+ * does not exist. Naming the control keeps the first failure honest, and
+ * asserting the arrival keeps the second one loud.
+ */
+const DESTINATIONS = {
+  ships: { open: "Ships", arrived: ".menu-screen[data-route='ships']" },
+  // The board is a modal dialog rather than a menu screen, so it has no route.
+  leaderboard: { open: "Leaderboard", arrived: ".codex.board[role='dialog']" },
+  settings: { open: "Open settings", arrived: ".menu-screen[data-route='settings']" },
+  info: { open: "Game Info", arrived: ".menu-screen[data-route='info']" },
+};
+
+/** Open one destination and wait until that destination is the one showing. */
+async function openMenuDestination(page, name) {
+  const { open, arrived } = DESTINATIONS[name];
+  await page.getByRole("button", { name: open }).click({ timeout: OPEN_TIMEOUT });
+  await page.waitForSelector(arrived, { timeout: OPEN_TIMEOUT });
+}
+
+/** Back out of a destination, whichever way that destination closes. */
+async function closeMenuDestination(page) {
+  await page.locator(".menu-back, .codex-close").first().click({ timeout: OPEN_TIMEOUT });
+  await page.waitForSelector(".menu-screen[data-route='home']", { timeout: OPEN_TIMEOUT });
+}
+
 for (const device of DEVICES) {
   test(`${device.name} layout holds up`, { skip, timeout: 120_000 }, async () => {
     const { chromium } = playwright;
@@ -72,6 +117,9 @@ for (const device of DEVICES) {
         isMobile: device.touch,
       });
       const page = await context.newPage();
+      // Below Playwright's 30s default on purpose: a control this suite asks
+      // for is either on screen or the layout is broken.
+      page.setDefaultTimeout(10_000);
       const errors = [];
       page.on("pageerror", (e) => errors.push(String(e)));
       page.on("console", (m) => {
@@ -202,17 +250,12 @@ for (const device of DEVICES) {
           };
         });
 
-      const screens = [
-        ["home", null],
-        ["ships", ".menu-nav button:nth-child(1)"],
-        ["leaderboard", ".menu-nav button:nth-child(2)"],
-        ["settings", ".menu-nav button:nth-child(3)"],
-        ["info", ".menu-nav button:nth-child(4)"],
-      ];
+      // Home plus every destination a player can reach from it.
+      const screens = ["home", "ships", "leaderboard", "settings", "info"];
 
-      for (const [name, open] of screens) {
-        if (open) {
-          await page.locator(open).click();
+      for (const name of screens) {
+        if (name !== "home") {
+          await openMenuDestination(page, name);
           await page.waitForTimeout(200);
         }
         const reach = await systemReach();
@@ -224,8 +267,8 @@ for (const device of DEVICES) {
           assert.ok(fit.horizontal <= 0, `${name}: menu panel scrolls horizontally`);
           assert.ok(fit.pageScroll <= 0, `${name}: the page itself scrolls`);
         }
-        if (open) {
-          await page.locator(".menu-back, .codex-close").first().click();
+        if (name !== "home") {
+          await closeMenuDestination(page);
           await page.waitForTimeout(200);
         }
       }
