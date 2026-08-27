@@ -58,9 +58,11 @@ import {
   VIEW_PROFILES,
   ZOOM_SCALE,
   type CombatHaptics,
+  type AimGuide,
   type SoundLevel,
   type ZoomLevel,
 } from "./view-settings";
+import { aimGuideSegment } from "./aim-guide";
 import GlobalSystemControls, { useFullscreen } from "./system-controls";
 import { MenuScreen } from "./ui-system";
 import {
@@ -1837,6 +1839,7 @@ export default function WormholeGame() {
   const soundLevelRef = useRef<SoundLevel>("medium");
   const combatHapticsRef = useRef<CombatHaptics>("both");
   const cannonHitSoundRef = useRef(true);
+  const aimGuideRef = useRef<AimGuide>("off");
   const cameraRef = useRef(true);
   const zoomRef = useRef<ZoomLevel>("standard");
   const qualityRef = useRef<QualityMode>("auto");
@@ -1874,6 +1877,7 @@ export default function WormholeGame() {
   useEffect(() => { soundLevelRef.current = settings.soundLevel; }, [settings.soundLevel]);
   useEffect(() => { combatHapticsRef.current = settings.combatHaptics; }, [settings.combatHaptics]);
   useEffect(() => { cannonHitSoundRef.current = settings.cannonHitSound; }, [settings.cannonHitSound]);
+  useEffect(() => { aimGuideRef.current = settings.aimGuide; }, [settings.aimGuide]);
   useEffect(() => { cameraRef.current = cameraLocked; }, [cameraLocked]);
   useEffect(() => { zoomRef.current = settings.zoom; }, [settings.zoom]);
   useEffect(() => { qualityRef.current = quality; }, [quality]);
@@ -4799,6 +4803,26 @@ export default function WormholeGame() {
         ctx.restore();
       }
 
+      // A local presentation aid only: it uses the exact player.angle consumed
+      // by the cannon below and lives in the camera's world-space transform.
+      // Drawing it before portals, combat effects, and ships keeps it subdued.
+      const guide = player.health > 0
+        ? aimGuideSegment(aimGuideRef.current, player.x, player.y, player.angle * DEG)
+        : null;
+      if (guide) {
+        ctx.save();
+        ctx.globalAlpha = 0.5;
+        ctx.strokeStyle = "#a8b0b6";
+        ctx.lineWidth = 1.25;
+        ctx.lineCap = "round";
+        ctx.setLineDash([2, 7]);
+        ctx.beginPath();
+        ctx.moveTo(guide.startX, guide.startY);
+        ctx.lineTo(guide.endX, guide.endY);
+        ctx.stroke();
+        ctx.restore();
+      }
+
       drawPortal(game, time, detail);
       for (const spawn of game.spawns) drawSpawnFx(spawn, time, detail);
 
@@ -6117,6 +6141,8 @@ export default function WormholeGame() {
           onCombatHaptics={(next) => setSetting("combatHaptics", next)}
           cannonHitSound={settings.cannonHitSound}
           onCannonHitSound={(next) => setSetting("cannonHitSound", next)}
+          aimGuide={settings.aimGuide}
+          onAimGuide={(next) => setSetting("aimGuide", next)}
           cameraLock={cameraLocked}
           onCameraLock={(next) => setSetting("cameraLock", next)}
           zoom={settings.zoom}
