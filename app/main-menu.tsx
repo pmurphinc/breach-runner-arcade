@@ -12,7 +12,7 @@
 import { useEffect, useId, useMemo, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import { MenuScreen, MenuSection, OptionRow, SummaryRow, Toggle } from "./ui-system";
 import { MenuSectionNav } from "./menu-nav";
-import { SHIPS, type ShipId } from "./game-data";
+import { WEAPONS, type PupClass, type ShipId } from "./game-data";
 import { SHIP_ORDER, SHIP_PROFILES } from "./ship-data";
 import { DIFFICULTIES, DIFFICULTY_ORDER, type DifficultyId, type GameMode } from "./difficulty";
 import { PRODUCT_TAGLINE, PRODUCT_TITLE } from "./product";
@@ -55,6 +55,61 @@ export function difficultyBlurb(id: DifficultyId) {
 }
 
 const difficultyLabel = (id: DifficultyId) => DIFFICULTIES[id].shortName.replace(/ MODE$/i, "");
+
+const PUP_CLASS_LABELS: Record<PupClass, string> = {
+  payload: "Payload", upgrade: "Upgrade", recovery: "Recovery", rare: "Rare",
+};
+
+/** Shared read-only reference, generated from gameplay and selection metadata. */
+export function GameInfoContent({ viewMode }: { viewMode: ViewMode }) {
+  const touch = viewMode !== "pc";
+  return <div className="game-info-content">
+    <MenuSection title="How to Play">
+      <ol className="how-to">
+        <li><b>Charge</b><span>Shoot the rival rift with your cannon until it produces a power-up.</span></li>
+        <li><b>Collect</b><span>Fly over the power-up to load it into your bin.</span></li>
+        <li><b>Transmit</b><span>Aim at the rift and fire the power-up back through it.</span></li>
+      </ol>
+      <dl className="control-list game-info-controls">
+        <div><dt>Move</dt><dd>{touch ? "Left thumbstick · W A S D · arrows" : "W A S D or arrow keys"}</dd></div>
+        <div><dt>Aim &amp; fire</dt><dd>{touch ? "Right thumbstick · mouse · Space" : "Mouse, or Space to fire"}</dd></div>
+        <div><dt>Fire PUP</dt><dd>{touch ? "PUP button · E · right mouse" : "E or right mouse"}</dd></div>
+        <div><dt>Ship special</dt><dd>{touch ? "SPEC button · Q" : "Q"}</dd></div>
+        <div><dt>Menu &amp; pause</dt><dd>P or Escape</dd></div>
+      </dl>
+    </MenuSection>
+    <MenuSection title="Game Modes" hint="Gameplay formats determine who plays and how a run ends.">
+      <dl className="control-list mode-info-list">
+        {MODE_ORDER.map((id) => <div key={id} data-mode={id}><dt>{MODE_INFO[id].label}</dt><dd>{MODE_INFO[id].blurb}</dd></div>)}
+        <div><dt>{CHALLENGE_INFO.survival.label}</dt><dd>{DIFFICULTIES.survival.blurb}</dd></div>
+      </dl>
+      <h4 className="game-info-subheading">Solo difficulties</h4>
+      <dl className="control-list difficulty-info-list">
+        {DIFFICULTY_ORDER.map((id) => <div key={id} data-difficulty={id}><dt>{difficultyLabel(id)}</dt><dd>{difficultyBlurb(id)}</dd></div>)}
+      </dl>
+    </MenuSection>
+    <MenuSection title="Rift">
+      <p className="menu-hint">The rift turns cannon damage into PUPs. Collect them, aim back at the rift, and transmit Payloads to the rival arena.</p>
+      <p className="menu-hint">In Rift Survival, the rift gains a level every minute. It can still be breached: transmitted PUPs collapse it, clear the arena, and bank a bonus before it reforms.</p>
+    </MenuSection>
+    <MenuSection title="PUPs" hint="Canonical class and effect for every power-up the rift can produce.">
+      <div className="game-info-grid pup-info-grid">
+        {Object.values(WEAPONS).map((pup) => <article className="game-info-card" key={pup.id} data-pup={pup.id}>
+          <span className="game-info-kicker">{PUP_CLASS_LABELS[pup.pupClass]}</span><h4>{pup.name}</h4>
+          <p>{pup.summary}</p><p>{pup.role}</p>
+        </article>)}
+      </div>
+    </MenuSection>
+    <MenuSection title="Ships &amp; Specials">
+      <div className="game-info-grid ship-info-grid">
+        {SHIP_ORDER.map((id) => { const ship = SHIP_PROFILES[id]; return <article className="game-info-card" key={id} data-ship={id}>
+          <span className="game-info-kicker">{ship.role}</span><h4>{ship.name}</h4>
+          <p><b>{ship.special.name}</b> · {ship.special.cooldownSeconds}s</p><p>{ship.special.description}</p>
+        </article>; })}
+      </div>
+    </MenuSection>
+  </div>;
+}
 
 export type MenuCallbacks = {
   go: (route: MenuRoute) => void;
@@ -631,7 +686,7 @@ export function SettingsScreen({
       </MenuSection> : null}
 
       {activeTab === "gameInfo" ? <MenuSection title="Game Info">
-        <p className="menu-hint settings-empty-state">Game information remains available from the main menu.</p>
+        <GameInfoContent viewMode={viewMode} />
       </MenuSection> : null}
 
       {activeTab === "controls" ? <MenuSection title="Arcade identity" hint="Used automatically for future scores.">
@@ -663,95 +718,13 @@ export function InfoScreen({
   viewMode,
   onCodex,
 }: MenuCallbacks & { viewMode: ViewMode; onCodex: () => void }) {
-  const touch = viewMode !== "pc";
   return (
     <MenuScreen route="info" title="Game Info" onBack={back} wide>
-      <MenuSection title="How to play">
-        <ol className="how-to">
-          <li>
-            <b>Charge</b>
-            <span>Shoot the rival rift with your cannon until it produces a power-up.</span>
-          </li>
-          <li>
-            <b>Collect</b>
-            <span>Fly over the power-up to load it into your bin.</span>
-          </li>
-          <li>
-            <b>Transmit</b>
-            <span>Aim at the rift and fire the power-up back through it.</span>
-          </li>
-        </ol>
-      </MenuSection>
-
-      <MenuSection title="Controls">
-        <dl className="control-list">
-          <div>
-            <dt>Move</dt>
-            <dd>{touch ? "Left thumbstick · W A S D · arrows" : "W A S D or arrow keys"}</dd>
-          </div>
-          <div>
-            <dt>Aim &amp; fire</dt>
-            <dd>{touch ? "Right thumbstick · mouse · Space" : "Mouse, or Space to fire"}</dd>
-          </div>
-          <div>
-            <dt>Fire power-up</dt>
-            <dd>{touch ? "PUP button · E · right mouse" : "E or right mouse"}</dd>
-          </div>
-          <div>
-            <dt>Ship special</dt>
-            <dd>{touch ? "SPEC button · Q" : "Q"}</dd>
-          </div>
-          <div>
-            <dt>Menu &amp; pause</dt>
-            <dd>P or Escape</dd>
-          </div>
-        </dl>
-      </MenuSection>
-
-      <MenuSection title="Power-ups" hint="Every power-up the rift can produce.">
+      <GameInfoContent viewMode={viewMode} />
+      <MenuSection title="More detail">
         <button type="button" className="menu-link-button" onClick={onCodex} aria-haspopup="dialog">
           Open the weapon codex
         </button>
-      </MenuSection>
-
-      <MenuSection title="Game Modes" hint="Gameplay formats determine who plays and how a run ends.">
-        <dl className="control-list mode-info-list">
-          {MODE_ORDER.map((id) => <div key={id} data-mode={id}><dt>{MODE_INFO[id].label}</dt><dd>{MODE_INFO[id].blurb}</dd></div>)}
-        </dl>
-      </MenuSection>
-
-      <MenuSection title="Difficulties" hint="Challenge modifiers change rift and collision rules in solo play.">
-        <dl className="control-list difficulty-info-list">
-          {DIFFICULTY_ORDER.map((id) => (
-            <div key={id} data-difficulty={id}>
-              <dt>{difficultyLabel(id)}</dt>
-              <dd>{difficultyBlurb(id)}</dd>
-            </div>
-          ))}
-        </dl>
-      </MenuSection>
-
-      <MenuSection title="Challenges">
-        <dl className="control-list">
-          <div>
-            <dt>{CHALLENGE_INFO.survival.label}</dt>
-            <dd>
-              {DIFFICULTIES.survival.blurb} The rift can still be breached: send power-ups back
-              through it to collapse it, clear the arena, and bank a bonus before it reforms.
-            </dd>
-          </div>
-        </dl>
-      </MenuSection>
-
-      <MenuSection title="Ships">
-        <dl className="control-list">
-          {SHIPS.map((s) => (
-            <div key={s.id}>
-              <dt>{s.name}</dt>
-              <dd>{s.role}</dd>
-            </div>
-          ))}
-        </dl>
         <button type="button" className="menu-link-button" onClick={() => go("ships")}>
           Compare the fleet
         </button>

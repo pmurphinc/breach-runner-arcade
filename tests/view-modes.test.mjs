@@ -86,6 +86,45 @@ test('settings are consolidated into Controls, Audio, Video, HUD and Game Info t
   assert.match(ui, /role="switch"/);
 });
 
+test('Settings Game Info renders the shared canonical reference without focus clutter', () => {
+  const shared = menu.slice(menu.indexOf('export function GameInfoContent'), menu.indexOf('export type MenuCallbacks'));
+  const settingsScreen = menu.slice(menu.indexOf('export function SettingsScreen'), menu.indexOf('export function InfoScreen'));
+  const infoScreen = menu.slice(menu.indexOf('export function InfoScreen'), menu.indexOf('export function PauseScreen'));
+
+  assert.match(settingsScreen, /activeTab === "gameInfo" \? <MenuSection title="Game Info">[\s\S]*?<GameInfoContent viewMode=\{viewMode\}/);
+  assert.doesNotMatch(settingsScreen, /Game information remains available/);
+  for (const section of ['How to Play', 'Game Modes', 'Rift', 'PUPs', 'Ships &amp; Specials']) {
+    assert.match(shared, new RegExp(`title="${section}"`));
+  }
+
+  // PUP names, classes and effects and ship roles/specials remain owned by
+  // their canonical gameplay/presentation records rather than copied here.
+  assert.match(menu, /import \{ WEAPONS, type PupClass/);
+  assert.match(shared, /Object\.values\(WEAPONS\)/);
+  assert.match(shared, /PUP_CLASS_LABELS\[pup\.pupClass\]/);
+  assert.match(shared, /pup\.summary/);
+  assert.match(shared, /pup\.role/);
+  assert.match(shared, /SHIP_ORDER\.map/);
+  assert.match(shared, /SHIP_PROFILES\[id\]/);
+  assert.match(shared, /ship\.special\.description/);
+  assert.match(shared, /MODE_ORDER\.map/);
+  assert.match(shared, /MODE_INFO\[id\]/);
+  assert.match(shared, /DIFFICULTY_ORDER\.map/);
+  assert.match(shared, /difficultyBlurb\(id\)/);
+
+  // Main menu and Settings share the same component; only main menu adds
+  // optional navigation buttons. The reference cards themselves are prose.
+  assert.match(infoScreen, /<GameInfoContent viewMode=\{viewMode\}/);
+  assert.doesNotMatch(shared, /<button|tabIndex=|role="button"/);
+});
+
+test('Settings owns vertical Game Info scrolling without narrow horizontal overflow', () => {
+  assert.match(css, /\.menu-screen\[data-route="settings"\] \.menu-content\s*\{[^}]*overflow:\s*hidden[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\)/s);
+  assert.match(css, /\.settings-tab-panel\s*\{[^}]*min-width:\s*0[^}]*overflow-x:\s*hidden[^}]*overflow-y:\s*auto/s);
+  assert.match(css, /\.game-info-grid\s*\{[^}]*minmax\(min\(220px, 100%\), 1fr\)/s);
+  assert.match(css, /\.game-info-card\s*\{[^}]*min-width:\s*0[^}]*overflow-wrap:\s*anywhere/s);
+});
+
 test('initials are a remembered device identity with no Discord prompt', () => {
   const settingsScreen = menu.slice(menu.indexOf('export function SettingsScreen'), menu.indexOf('export function InfoScreen'));
   // The lock/save region, bounded by the action row that follows it. Anchoring
