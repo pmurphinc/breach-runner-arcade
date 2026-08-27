@@ -35,7 +35,7 @@ export const SHIPS: ShipSpec[] = [
   { id: "flash", name: "Switchback", role: "Shape-shifter", turn: 1, maxSpeed: 1, acceleration: 0.1, health: 190, gun: 3, thrust: 3, special: "Q: Swaps between heavy and scout handling profiles.", unlock: "OPEN" },
   { id: "hunter", name: "Talon", role: "Siege brawler", turn: 5.5, maxSpeed: 2.9, acceleration: 0.08, health: 220, gun: 2, thrust: 1, special: "Q: Detonates on your hull, gutting hostiles within 340 units.", unlock: "OPEN" },
   { id: "flagship", name: "Leviathan", role: "Command vessel", turn: 2, maxSpeed: 1.8, acceleration: 0.04, health: 300, gun: 0, thrust: 2, special: "Q: Projects a three-second field that pulls in pickups and shoves enemies away.", unlock: "OPEN" },
-  { id: "kestrel", name: "Kestrel", role: "Light / Scavenger", turn: 10, maxSpeed: 3.7, acceleration: 0.15, health: 120, gun: 1, thrust: 1, special: "Q: Active system not yet installed. Stored PUPs continuously repair hull; more PUPs increase regeneration.", unlock: "OPEN" },
+  { id: "kestrel", name: "Kestrel", role: "Light / Scavenger", turn: 10, maxSpeed: 3.7, acceleration: 0.15, health: 120, gun: 1, thrust: 1, special: "Q: For 5 seconds, cannon shots collect loose PUPs on impact.", unlock: "OPEN" },
 ];
 
 /**
@@ -55,6 +55,8 @@ export const FORM_SHIFT_PROFILES = {
 export type ShipSpecial = {
   name: string;
   cooldownSeconds: number;
+  /** Duration of a held active effect. Instant specials omit this. */
+  activeSeconds?: number;
   /** Fixed contribution to the 100-point ship budget. The ability itself is unchanged. */
   balancePoints: number;
 };
@@ -69,7 +71,7 @@ export const SHIP_SPECIALS: Record<ShipId, ShipSpecial> = {
   flash: { name: "FORM SHIFT", cooldownSeconds: 1, balancePoints: 20 },
   hunter: { name: "CORE OVERCHARGE", cooldownSeconds: 18, balancePoints: 22 },
   flagship: { name: "GRAVITY PULSE", cooldownSeconds: 10, balancePoints: 30 },
-  kestrel: { name: "SYSTEM PENDING", cooldownSeconds: 1, balancePoints: 14 },
+  kestrel: { name: "SALVAGE LINK", cooldownSeconds: 20, activeSeconds: 5, balancePoints: 14 },
 };
 
 export type PowerId = "heatseeker" | "turret" | "mines" | "ufo" | "inflator" | "minelayer" | "gunship" | "scarab" | "nuke" | "wallcrawler" | "beam" | "emp" | "ghost" | "artillery";
