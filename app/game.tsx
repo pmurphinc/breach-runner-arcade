@@ -63,7 +63,7 @@ import {
   type ZoomLevel,
 } from "./view-settings";
 import { aimGuideSegment } from "./aim-guide";
-import { OFFSCREEN_INDICATOR_INSET, OFFSCREEN_MARKER_RADIUS, isTargetOffscreen, offscreenIndicatorFor, type BlockedRegion } from "./offscreen-indicators";
+import { MAX_OFFSCREEN_PUP_INDICATORS, OFFSCREEN_INDICATOR_INSET, OFFSCREEN_MARKER_RADIUS, isTargetOffscreen, markerBlockFor, nearestOffscreenTargets, offscreenIndicatorFor, type BlockedRegion } from "./offscreen-indicators";
 import GlobalSystemControls, { useFullscreen } from "./system-controls";
 import { MenuScreen } from "./ui-system";
 import {
@@ -2982,10 +2982,18 @@ export default function WormholeGame() {
      * The rectangles are read from layout on a slow throttle and cached in
      * VIEW_WIDTH units, which depend on the page layout rather than on the
      * camera. That keeps the per-frame cost to a little arithmetic instead of a
-     * forced layout, and it is why phone, tablet and desktop all work from the
-     * badge's real rendered size rather than an assumed desktop rectangle.
+     * forced layout however many markers are on screen, and it is why phone,
+     * tablet and desktop all work from each panel's real rendered size rather
+     * than an assumed desktop rectangle.
+     *
+     * Each rectangle is clipped to the canvas, so a panel that sits beside or
+     * above the arena on a given layout contributes nothing at all — which is
+     * the honest answer to "does this overlap the playfield here". The rules
+     * badge does on desktop and landscape phones but not on tablets or portrait
+     * phones, where it sits above the arena; the fixed-position system controls
+     * reach into the arena's top-right corner on landscape phones only.
      */
-    const HUD_BLOCK_SELECTORS = [".difficulty-badge"];
+    const HUD_BLOCK_SELECTORS = [".difficulty-badge", ".system-controls"];
     const HUD_BLOCK_REFRESH_MS = 250;
     let hudBlocks: BlockedRegion[] = [];
     let hudBlocksMeasuredAt = -Infinity;
@@ -2997,17 +3005,22 @@ export default function WormholeGame() {
         hudBlocks = [];
         return;
       }
+      const viewHeight = canvasRect.height * scale;
       hudBlocks = HUD_BLOCK_SELECTORS.flatMap((selector) => {
-        const element = canvasWrap.querySelector<HTMLElement>(selector);
+        // Arena-local panels first; the system controls are position: fixed and
+        // live outside the wrap, but their viewport rect maps in just the same.
+        const element = canvasWrap.querySelector<HTMLElement>(selector)
+          ?? document.querySelector<HTMLElement>(selector);
         if (!element) return [];
         const rect = element.getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) return [];
-        return [{
-          left: (rect.left - canvasRect.left) * scale,
-          top: (rect.top - canvasRect.top) * scale,
-          right: (rect.right - canvasRect.left) * scale,
-          bottom: (rect.bottom - canvasRect.top) * scale,
-        }];
+        const block = {
+          left: Math.max(0, (rect.left - canvasRect.left) * scale),
+          top: Math.max(0, (rect.top - canvasRect.top) * scale),
+          right: Math.min(VIEW_WIDTH, (rect.right - canvasRect.left) * scale),
+          bottom: Math.min(viewHeight, (rect.bottom - canvasRect.top) * scale),
+        };
+        return block.right > block.left && block.bottom > block.top ? [block] : [];
       });
     };
 
@@ -5319,6 +5332,51 @@ export default function WormholeGame() {
           ctx.restore();
         };
 
+        /**
+         * A loose PUP's marker: its class silhouette in its class colour, with
+         * a small arrowhead outside it for the heading.
+         *
+         * The badge deliberately does not carry the individual weapon glyph or
+         * the world PUP's spin. At this size the glyph is mush and a rotating
+         * frame fights the arrow for meaning, so the class shape stays upright
+         * and stable and only the arrowhead turns. Same footprint as the Rift
+         * and ally markers, so one shared radius keeps them all apart.
+         */
+        const drawOffscreenPupMarker = (
+          indicator: { x: number; y: number; angle: number },
+          pupClass: PupClass,
+        ) => {
+          const accent = pupFrameColor(pupClass);
+          ctx.save();
+          ctx.translate(indicator.x, indicator.y);
+          ctx.scale(1 / camScale, 1 / camScale);
+          ctx.globalAlpha = 0.85;
+          ctx.lineJoin = "round";
+          ctx.lineCap = "round";
+          if (profile.shadows) { ctx.shadowColor = accent; ctx.shadowBlur = 7; }
+          ctx.save();
+          ctx.rotate(indicator.angle);
+          ctx.fillStyle = `${accent}59`;
+          ctx.strokeStyle = accent;
+          ctx.lineWidth = 1.6;
+          ctx.beginPath();
+          ctx.moveTo(14, 0);
+          ctx.lineTo(7, -5.5);
+          ctx.lineTo(7, 5.5);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+          ctx.restore();
+          // Upright: the class silhouette is an identity, not a heading.
+          ctx.fillStyle = `${accent}3d`;
+          ctx.strokeStyle = accent;
+          ctx.lineWidth = 1.8;
+          drawPupFrame(ctx, pupClass, 6.5, 0);
+          ctx.fill();
+          ctx.stroke();
+          ctx.restore();
+        };
+
         const riftBody = { x: game.portalX, y: game.portalY, radius: PORTAL_VISUAL_RADIUS };
         // Co-op only. Solo PvE and Survival have no ally, and a PvP rival is
         // an opponent rather than one, so neither gets this marker.
@@ -5350,11 +5408,50 @@ export default function WormholeGame() {
         };
 
         const riftMarker = offscreenIndicatorFor(riftBody, cameraBounds, markerInset, safePlacement);
-        if (riftMarker) drawOffscreenMarker(riftMarker, game.enrageActive ? "#ff2a3f" : "#ff4cbe", false);
-
         const allyMarker = allyBody
           ? offscreenIndicatorFor(allyBody, cameraBounds, markerInset, safePlacement)
           : null;
+
+        /**
+         * Loose PUPs, drawn under the Rift and ally markers because those two
+         * are the objective and the teammate and must stay the loudest things
+         * on the edge.
+         *
+         * Nothing is remembered between frames: the list is whatever is loose
+         * in the arena right now, so a collected or expired PUP stops producing
+         * a marker on the very next draw. The five nearest to the ship are
+         * marked, and each one placed becomes a blocked region for the next, so
+         * a cluster of PUPs off the same corner spreads along the edge instead
+         * of stacking into one smudge. Only the position moves; every marker
+         * still points at its own PUP.
+         */
+        const pupPlacement = {
+          blocked: [
+            ...safePlacement.blocked,
+            ...(riftMarker ? [markerBlockFor(riftMarker, safePlacement.markerRadius)] : []),
+            ...(allyMarker ? [markerBlockFor(allyMarker, safePlacement.markerRadius)] : []),
+          ],
+          markerRadius: safePlacement.markerRadius,
+        };
+        const loosePups = nearestOffscreenTargets(
+          game.pickups,
+          cameraBounds,
+          MAX_OFFSCREEN_PUP_INDICATORS,
+          { origin: player, radius: PUP_RADIUS },
+        );
+        for (const pickup of loosePups) {
+          const marker = offscreenIndicatorFor(
+            { x: pickup.x, y: pickup.y, radius: PUP_RADIUS },
+            cameraBounds,
+            markerInset,
+            pupPlacement,
+          );
+          if (!marker) continue;
+          drawOffscreenPupMarker(marker, WEAPONS[pickup.type].pupClass);
+          pupPlacement.blocked.push(markerBlockFor(marker, pupPlacement.markerRadius));
+        }
+
+        if (riftMarker) drawOffscreenMarker(riftMarker, game.enrageActive ? "#ff2a3f" : "#ff4cbe", false);
         if (allyMarker) drawOffscreenMarker(allyMarker, "#b6ff57", true);
       }
       ctx.restore();

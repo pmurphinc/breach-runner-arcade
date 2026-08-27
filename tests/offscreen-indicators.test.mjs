@@ -14,10 +14,14 @@ import {
   OFFSCREEN_MARKER_RADIUS,
   OFFSCREEN_VISIBLE_BODY,
   cameraBoundsCenter,
+  MAX_OFFSCREEN_PUP_INDICATORS,
   isTargetOffscreen,
+  markerBlockFor,
+  nearestOffscreenTargets,
   offscreenIndicatorFor,
   slideClearOfBlockedRegions,
 } from "../app/offscreen-indicators.ts";
+import { PUP_FRAME_COLORS, PUP_FRAME_SHAPES, PUP_RADIUS } from "../app/pup-world.ts";
 
 const game = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
 const helper = readFileSync(new URL("../app/offscreen-indicators.ts", import.meta.url), "utf8");
@@ -150,9 +154,10 @@ test("the ally marker is co-op only — never solo PvE, Survival, or a PvP rival
   assert.match(block, /if \(allyMarker\) drawOffscreenMarker/);
 });
 
-test("Rift and ally share one positioning helper and one inset", () => {
+test("every marked target shares one positioning helper and one inset", () => {
   const block = renderBlock();
-  assert.equal((block.match(/offscreenIndicatorFor\(/g) ?? []).length, 2);
+  // Rift, ally, loose PUP — three call sites, one helper, one inset.
+  assert.equal((block.match(/offscreenIndicatorFor\(/g) ?? []).length, 3);
   assert.equal((block.match(/OFFSCREEN_INDICATOR_INSET/g) ?? []).length, 1);
   assert.match(block, /const markerInset = OFFSCREEN_INDICATOR_INSET \/ camScale/);
   // No second implementation of the maths anywhere in the render path.
@@ -373,10 +378,13 @@ test("Rift and ally get the same safe placement from the same call site", () => 
   const block = renderBlock();
   // One options object, built once, handed to both markers.
   assert.match(block, /const safePlacement = \{/);
-  assert.equal((block.match(/safePlacement/g) ?? []).length, 3);
   assert.match(block, /offscreenIndicatorFor\(riftBody, cameraBounds, markerInset, safePlacement\)/);
   assert.match(block, /offscreenIndicatorFor\(allyBody, cameraBounds, markerInset, safePlacement\)/);
   assert.match(block, /markerRadius: OFFSCREEN_MARKER_RADIUS \/ camScale/);
+  // PUPs inherit the same HUD rectangles and the same footprint.
+  assert.match(block, /blocked: \[\s*\.\.\.safePlacement\.blocked,/);
+  assert.match(block, /markerRadius: safePlacement\.markerRadius,/);
+  assert.match(block, /cameraBounds,\s*markerInset,\s*pupPlacement,/);
   // No marker-specific dodging anywhere in the render path.
   assert.doesNotMatch(block, /difficulty-badge/);
   // Identical geometry in, identical geometry out.
@@ -387,8 +395,12 @@ test("Rift and ally get the same safe placement from the same call site", () => 
 });
 
 test("HUD rectangles are measured off real layout, on a throttle, and only when marking", () => {
-  assert.match(game, /const HUD_BLOCK_SELECTORS = \[\"\.difficulty-badge\"\]/);
-  assert.match(game, /getBoundingClientRect\(\)[\s\S]*?left: \(rect\.left - canvasRect\.left\) \* scale/);
+  assert.match(game, /const HUD_BLOCK_SELECTORS = \[\"\.difficulty-badge\", \"\.system-controls\"\]/);
+  assert.match(game, /getBoundingClientRect\(\)[\s\S]*?left: Math\.max\(0, \(rect\.left - canvasRect\.left\) \* scale\)/);
+  // Clipped to the canvas, so a panel that misses the arena contributes nothing.
+  assert.match(game, /block\.right > block\.left && block\.bottom > block\.top \? \[block\] : \[\]/);
+  // The system controls are position: fixed and live outside the wrap.
+  assert.match(game, /canvasWrap\.querySelector<HTMLElement>\(selector\)\s*\?\? document\.querySelector<HTMLElement>\(selector\)/);
   const block = renderBlock();
   assert.match(block, /if \(marking && time - hudBlocksMeasuredAt >= HUD_BLOCK_REFRESH_MS\)/);
   // Nothing about the badge is assumed: no fixed pixel rectangle stands in for it.
@@ -404,4 +416,193 @@ test("blocked regions change presentation only", () => {
   const block = renderBlock();
   assert.doesNotMatch(block, /game\.(bullets|enemies|powers|health|score|portalCharge)\s*=/);
   assert.doesNotMatch(block, /netRef\.current\.(send|report)/);
+});
+
+// ----------------------------------------------------------- loose PUPs --
+//
+// The arena can hold more loose PUPs than an edge can usefully show, so these
+// cover the selection — which ones, how many, in what order — and the class
+// identity each marker carries.
+
+const pup = (x, y, type = "spread") => ({ x, y, type });
+const pupsFor = (...positions) => positions.map(([x, y], index) => pup(x, y, `pup-${index}`));
+const selection = (pups, bounds = BOUNDS, origin = { x: 500, y: 300 }) =>
+  nearestOffscreenTargets(pups, bounds, MAX_OFFSCREEN_PUP_INDICATORS, { origin, radius: PUP_RADIUS });
+
+test("a PUP inside the camera produces no marker", () => {
+  const visible = pup(500, 300);
+  assert.equal(isTargetOffscreen(visible, BOUNDS, PUP_RADIUS), false);
+  assert.deepEqual(selection([visible]), []);
+  assert.equal(offscreenIndicatorFor({ ...visible, radius: PUP_RADIUS }, BOUNDS, inset), null);
+  // Well inside the border counts as visible too.
+  assert.deepEqual(selection([pup(60, 560)]), []);
+});
+
+test("an off-screen PUP produces a marker on the edge toward it", () => {
+  const loose = pup(-300, 300);
+  assert.deepEqual(selection([loose]), [loose]);
+  const marker = offscreenIndicatorFor({ ...loose, radius: PUP_RADIUS }, BOUNDS, inset);
+  assert.ok(marker);
+  assert.equal(marker.x, BOUNDS.left + inset);
+  assert.equal(degrees(marker.angle), 180);
+});
+
+test("a PUP whose body is mostly outside still counts as off-screen", () => {
+  // Centre a hair inside the border, most of the badge beyond it.
+  assert.equal(isTargetOffscreen(pup(5, 300), BOUNDS, PUP_RADIUS), true);
+  assert.equal(isTargetOffscreen(pup(PUP_RADIUS, 300), BOUNDS, PUP_RADIUS), false);
+  assert.equal(selection([pup(5, 300)]).length, 1);
+});
+
+test("a collected PUP stops producing a marker on the next frame", () => {
+  const kept = pup(-300, 300, "kept");
+  const collected = pup(-400, 320, "collected");
+  assert.equal(selection([collected, kept]).length, 2);
+  // Collection removes it from the world list, and nothing else is remembered.
+  assert.deepEqual(selection([kept]), [kept]);
+  assert.deepEqual(selection([]), []);
+  // No cached list anywhere in the render path: the world array is read live.
+  const block = renderBlock();
+  assert.match(block, /nearestOffscreenTargets\(\s*game\.pickups,/);
+  assert.doesNotMatch(block, /pupMarkerCache|lastPupMarkers|useRef/);
+});
+
+test("at most five PUP markers, and always the nearest five", () => {
+  assert.equal(MAX_OFFSCREEN_PUP_INDICATORS, 5);
+  // Eight off-screen PUPs, left of the view, at known distances from (500, 300).
+  const pups = pupsFor([-100, 300], [-800, 300], [-300, 300], [-600, 300], [-200, 300], [-700, 300], [-400, 300], [-500, 300]);
+  const picked = selection(pups);
+  assert.equal(picked.length, MAX_OFFSCREEN_PUP_INDICATORS);
+  assert.deepEqual(picked.map((p) => p.x), [-100, -200, -300, -400, -500]);
+  // Deterministic: the same world gives the same answer, order-independent.
+  assert.deepEqual(selection([...pups].reverse()).map((p) => p.x), [-100, -200, -300, -400, -500]);
+  // Fewer than five off-screen means only those are marked.
+  assert.equal(selection(pups.slice(0, 3)).length, 3);
+  // Ties fall back to the caller's order rather than anything random.
+  const tied = pupsFor([-300, 300], [-300, 300], [-300, 300]);
+  assert.deepEqual(selection(tied).map((p) => p.type), ["pup-0", "pup-1", "pup-2"]);
+  // Nearest is measured from the origin the caller gives, not the bounds centre.
+  assert.deepEqual(
+    nearestOffscreenTargets(pups, BOUNDS, 2, { origin: { x: 500, y: 300 }, radius: PUP_RADIUS }).map((p) => p.x),
+    [-100, -200],
+  );
+});
+
+test("every PUP class keeps its own silhouette and colour on the edge", () => {
+  const block = renderBlock();
+  // The marker resolves both from the canonical class vocabulary, never a table
+  // of its own, so payload/upgrade/recovery/rare cannot drift out of step.
+  assert.match(block, /const accent = pupFrameColor\(pupClass\)/);
+  assert.match(block, /drawPupFrame\(ctx, pupClass, 6\.5, 0\)/);
+  assert.match(block, /drawOffscreenPupMarker\(marker, WEAPONS\[pickup\.type\]\.pupClass\)/);
+  assert.doesNotMatch(block, /"triangle"|"octagon"|"circle"|"diamond"/);
+  assert.doesNotMatch(block, /#ff7043|#4fc3f7|#66e07a|#b783ff/);
+  // And the vocabulary it defers to is the established one.
+  assert.deepEqual({ ...PUP_FRAME_SHAPES }, { payload: "triangle", upgrade: "octagon", recovery: "circle", rare: "diamond" });
+  assert.deepEqual(Object.keys(PUP_FRAME_COLORS), ["payload", "upgrade", "recovery", "rare"]);
+  for (const color of Object.values(PUP_FRAME_COLORS)) assert.match(color, /^#[0-9a-f]{6}$/);
+});
+
+test("the class silhouette stays upright while only the arrow turns", () => {
+  const block = renderBlock();
+  const marker = block.slice(block.indexOf("drawOffscreenPupMarker = ("), block.indexOf("const riftBody"));
+  // The frame is drawn at rotation zero, outside the rotated arrow block.
+  assert.match(marker, /ctx\.rotate\(indicator\.angle\);[\s\S]*?ctx\.restore\(\);[\s\S]*?drawPupFrame\(ctx, pupClass, 6\.5, 0\)/);
+  // No world-PUP spin: the phase that drives the loose badge never reaches here.
+  assert.doesNotMatch(marker, /phase|PUP_SPIN|rotation \* /);
+  // Compact: the whole marker stays inside the shared footprint.
+  const points = [...marker.matchAll(/ctx\.(?:moveTo|lineTo)\((-?[\d.]+), (-?[\d.]+)\)/g)];
+  assert.ok(points.length > 0);
+  for (const [, x, y] of points) assert.ok(Math.abs(Number(x)) <= 14 && Math.abs(Number(y)) <= 14);
+});
+
+test("markers stacked on one edge are separated, keeping their own angles", () => {
+  const bounds = BOUNDS;
+  // Four PUPs off the left edge, close enough together to collide.
+  const positions = [[-300, 300], [-320, 306], [-340, 312], [-360, 318]];
+  const placed = [];
+  const blocked = [];
+  for (const [x, y] of positions) {
+    const marker = offscreenIndicatorFor({ x, y, radius: PUP_RADIUS }, bounds, inset, { blocked });
+    assert.ok(marker);
+    // Direction still points at this PUP, whatever the separation did.
+    assert.equal(marker.angle, Math.atan2(y - 300, x - 500));
+    placed.push(marker);
+    blocked.push(markerBlockFor(marker));
+  }
+  // Every pair is far enough apart to read as two markers.
+  for (let a = 0; a < placed.length; a += 1) {
+    for (let b = a + 1; b < placed.length; b += 1) {
+      const gap = Math.hypot(placed[a].x - placed[b].x, placed[a].y - placed[b].y);
+      assert.ok(gap >= OFFSCREEN_MARKER_RADIUS * 2 - 1e-6, `markers ${a} and ${b} overlap (gap ${gap})`);
+    }
+  }
+  // All of them still sit on the edge they belong to.
+  for (const marker of placed) assert.equal(marker.x, bounds.left + inset);
+  // Separation is the blocked-region mechanism, not a second implementation.
+  assert.deepEqual(markerBlockFor({ x: 100, y: 200 }, 10), { left: 90, top: 190, right: 110, bottom: 210 });
+});
+
+test("PUP markers are drawn under the Rift and ally, and avoid them", () => {
+  const block = renderBlock();
+  const pupDraw = block.indexOf("drawOffscreenPupMarker(marker");
+  const riftDraw = block.indexOf("drawOffscreenMarker(riftMarker");
+  const allyDraw = block.indexOf("drawOffscreenMarker(allyMarker");
+  assert.ok(pupDraw > 0 && riftDraw > pupDraw && allyDraw > pupDraw, "PUPs paint first, so the objective sits on top");
+  // The Rift and ally are placed before PUPs and are blocked regions for them,
+  // so neither of those two moves because of a PUP.
+  assert.match(block, /riftMarker \? \[markerBlockFor\(riftMarker, safePlacement\.markerRadius\)\] : \[\]/);
+  assert.match(block, /allyMarker \? \[markerBlockFor\(allyMarker, safePlacement\.markerRadius\)\] : \[\]/);
+  assert.match(block, /offscreenIndicatorFor\(riftBody, cameraBounds, markerInset, safePlacement\)/);
+});
+
+test("PUP markers add no networking and touch no PUP gameplay", () => {
+  const block = renderBlock();
+  const pupPart = block.slice(block.indexOf("const pupPlacement"), block.indexOf("if (riftMarker) drawOffscreenMarker"));
+  assert.doesNotMatch(pupPart, /send|emit|socket|report|publish|message/i);
+  // Read-only over the world list: nothing is spawned, collected, or moved.
+  assert.doesNotMatch(pupPart, /game\.pickups\s*=|\.push\(\s*\{[^}]*type:|splice|collect|stock/);
+  assert.doesNotMatch(pupPart, /pickup\.(?:x|y|vx|vy|life|phase)\s*=/);
+  const protocol = readFileSync(new URL("../server/protocol.mjs", import.meta.url), "utf8");
+  const client = readFileSync(new URL("../app/pvp-client.ts", import.meta.url), "utf8");
+  for (const source of [protocol, client]) assert.doesNotMatch(source, /offscreen|indicator/i);
+});
+
+test("the landscape-phone HUD rectangles push markers clear of both panels", () => {
+  // Measured off a real 844x390 landscape phone, in VIEW_WIDTH units: the rules
+  // badge runs along the top-left and the fixed system controls reach into the
+  // top-right corner of the arena. Both are in the shared blocked list.
+  const bounds = { left: 0, top: 0, right: 1048, bottom: 484 };
+  const badge = { left: 7, top: 7, right: 864, bottom: 32 };
+  const controls = { left: 867, top: 7, right: 1041, bottom: 62 };
+  const blocked = [badge, controls];
+  const clear = (marker) => blocked.every((region) =>
+    marker.x <= region.left - radius || marker.x >= region.right + radius
+    || marker.y <= region.top - radius || marker.y >= region.bottom + radius);
+
+  // Off the top-right: lands under the controls, so it drops just below them.
+  const topRight = offscreenIndicatorFor({ x: 1600, y: -400, radius: RIFT_RADIUS }, bounds, inset, { blocked });
+  assert.equal(topRight.x, bounds.right - inset, "still on the right edge");
+  assert.equal(topRight.y, controls.bottom + radius);
+  assert.ok(clear(topRight));
+
+  // Off the top-left: the badge is the panel in the way there, and it is
+  // shallower, so that marker drops less. One rule, two local answers.
+  const topLeft = offscreenIndicatorFor({ x: -600, y: -400, radius: RIFT_RADIUS }, bounds, inset, { blocked });
+  assert.equal(topLeft.x, bounds.left + inset);
+  assert.equal(topLeft.y, badge.bottom + radius);
+  assert.ok(clear(topLeft));
+  assert.ok(topLeft.y < topRight.y, "no global inward push — each corner clears only its own panel");
+
+  // The bottom half of the arena carries no panels and is untouched.
+  const below = offscreenIndicatorFor({ x: 500, y: 1200, radius: RIFT_RADIUS }, bounds, inset, { blocked });
+  assert.deepEqual(below, offscreenIndicatorFor({ x: 500, y: 1200, radius: RIFT_RADIUS }, bounds, inset));
+
+  // A PUP off the same top-right corner clears the controls the same way, and
+  // then separates from the marker already there.
+  const pupMarker = offscreenIndicatorFor({ x: 1600, y: -400, radius: PUP_RADIUS }, bounds, inset, {
+    blocked: [...blocked, markerBlockFor(topRight)],
+  });
+  assert.ok(clear(pupMarker));
+  assert.ok(Math.hypot(pupMarker.x - topRight.x, pupMarker.y - topRight.y) >= radius * 2 - 1e-6);
 });

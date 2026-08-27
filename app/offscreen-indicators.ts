@@ -67,12 +67,20 @@ export function cameraBoundsCenter(bounds: CameraBounds) {
 /**
  * The single visibility rule. Every off-screen marker asks this and nothing
  * else, so "is it on screen" cannot drift between targets.
+ *
+ * `radius` defaults to the target's own, and can be supplied instead for a list
+ * of same-sized things — loose PUPs, say — so their shared body size is applied
+ * without wrapping every one of them in a new object each frame.
  */
-export function isTargetOffscreen(target: OffscreenTarget, bounds: CameraBounds): boolean {
+export function isTargetOffscreen(
+  target: OffscreenTarget,
+  bounds: CameraBounds,
+  radius: number = target.radius ?? 0,
+): boolean {
   const width = bounds.right - bounds.left;
   const height = bounds.bottom - bounds.top;
   if (!(width > 0) || !(height > 0)) return false;
-  const margin = Math.max(0, target.radius ?? 0) * OFFSCREEN_VISIBLE_BODY;
+  const margin = Math.max(0, radius) * OFFSCREEN_VISIBLE_BODY;
   const marginX = Math.min(margin, width / 2);
   const marginY = Math.min(margin, height / 2);
   return (
@@ -278,4 +286,74 @@ export function slideClearOfBlockedRegions(
   const inward = (["x", "y"] as const).filter((axis) => !along.includes(axis));
   const best = shortestEscape(along) ?? shortestEscape(inward);
   return best ? { ...indicator, x: best.x, y: best.y } : indicator;
+}
+
+// --------------------------------------------------- choosing what to mark --
+
+/**
+ * How many loose-PUP markers the edge will carry at once.
+ *
+ * The arena can hold far more loose PUPs than an edge can show without turning
+ * into a ring of overlapping badges, so the list is cut here rather than at
+ * each call site. Five is enough to point at the cluster worth flying to and
+ * few enough that every marker stays separately readable.
+ */
+export const MAX_OFFSCREEN_PUP_INDICATORS = 5;
+
+/**
+ * The `limit` off-screen targets nearest to `origin`, nearest first.
+ *
+ * Deterministic by construction: distance decides, and ties fall back to the
+ * order the caller supplied, so the same world always produces the same
+ * markers in the same order. Visibility goes through the one body-aware rule,
+ * so a target that is on screen — or that has been collected and is simply no
+ * longer in the list — cannot produce a marker.
+ *
+ * Target-agnostic like everything else here, so enemies and hazards can use it
+ * unchanged when their turn comes.
+ */
+export function nearestOffscreenTargets<T extends OffscreenTarget>(
+  targets: readonly T[],
+  bounds: CameraBounds,
+  limit: number,
+  options: {
+    /** What "nearest" is measured from. Defaults to the camera centre. */
+    origin?: { x: number; y: number };
+    /** Shared body radius, for a list of same-sized targets that carry none. */
+    radius?: number;
+  } = {},
+): T[] {
+  if (!(limit > 0)) return [];
+  const from = options.origin ?? cameraBoundsCenter(bounds);
+  const candidates: { target: T; distance: number; index: number }[] = [];
+  for (let index = 0; index < targets.length; index += 1) {
+    const target = targets[index];
+    if (!isTargetOffscreen(target, bounds, options.radius ?? target.radius ?? 0)) continue;
+    candidates.push({ target, distance: Math.hypot(target.x - from.x, target.y - from.y), index });
+  }
+  candidates.sort((a, b) => a.distance - b.distance || a.index - b.index);
+  candidates.length = Math.min(candidates.length, limit);
+  return candidates.map((candidate) => candidate.target);
+}
+
+/**
+ * A placed marker, expressed as something later markers must avoid.
+ *
+ * Keeping markers off each other is the same problem as keeping them out from
+ * under a HUD panel, so it reuses the same machinery instead of growing a
+ * clustering system: place a marker, hand its footprint to the next one as a
+ * blocked region, and the next one slides along its edge until it clears.
+ * Direction is untouched by that slide, so a nudged marker still points at its
+ * own target.
+ */
+export function markerBlockFor(
+  marker: { x: number; y: number },
+  radius: number = OFFSCREEN_MARKER_RADIUS,
+): BlockedRegion {
+  return {
+    left: marker.x - radius,
+    top: marker.y - radius,
+    right: marker.x + radius,
+    bottom: marker.y + radius,
+  };
 }
