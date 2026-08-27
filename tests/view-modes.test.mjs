@@ -72,9 +72,9 @@ test('Menu and Fullscreen are one global layer above every screen', () => {
   assert.match(css, /\.system-controls\s*\{[^}]*var\(--safe-top\)[^}]*var\(--safe-right\)/s);
 });
 
-test('settings are consolidated into Controls, Audio and Display', () => {
+test('settings are consolidated into Controls, Audio, Video, HUD and Game Info tabs', () => {
   const settingsScreen = menu.slice(menu.indexOf('export function SettingsScreen'), menu.indexOf('export function InfoScreen'));
-  for (const group of ['Controls', 'Audio', 'Display']) {
+  for (const group of ['Controls', 'Audio', 'Video', 'HUD', 'Game Info']) {
     assert.match(settingsScreen, new RegExp(`title="${group}"`));
   }
   for (const label of ['Thumbsticks', 'Touch control size', 'Sound', 'Volume', 'Perspective', 'Zoom']) {

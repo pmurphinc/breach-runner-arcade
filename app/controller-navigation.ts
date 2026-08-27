@@ -54,6 +54,22 @@ export function showControllerFocus(control: HTMLElement | null, root: ParentNod
  */
 export function moveControllerFocus(controls: readonly HTMLElement[], horizontal: number, vertical: number) {
   const active = document.activeElement as HTMLElement | null;
+  // Settings tabs use the same horizontal navigation path as every menu. The
+  // active panel is changed immediately so hidden panels never enter the
+  // controller's visible-controls collection.
+  const tabList = horizontal && active?.getAttribute("role") === "tab"
+    ? active.closest<HTMLElement>('[role="tablist"]')
+    : null;
+  if (tabList) {
+    const tabs = [...tabList.querySelectorAll<HTMLElement>('[role="tab"]')]
+      .filter((tab) => tab.offsetParent !== null && !tab.matches(':disabled, [aria-disabled="true"], [hidden]'));
+    const current = tabs.indexOf(active);
+    const next = tabs[(Math.max(0, current) + Math.sign(horizontal) + tabs.length) % tabs.length];
+    next?.focus();
+    next?.click();
+    showControllerFocus(next);
+    return next;
+  }
   if (active instanceof HTMLSelectElement && horizontal) {
     const enabled = [...active.options].filter((option) => !option.disabled);
     const current = enabled.indexOf(active.selectedOptions[0]);

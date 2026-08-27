@@ -5,6 +5,8 @@ import { GAMEPAD_BINDINGS, readStandardGamepad } from "../app/gamepad.ts";
 
 const menu = readFileSync(new URL("../app/main-menu.tsx", import.meta.url), "utf8");
 const styles = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+const navigation = readFileSync(new URL("../app/controller-navigation.ts", import.meta.url), "utf8");
+const game = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
 const pad = (axes = [0, 0, 0, 0], pressed = []) => ({ axes, connected: true, mapping: "standard", buttons: Array.from({ length: 17 }, (_, index) => ({ pressed: pressed.includes(index) })) });
 
 test("Settings always renders controller controls from canonical bindings", () => {
@@ -35,4 +37,47 @@ test("reference stays inside the existing responsive Settings layout", () => {
   assert.match(menu, /<MenuScreen route="settings"[\s\S]*<MenuSection title="Controls">[\s\S]*className="controller-controls"/);
   assert.match(styles, /\.controller-controls \{[^}]*grid-template-columns: repeat\(2/);
   assert.match(styles, /@media \(max-width: 520px\)[^{]*\{[\s\S]*?\.controller-controls \{[^}]*grid-template-columns: 1fr/);
+});
+
+test("Settings defines five semantic tabs with a single active panel", () => {
+  for (const tab of ["Controls", "Audio", "Video", "HUD", "Game Info"]) {
+    assert.match(menu, new RegExp(`id: "[^"]+", label: "${tab}"`));
+  }
+  assert.match(menu, /role="tablist"/);
+  assert.match(menu, /role="tab"[\s\S]*aria-selected=\{activeTab === tab\.id\}/);
+  assert.match(menu, /role="tabpanel"/);
+  assert.match(menu, /const \[activeTab, setActiveTab\] = useState<SettingsTab>\("controls"\)/);
+  assert.match(menu, /\{activeTab === "controls" \? <MenuSection/);
+  assert.doesNotMatch(menu, /hidden=\{activeTab/);
+});
+
+test("tab selection supports pointer, touch, and keyboard activation", () => {
+  assert.match(menu, /type="button"[\s\S]*onClick=\{\(\) => setActiveTab\(tab\.id\)\}/);
+  assert.match(menu, /event\.key !== "ArrowLeft" && event\.key !== "ArrowRight"/);
+  assert.match(menu, /selectAdjacentTab\(tab, event\.key === "ArrowRight" \? 1 : -1\)/);
+});
+
+test("controller navigation changes tabs in the shared navigation system", () => {
+  assert.match(navigation, /active\?\.getAttribute\("role"\) === "tab"[\s\S]*next\?\.click\(\)/);
+  assert.match(game, /const tabShoulder = activeControl\?\.getAttribute\("role"\) === "tab"/);
+  assert.match(game, /moveControllerFocus\(controls, tabShoulder, 0\)/);
+  assert.match(navigation, /closest\('\[aria-hidden="true"\], \[inert\]'\)/);
+});
+
+test("existing settings remain unique and retain their handlers", () => {
+  for (const [label, handler] of [
+    ["Thumbsticks", "onThumbsticks"], ["Sound", "onSound"],
+    ["Cannon Hit Sound", "onCannonHitSound"], ["Perspective", "onCameraLock"],
+    ["Zoom", "onZoom"], ["Initials", "onInitials"],
+  ]) {
+    assert.equal(menu.split(`label="${label}"`).length - 1, label === "Initials" ? 0 : 1, `${label} should not be duplicated`);
+    assert.match(menu, new RegExp(handler));
+  }
+  assert.equal(menu.split('id="menu-player-initials"').length - 1, 1);
+});
+
+test("five tabs wrap on narrow settings panels without horizontal scrolling", () => {
+  assert.match(styles, /\.settings-tabs \{[\s\S]*grid-template-columns: repeat\(5/);
+  assert.match(styles, /@container menu \(max-width: 480px\)[\s\S]*\.settings-tabs \{ grid-template-columns: repeat\(3/);
+  assert.doesNotMatch(styles, /\.settings-tabs[^}]*overflow-x:\s*(auto|scroll)/);
 });
