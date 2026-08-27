@@ -3,6 +3,13 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { SHIPS, WEAPONS } from "../app/game-data.ts";
 import { PRODUCT_TAGLINE, PRODUCT_TITLE } from "../app/product.ts";
+import {
+  PRODUCTION_URL,
+  SOCIAL_IMAGE_CACHE_BUSTER,
+  SOCIAL_IMAGE_PATH,
+  UNVERSIONED_SOCIAL_IMAGE,
+  escapeRegExp,
+} from "./social-metadata.mjs";
 
 const game = fs.readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
 const layout = fs.readFileSync(new URL("../app/layout.tsx", import.meta.url), "utf8");
@@ -73,12 +80,34 @@ test("public metadata and README do not market the project as a recreation", () 
   assert.doesNotMatch(publicCopy, /Centerfleet/i);
   assert.doesNotMatch(publicCopy, /browser recreation/i);
   assert.doesNotMatch(publicCopy, /original downloadable client/i);
-  assert.match(layout, /url: "\/og\.png"/i);
+  // The social preview image is versioned for cache busting; assert the exact
+  // canonical path rather than a bare "og.png" substring, so that dropping or
+  // stale-bumping the suffix fails here instead of silently shipping a preview
+  // no crawler will re-fetch.
+  assert.match(layout, new RegExp(`url: "${escapeRegExp(SOCIAL_IMAGE_PATH)}"`));
+  assert.match(layout, new RegExp(`images: \\["${escapeRegExp(SOCIAL_IMAGE_PATH)}"\\]`));
+  assert.match(layout, new RegExp(escapeRegExp(SOCIAL_IMAGE_CACHE_BUSTER)));
+  assert.doesNotMatch(layout, UNVERSIONED_SOCIAL_IMAGE);
   assert.match(layout, /card: "summary_large_image"/i);
   assert.match(layout, /\/favicon\.ico/);
   assert.match(layout, /\/favicon\.png/);
   assert.match(layout, /\/apple-touch-icon\.png/);
   assert.doesNotMatch(layout, /favicon\.svg/i);
+
+  // Metadata must resolve against the Breach Runner production origin and must
+  // not drift back to the retired Wormhole Arcade identity. Scoped to the
+  // layout: the README still documents the legacy development hostname on
+  // purpose, and that note is not product metadata.
+  assert.match(layout, new RegExp(`const PRODUCTION_URL = "${escapeRegExp(PRODUCTION_URL)}"`));
+  assert.match(layout, /metadataBase: new URL\(PRODUCTION_URL\)/);
+  assert.doesNotMatch(layout, /wormhole/i);
+  assert.doesNotMatch(layout, /chatgpt\.site/i);
+
+  // Canonical title/description behaviour is unchanged: both come from the
+  // single product identity source, and the canonical link stays at the root.
+  assert.match(layout, /title: PRODUCT_TITLE/);
+  assert.match(layout, /description: PRODUCT_TAGLINE/);
+  assert.match(layout, /canonical: "\/"/);
 });
 
 test("commercial-use provenance covers replaced audio and current visual identity assets", () => {
