@@ -3,6 +3,8 @@ import { SHOT_LEVELS, type PowerId } from "./game-data.ts";
 /** Warden's fixed hull weapon tuning. It never reads the fitted cannon level. */
 export const AUTO_GUN_RANGE = 300;
 export const AUTO_GUN_FIRE_RATE = 3;
+export const OVERDRIVE_RANGE = 375;
+export const OVERDRIVE_FIRE_RATE = 6;
 export const AUTO_GUN_DAMAGE = SHOT_LEVELS[0].damage * 0.4;
 export const AUTO_GUN_PROJECTILE_SPEED = 10;
 export const AUTO_GUN_PROJECTILE_TICKS = Math.ceil(AUTO_GUN_RANGE / AUTO_GUN_PROJECTILE_SPEED);
@@ -55,6 +57,16 @@ export function selectAutoGunTarget(
 }
 
 /** Fixed-tick cooldown; elapsed render frames never participate. */
-export function autoGunDelayTicks(tickMilliseconds: number) {
-  return Math.max(1, Math.round(1000 / AUTO_GUN_FIRE_RATE / tickMilliseconds));
+export function effectiveAutoGunTuning(overdriveActive: boolean) {
+  const range = overdriveActive ? OVERDRIVE_RANGE : AUTO_GUN_RANGE;
+  return {
+    range,
+    fireRate: overdriveActive ? OVERDRIVE_FIRE_RATE : AUTO_GUN_FIRE_RATE,
+    damage: AUTO_GUN_DAMAGE,
+    projectileTicks: Math.ceil(range / AUTO_GUN_PROJECTILE_SPEED),
+  } as const;
+}
+
+export function autoGunDelayTicks(tickMilliseconds: number, fireRate = AUTO_GUN_FIRE_RATE) {
+  return Math.max(1, Math.round(1000 / fireRate / tickMilliseconds));
 }
