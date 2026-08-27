@@ -95,7 +95,7 @@ import {
 } from "./layout-budget";
 import { cannonPlaybackRate, hapticsAllow } from "./combat-feedback";
 import { consumeLoadedPup, pupInventoryLayout } from "./pup-inventory";
-import { inventoryPupVisual } from "./pup-inventory-visual";
+import { inventoryPayloadIconLayout, inventoryPupVisual } from "./pup-inventory-visual";
 import { pupPickupSoundProfile, type PupPickupSoundProfile } from "./pup-audio";
 import { RICOCHET_BOUNCES, RICOCHET_DURATION_SECONDS, reflectRicochet } from "./ricochet";
 import { controllerStateForPads, EMPTY_GAMEPAD, headingDegrees, pressedOnce, type GamepadActions } from "./gamepad";
@@ -838,20 +838,24 @@ const WeaponIcon = memo(function WeaponIcon({ id, size = 26, dim = false, invent
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, size, size);
-    ctx.translate(size / 2, size / 2);
     if (inventoryFrame) {
       const visual = inventoryPupVisual(id);
+      const layout = inventoryPayloadIconLayout({ width: size, height: size });
+      ctx.translate(layout.centerX, layout.centerY);
       ctx.save();
       ctx.strokeStyle = visual.color;
       ctx.fillStyle = `${visual.color}24`;
-      ctx.lineWidth = Math.max(1.5, size * 0.075);
+      ctx.lineWidth = layout.strokeWidth;
       ctx.lineJoin = "round";
-      drawPupFrame(ctx, visual.pupClass, size * 0.46, 0);
+      drawPupFrame(ctx, visual.pupClass, layout.frameRadius, layout.rotation);
       ctx.fill();
       ctx.stroke();
       ctx.restore();
+      drawWeaponGlyph(ctx, visual.glyphId, layout.glyphRadius, 0, { detail: 1, alpha: dim ? 0.5 : 1 });
+    } else {
+      ctx.translate(size / 2, size / 2);
+      drawWeaponGlyph(ctx, id, size * 0.37, 0, { detail: 1, alpha: dim ? 0.5 : 1 });
     }
-    drawWeaponGlyph(ctx, id, size * 0.37, 0, { detail: 1, alpha: dim ? 0.5 : 1 });
   }, [id, size, dim, inventoryFrame]);
   return <canvas ref={ref} className="weapon-icon" style={{ width: size, height: size }} aria-hidden="true" />;
 });
@@ -5208,17 +5212,18 @@ export default function WormholeGame() {
         const chipW = cap(W * 0.4, 176, 250);
         const chipX = W - pad - chipW;
         const chipY = H - pad - chipH;
+        const iconLayout = inventoryPayloadIconLayout({ width: chipH, height: chipH });
         panel(chipX, chipY, chipW, chipH, `${visual.color}66`);
         ctx.save();
-        ctx.translate(chipX + chipH * 0.5, chipY + chipH * 0.5);
+        ctx.translate(chipX + iconLayout.centerX, chipY + iconLayout.centerY);
         ctx.strokeStyle = visual.color;
         ctx.fillStyle = `${visual.color}24`;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = iconLayout.strokeWidth;
         ctx.lineJoin = "round";
-        drawPupFrame(ctx, visual.pupClass, chipH * 0.39, 0);
+        drawPupFrame(ctx, visual.pupClass, iconLayout.frameRadius, iconLayout.rotation);
         ctx.fill();
         ctx.stroke();
-        drawWeaponGlyph(ctx, queued, chipH * 0.28, time, { detail: profile.detail });
+        drawWeaponGlyph(ctx, visual.glyphId, iconLayout.glyphRadius, 0, { detail: profile.detail });
         ctx.restore();
         ctx.textAlign = "left";
         ctx.fillStyle = "#8fb2bb";
