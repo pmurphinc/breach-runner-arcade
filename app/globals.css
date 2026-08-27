@@ -2524,6 +2524,15 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
 }
 .control-list dt { color: var(--ink); font: 700 var(--fs-xs)/1.35 var(--mono); }
 .control-list dd { margin: 0; color: var(--muted); font: 500 var(--fs-xs)/1.35 var(--mono); }
+.controller-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); padding: var(--space-2); border: 1px solid var(--line); border-radius: 4px; background: rgba(2, 8, 13, .55); }
+.controller-controls h4 { grid-column: 1 / -1; margin: 0; color: var(--cyan); font: 900 var(--fs-xs)/1.2 var(--mono); letter-spacing: .14em; text-transform: uppercase; }
+.controller-controls h5 { margin: 0 0 var(--space-1); color: var(--ink); font: 800 var(--fs-nano)/1.2 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+.controller-controls .control-list > div { padding: 3px 0; }
+.controller-controls .control-list dt, .controller-controls .control-list dd { font-size: var(--fs-nano); }
+@media (max-width: 520px) and (orientation: portrait) {
+  .controller-controls { grid-template-columns: 1fr; }
+  .controller-controls h4 { grid-column: 1; }
+}
 
 /* ----------------------------------------------------------------- pause -- */
 

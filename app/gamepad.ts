@@ -7,6 +7,25 @@ export type GamepadActions = {
 };
 
 export const GAMEPAD_DEAD_ZONE = 0.2;
+
+/** Canonical standard-gamepad map shared by input handling and Settings. */
+export const GAMEPAD_BINDINGS = {
+  axes: {
+    move: { x: 0, y: 1, label: "Left Stick" },
+    aim: { x: 2, y: 3, label: "Right Stick" },
+  },
+  buttons: {
+    confirm: { indices: [0], label: "A / Cross" },
+    cancel: { indices: [1], label: "B / Circle" },
+    previousPup: { indices: [4, 14], label: "LB / L1 or D-pad Left" },
+    nextPup: { indices: [5, 15], label: "RB / R1 or D-pad Right" },
+    special: { indices: [6], label: "LT / L2" },
+    firePup: { indices: [7], label: "RT / R2" },
+    pause: { indices: [9], label: "Menu / Options" },
+  },
+  menuNavigation: { label: "Left Stick / D-pad" },
+} as const;
+
 const axis = (value = 0) => Math.abs(value) < GAMEPAD_DEAD_ZONE ? 0 : Math.sign(value) * (Math.abs(value) - GAMEPAD_DEAD_ZONE) / (1 - GAMEPAD_DEAD_ZONE);
 
 /** Canvas-space heading used by movement, facing and projectile code. */
@@ -21,11 +40,13 @@ export function pressedOnce(current: boolean, previous: boolean) {
 
 export function readStandardGamepad(pad: Gamepad): GamepadActions {
   const pressed = (index: number) => Boolean(pad.buttons[index]?.pressed);
+  const anyPressed = (indices: readonly number[]) => indices.some(pressed);
+  const { axes, buttons } = GAMEPAD_BINDINGS;
   return {
-    moveX: axis(pad.axes[0]), moveY: axis(pad.axes[1]), aimX: axis(pad.axes[2]), aimY: axis(pad.axes[3]),
-    fireMain: Math.hypot(axis(pad.axes[2]), axis(pad.axes[3])) > 0,
-    firePup: pressed(7), special: pressed(6), previousPup: pressed(4) || pressed(14),
-    nextPup: pressed(5) || pressed(15), pause: pressed(9), confirm: pressed(0), cancel: pressed(1),
+    moveX: axis(pad.axes[axes.move.x]), moveY: axis(pad.axes[axes.move.y]), aimX: axis(pad.axes[axes.aim.x]), aimY: axis(pad.axes[axes.aim.y]),
+    fireMain: Math.hypot(axis(pad.axes[axes.aim.x]), axis(pad.axes[axes.aim.y])) > 0,
+    firePup: anyPressed(buttons.firePup.indices), special: anyPressed(buttons.special.indices), previousPup: anyPressed(buttons.previousPup.indices),
+    nextPup: anyPressed(buttons.nextPup.indices), pause: anyPressed(buttons.pause.indices), confirm: anyPressed(buttons.confirm.indices), cancel: anyPressed(buttons.cancel.indices),
     menuX: (pressed(15) ? 1 : 0) - (pressed(14) ? 1 : 0),
     menuY: (pressed(13) ? 1 : 0) - (pressed(12) ? 1 : 0),
   };
