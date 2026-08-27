@@ -213,6 +213,32 @@ const PORTAL_THRESHOLD = 150;
  */
 const PORTAL_VISUAL_RADIUS = 55;
 const ALLY_VISUAL_RADIUS = 34;
+
+/**
+ * The hazard orange every off-screen enemy marker is drawn in.
+ *
+ * The same colour the arena's contact-hazard ring already uses, so "this is a
+ * threat" reads the same on the edge as it does in the world — and never as
+ * the Rift's magenta, the ally's green, or any of the PUP class colours.
+ */
+const OFFSCREEN_ENEMY_ACCENT = "#ff9a4d";
+
+/**
+ * The enemy badge outline in marker units: eight vertices alternating between
+ * a long and a short reach, which draws as a compact four-point star.
+ *
+ * Precomputed once because the arena can hold far more hostiles than loose
+ * PUPs, and a marker per hostile per frame is not the place to be running
+ * trigonometry or building point arrays.
+ */
+const OFFSCREEN_ENEMY_BADGE: readonly { x: number; y: number }[] = Array.from(
+  { length: 8 },
+  (_, point) => {
+    const reach = point % 2 === 0 ? 6.5 : 2.8;
+    const spin = point * Math.PI / 4;
+    return { x: Math.cos(spin) * reach, y: Math.sin(spin) * reach };
+  },
+);
 const DEG = Math.PI / 180;
 const STOCK_LIMIT = 10;
 const ticksForSeconds = (seconds: number) => Math.round(seconds * 1000 / TICK_MS);
@@ -5377,6 +5403,65 @@ export default function WormholeGame() {
           ctx.restore();
         };
 
+        /**
+         * A hostile's marker: one consistent threat badge in hazard orange,
+         * carrying that hostile's own kind colour at its core, with a small
+         * open chevron outside it for the heading.
+         *
+         * Deliberately not the hostile's weapon glyph. Those silhouettes
+         * collapse into mush at badge scale, and a glyph on the edge is
+         * already how a loose PUP announces itself — a hostile wearing one
+         * would read as something to fly toward and collect. So the shape says
+         * THREAT and the colour says which threat, which is the pair that
+         * survives being small.
+         *
+         * Same footprint as the Rift, ally and PUP markers, so one shared
+         * radius keeps every marker apart from every other.
+         */
+        const drawOffscreenEnemyMarker = (
+          indicator: { x: number; y: number; angle: number },
+          kind: PowerId,
+        ) => {
+          const accent = OFFSCREEN_ENEMY_ACCENT;
+          ctx.save();
+          ctx.translate(indicator.x, indicator.y);
+          ctx.scale(1 / camScale, 1 / camScale);
+          ctx.globalAlpha = 0.85;
+          ctx.lineJoin = "round";
+          ctx.lineCap = "round";
+          if (profile.shadows) { ctx.shadowColor = accent; ctx.shadowBlur = 7; }
+          ctx.save();
+          ctx.rotate(indicator.angle);
+          ctx.strokeStyle = accent;
+          ctx.lineWidth = 1.8;
+          ctx.beginPath();
+          ctx.moveTo(8, -5.5);
+          ctx.lineTo(13.5, 0);
+          ctx.lineTo(8, 5.5);
+          ctx.stroke();
+          ctx.restore();
+          // Upright: the threat badge is an identity, not a heading.
+          ctx.fillStyle = `${accent}3d`;
+          ctx.strokeStyle = accent;
+          ctx.lineWidth = 1.6;
+          ctx.beginPath();
+          for (let point = 0; point < OFFSCREEN_ENEMY_BADGE.length; point += 1) {
+            const spike = OFFSCREEN_ENEMY_BADGE[point];
+            if (point === 0) ctx.moveTo(spike.x, spike.y);
+            else ctx.lineTo(spike.x, spike.y);
+          }
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+          // The identifying detail, read from the same table the hostile's own
+          // hull is drawn from, so the two can never fall out of step.
+          ctx.fillStyle = POWER_COLORS[kind];
+          ctx.beginPath();
+          ctx.arc(0, 0, 2.1, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        };
+
         const riftBody = { x: game.portalX, y: game.portalY, radius: PORTAL_VISUAL_RADIUS };
         // Co-op only. Solo PvE and Survival have no ally, and a PvP rival is
         // an opponent rather than one, so neither gets this marker.
@@ -5387,10 +5472,18 @@ export default function WormholeGame() {
 
         // The HUD rectangles are only worth a layout read when there is
         // actually a marker to keep out from under one, and then only a few
-        // times a second. Both targets get the same list and the same
-        // footprint, so neither can end up under a panel the other avoids.
-        const marking = isTargetOffscreen(riftBody, cameraBounds)
+        // times a second. Every target gets the same list and the same
+        // footprint, so none can end up under a panel another one avoids.
+        let marking = isTargetOffscreen(riftBody, cameraBounds)
           || (allyBody ? isTargetOffscreen(allyBody, cameraBounds) : false);
+        if (!marking) {
+          // Scanned in place, with an early exit: no array is built for this,
+          // so the ordinary frame where everything is on screen costs a few
+          // comparisons per hostile and nothing else.
+          for (const enemy of game.enemies) {
+            if (enemy.hp > 0 && isTargetOffscreen(enemy, cameraBounds)) { marking = true; break; }
+          }
+        }
         if (marking && time - hudBlocksMeasuredAt >= HUD_BLOCK_REFRESH_MS) {
           hudBlocksMeasuredAt = time;
           measureHudBlocks();
@@ -5449,6 +5542,41 @@ export default function WormholeGame() {
           if (!marker) continue;
           drawOffscreenPupMarker(marker, WEAPONS[pickup.type].pupClass);
           pupPlacement.blocked.push(markerBlockFor(marker, pupPlacement.markerRadius));
+        }
+
+        /**
+         * Hostiles, placed last and painted under the Rift and ally markers,
+         * because those two are the objective and the teammate and must stay
+         * the loudest things on the edge.
+         *
+         * Every live hostile is offered a marker — there is no cap. The point
+         * of the marker is that a hostile outside the frame stays detectable,
+         * and a limit would silently drop exactly the one about to arrive. A
+         * dense wave spreads along the edge instead, because each marker placed
+         * becomes a blocked region for the next, the same mechanism the PUPs
+         * already use. Only the position slides; every marker still points at
+         * its own hostile.
+         *
+         * Nothing is remembered between frames and no marker state is written
+         * back to a hostile: the list is whatever is alive in the arena right
+         * now, so a hostile that dies, despawns or comes back into view stops
+         * producing a marker on the very next draw.
+         *
+         * The blocked list is the one the PUPs have been filling, used as-is
+         * rather than copied, so a hostile already avoids the HUD panels, the
+         * Rift, the ally and every PUP marker without any of that being
+         * re-derived per hostile.
+         */
+        const enemyPlacement = pupPlacement;
+        for (const enemy of game.enemies) {
+          if (enemy.hp <= 0) continue;
+          // The live hostile is handed straight to the shared helper: it is
+          // already { x, y, radius }, so its drawn body decides visibility
+          // without a wrapper object per hostile per frame.
+          const marker = offscreenIndicatorFor(enemy, cameraBounds, markerInset, enemyPlacement);
+          if (!marker) continue;
+          drawOffscreenEnemyMarker(marker, enemy.kind);
+          enemyPlacement.blocked.push(markerBlockFor(marker, enemyPlacement.markerRadius));
         }
 
         if (riftMarker) drawOffscreenMarker(riftMarker, game.enrageActive ? "#ff2a3f" : "#ff4cbe", false);
