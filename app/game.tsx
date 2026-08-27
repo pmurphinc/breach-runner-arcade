@@ -17,6 +17,7 @@ import {
   WEAPONS,
   rivalDamageFor,
   type PickupId,
+  type PupClass,
   type PowerId,
   type ShipId,
   type ShipSpec,
@@ -94,6 +95,7 @@ import {
 } from "./layout-budget";
 import { cannonPlaybackRate, hapticsAllow } from "./combat-feedback";
 import { pupInventoryLayout } from "./pup-inventory";
+import { pupPickupSoundProfile, type PupPickupSoundProfile } from "./pup-audio";
 import { RICOCHET_BOUNCES, RICOCHET_DURATION_SECONDS, reflectRicochet } from "./ricochet";
 import { controllerStateForPads, EMPTY_GAMEPAD, headingDegrees, pressedOnce, type GamepadActions } from "./gamepad";
 import { controllerCancelTarget, moveControllerFocus, visibleControllerControls } from "./controller-navigation";
@@ -2033,7 +2035,7 @@ export default function WormholeGame() {
    * Procedural event cues avoid a large audio download while giving every
    * power-up a stable, recognizable two-note signature.
    */
-  const playCue = useCallback((cue: string, volume = 0.16) => {
+  const playCue = useCallback((cue: string | PupPickupSoundProfile, volume = 0.16) => {
     if (!soundRef.current || typeof window === "undefined") return;
     const AudioContextClass = window.AudioContext
       ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -2042,10 +2044,13 @@ export default function WormholeGame() {
     cueAudio.current = context;
     void context.resume().catch(() => undefined);
 
-    const hash = [...cue].reduce((value, character) => ((value * 33) ^ character.charCodeAt(0)) >>> 0, 5381);
+    const cueName = typeof cue === "string" ? cue : cue.id;
+    const hash = [...cueName].reduce((value, character) => ((value * 33) ^ character.charCodeAt(0)) >>> 0, 5381);
     // Overcharges get a longer, lower, four-note signature than any pickup
     // cue, so a special is identifiable with the screen covered by a thumb.
-    const special = cue === "rift-level"
+    const special = typeof cue !== "string"
+      ? cue
+      : cue === "rift-level"
       // Short and rising: the roadmap asks for a pulse that marks the level
       // without interrupting the fight.
       ? { frequencies: [300, 460, 700], duration: 0.38, gap: 0.05, type: "triangle" as OscillatorType }
@@ -2084,7 +2089,7 @@ export default function WormholeGame() {
       const noteEnd = noteStart + special.duration / special.frequencies.length;
       oscillator.type = special.type;
       oscillator.frequency.setValueAtTime(frequency, noteStart);
-      if (cue === "wormhole-explosion" || cue === "overcharge:core") {
+      if (cueName === "wormhole-explosion" || cueName === "overcharge:core") {
         oscillator.frequency.exponentialRampToValueAtTime(Math.max(24, frequency * 0.45), noteEnd);
       }
       gain.gain.setValueAtTime(0.0001, noteStart);
@@ -2096,6 +2101,12 @@ export default function WormholeGame() {
       oscillator.stop(noteEnd + 0.02);
     });
   }, []);
+
+  /** Local-only collection cue; mute, volume, and audio unlock stay in playCue. */
+  const playPupPickupSound = useCallback((pupClass: PupClass) => {
+    const profile = pupPickupSoundProfile(pupClass);
+    playCue(profile, cap(profile.volume * SOUND_GAIN[soundLevelRef.current], 0, 1));
+  }, [playCue]);
 
   /**
    * Continuous victory riser: audible from the first pull frame through the
@@ -4244,8 +4255,7 @@ export default function WormholeGame() {
           game.notice = `${WEAPONS[type].short} COLLECTED`;
           game.noticeLife = 100;
           burst(game, pickup.x, pickup.y, POWER_COLORS[type], 16, 5);
-          if (type === "shield") playCue("shield-pickup", 0.18);
-          else play("magic", 0.25);
+          playPupPickupSound(WEAPONS[pickup.type].pupClass);
         }
       });
 
@@ -5347,6 +5357,8 @@ export default function WormholeGame() {
       window.removeEventListener("resize", onDprChange);
       window.removeEventListener("orientationchange", onDprChange);
     };
+    // playPupPickupSound is a stable playCue wrapper used only by this loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [play, playCue, playVictorySuction, stopVictorySuction, sync, viewMode]);
 
   const currentShip = selectedShip(shipId);
