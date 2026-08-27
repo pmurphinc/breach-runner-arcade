@@ -18,6 +18,7 @@ import { DIFFICULTIES, DIFFICULTY_ORDER, type DifficultyId, type GameMode } from
 import { PRODUCT_TAGLINE, PRODUCT_TITLE } from "./product";
 import type { MenuRoute } from "./menu-routes";
 import { settingsStore, type CombatHaptics, type SoundLevel, type TouchControlHeight, type TouchControlSize, type ViewMode, type ZoomLevel } from "./view-settings";
+import { GAMEPAD_BINDINGS } from "./gamepad";
 
 /** One line each. A mode a player cannot summarise is a mode they will not pick. */
 export const MODE_INFO: Record<GameMode, { label: string; blurb: string }> = {
@@ -504,6 +505,29 @@ export function SettingsScreen({
           ]}
           onChange={onCombatHaptics}
         />
+        <div className="controller-controls" aria-labelledby="controller-controls-title">
+          <h4 id="controller-controls-title">Controller Controls</h4>
+          <div>
+            <h5>Flight</h5>
+            <dl className="control-list">
+              <div><dt>Move</dt><dd>{GAMEPAD_BINDINGS.axes.move.label}</dd></div>
+              <div><dt>Aim &amp; primary fire</dt><dd>{GAMEPAD_BINDINGS.axes.aim.label}</dd></div>
+              <div><dt>Fire PUP</dt><dd>{GAMEPAD_BINDINGS.buttons.firePup.label}</dd></div>
+              <div><dt>Special</dt><dd>{GAMEPAD_BINDINGS.buttons.special.label}</dd></div>
+              <div><dt>Previous PUP</dt><dd>{GAMEPAD_BINDINGS.buttons.previousPup.label}</dd></div>
+              <div><dt>Next PUP</dt><dd>{GAMEPAD_BINDINGS.buttons.nextPup.label}</dd></div>
+              <div><dt>Pause</dt><dd>{GAMEPAD_BINDINGS.buttons.pause.label}</dd></div>
+            </dl>
+          </div>
+          <div>
+            <h5>Menus</h5>
+            <dl className="control-list">
+              <div><dt>Navigate</dt><dd>{GAMEPAD_BINDINGS.menuNavigation.label}</dd></div>
+              <div><dt>Select</dt><dd>{GAMEPAD_BINDINGS.buttons.confirm.label}</dd></div>
+              <div><dt>Back</dt><dd>{GAMEPAD_BINDINGS.buttons.cancel.label}</dd></div>
+            </dl>
+          </div>
+        </div>
       </MenuSection>
 
       <MenuSection title="Audio">
