@@ -76,6 +76,9 @@ export type PickupId = PowerId | "gun" | "thrust" | "retros" | "shield" | "clear
 /** Broad gameplay role, used for colour-independent grouping in the HUD. */
 export type WeaponCategory = "attack" | "hazard" | "defense" | "utility";
 
+/** How a collectible PUP participates in the player's run. */
+export type PupClass = "payload" | "upgrade" | "recovery" | "rare";
+
 /**
  * Single source of truth for every pickup the portal can produce. Labels,
  * colours, silhouettes, descriptions, and HUD copy are all derived from here so
@@ -91,6 +94,8 @@ export type WeaponMeta = {
   abbr: string;
   color: string;
   category: WeaponCategory;
+  /** Gameplay classification used by every collectible PUP. */
+  pupClass: PupClass;
   /** Can this power-up be fired back through the rival portal? */
   sendable: boolean;
   /** Relative danger of the incoming wave, 1 (light) to 3 (severe). */
@@ -113,147 +118,147 @@ export const CATEGORY_LABELS: Record<WeaponCategory, string> = {
 export const WEAPONS: Record<PickupId, WeaponMeta> = {
   gun: {
     id: "gun", name: "CANNON UPGRADE", short: "CANNON", abbr: "CU", color: "#7fe3ff",
-    category: "utility", sendable: false, threat: 1,
+    category: "utility", pupClass: "upgrade", sendable: false, threat: 1,
     summary: "Cannon calibration module collected on contact.",
     behavior: "Applies the moment you fly over it; nothing is stored in the bin.",
     role: "Advances the pulse cannon one mark, up to MK 4.",
   },
   thrust: {
     id: "thrust", name: "ENGINE UPGRADE", short: "ENGINE", abbr: "EN", color: "#6dffd6",
-    category: "utility", sendable: false, threat: 1,
+    category: "utility", pupClass: "upgrade", sendable: false, threat: 1,
     summary: "Engine tuning module collected on contact.",
     behavior: "Applies immediately and stacks; nothing is stored in the bin.",
     role: "Raises this frame's own acceleration and top speed, up to MK 3.",
   },
   retros: {
     id: "retros", name: "RETRO THRUSTERS", short: "RETROS", abbr: "RT", color: "#bcff66",
-    category: "utility", sendable: false, threat: 1,
+    category: "utility", pupClass: "upgrade", sendable: false, threat: 1,
     summary: "Retro-thruster package collected on contact.",
     behavior: "Applies immediately and stacks; nothing is stored in the bin.",
     role: "Shortens braking and sharpens direction changes, up to MK 3.",
   },
   shield: {
     id: "shield", name: "SHIELD FIELD", short: "SHIELD", abbr: "SH", color: "#8f9cff",
-    category: "defense", sendable: false, threat: 1,
+    category: "defense", pupClass: "rare", sendable: false, threat: 1,
     summary: "Deflector field module collected on contact.",
     behavior: "Wraps the hull instantly and burns down over time.",
     role: "Blocks all incoming damage while the field holds.",
   },
   clear: {
     id: "clear", name: "NOVA BURST", short: "NOVA", abbr: "NV", color: "#ffffff",
-    category: "utility", sendable: false, threat: 1,
+    category: "utility", pupClass: "rare", sendable: false, threat: 1,
     summary: "Arena-wide discharge collected on contact.",
     behavior: "Detonates the instant you pick it up.",
     role: "Destroys every hostile currently in the arena.",
   },
   health: {
     id: "health", name: "HULL REPAIR", short: "REPAIR", abbr: "HP", color: "#7dff96",
-    category: "defense", sendable: false, threat: 1,
+    category: "defense", pupClass: "recovery", sendable: false, threat: 1,
     summary: "Hull-repair canister collected on contact.",
     behavior: "Applies immediately; nothing is stored in the bin.",
     role: "Restores 30 hull, never above your frame maximum.",
   },
   ricochet: {
     id: "ricochet", name: "BANKSHOT MATRIX", short: "BANKSHOT", abbr: "BM", color: "#73f6b0",
-    category: "utility", sendable: false, threat: 1,
+    category: "utility", pupClass: "rare", sendable: false, threat: 1,
     summary: "Temporary pulse-cannon ricochet matrix collected on contact.",
     behavior: "Activates immediately for 10 seconds; normal cannon rounds can reflect from arena walls twice.",
     role: "Turns walls into firing angles without changing cannon damage or affecting enemy and special fire.",
   },
   heatseeker: {
     id: "heatseeker", name: "TRACKER SWARM", short: "TRACKERS", abbr: "TS", color: "#ff7a70",
-    category: "attack", sendable: true, threat: 2,
+    category: "attack", pupClass: "payload", sendable: true, threat: 2,
     summary: "Swarm of compact tracking missiles with lit guidance noses.",
     behavior: "Each missile flies fast and steers hard to stay on your tail.",
     role: "Fragile individually — one cannon hit kills a missile — but they arrive as a wave of 12.",
   },
   turret: {
     id: "turret", name: "ORBITAL SENTRY", short: "SENTRY", abbr: "OS", color: "#5ef0ff",
-    category: "attack", sendable: true, threat: 2,
+    category: "attack", pupClass: "payload", sendable: true, threat: 2,
     summary: "Mechanical gun platform anchored to the rival portal.",
     behavior: "Orbits on a fixed arm and shells you at range.",
     role: "Armoured and stationary; it denies the portal until you break it.",
   },
   mines: {
     id: "mines", name: "VOID MINES", short: "MINES", abbr: "VM", color: "#eeff5c",
-    category: "hazard", sendable: true, threat: 2,
+    category: "hazard", pupClass: "payload", sendable: true, threat: 2,
     summary: "Spiked proximity mines scattered across the arena.",
     behavior: "They coast outward from the portal, then arm and hold position.",
     role: "Area denial. Contact hurts badly, but they die to a single burst.",
   },
   ufo: {
     id: "ufo", name: "RAIDER DRONES", short: "RAIDERS", abbr: "RD", color: "#ff6dd0",
-    category: "attack", sendable: true, threat: 3,
+    category: "attack", pupClass: "payload", sendable: true, threat: 3,
     summary: "Fast raider craft carrying compact tracking missiles.",
     behavior: "They hunt you directly and periodically release tracker swarms.",
     role: "Pursuing spawners — kill them early or the pressure compounds.",
   },
   inflator: {
     id: "inflator", name: "PLASMA BLOOM", short: "BLOOM", abbr: "PB", color: "#ffa562",
-    category: "hazard", sendable: true, threat: 2,
+    category: "hazard", pupClass: "payload", sendable: true, threat: 2,
     summary: "Unstable energy mass that expands the longer it survives.",
     behavior: "Drifts toward you while its body and armour keep growing.",
     role: "Cheap to kill early, dangerous to ignore — it consumes open space.",
   },
   minelayer: {
     id: "minelayer", name: "MINE CARRIER", short: "CARRIER", abbr: "MC", color: "#d7ff56",
-    category: "attack", sendable: true, threat: 2,
+    category: "attack", pupClass: "payload", sendable: true, threat: 2,
     summary: "Carrier hull with an open deployment bay underneath.",
     behavior: "Weaves across the arena and releases live mines behind it.",
     role: "Leaves a trail of hazards that outlives the carrier.",
   },
   gunship: {
     id: "gunship", name: "ASSAULT FRIGATE", short: "FRIGATE", abbr: "AF", color: "#9a8dff",
-    category: "attack", sendable: true, threat: 3,
+    category: "attack", pupClass: "payload", sendable: true, threat: 3,
     summary: "Heavy multi-engine attack craft with twin cannon barrels.",
     behavior: "Drifts on a slow arc and keeps up sustained cannon fire.",
     role: "The toughest conventional hull the rival sends; worth heavy score.",
   },
   scarab: {
     id: "scarab", name: "SCAVENGER", short: "SCAVENGER", abbr: "SV", color: "#ffcf62",
-    category: "attack", sendable: true, threat: 2,
+    category: "attack", pupClass: "payload", sendable: true, threat: 2,
     summary: "Angular collector drone built to steal loose pickups.",
     behavior: "Ignores you and races for whatever power-up is loose in the arena.",
     role: "A thief — it eats your pickups instead of your hull.",
   },
   nuke: {
     id: "nuke", name: "CORE BOMB", short: "CORE BOMB", abbr: "CB", color: "#ffe066",
-    category: "hazard", sendable: true, threat: 3,
+    category: "hazard", pupClass: "payload", sendable: true, threat: 3,
     summary: "Armoured warhead built around a visible pulsing core.",
     behavior: "Sits still and counts down, then throws an expanding blast ring.",
     role: "Heavily armoured. Destroy it before the timer, or leave the ring's path.",
   },
   wallcrawler: {
     id: "wallcrawler", name: "RIM CRAWLER", short: "CRAWLER", abbr: "RC", color: "#ff8a70",
-    category: "attack", sendable: true, threat: 3,
+    category: "attack", pupClass: "payload", sendable: true, threat: 3,
     summary: "Segmented armoured crawler built to ride the arena perimeter.",
     behavior: "Tracks the boundary without stopping and shells the interior.",
     role: "The single most armoured hostile — expect a long exchange.",
   },
   beam: {
     id: "beam", name: "SWEEP BEAM", short: "BEAM", abbr: "SB", color: "#ef8bff",
-    category: "attack", sendable: true, threat: 2,
+    category: "attack", pupClass: "payload", sendable: true, threat: 2,
     summary: "Focusing emitter capsule seated in the portal mouth.",
     behavior: "Charges briefly, then sweeps a continuous beam across the arena.",
     role: "Thin hull, but standing in the beam line drains you fast.",
   },
   emp: {
     id: "emp", name: "PULSE SCRAMBLER", short: "SCRAMBLER", abbr: "PS", color: "#7fb6ff",
-    category: "hazard", sendable: true, threat: 2,
+    category: "hazard", pupClass: "payload", sendable: true, threat: 2,
     summary: "Electrical orb wrapped in arcing field rings.",
     behavior: "Rides your position and releases one expanding disruption ring.",
     role: "Does no damage — it inverts your controls once the ring reaches you.",
   },
   ghost: {
     id: "ghost", name: "PHASE SHADE", short: "SHADE", abbr: "PH", color: "#eaf8ff",
-    category: "hazard", sendable: true, threat: 3,
+    category: "hazard", pupClass: "payload", sendable: true, threat: 3,
     summary: "Translucent phase distortion that cannon fire passes through.",
     behavior: "Drifts on a random walk and cannot be shot down.",
     role: "Unkillable by normal fire. Fly around it; only a Nova Burst removes it.",
   },
   artillery: {
     id: "artillery", name: "SIEGE BATTERY", short: "SIEGE", abbr: "SG", color: "#ff6086",
-    category: "attack", sendable: true, threat: 3,
+    category: "attack", pupClass: "payload", sendable: true, threat: 3,
     summary: "Heavy shell platform with a reinforced breech and cannon muzzle.",
     behavior: "Loiters at range and lobs fast, high-damage shells.",
     role: "Hits harder per shot than anything else the rival fields.",
