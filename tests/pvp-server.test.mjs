@@ -31,7 +31,7 @@ import {
   createCombatState,
   snapshot,
 } from "../server/rules.mjs";
-import { MatchServer, SHIP_HULL, createPlayer } from "../server/rooms.mjs";
+import { MatchServer, PVP_QUICK_MATCH_QUEUE, SHIP_HULL, createPlayer } from "../server/rooms.mjs";
 
 // ------------------------------------------------------------------- drift --
 
@@ -171,6 +171,78 @@ test("quick match pairs two waiting players", () => {
   assert.equal(a.player.room, b.player.room, "both players share one room");
   assert.equal(a.last("match").opponent.name, "BRAVO");
   assert.equal(b.last("match").opponent.name, "ALPHA");
+});
+
+test("all legacy PvP difficulties and client metadata share the one Easy queue", () => {
+  for (const [left, right] of [
+    ["easy", "difficult"],
+    ["practice", "hard"],
+    ["hard", "easy"],
+  ]) {
+    const server = new MatchServer();
+    const a = fakePlayer(server, `A-${left}`);
+    const b = fakePlayer(server, `B-${right}`);
+    server.enqueue(a.player, {
+      kind: "pvp", difficulty: left, device: "phone", controls: "touch",
+      browser: "mobile", ship: "tank", hiddenState: Math.random(),
+    }, 1000);
+    assert.equal(server.queue[0].queueKey, PVP_QUICK_MATCH_QUEUE);
+    server.enqueue(b.player, {
+      kind: "pvp", difficulty: right, device: "pc", controls: "keyboard",
+      browser: "desktop", ship: "wing", hiddenState: Math.random(),
+    }, 1100);
+    assert.equal(a.player.room, b.player.room, `${left} must match ${right}`);
+    assert.equal(a.player.room.difficulty, "easy");
+    assert.equal(a.player.room.kind, "pvp");
+    assert.equal(server.queue.length, 0);
+  }
+});
+
+test("quick match is FIFO across successive pairs", () => {
+  const server = new MatchServer();
+  const [a, b, c, d] = ["A", "B", "C", "D"].map((name) => fakePlayer(server, name));
+  server.enqueue(a.player, { kind: "pvp", difficulty: "hard" }, 1000);
+  server.enqueue(b.player, { kind: "pvp", difficulty: "easy" }, 1001);
+  server.enqueue(c.player, { kind: "pvp", difficulty: "practice" }, 1002);
+  server.enqueue(d.player, { kind: "pvp", difficulty: "difficult" }, 1003);
+  assert.equal(a.player.room, b.player.room);
+  assert.equal(c.player.room, d.player.room);
+  assert.notEqual(a.player.room, c.player.room);
+});
+
+test("cancel, disconnect, and duplicate queue requests cannot leave ghost entries", () => {
+  const server = new MatchServer();
+  const a = fakePlayer(server, "A");
+  const b = fakePlayer(server, "B");
+  server.enqueue(a.player, { kind: "pvp", difficulty: "hard" }, 1000);
+  server.enqueue(a.player, { kind: "pvp", difficulty: "easy" }, 1001);
+  assert.equal(server.queue.length, 1, "duplicates replace rather than append");
+  server.leaveQueue(a.player);
+  server.enqueue(b.player, { kind: "pvp" }, 1002);
+  assert.equal(b.player.room, null, "cancelled A must not match B");
+  server.leaveQueue(b.player);
+  // Use a fresh connected player because disconnect intentionally invalidates A.
+  const disconnected = fakePlayer(server, "DISCONNECTED");
+  server.enqueue(disconnected.player, { kind: "pvp" }, 1003);
+  server.disconnect(disconnected.player, 1004);
+  server.enqueue(b.player, { kind: "pvp" }, 1005);
+  assert.equal(b.player.room, null, "disconnected player must not match B");
+  assert.deepEqual(server.queue.map((entry) => entry.player), [b.player]);
+});
+
+test("co-op and private-code players are isolated from public PvP quick match", () => {
+  const server = new MatchServer();
+  const coop = fakePlayer(server, "COOP");
+  const pvp = fakePlayer(server, "PVP");
+  const privateHost = fakePlayer(server, "PRIVATE");
+  server.enqueue(coop.player, { kind: "coop", difficulty: "easy" }, 1000);
+  server.createPrivate(privateHost.player, { kind: "pvp", difficulty: "hard" }, 1001);
+  server.enqueue(pvp.player, { kind: "pvp", difficulty: "hard" }, 1002);
+  assert.equal(coop.player.room, null);
+  assert.equal(pvp.player.room, null);
+  assert.ok(privateHost.player.room?.isPrivate);
+  assert.equal(privateHost.player.room.difficulty, "easy", "private PvP also owns Easy rules");
+  assert.equal(server.queue.length, 2);
 });
 
 test("private rooms are created, joined, and reject bad codes", () => {
@@ -399,7 +471,8 @@ test("origin policy is strict in production and permissive only on loopback", as
   const dev = { NODE_ENV: "development" };
   const origins = allowedOrigins(prod);
 
-  assert.equal(isOriginAllowed("https://wormhole.murphtournaments.com", origins, prod), true);
+  assert.equal(isOriginAllowed("https://breachrunner.murphtournaments.com", origins, prod), true);
+  assert.equal(isOriginAllowed("https://wormhole.murphtournaments.com", origins, prod), false);
   assert.equal(isOriginAllowed("https://evil.example", origins, prod), false);
   assert.equal(isOriginAllowed("http://localhost:5199", origins, prod), false,
     "production must never accept a localhost origin");
