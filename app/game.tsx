@@ -63,7 +63,7 @@ import {
   type ZoomLevel,
 } from "./view-settings";
 import { aimGuideSegment } from "./aim-guide";
-import { OFFSCREEN_INDICATOR_INSET, offscreenIndicatorFor } from "./offscreen-indicators";
+import { OFFSCREEN_INDICATOR_INSET, OFFSCREEN_MARKER_RADIUS, isTargetOffscreen, offscreenIndicatorFor, type BlockedRegion } from "./offscreen-indicators";
 import GlobalSystemControls, { useFullscreen } from "./system-controls";
 import { MenuScreen } from "./ui-system";
 import {
@@ -2971,6 +2971,46 @@ export default function WormholeGame() {
     };
     applyProfile();
 
+    /**
+     * HUD panels painted over the arena, in presentation units.
+     *
+     * These are DOM overlays with a z-index above the canvas, so anything the
+     * renderer draws beneath one is simply swallowed. Measuring them turns
+     * "invisible" into "somewhere a marker must not be left", which is the only
+     * thing the marker code needs to know about the HUD.
+     *
+     * The rectangles are read from layout on a slow throttle and cached in
+     * VIEW_WIDTH units, which depend on the page layout rather than on the
+     * camera. That keeps the per-frame cost to a little arithmetic instead of a
+     * forced layout, and it is why phone, tablet and desktop all work from the
+     * badge's real rendered size rather than an assumed desktop rectangle.
+     */
+    const HUD_BLOCK_SELECTORS = [".difficulty-badge"];
+    const HUD_BLOCK_REFRESH_MS = 250;
+    let hudBlocks: BlockedRegion[] = [];
+    let hudBlocksMeasuredAt = -Infinity;
+
+    const measureHudBlocks = () => {
+      const canvasRect = canvas.getBoundingClientRect();
+      const scale = canvasRect.width > 0 ? VIEW_WIDTH / canvasRect.width : 0;
+      if (!scale) {
+        hudBlocks = [];
+        return;
+      }
+      hudBlocks = HUD_BLOCK_SELECTORS.flatMap((selector) => {
+        const element = canvasWrap.querySelector<HTMLElement>(selector);
+        if (!element) return [];
+        const rect = element.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return [];
+        return [{
+          left: (rect.left - canvasRect.left) * scale,
+          top: (rect.top - canvasRect.top) * scale,
+          right: (rect.right - canvasRect.left) * scale,
+          bottom: (rect.bottom - canvasRect.top) * scale,
+        }];
+      });
+    };
+
     const applyResize = () => {
       needsResize = false;
       const backing = canvasBackingSize(cssWidth, cssHeight, window.devicePixelRatio || 1, profile.maxBackingPx);
@@ -2989,6 +3029,7 @@ export default function WormholeGame() {
       cssScale = targetWidth / cssWidth;
       const safeTopCss = Number.parseFloat(getComputedStyle(canvasWrap).getPropertyValue("--camera-safe-top")) || 0;
       cameraSafeTop = safeTopCss * VIEW_WIDTH / cssWidth;
+      hudBlocksMeasuredAt = -Infinity;
     };
 
     const observer = new ResizeObserver((entries) => {
@@ -5278,22 +5319,41 @@ export default function WormholeGame() {
           ctx.restore();
         };
 
-        const riftMarker = offscreenIndicatorFor(
-          { x: game.portalX, y: game.portalY, radius: PORTAL_VISUAL_RADIUS },
-          cameraBounds,
-          markerInset,
-        );
-        if (riftMarker) drawOffscreenMarker(riftMarker, game.enrageActive ? "#ff2a3f" : "#ff4cbe", false);
-
+        const riftBody = { x: game.portalX, y: game.portalY, radius: PORTAL_VISUAL_RADIUS };
         // Co-op only. Solo PvE and Survival have no ally, and a PvP rival is
         // an opponent rather than one, so neither gets this marker.
         const allyTarget = game.mode === "coop" ? netRef.current?.renderedTeammate(time) : null;
-        const allyMarker = allyTarget
-          ? offscreenIndicatorFor(
-              { x: allyTarget.x, y: allyTarget.y, radius: ALLY_VISUAL_RADIUS },
-              cameraBounds,
-              markerInset,
-            )
+        const allyBody = allyTarget
+          ? { x: allyTarget.x, y: allyTarget.y, radius: ALLY_VISUAL_RADIUS }
+          : null;
+
+        // The HUD rectangles are only worth a layout read when there is
+        // actually a marker to keep out from under one, and then only a few
+        // times a second. Both targets get the same list and the same
+        // footprint, so neither can end up under a panel the other avoids.
+        const marking = isTargetOffscreen(riftBody, cameraBounds)
+          || (allyBody ? isTargetOffscreen(allyBody, cameraBounds) : false);
+        if (marking && time - hudBlocksMeasuredAt >= HUD_BLOCK_REFRESH_MS) {
+          hudBlocksMeasuredAt = time;
+          measureHudBlocks();
+        }
+        const safePlacement = {
+          blocked: marking
+            ? hudBlocks.map((block) => ({
+                left: (block.left - camX) / camScale,
+                top: (block.top - camY) / camScale,
+                right: (block.right - camX) / camScale,
+                bottom: (block.bottom - camY) / camScale,
+              }))
+            : [],
+          markerRadius: OFFSCREEN_MARKER_RADIUS / camScale,
+        };
+
+        const riftMarker = offscreenIndicatorFor(riftBody, cameraBounds, markerInset, safePlacement);
+        if (riftMarker) drawOffscreenMarker(riftMarker, game.enrageActive ? "#ff2a3f" : "#ff4cbe", false);
+
+        const allyMarker = allyBody
+          ? offscreenIndicatorFor(allyBody, cameraBounds, markerInset, safePlacement)
           : null;
         if (allyMarker) drawOffscreenMarker(allyMarker, "#b6ff57", true);
       }
