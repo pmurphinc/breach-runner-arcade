@@ -16,7 +16,7 @@
     "test:gameplay": "node --test tests/gameplay.test.mjs",
     "test:pvp": "node --test tests/coop-client-sync.test.mjs tests/network-motion.test.mjs tests/coop-server.test.mjs tests/pvp-protocol.test.mjs tests/pvp-server.test.mjs tests/pvp-socket.test.mjs tests/pvp-gameplay.test.mjs",
     "test:preflight": "node --test --test-concurrency=1 tests/preflight.test.mjs",
-    "test:browser": "node --test --test-concurrency=1 tests/gameplay.test.mjs tests/preflight.test.mjs tests/overcharge-gameplay.test.mjs tests/survival-gameplay.test.mjs"
+    "test:browser": "node --test --test-concurrency=1 tests/gameplay.test.mjs tests/preflight.test.mjs tests/overcharge-gameplay.test.mjs tests/survival-gameplay.test.mjs tests/offscreen-render.test.mjs"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",

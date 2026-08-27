@@ -13,7 +13,18 @@
  * in every view mode without the helper knowing a camera exists.
  */
 
-/** The slice of the world the camera is currently showing, in world units. */
+/**
+ * The slice of the world the pilot can actually see, in world units.
+ *
+ * "Actually see" rather than "the camera drew": on some layouts the arena
+ * canvas is deliberately wider than the box that clips it, so the outermost
+ * strip of what the camera renders never reaches the screen. A marker placed
+ * against the canvas edge there is painted and then thrown away by the clip,
+ * which is indistinguishable from no marker at all. Feed this the visible
+ * rectangle and every rule below — what counts as off screen, where the marker
+ * sits, which way it points — is measured against what the pilot has in front
+ * of them.
+ */
 export type CameraBounds = { left: number; top: number; right: number; bottom: number };
 
 /**
@@ -57,7 +68,51 @@ export const OFFSCREEN_VISIBLE_BODY = 0.5;
  */
 export const OFFSCREEN_MARKER_RADIUS = 13;
 
+/**
+ * How far a marker's *paint* actually reaches from its anchor, in presentation
+ * units — the number the edge clamp has to respect for nothing to be cut off.
+ *
+ * Deliberately larger than `OFFSCREEN_MARKER_RADIUS`, and deliberately a
+ * separate constant. That one is the box markers keep each other out of, which
+ * is about spacing; this one is the real ink, which is about not being clipped.
+ * It is the worst case over every marker type, and a test measures it out of
+ * the real path calls rather than trusting this number: the hazard alarm is the
+ * widest of them at 13.5 to its chevron tip, plus half of its 4.4 halo stroke,
+ * plus the 9 of glow it asks for. Whichever marker is drawn, the clamp keeps
+ * the whole of it inside the playfield.
+ */
+export const OFFSCREEN_MARKER_EXTENT = 25;
+
 const clamp = (value: number, low: number, high: number) => (value < low ? low : value > high ? high : value);
+
+/**
+ * How far in from the border a marker's *centre* has to sit.
+ *
+ * The inset is the look — a constant, deliberate gap from the edge. The extent
+ * is the floor underneath it: however small the inset gets, the centre never
+ * comes close enough to the border for the drawn body to hang over it. On the
+ * ordinary playfield the inset is the larger of the two and decides the
+ * placement on its own, so this changes nothing about where markers sit; it
+ * only stops a narrow playfield from pushing ink off the edge.
+ */
+function markerPad(inset: number, span: number, extent: number) {
+  return clamp(Math.max(inset, Math.max(0, extent)), 0, span / 2);
+}
+
+/**
+ * The part of `a` that is also inside `b`, or null when they do not overlap.
+ *
+ * Used to whittle the drawn canvas down to the part of it that survives every
+ * box clipping it. Shared here rather than at the call site because "the
+ * visible playfield" is the rectangle this whole module is defined against.
+ */
+export function intersectBounds(a: CameraBounds, b: CameraBounds): CameraBounds | null {
+  const left = Math.max(a.left, b.left);
+  const top = Math.max(a.top, b.top);
+  const right = Math.min(a.right, b.right);
+  const bottom = Math.min(a.bottom, b.bottom);
+  return right > left && bottom > top ? { left, top, right, bottom } : null;
+}
 
 /** Centre of the visible rectangle — what every indicator points away from. */
 export function cameraBoundsCenter(bounds: CameraBounds) {
@@ -96,8 +151,11 @@ export function isTargetOffscreen(
  * that a marker would be noise.
  *
  * Position clamps the target into the inset rectangle, so the marker sits on
- * the nearest edge and stays aligned with the target's row or column. Rotation
- * is measured from the camera centre, so a target off the top-left corner
+ * the nearest edge and stays aligned with the target's row or column. The
+ * rectangle is inset by the marker's drawn extent as well as by the requested
+ * inset, so the answer is a position whose whole painted body fits — not just
+ * an anchor that is technically inside the border. Rotation is measured from
+ * the centre of what the pilot can see, so a target off the top-left corner
  * points diagonally rather than snapping to an axis.
  */
 export function offscreenIndicatorFor(
@@ -110,8 +168,9 @@ export function offscreenIndicatorFor(
   const height = bounds.bottom - bounds.top;
   if (!(width > 0) || !(height > 0)) return null;
   if (!isTargetOffscreen(target, bounds)) return null;
-  const padX = clamp(inset, 0, width / 2);
-  const padY = clamp(inset, 0, height / 2);
+  const extent = options.markerExtent ?? OFFSCREEN_MARKER_EXTENT;
+  const padX = markerPad(inset, width, extent);
+  const padY = markerPad(inset, height, extent);
   const center = cameraBoundsCenter(bounds);
   const dx = target.x - center.x;
   const dy = target.y - center.y;
@@ -143,6 +202,13 @@ export type OffscreenIndicatorOptions = {
   blocked?: readonly BlockedRegion[];
   /** The marker's own half-size, so its footprint clears the region, not just its centre. */
   markerRadius?: number;
+  /**
+   * How far the marker's paint reaches from its anchor, so the edge clamp keeps
+   * the whole drawn body inside the playfield. Defaults to the worst case over
+   * every marker type; pass it in the caller's own units when those are not
+   * presentation units.
+   */
+  markerExtent?: number;
 };
 
 /** Half-open overlap: touching a region's expanded edge is already clear of it. */
@@ -258,8 +324,8 @@ export function slideClearOfBlockedRegions(
     && inside(indicator.y, region.top - radius, region.bottom + radius));
   if (!obstructed) return indicator;
 
-  const padX = clamp(inset, 0, width / 2);
-  const padY = clamp(inset, 0, height / 2);
+  const padX = markerPad(inset, width, options.markerExtent ?? OFFSCREEN_MARKER_EXTENT);
+  const padY = markerPad(inset, height, options.markerExtent ?? OFFSCREEN_MARKER_EXTENT);
   const lowX = bounds.left + padX;
   const highX = bounds.right - padX;
   const lowY = bounds.top + padY;
