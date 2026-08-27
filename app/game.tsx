@@ -116,6 +116,7 @@ import {
   PUP_RADIUS,
   PUP_SPIN,
   advancePup,
+  drawLooseArenaPup,
   drawPupFrame,
   pupFrameColor,
   pupCollected,
@@ -4782,16 +4783,16 @@ export default function WormholeGame() {
         const frameColor = pupFrameColor(WEAPONS[pickup.type].pupClass);
         ctx.save();
         ctx.translate(pickup.x, pickup.y);
-        if (profile.shadows) { ctx.shadowColor = frameColor; ctx.shadowBlur = 12; }
-        ctx.strokeStyle = "rgba(233,251,255,.85)";
-        ctx.lineWidth = 1.8;
-        drawPupFrame(ctx, WEAPONS[pickup.type].pupClass, PUP_RADIUS, pickup.phase * 0.35);
-        ctx.stroke();
-        ctx.fillStyle = `${frameColor}22`;
-        ctx.fill();
-        // The glyph is sized from the cradle, so the icon keeps its share of
-        // the badge instead of rattling around inside a bigger hexagon.
-        drawWeaponGlyph(ctx, pickup.type, PUP_GLYPH_RADIUS, time, { detail });
+        if (profile.shadows) ctx.shadowBlur = 12;
+        drawLooseArenaPup(ctx, {
+          pupClass: WEAPONS[pickup.type].pupClass,
+          frameColor,
+          rotation: pickup.phase * 0.35,
+        }, () => {
+          // The glyph is sized from the cradle, so the icon keeps its share of
+          // the badge instead of rattling around inside a bigger hexagon.
+          drawWeaponGlyph(ctx, pickup.type, PUP_GLYPH_RADIUS, time, { detail });
+        });
         ctx.restore();
       }
 

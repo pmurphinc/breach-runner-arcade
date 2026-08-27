@@ -43,6 +43,7 @@ test("immediate pickups remain outside the sendable stored inventory", () => {
 });
 
 test("arena world rendering still uses its established class frame path", () => {
-  assert.match(game, /drawPupFrame\(ctx, WEAPONS\[pickup\.type\]\.pupClass, PUP_RADIUS, pickup\.phase \* 0\.35\)/);
+  assert.match(game, /drawLooseArenaPup\(ctx, \{/);
+  assert.match(game, /pupClass: WEAPONS\[pickup\.type\]\.pupClass/);
   assert.match(game, /drawWeaponGlyph\(ctx, pickup\.type, PUP_GLYPH_RADIUS, time/);
 });
