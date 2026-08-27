@@ -17,6 +17,7 @@ import {
   PUP_WALL_BOUNCE,
   advancePup,
   drawPupFrame,
+  pupFrameColor,
   pupFrameShape,
   pupCollected,
 } from "../app/pup-world.ts";
@@ -29,6 +30,11 @@ const inventory = await readFile(new URL("../app/pup-inventory.js", import.meta.
 const ARENA = { width: 1504, height: 940 };
 
 const pup = (partial) => ({ x: 700, y: 470, vx: 0, vy: 0, ...partial });
+
+test("arena PUP world and pickup radii remain unchanged", () => {
+  assert.equal(PUP_RADIUS, 26);
+  assert.equal(PUP_PICKUP_RADIUS, 32);
+});
 
 test("a PUP is visibly bigger than it was, without dominating the arena", () => {
   // The hexagonal cradle used to be drawn at 19.
@@ -162,6 +168,13 @@ test("PupClass selects the four arena frame geometries", () => {
   assert.equal(pupFrameShape("rare"), "diamond");
 });
 
+test("PupClass selects the four arena frame colors", () => {
+  assert.equal(pupFrameColor("payload"), "#ff7043");
+  assert.equal(pupFrameColor("upgrade"), "#4fc3f7");
+  assert.equal(pupFrameColor("recovery"), "#66e07a");
+  assert.equal(pupFrameColor("rare"), "#b783ff");
+});
+
 test("polygon frames use the expected vertices while recovery traces a circle", () => {
   const trace = (pupClass) => {
     const calls = [];
@@ -187,9 +200,18 @@ test("world shape selection is metadata-driven rather than keyed by PUP ID", () 
   assert.doesNotMatch(game, /drawPupFrame\([^\n]*(?:health|gun|shield|heatseeker)/);
 });
 
+test("world frame color selection is class-driven while the glyph stays type-driven", () => {
+  assert.match(game, /pupFrameColor\(WEAPONS\[pickup\.type\]\.pupClass\)/);
+  assert.match(game, /drawWeaponGlyph\(ctx, pickup\.type, PUP_GLYPH_RADIUS/);
+  assert.doesNotMatch(game, /pupFrameColor\(pickup\.type\)/);
+  assert.doesNotMatch(game, /PUP_FRAME_COLORS\[[^\]]*pickup\.type/);
+});
+
 test("the HUD inventory icons are untouched by the arena badge", () => {
   // PUP 2.0 owns the inventory redesign; this pass is the world badge only.
   // The arena constants must not have leaked into the HUD's own sizing.
   assert.ok(!hudCss.includes("PUP_RADIUS"));
   assert.ok(!inventory.includes("PUP_RADIUS"));
+  assert.ok(!hudCss.includes("PUP_FRAME_COLORS"));
+  assert.ok(!inventory.includes("PUP_FRAME_COLORS"));
 });
