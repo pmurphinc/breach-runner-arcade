@@ -64,7 +64,7 @@ import {
   type ZoomLevel,
 } from "./view-settings";
 import { aimGuideSegment } from "./aim-guide";
-import { MAX_OFFSCREEN_PUP_INDICATORS, OFFSCREEN_INDICATOR_INSET, OFFSCREEN_MARKER_RADIUS, isTargetOffscreen, markerBlockFor, nearestOffscreenTargets, offscreenIndicatorFor, type BlockedRegion, type OffscreenIndicator } from "./offscreen-indicators";
+import { MAX_OFFSCREEN_PUP_INDICATORS, OFFSCREEN_INDICATOR_INSET, OFFSCREEN_MARKER_EXTENT, OFFSCREEN_MARKER_RADIUS, intersectBounds, isTargetOffscreen, markerBlockFor, nearestOffscreenTargets, offscreenIndicatorFor, type BlockedRegion, type CameraBounds, type OffscreenIndicator } from "./offscreen-indicators";
 import GlobalSystemControls, { useFullscreen } from "./system-controls";
 import { MenuScreen } from "./ui-system";
 import {
@@ -3037,6 +3037,80 @@ export default function WormholeGame() {
     let hudBlocks: BlockedRegion[] = [];
     let hudBlocksMeasuredAt = -Infinity;
 
+    /**
+     * The part of the canvas the pilot can actually see, in presentation units.
+     *
+     * Not the same rectangle as the canvas. In the immersive layouts the canvas
+     * is deliberately sized past its wrapper — `min-width: 100%` on an element
+     * that keeps the world's aspect ratio — and the wrapper's `overflow: hidden`
+     * throws the overhang away, so the arena fills the screen without being
+     * stretched. The overhang is always horizontal, because the canvas is given
+     * the wrapper's exact height and only its width is free to grow: that is
+     * precisely why an edge marker on the top or the bottom has always been
+     * visible while the same marker on the left or the right was painted into
+     * the clipped strip and never reached the glass.
+     *
+     * Measured rather than derived, so it stays honest whatever the layout does
+     * next: every box between the canvas and the document that clips, plus the
+     * window itself. Defaults to the whole canvas, which is the answer on every
+     * layout that does not clip — desktop included — so nothing moves there.
+     */
+    let playfieldBox = { left: 0, top: 0, right: VIEW_WIDTH, bottom: VIEW_HEIGHT };
+
+    const measurePlayfield = () => {
+      const canvasRect = canvas.getBoundingClientRect();
+      const scale = canvasRect.width > 0 ? VIEW_WIDTH / canvasRect.width : 0;
+      const full = { left: 0, top: 0, right: VIEW_WIDTH, bottom: renderViewHeight };
+      if (!scale) {
+        playfieldBox = full;
+        return;
+      }
+      let visible = {
+        left: canvasRect.left,
+        top: canvasRect.top,
+        right: canvasRect.right,
+        bottom: canvasRect.bottom,
+      };
+      // The window is the last clip, and every scroll container between here
+      // and it is one too. `overflow: visible` is the only value that does not
+      // clip, so anything else contributes its box.
+      const viewport = {
+        left: 0,
+        top: 0,
+        right: window.innerWidth,
+        bottom: window.innerHeight,
+      };
+      let clipped: CameraBounds | null = intersectBounds(visible, viewport);
+      for (let node = canvas.parentElement; node && clipped; node = node.parentElement) {
+        const style = getComputedStyle(node);
+        if (style.overflowX === "visible" && style.overflowY === "visible") continue;
+        const rect = node.getBoundingClientRect();
+        clipped = intersectBounds(clipped, {
+          left: style.overflowX === "visible" ? clipped.left : rect.left,
+          top: style.overflowY === "visible" ? clipped.top : rect.top,
+          right: style.overflowX === "visible" ? clipped.right : rect.right,
+          bottom: style.overflowY === "visible" ? clipped.bottom : rect.bottom,
+        });
+      }
+      // A playfield clipped to nothing — the arena scrolled off, a collapsed
+      // ancestor mid-layout — is not an answer worth clamping markers into, so
+      // fall back to the full canvas rather than stacking them in a sliver.
+      if (!clipped) {
+        playfieldBox = full;
+        return;
+      }
+      visible = clipped;
+      playfieldBox = {
+        left: Math.max(0, (visible.left - canvasRect.left) * scale),
+        top: Math.max(0, (visible.top - canvasRect.top) * scale),
+        right: Math.min(VIEW_WIDTH, (visible.right - canvasRect.left) * scale),
+        bottom: Math.min(renderViewHeight, (visible.bottom - canvasRect.top) * scale),
+      };
+      if (!(playfieldBox.right > playfieldBox.left) || !(playfieldBox.bottom > playfieldBox.top)) {
+        playfieldBox = full;
+      }
+    };
+
     const measureHudBlocks = () => {
       const canvasRect = canvas.getBoundingClientRect();
       const scale = canvasRect.width > 0 ? VIEW_WIDTH / canvasRect.width : 0;
@@ -3082,6 +3156,9 @@ export default function WormholeGame() {
       const safeTopCss = Number.parseFloat(getComputedStyle(canvasWrap).getPropertyValue("--camera-safe-top")) || 0;
       cameraSafeTop = safeTopCss * VIEW_WIDTH / cssWidth;
       hudBlocksMeasuredAt = -Infinity;
+      // The clipped strip is a function of the layout, so it is re-measured
+      // whenever the layout moves rather than only when a marker is due.
+      measurePlayfield();
     };
 
     const observer = new ResizeObserver((entries) => {
@@ -5326,7 +5403,28 @@ export default function WormholeGame() {
        * constant distance from the border at any magnification.
        */
       if (!game.result) {
-        const cameraBounds = { left: viewLeft, top: viewTop, right: viewRight, bottom: viewBottom };
+        /**
+         * Every marker is measured against the playfield the pilot can see,
+         * not against the whole canvas.
+         *
+         * On layouts that clip the canvas the two differ, and the difference is
+         * the entire bug this exists to prevent: the old bounds ran to the
+         * canvas edge, so a left or right marker was placed correctly, drawn
+         * correctly, and then discarded by the wrapper's clip, while top and
+         * bottom — never clipped, because the canvas is given its wrapper's
+         * exact height — worked fine. One rectangle, converted once, feeds
+         * visibility, placement and rotation for the Rift, the ally, hazards,
+         * PUPs and hostiles alike, so no marker type can drift from another.
+         *
+         * On every layout that does not clip, this is the camera rectangle to
+         * the pixel and nothing about placement changes.
+         */
+        const playfieldBounds = {
+          left: (playfieldBox.left - camX) / camScale,
+          top: (playfieldBox.top - camY) / camScale,
+          right: (playfieldBox.right - camX) / camScale,
+          bottom: (playfieldBox.bottom - camY) / camScale,
+        };
         const markerInset = OFFSCREEN_INDICATOR_INSET / camScale;
         const drawOffscreenMarker = (
           indicator: { x: number; y: number; angle: number },
@@ -5564,19 +5662,23 @@ export default function WormholeGame() {
         // actually a marker to keep out from under one, and then only a few
         // times a second. Every target gets the same list and the same
         // footprint, so none can end up under a panel another one avoids.
-        let marking = isTargetOffscreen(riftBody, cameraBounds)
-          || (allyBody ? isTargetOffscreen(allyBody, cameraBounds) : false);
+        let marking = isTargetOffscreen(riftBody, playfieldBounds)
+          || (allyBody ? isTargetOffscreen(allyBody, playfieldBounds) : false);
         if (!marking) {
           // Scanned in place, with an early exit: no array is built for this,
           // so the ordinary frame where everything is on screen costs a few
           // comparisons per hostile and nothing else.
           for (const enemy of game.enemies) {
-            if (enemy.hp > 0 && isTargetOffscreen(enemy, cameraBounds)) { marking = true; break; }
+            if (enemy.hp > 0 && isTargetOffscreen(enemy, playfieldBounds)) { marking = true; break; }
           }
         }
         if (marking && time - hudBlocksMeasuredAt >= HUD_BLOCK_REFRESH_MS) {
           hudBlocksMeasuredAt = time;
           measureHudBlocks();
+          // Both readings are layout, both are wanted only when a marker is
+          // due, and both go stale for the same reasons, so they refresh
+          // together rather than on two schedules that could disagree.
+          measurePlayfield();
         }
         const safePlacement = {
           blocked: marking
@@ -5588,11 +5690,14 @@ export default function WormholeGame() {
               }))
             : [],
           markerRadius: OFFSCREEN_MARKER_RADIUS / camScale,
+          // Counter-scaled like everything else about the marker, so the clamp
+          // reserves the same amount of real screen for its body at any zoom.
+          markerExtent: OFFSCREEN_MARKER_EXTENT / camScale,
         };
 
-        const riftMarker = offscreenIndicatorFor(riftBody, cameraBounds, markerInset, safePlacement);
+        const riftMarker = offscreenIndicatorFor(riftBody, playfieldBounds, markerInset, safePlacement);
         const allyMarker = allyBody
-          ? offscreenIndicatorFor(allyBody, cameraBounds, markerInset, safePlacement)
+          ? offscreenIndicatorFor(allyBody, playfieldBounds, markerInset, safePlacement)
           : null;
 
         /**
@@ -5625,11 +5730,12 @@ export default function WormholeGame() {
             ...(allyMarker ? [markerBlockFor(allyMarker, safePlacement.markerRadius)] : []),
           ],
           markerRadius: safePlacement.markerRadius,
+          markerExtent: safePlacement.markerExtent,
         };
         let hazardMarkers: { marker: OffscreenIndicator; kind: PowerId }[] | null = null;
         for (const enemy of game.enemies) {
           if (enemy.hp <= 0 || !isMajorOffscreenHazard(enemy.kind)) continue;
-          const marker = offscreenIndicatorFor(enemy, cameraBounds, markerInset, hazardPlacement);
+          const marker = offscreenIndicatorFor(enemy, playfieldBounds, markerInset, hazardPlacement);
           if (!marker) continue;
           (hazardMarkers ??= []).push({ marker, kind: enemy.kind });
           hazardPlacement.blocked.push(markerBlockFor(marker, hazardPlacement.markerRadius));
@@ -5655,14 +5761,14 @@ export default function WormholeGame() {
         const pupPlacement = hazardPlacement;
         const loosePups = nearestOffscreenTargets(
           game.pickups,
-          cameraBounds,
+          playfieldBounds,
           MAX_OFFSCREEN_PUP_INDICATORS,
           { origin: player, radius: PUP_RADIUS },
         );
         for (const pickup of loosePups) {
           const marker = offscreenIndicatorFor(
             { x: pickup.x, y: pickup.y, radius: PUP_RADIUS },
-            cameraBounds,
+            playfieldBounds,
             markerInset,
             pupPlacement,
           );
@@ -5704,7 +5810,7 @@ export default function WormholeGame() {
           // The live hostile is handed straight to the shared helper: it is
           // already { x, y, radius }, so its drawn body decides visibility
           // without a wrapper object per hostile per frame.
-          const marker = offscreenIndicatorFor(enemy, cameraBounds, markerInset, enemyPlacement);
+          const marker = offscreenIndicatorFor(enemy, playfieldBounds, markerInset, enemyPlacement);
           if (!marker) continue;
           drawOffscreenEnemyMarker(marker, enemy.kind);
           enemyPlacement.blocked.push(markerBlockFor(marker, enemyPlacement.markerRadius));

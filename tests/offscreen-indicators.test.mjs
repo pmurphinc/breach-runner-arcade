@@ -12,6 +12,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   OFFSCREEN_INDICATOR_INSET,
+  OFFSCREEN_MARKER_EXTENT,
   OFFSCREEN_MARKER_RADIUS,
   OFFSCREEN_VISIBLE_BODY,
   cameraBoundsCenter,
@@ -121,8 +122,11 @@ test("markers stay inset and fully inside the playfield on every side", () => {
   assert.equal((code.match(/OFFSCREEN_INDICATOR_INSET/g) ?? []).length, 3);
   assert.equal((code.match(/inset: number = OFFSCREEN_INDICATOR_INSET/g) ?? []).length, 2);
   assert.doesNotMatch(code, /inset(?:Top|Bottom|Left|Right)/i);
-  assert.equal((code.match(/padX = clamp\(inset, 0, width \/ 2\)/g) ?? []).length, 2);
-  assert.equal((code.match(/padY = clamp\(inset, 0, height \/ 2\)/g) ?? []).length, 2);
+  // Placement and the blocked-region slide take their pad from one shared
+  // helper, so the two can never disagree about where an edge actually is.
+  assert.equal((code.match(/markerPad\(inset, width, /g) ?? []).length, 2);
+  assert.equal((code.match(/markerPad\(inset, height, /g) ?? []).length, 2);
+  assert.equal((code.match(/function markerPad\(/g) ?? []).length, 1);
 });
 
 test("visibility uses the drawn body, not just the centre", () => {
@@ -388,13 +392,13 @@ test("Rift and ally get the same safe placement from the same call site", () => 
   const block = renderBlock();
   // One options object, built once, handed to both markers.
   assert.match(block, /const safePlacement = \{/);
-  assert.match(block, /offscreenIndicatorFor\(riftBody, cameraBounds, markerInset, safePlacement\)/);
-  assert.match(block, /offscreenIndicatorFor\(allyBody, cameraBounds, markerInset, safePlacement\)/);
+  assert.match(block, /offscreenIndicatorFor\(riftBody, playfieldBounds, markerInset, safePlacement\)/);
+  assert.match(block, /offscreenIndicatorFor\(allyBody, playfieldBounds, markerInset, safePlacement\)/);
   assert.match(block, /markerRadius: OFFSCREEN_MARKER_RADIUS \/ camScale/);
   // PUPs inherit the same HUD rectangles and the same footprint.
   assert.match(block, /blocked: \[\s*\.\.\.safePlacement\.blocked,/);
   assert.match(block, /markerRadius: safePlacement\.markerRadius,/);
-  assert.match(block, /cameraBounds,\s*markerInset,\s*pupPlacement,/);
+  assert.match(block, /playfieldBounds,\s*markerInset,\s*pupPlacement,/);
   // No marker-specific dodging anywhere in the render path.
   assert.doesNotMatch(block, /difficulty-badge/);
   // Identical geometry in, identical geometry out.
@@ -563,7 +567,7 @@ test("PUP markers are drawn under the Rift and ally, and avoid them", () => {
   // so neither of those two moves because of a PUP.
   assert.match(block, /riftMarker \? \[markerBlockFor\(riftMarker, safePlacement\.markerRadius\)\] : \[\]/);
   assert.match(block, /allyMarker \? \[markerBlockFor\(allyMarker, safePlacement\.markerRadius\)\] : \[\]/);
-  assert.match(block, /offscreenIndicatorFor\(riftBody, cameraBounds, markerInset, safePlacement\)/);
+  assert.match(block, /offscreenIndicatorFor\(riftBody, playfieldBounds, markerInset, safePlacement\)/);
 });
 
 test("PUP markers add no networking and touch no PUP gameplay", () => {
@@ -689,7 +693,7 @@ test("a hostile's drawn radius decides whether it counts as visible", () => {
   assert.equal(isTargetOffscreen(enemy(19, 300, "ufo", 40), BOUNDS), true);
   // The radius comes off the hostile itself, not a constant at the call site.
   const block = enemyBlock();
-  assert.match(block, /offscreenIndicatorFor\(enemy, cameraBounds, markerInset, enemyPlacement\)/);
+  assert.match(block, /offscreenIndicatorFor\(enemy, playfieldBounds, markerInset, enemyPlacement\)/);
   assert.doesNotMatch(block, /radius:/);
 });
 
@@ -836,7 +840,7 @@ test("hostile markers cost nothing on the ordinary all-on-screen frame", () => {
   const block = renderBlock();
   // The HUD read is gated on something actually being marked, hostiles included,
   // and that scan is an in-place early exit rather than a list.
-  assert.match(block, /for \(const enemy of game\.enemies\) \{\s*if \(enemy\.hp > 0 && isTargetOffscreen\(enemy, cameraBounds\)\) \{ marking = true; break; \}/);
+  assert.match(block, /for \(const enemy of game\.enemies\) \{\s*if \(enemy\.hp > 0 && isTargetOffscreen\(enemy, playfieldBounds\)\) \{ marking = true; break; \}/);
   // No layout read, no array copy and no per-hostile wrapper in the draw path.
   assert.doesNotMatch(enemyBlock(), /getBoundingClientRect|measureHudBlocks|querySelector|\.\.\.game\.enemies|\{ x: enemy\.x/);
 });
@@ -855,7 +859,7 @@ test("the Rift, ally and PUP markers are unchanged by the hostile pass", () => {
   // the same helper, still the same two draw calls last.
   assert.equal(MAX_OFFSCREEN_PUP_INDICATORS, 5);
   const block = renderBlock();
-  assert.match(block, /nearestOffscreenTargets\(\s*game\.pickups,\s*cameraBounds,\s*MAX_OFFSCREEN_PUP_INDICATORS,/);
+  assert.match(block, /nearestOffscreenTargets\(\s*game\.pickups,\s*playfieldBounds,\s*MAX_OFFSCREEN_PUP_INDICATORS,/);
   assert.match(block, /if \(riftMarker\) drawOffscreenMarker\(riftMarker, game\.enrageActive \? "#ff2a3f" : "#ff4cbe", false\)/);
   assert.match(block, /if \(allyMarker\) drawOffscreenMarker\(allyMarker, "#b6ff57", true\)/);
 });
@@ -1102,7 +1106,7 @@ test("a hazard marker slides out from under a HUD panel, keeping its heading", (
   assert.ok(marker.x >= BOUNDS.left + inset && marker.y >= BOUNDS.top + inset);
   // Repositioning is the shared slide, applied to the same blocked list every
   // other marker gets — not a rule of the hazard's own.
-  assert.match(hazardBlock(), /offscreenIndicatorFor\(enemy, cameraBounds, markerInset, hazardPlacement\)/);
+  assert.match(hazardBlock(), /offscreenIndicatorFor\(enemy, playfieldBounds, markerInset, hazardPlacement\)/);
   assert.match(hazardBlock(), /\.\.\.safePlacement\.blocked/);
   assert.doesNotMatch(hazardBlock(), /markerRadius: [\d.]|OFFSCREEN_INDICATOR_INSET|Math\.atan2/);
   assert.match(hazardBlock(), /markerRadius: safePlacement\.markerRadius/);
@@ -1242,4 +1246,283 @@ test("hazard markers are local presentation: no protocol, no HUD toggle, no soun
   assert.doesNotMatch(settings, /hazard|offscreen|indicator/i);
   // And no cue was added for it.
   assert.doesNotMatch(hazardArt(), /playCue|play\(|Audio|beep|alarmSound/);
+});
+
+// --------------------------------------------------- the visible playfield --
+//
+// Everything above this line is geometry against a rectangle, and all of it
+// passed while left and right markers were invisible in the running game. The
+// reason is that the rectangle the markers were being placed in was the whole
+// arena canvas, and on the immersive layouts the canvas is deliberately drawn
+// wider than the box that clips it: `min-width: 100%` on an element that keeps
+// the world's aspect ratio, inside a wrapper with `overflow: hidden`. Only the
+// width is free to grow — the canvas is handed its wrapper's exact height — so
+// the discarded strip is always on the left and the right, which is exactly why
+// top and bottom markers worked and side markers did not.
+//
+// So these tests do what the old ones did not: they treat the playfield as a
+// rectangle that can be narrower than the canvas, and they check the marker's
+// drawn footprint rather than its anchor point.
+
+/**
+ * The marker art, pulled out of the render block rather than restated here, so
+ * a change to a chevron or a badge is measured instead of being assumed.
+ */
+const markerArt = (open, close) => {
+  const block = renderBlock();
+  const from = block.indexOf(open);
+  assert.ok(from > 0, `expected ${open} in the render block`);
+  const to = close ? block.indexOf(close) : block.length;
+  return block.slice(from, to > from ? to : block.length);
+};
+
+const MARKER_ART = {
+  rift: () => markerArt("drawOffscreenMarker = (", "drawOffscreenPupMarker = ("),
+  pup: () => markerArt("drawOffscreenPupMarker = (", "drawOffscreenHazardMarker = ("),
+  hazard: () => markerArt("drawOffscreenHazardMarker = (", "drawOffscreenEnemyMarker = ("),
+  enemy: () => markerArt("drawOffscreenEnemyMarker = (", "const riftBody ="),
+};
+
+/**
+ * How far the furthest ink in one marker's drawing sits from its anchor.
+ *
+ * Read off the real path calls: every vertex, the outer edge of every ellipse
+ * and arc, half of the widest stroke laid over them, and the widest glow the
+ * marker asks for. The chevron is drawn rotated and the badge upright, so the
+ * honest answer is a radius around the anchor rather than a box.
+ */
+const drawnReach = (art) => {
+  let reach = 0;
+  for (const [, x, y] of art.matchAll(/ctx\.(?:moveTo|lineTo)\(([-\d.]+), ([-\d.]+)\)/g)) {
+    reach = Math.max(reach, Math.hypot(Number(x), Number(y)));
+  }
+  for (const [, x, y, rx, ry] of art.matchAll(/ctx\.ellipse\(([-\d.]+), ([-\d.]+), ([\d.]+), ([\d.]+)/g)) {
+    reach = Math.max(reach, Math.hypot(Number(x), Number(y)) + Math.max(Number(rx), Number(ry)));
+  }
+  for (const [, x, y, r] of art.matchAll(/ctx\.arc\(([-\d.]+), ([-\d.]+), ([\d.]+)/g)) {
+    reach = Math.max(reach, Math.hypot(Number(x), Number(y)) + Number(r));
+  }
+  const widths = [...art.matchAll(/ctx\.lineWidth = ([\d.]+)/g)].map((m) => Number(m[1]));
+  const blurs = [...art.matchAll(/shadowBlur = ([\d.]+)/g)].map((m) => Number(m[1]));
+  return reach + Math.max(0, ...widths) / 2 + Math.max(0, ...blurs);
+};
+
+/** The four-point star badge is built in a loop, so its reach is a constant. */
+const ENEMY_BADGE_REACH = 6.5;
+
+/**
+ * The playfield a clipped layout actually shows: a tablet in portrait, whose
+ * arena canvas overhangs its wrapper by a quarter of its width on each side.
+ * Same numbers the browser reports for an 820 × 1180 viewport.
+ */
+const CLIPPED = { left: 250, top: 0, right: 750, bottom: 600 };
+
+/** Every side and every corner, as a target far outside the playfield. */
+const AROUND = (bounds) => {
+  const midX = (bounds.left + bounds.right) / 2;
+  const midY = (bounds.top + bounds.bottom) / 2;
+  const outL = bounds.left - 800, outR = bounds.right + 800;
+  const outT = bounds.top - 800, outB = bounds.bottom + 800;
+  return {
+    top: { x: midX, y: outT },
+    bottom: { x: midX, y: outB },
+    left: { x: outL, y: midY },
+    right: { x: outR, y: midY },
+    upperLeft: { x: outL, y: outT },
+    upperRight: { x: outR, y: outT },
+    lowerLeft: { x: outL, y: outB },
+    lowerRight: { x: outR, y: outB },
+  };
+};
+
+/** The marker's whole drawn body, as a box, at `reach` around its anchor. */
+const footprint = (marker, reach) => ({
+  left: marker.x - reach,
+  top: marker.y - reach,
+  right: marker.x + reach,
+  bottom: marker.y + reach,
+});
+
+const containedIn = (box, bounds) =>
+  box.left >= bounds.left && box.right <= bounds.right
+  && box.top >= bounds.top && box.bottom <= bounds.bottom;
+
+test("the marker extent covers the furthest ink every marker type draws", () => {
+  for (const [name, art] of Object.entries(MARKER_ART)) {
+    const reach = drawnReach(art());
+    assert.ok(reach > 0, `expected to find drawn geometry for the ${name} marker`);
+    assert.ok(
+      reach <= OFFSCREEN_MARKER_EXTENT,
+      `the ${name} marker reaches ${reach.toFixed(2)} from its anchor, past the ${OFFSCREEN_MARKER_EXTENT} the clamp reserves`,
+    );
+  }
+  // The hostile badge is generated rather than written out, so its reach is
+  // asserted against the constant the render block builds it from.
+  assert.match(codeOnly(game), /reach = point % 2 === 0 \? 6\.5 : 2\.8/);
+  assert.ok(ENEMY_BADGE_REACH < OFFSCREEN_MARKER_EXTENT);
+  // The clamp reserves more room than the separation box, because ink reaches
+  // further than the box markers keep each other out of.
+  assert.ok(OFFSCREEN_MARKER_EXTENT > OFFSCREEN_MARKER_RADIUS);
+});
+
+test("every edge and corner keeps the whole marker body inside the playfield", () => {
+  for (const bounds of [BOUNDS, CLIPPED]) {
+    for (const [side, target] of Object.entries(AROUND(bounds))) {
+      const marker = offscreenIndicatorFor({ ...target, radius: RIFT_RADIUS }, bounds, inset);
+      assert.ok(marker, `expected a ${side} marker`);
+      assert.ok(
+        containedIn(footprint(marker, OFFSCREEN_MARKER_EXTENT), bounds),
+        `the ${side} marker's body left the playfield: ${JSON.stringify(marker)} in ${JSON.stringify(bounds)}`,
+      );
+    }
+  }
+});
+
+test("the directional chevron stays inside the playfield, whichever way it points", () => {
+  // The chevron is the furthest-out part of the marker and it rotates with the
+  // target, so it is checked at its real tip rather than inside a box: for each
+  // side, the tip of the longest chevron any marker draws, turned to the
+  // marker's own angle.
+  const tip = Math.max(...Object.values(MARKER_ART).map((art) => {
+    const points = [...art().matchAll(/ctx\.(?:moveTo|lineTo)\(([\d.]+), ([-\d.]+)\)/g)];
+    return Math.max(...points.map(([, x, y]) => Math.hypot(Number(x), Number(y))));
+  }));
+  for (const bounds of [BOUNDS, CLIPPED]) {
+    for (const [side, target] of Object.entries(AROUND(bounds))) {
+      const marker = offscreenIndicatorFor({ ...target, radius: RIFT_RADIUS }, bounds, inset);
+      const point = {
+        x: marker.x + Math.cos(marker.angle) * tip,
+        y: marker.y + Math.sin(marker.angle) * tip,
+      };
+      assert.ok(
+        point.x >= bounds.left && point.x <= bounds.right
+        && point.y >= bounds.top && point.y <= bounds.bottom,
+        `the ${side} chevron tip left the playfield: ${JSON.stringify(point)} in ${JSON.stringify(bounds)}`,
+      );
+    }
+  }
+});
+
+test("a narrower playfield moves the side markers in, and leaves top and bottom alone", () => {
+  // The clipped playfield is the full one with a strip taken off each side, so
+  // top and bottom markers land in exactly the same place and only the side
+  // markers move — inward, by the width of the strip that was being thrown away.
+  const wide = { left: 0, top: 0, right: 1000, bottom: 600 };
+  const narrow = { left: 250, top: 0, right: 750, bottom: 600 };
+  const around = AROUND(wide);
+  for (const side of ["top", "bottom"]) {
+    const before = offscreenIndicatorFor({ ...around[side], radius: RIFT_RADIUS }, wide, inset);
+    const after = offscreenIndicatorFor({ ...around[side], radius: RIFT_RADIUS }, narrow, inset);
+    assert.equal(after.y, before.y, `the ${side} marker should not have moved vertically`);
+  }
+  const left = offscreenIndicatorFor({ ...around.left, radius: RIFT_RADIUS }, narrow, inset);
+  const right = offscreenIndicatorFor({ ...around.right, radius: RIFT_RADIUS }, narrow, inset);
+  assert.equal(left.x, narrow.left + inset);
+  assert.equal(right.x, narrow.right - inset);
+  // And a target inside the canvas but inside the discarded strip — invisible
+  // to the pilot — is now marked rather than silently left unannounced.
+  const hidden = { x: 100, y: 300, radius: RIFT_RADIUS };
+  assert.equal(isTargetOffscreen(hidden, wide), false);
+  assert.equal(isTargetOffscreen(hidden, narrow), true);
+  assert.ok(offscreenIndicatorFor(hidden, narrow, inset));
+});
+
+test("HUD safe-zone repositioning never pushes a side marker out of the playfield", () => {
+  // Both real panels, mapped onto a clipped playfield: the rules badge in the
+  // top-left, the system controls in the top-right, each overlapping the side
+  // the markers are pinned to.
+  const badge = { left: 250, top: 0, right: 470, bottom: 120 };
+  const controls = { left: 620, top: 0, right: 750, bottom: 90 };
+  const blocked = [badge, controls];
+  for (const [side, target] of Object.entries(AROUND(CLIPPED))) {
+    const marker = offscreenIndicatorFor(
+      { ...target, radius: RIFT_RADIUS },
+      CLIPPED,
+      inset,
+      { blocked, markerRadius: OFFSCREEN_MARKER_RADIUS },
+    );
+    assert.ok(marker, `expected a ${side} marker`);
+    assert.ok(
+      containedIn(footprint(marker, OFFSCREEN_MARKER_EXTENT), CLIPPED),
+      `the ${side} marker escaped a HUD panel by leaving the playfield: ${JSON.stringify(marker)}`,
+    );
+    // Escaping a panel moves the marker; it never turns it away from its target.
+    const free = offscreenIndicatorFor({ ...target, radius: RIFT_RADIUS }, CLIPPED, inset);
+    assert.equal(marker.angle, free.angle, `the ${side} marker was rotated toward its adjusted position`);
+    for (const region of blocked) {
+      const body = footprint(marker, OFFSCREEN_MARKER_RADIUS);
+      assert.ok(
+        body.right <= region.left || body.left >= region.right
+        || body.bottom <= region.top || body.top >= region.bottom,
+        `the ${side} marker stayed under a HUD panel`,
+      );
+    }
+  }
+});
+
+test("marker separation keeps every crowded side marker inside the playfield", () => {
+  // A column of targets off one side, placed the way the render block places
+  // them: each marker becomes a blocked region for the next.
+  for (const side of ["left", "right"]) {
+    const outward = side === "left" ? CLIPPED.left - 900 : CLIPPED.right + 900;
+    const placement = { blocked: [], markerRadius: OFFSCREEN_MARKER_RADIUS };
+    for (let index = 0; index < 12; index += 1) {
+      const target = { x: outward, y: CLIPPED.top + 40 + index * 17, radius: RIFT_RADIUS };
+      const marker = offscreenIndicatorFor(target, CLIPPED, inset, placement);
+      assert.ok(marker, `expected a ${side} marker for target ${index}`);
+      assert.ok(
+        containedIn(footprint(marker, OFFSCREEN_MARKER_EXTENT), CLIPPED),
+        `separation pushed a ${side} marker out of the playfield: ${JSON.stringify(marker)}`,
+      );
+      placement.blocked.push(markerBlockFor(marker, OFFSCREEN_MARKER_RADIUS));
+    }
+  }
+});
+
+test("the Rift, ally, hazard, PUP and hostile markers all take the corrected path", () => {
+  // One rectangle, built once from the measured playfield, handed to every
+  // marker type. No type carries its own bounds, and none of them is handed the
+  // raw camera rectangle any more.
+  const block = renderBlock();
+  assert.equal((block.match(/const playfieldBounds = \{/g) ?? []).length, 1);
+  assert.match(block, /left: \(playfieldBox\.left - camX\) \/ camScale/);
+  assert.match(block, /right: \(playfieldBox\.right - camX\) \/ camScale/);
+  assert.match(block, /top: \(playfieldBox\.top - camY\) \/ camScale/);
+  assert.match(block, /bottom: \(playfieldBox\.bottom - camY\) \/ camScale/);
+  assert.doesNotMatch(block, /\bviewLeft\b|\bviewRight\b|\bviewTop\b|\bviewBottom\b/);
+  // Every consumer of the bounds names the same variable.
+  for (const call of [
+    /offscreenIndicatorFor\(riftBody, playfieldBounds, markerInset, safePlacement\)/,
+    /offscreenIndicatorFor\(allyBody, playfieldBounds, markerInset, safePlacement\)/,
+    /offscreenIndicatorFor\(enemy, playfieldBounds, markerInset, hazardPlacement\)/,
+    /playfieldBounds,\s*markerInset,\s*pupPlacement,/,
+    /offscreenIndicatorFor\(enemy, playfieldBounds, markerInset, enemyPlacement\)/,
+    /nearestOffscreenTargets\(\s*game\.pickups,\s*playfieldBounds,/,
+  ]) assert.match(block, call);
+  // And the drawn extent rides the camera scale exactly like the inset does,
+  // so the reserved room is the same number of screen pixels at any zoom.
+  assert.match(block, /markerExtent: OFFSCREEN_MARKER_EXTENT \/ camScale/);
+  assert.match(block, /markerExtent: safePlacement\.markerExtent/);
+});
+
+test("the visible playfield is measured from the layout, not assumed", () => {
+  const source = codeOnly(game);
+  // Every box between the canvas and the window that clips is intersected in,
+  // rather than the wrapper alone being special-cased.
+  assert.match(source, /for \(let node = canvas\.parentElement; node && clipped; node = node\.parentElement\)/);
+  assert.match(source, /style\.overflowX === "visible" && style\.overflowY === "visible"/);
+  assert.match(source, /intersectBounds\(visible, viewport\)/);
+  // Re-measured when the layout moves, and alongside the HUD panels, rather
+  // than once at startup.
+  assert.equal((source.match(/measurePlayfield\(\)/g) ?? []).length, 2);
+  // A degenerate measurement falls back to the whole canvas instead of stacking
+  // every marker into a sliver.
+  assert.match(source, /if \(!clipped\) \{\s*playfieldBox = full;/);
+  // Priority is untouched: the Rift, then the ally, then hazards, then PUPs,
+  // then ordinary hostiles, in that order down the block.
+  const block = renderBlock();
+  const order = ["riftMarker =", "allyMarker =", "hazardPlacement", "pupPlacement", "enemyPlacement"];
+  const found = order.map((needle) => block.indexOf(needle));
+  assert.deepEqual(found, [...found].sort((a, b) => a - b));
+  assert.ok(found.every((index) => index > 0));
 });
