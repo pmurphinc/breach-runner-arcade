@@ -133,6 +133,22 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 
 :where(button, [href], select, [tabindex]):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 2px; }
 
+/* Controller-only focus beacon. Outline and glow are paint-only, remain
+   legible at TV distance, and do not alter the touch or mouse layout. */
+@keyframes controller-focus-pulse {
+  0%, 100% { outline-color: var(--focus); box-shadow: 0 0 0 2px rgba(157, 242, 255, .28), 0 0 14px rgba(100, 234, 255, .38); }
+  50% { outline-color: #fff; box-shadow: 0 0 0 4px rgba(157, 242, 255, .5), 0 0 26px rgba(100, 234, 255, .72); }
+}
+[data-controller-focused="true"] {
+  outline: 4px solid var(--focus) !important;
+  outline-offset: 4px !important;
+  box-shadow: 0 0 0 3px rgba(157, 242, 255, .42), 0 0 22px rgba(100, 234, 255, .62) !important;
+  animation: controller-focus-pulse 1s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-controller-focused="true"] { animation: none; }
+}
+
 .app-shell { min-height: 100dvh; background-image: linear-gradient(rgba(69, 151, 178, .025) 1px, transparent 1px), linear-gradient(90deg, rgba(69, 151, 178, .025) 1px, transparent 1px); background-size: 40px 40px; }
 .app-shell:fullscreen { width: 100%; height: 100dvh; overflow: auto; background-color: #02050a; }
 

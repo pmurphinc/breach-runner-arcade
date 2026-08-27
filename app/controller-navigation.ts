@@ -1,6 +1,7 @@
 /** Shared controller navigation for every visible menu/dialog surface. */
 export const CONTROLLER_FOCUSABLE =
   'button:not([disabled]), input:not([disabled]), select:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
+export const CONTROLLER_FOCUS_ATTRIBUTE = "data-controller-focused";
 
 export type ControllerCancelContext = {
   codex: boolean;
@@ -22,10 +23,29 @@ export function visibleControllerControls(root: ParentNode = document): HTMLElem
   surfaces.forEach((surface) => {
     if (surface.offsetParent === null) return;
     surface.querySelectorAll<HTMLElement>(CONTROLLER_FOCUSABLE).forEach((control) => {
-      if (control.offsetParent !== null && control.tabIndex >= 0) controls.add(control);
+      if (isControllerControlVisible(control)) controls.add(control);
     });
   });
   return [...controls];
+}
+
+/** Keep visibility/disabled filtering in the shared model, not in individual menus. */
+export function isControllerControlVisible(control: HTMLElement) {
+  return control.offsetParent !== null
+    && control.tabIndex >= 0
+    && !control.matches(":disabled, [aria-disabled=\"true\"], [hidden]")
+    && !control.closest('[aria-hidden="true"], [inert]');
+}
+
+export function clearControllerFocus(root: ParentNode = document) {
+  root.querySelectorAll<HTMLElement>(`[${CONTROLLER_FOCUS_ATTRIBUTE}]`).forEach((control) => {
+    control.removeAttribute(CONTROLLER_FOCUS_ATTRIBUTE);
+  });
+}
+
+export function showControllerFocus(control: HTMLElement | null, root: ParentNode = document) {
+  clearControllerFocus(root);
+  control?.setAttribute(CONTROLLER_FOCUS_ATTRIBUTE, "true");
 }
 
 /**
@@ -42,7 +62,23 @@ export function moveControllerFocus(controls: readonly HTMLElement[], horizontal
       active.value = option.value;
       active.dispatchEvent(new Event("change", { bubbles: true }));
     }
+    showControllerFocus(active);
     return active;
+  }
+  // Roving radio groups (mode and difficulty rows) expose one tab stop, but
+  // left/right still needs to traverse every logical choice in the row.
+  const radioGroup = horizontal && active?.getAttribute("role") === "radio"
+    ? active.closest<HTMLElement>('[role="radiogroup"]')
+    : null;
+  if (radioGroup) {
+    const radios = [...radioGroup.querySelectorAll<HTMLElement>('[role="radio"]')]
+      .filter((radio) => radio.offsetParent !== null && !radio.matches(':disabled, [aria-disabled="true"], [hidden]'));
+    const current = radios.indexOf(active);
+    const next = radios[(Math.max(0, current) + Math.sign(horizontal) + radios.length) % radios.length];
+    next?.focus();
+    next?.click();
+    showControllerFocus(next);
+    return next;
   }
   const direction = vertical || horizontal;
   if (!direction || controls.length === 0) return active;
@@ -52,5 +88,6 @@ export function moveControllerFocus(controls: readonly HTMLElement[], horizontal
     : (current + Math.sign(direction) + controls.length) % controls.length;
   const next = controls[index];
   next?.focus();
+  showControllerFocus(next ?? null);
   return next;
 }
