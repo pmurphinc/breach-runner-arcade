@@ -19,7 +19,7 @@
  */
 
 /**
- * Radius of the PUP body — the hexagonal cradle the player actually sees.
+ * Radius of the PUP body — the class-shaped cradle the player actually sees.
  *
  * Was 19. Arena PUPs were easy to lose against a busy Rift Collapse
  * background and fiddly to line up with on a phone, so the body is a little
@@ -62,6 +62,54 @@ export const PUP_DRIFT_DECAY = 0.995;
 
 /** Radians per tick the badge rotates. Unchanged. */
 export const PUP_SPIN = 0.08;
+
+export type PupFrameShape = "triangle" | "octagon" | "circle" | "diamond";
+
+/** The single class-to-silhouette vocabulary for loose arena PUPs. */
+export const PUP_FRAME_SHAPES = Object.freeze({
+  payload: "triangle",
+  upgrade: "octagon",
+  recovery: "circle",
+  rare: "diamond",
+} as const satisfies Record<import("./game-data").PupClass, PupFrameShape>);
+
+/** Resolve frame art from canonical gameplay classification, never a PUP ID. */
+export function pupFrameShape(pupClass: import("./game-data").PupClass): PupFrameShape {
+  return PUP_FRAME_SHAPES[pupClass];
+}
+
+/**
+ * Trace the rotating outer body for a loose arena PUP.
+ *
+ * Rotation is applied to the geometry rather than the canvas, leaving the
+ * existing centre glyph upright and unchanged. All vertices sit on `radius`,
+ * so every silhouette remains inside the established circular world body.
+ */
+export function drawPupFrame(
+  ctx: Pick<CanvasRenderingContext2D, "beginPath" | "moveTo" | "lineTo" | "arc" | "closePath">,
+  pupClass: import("./game-data").PupClass,
+  radius: number,
+  rotation: number,
+) {
+  const shape = pupFrameShape(pupClass);
+  ctx.beginPath();
+  if (shape === "circle") {
+    ctx.arc(0, 0, radius, rotation, rotation + Math.PI * 2);
+    ctx.closePath();
+    return;
+  }
+
+  const sides = shape === "triangle" ? 3 : shape === "octagon" ? 8 : 4;
+  // Point triangle/diamond upward at rest; the old frame's phase still spins it.
+  const start = rotation - Math.PI / 2;
+  for (let i = 0; i < sides; i += 1) {
+    const angle = start + (i / sides) * Math.PI * 2;
+    const x = Math.cos(angle) * radius;
+    const y = Math.sin(angle) * radius;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+}
 
 /**
  * Speed below which a wall bounce parks the axis instead of nudging it.

@@ -113,6 +113,7 @@ import {
   PUP_RADIUS,
   PUP_SPIN,
   advancePup,
+  drawPupFrame,
   pupCollected,
 } from "./pup-world";
 import {
@@ -4814,8 +4815,8 @@ export default function WormholeGame() {
       drawPortal(game, time, detail);
       for (const spawn of game.spawns) drawSpawnFx(spawn, time, detail);
 
-      // Friendly pickups sit in a bright hexagonal cradle so they never read as
-      // an incoming hostile hull.
+      // Friendly pickups sit in a bright class-shaped cradle around their
+      // established glyph, so gameplay role is visible without changing color.
       for (const pickup of game.pickups) {
         if (!visible(pickup.x, pickup.y, PUP_RADIUS + 7)) continue;
         const color = POWER_COLORS[pickup.type];
@@ -4824,14 +4825,7 @@ export default function WormholeGame() {
         if (profile.shadows) { ctx.shadowColor = color; ctx.shadowBlur = 12; }
         ctx.strokeStyle = "rgba(233,251,255,.85)";
         ctx.lineWidth = 1.8;
-        ctx.beginPath();
-        for (let i = 0; i < 6; i += 1) {
-          const a = (i / 6) * Math.PI * 2 + pickup.phase * 0.35;
-          const x = Math.cos(a) * PUP_RADIUS;
-          const y = Math.sin(a) * PUP_RADIUS;
-          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-        }
-        ctx.closePath();
+        drawPupFrame(ctx, WEAPONS[pickup.type].pupClass, PUP_RADIUS, pickup.phase * 0.35);
         ctx.stroke();
         ctx.fillStyle = `${color}22`;
         ctx.fill();

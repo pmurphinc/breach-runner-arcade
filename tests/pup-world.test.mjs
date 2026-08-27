@@ -16,6 +16,8 @@ import {
   PUP_RADIUS,
   PUP_WALL_BOUNCE,
   advancePup,
+  drawPupFrame,
+  pupFrameShape,
   pupCollected,
 } from "../app/pup-world.ts";
 
@@ -149,8 +151,40 @@ test("the game loop moves PUPs through this module rather than inline", () => {
   assert.doesNotMatch(game, /dist\(pickup, player\) < 25/);
   // The badge and the glyph are drawn from the shared constants, so the thing
   // the player aims at is the thing the collision test uses.
-  assert.match(game, /Math\.cos\(a\) \* PUP_RADIUS/);
+  assert.match(game, /drawPupFrame\(ctx, WEAPONS\[pickup\.type\]\.pupClass, PUP_RADIUS, pickup\.phase \* 0\.35\)/);
   assert.match(game, /drawWeaponGlyph\(ctx, pickup\.type, PUP_GLYPH_RADIUS/);
+});
+
+test("PupClass selects the four arena frame geometries", () => {
+  assert.equal(pupFrameShape("payload"), "triangle");
+  assert.equal(pupFrameShape("upgrade"), "octagon");
+  assert.equal(pupFrameShape("recovery"), "circle");
+  assert.equal(pupFrameShape("rare"), "diamond");
+});
+
+test("polygon frames use the expected vertices while recovery traces a circle", () => {
+  const trace = (pupClass) => {
+    const calls = [];
+    const ctx = {
+      beginPath: () => calls.push(["beginPath"]),
+      moveTo: (x, y) => calls.push(["moveTo", x, y]),
+      lineTo: (x, y) => calls.push(["lineTo", x, y]),
+      arc: (...args) => calls.push(["arc", ...args]),
+      closePath: () => calls.push(["closePath"]),
+    };
+    drawPupFrame(ctx, pupClass, PUP_RADIUS, 0.4);
+    return calls;
+  };
+
+  assert.equal(trace("payload").filter(([op]) => op === "moveTo" || op === "lineTo").length, 3);
+  assert.equal(trace("upgrade").filter(([op]) => op === "moveTo" || op === "lineTo").length, 8);
+  assert.equal(trace("rare").filter(([op]) => op === "moveTo" || op === "lineTo").length, 4);
+  assert.deepEqual(trace("recovery").map(([op]) => op), ["beginPath", "arc", "closePath"]);
+});
+
+test("world shape selection is metadata-driven rather than keyed by PUP ID", () => {
+  assert.match(game, /WEAPONS\[pickup\.type\]\.pupClass/);
+  assert.doesNotMatch(game, /drawPupFrame\([^\n]*(?:health|gun|shield|heatseeker)/);
 });
 
 test("the HUD inventory icons are untouched by the arena badge", () => {
