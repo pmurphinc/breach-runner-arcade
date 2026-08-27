@@ -9,7 +9,7 @@
  * phone and an ultrawide render the same markup and the same words.
  */
 
-import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { useEffect, useId, useMemo, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import { MenuScreen, MenuSection, OptionRow, SummaryRow, Toggle } from "./ui-system";
 import { MenuSectionNav } from "./menu-nav";
 import { SHIPS, type ShipId } from "./game-data";
@@ -386,6 +386,16 @@ export function ShipsScreen({
 
 /* -------------------------------------------------------------- settings -- */
 
+export const SETTINGS_TABS = [
+  { id: "controls", label: "Controls" },
+  { id: "audio", label: "Audio" },
+  { id: "video", label: "Video" },
+  { id: "hud", label: "HUD" },
+  { id: "gameInfo", label: "Game Info" },
+] as const;
+
+type SettingsTab = (typeof SETTINGS_TABS)[number]["id"];
+
 export function SettingsScreen({
   back,
   viewMode,
@@ -436,6 +446,8 @@ export function SettingsScreen({
   initials: string;
   onInitials: (next: string) => void;
 }) {
+  const [activeTab, setActiveTab] = useState<SettingsTab>("controls");
+  const tabsId = useId();
   const [mirrorTouchActions, onMirrorTouchActions] = useMirroredTouchActionsSetting();
   const mirrorDisabled = viewMode === "pc" || !thumbsticks;
   const mirrorHint = viewMode === "pc"
@@ -444,9 +456,46 @@ export function SettingsScreen({
       ? "Turn Thumbsticks on first"
       : "Duplicates PUP, SPEC, and Pause around the movement stick";
 
+  const selectAdjacentTab = (current: SettingsTab, direction: number) => {
+    const currentIndex = SETTINGS_TABS.findIndex(({ id }) => id === current);
+    const next = SETTINGS_TABS[(currentIndex + direction + SETTINGS_TABS.length) % SETTINGS_TABS.length];
+    setActiveTab(next.id);
+    document.getElementById(`${tabsId}-tab-${next.id}`)?.focus();
+  };
+
+  const onTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>, tab: SettingsTab) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    selectAdjacentTab(tab, event.key === "ArrowRight" ? 1 : -1);
+  };
+
   return (
     <MenuScreen route="settings" title="Settings" onBack={back}>
-      <MenuSection title="Controls">
+      <div className="settings-tabs" role="tablist" aria-label="Settings categories">
+        {SETTINGS_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            id={`${tabsId}-tab-${tab.id}`}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            aria-controls={`${tabsId}-panel-${tab.id}`}
+            tabIndex={activeTab === tab.id ? 0 : -1}
+            onClick={() => setActiveTab(tab.id)}
+            onKeyDown={(event) => onTabKeyDown(event, tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      <div
+        className="settings-tab-panel"
+        id={`${tabsId}-panel-${activeTab}`}
+        role="tabpanel"
+        aria-labelledby={`${tabsId}-tab-${activeTab}`}
+      >
+      {activeTab === "controls" ? <MenuSection title="Controls">
         <OptionRow
           label="Input"
           value={storedViewMode ?? "auto"}
@@ -528,9 +577,9 @@ export function SettingsScreen({
             </dl>
           </div>
         </div>
-      </MenuSection>
+      </MenuSection> : null}
 
-      <MenuSection title="Audio">
+      {activeTab === "audio" ? <MenuSection title="Audio">
         <Toggle label="Sound" value={sound} onChange={onSound} />
         <OptionRow
           label="Volume"
@@ -550,9 +599,9 @@ export function SettingsScreen({
           disabled={!sound}
           hint="Short impact marker for normal pulse-cannon hits"
         />
-      </MenuSection>
+      </MenuSection> : null}
 
-      <MenuSection title="Display">
+      {activeTab === "video" ? <MenuSection title="Video">
         <OptionRow
           label="Perspective"
           value={cameraLock ? "follow" : "arena"}
@@ -575,9 +624,17 @@ export function SettingsScreen({
           onChange={onZoom}
         />
         {!cameraLock ? <p className="menu-hint">Full Arena always fits the entire arena.</p> : null}
-      </MenuSection>
+      </MenuSection> : null}
 
-      <MenuSection title="Arcade identity" hint="Used automatically for future scores.">
+      {activeTab === "hud" ? <MenuSection title="HUD">
+        <p className="menu-hint settings-empty-state">No HUD presentation options are currently available.</p>
+      </MenuSection> : null}
+
+      {activeTab === "gameInfo" ? <MenuSection title="Game Info">
+        <p className="menu-hint settings-empty-state">Game information remains available from the main menu.</p>
+      </MenuSection> : null}
+
+      {activeTab === "controls" ? <MenuSection title="Arcade identity" hint="Used automatically for future scores.">
         <div className="initials-field">
           <label htmlFor="menu-player-initials">Initials</label>
           <input
@@ -592,7 +649,8 @@ export function SettingsScreen({
             onChange={(event) => onInitials(event.target.value)}
           />
         </div>
-      </MenuSection>
+      </MenuSection> : null}
+      </div>
     </MenuScreen>
   );
 }

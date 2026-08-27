@@ -2858,6 +2858,11 @@ export default function WormholeGame() {
       controllerInput.current = action;
       const controls = visibleControllerControls();
       if (controls.length > 0) {
+        const activeControl = document.activeElement as HTMLElement | null;
+        const tabShoulder = activeControl?.getAttribute("role") === "tab"
+          ? pressedOnce(action.nextPup, previous.nextPup) ? 1 : pressedOnce(action.previousPup, previous.previousPup) ? -1 : 0
+          : 0;
+        if (tabShoulder) moveControllerFocus(controls, tabShoulder, 0);
         const menuX = action.menuX || action.moveX;
         const menuY = action.menuY || action.moveY;
         const previousX = previous.menuX || previous.moveX;
@@ -2865,7 +2870,7 @@ export default function WormholeGame() {
         const horizontal = Math.abs(menuX) > Math.abs(menuY) ? menuX : 0;
         const vertical = horizontal ? 0 : menuY;
         const direction = vertical || horizontal;
-        if (direction && (!previousX && !previousY || now - lastMenuMove > 220)) {
+        if (!tabShoulder && direction && (!previousX && !previousY || now - lastMenuMove > 220)) {
           lastMenuMove = now;
           moveControllerFocus(controls, horizontal, vertical);
         }
