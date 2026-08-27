@@ -99,7 +99,7 @@ import { inventoryPayloadIconLayout, inventoryPupVisual } from "./pup-inventory-
 import { pupPickupSoundProfile, type PupPickupSoundProfile } from "./pup-audio";
 import { RICOCHET_BOUNCES, RICOCHET_DURATION_SECONDS, reflectRicochet } from "./ricochet";
 import { controllerStateForPads, EMPTY_GAMEPAD, headingDegrees, pressedOnce, type GamepadActions } from "./gamepad";
-import { controllerCancelTarget, moveControllerFocus, visibleControllerControls } from "./controller-navigation";
+import { clearControllerFocus, controllerCancelTarget, moveControllerFocus, visibleControllerControls } from "./controller-navigation";
 import {
   MOVEMENT_CODES,
   RETRO_MAX_LEVEL,
@@ -2849,15 +2849,25 @@ export default function WormholeGame() {
     let frame = 0;
     let previous = EMPTY_GAMEPAD;
     let lastMenuMove = 0;
+    const leaveControllerMode = () => clearControllerFocus();
+    window.addEventListener("pointerdown", leaveControllerMode, { passive: true });
+    window.addEventListener("pointermove", leaveControllerMode, { passive: true });
+    window.addEventListener("keydown", leaveControllerMode, { passive: true });
     const poll = (now: number) => {
       const action = controllerStateForPads(Array.from(navigator.getGamepads?.() ?? []));
       controllerInput.current = action;
       const controls = visibleControllerControls();
       if (controls.length > 0) {
-        const direction = action.menuY || action.menuX;
-        if (direction && (!previous.menuX && !previous.menuY || now - lastMenuMove > 220)) {
+        const menuX = action.menuX || action.moveX;
+        const menuY = action.menuY || action.moveY;
+        const previousX = previous.menuX || previous.moveX;
+        const previousY = previous.menuY || previous.moveY;
+        const horizontal = Math.abs(menuX) > Math.abs(menuY) ? menuX : 0;
+        const vertical = horizontal ? 0 : menuY;
+        const direction = vertical || horizontal;
+        if (direction && (!previousX && !previousY || now - lastMenuMove > 220)) {
           lastMenuMove = now;
-          moveControllerFocus(controls, action.menuX, action.menuY);
+          moveControllerFocus(controls, horizontal, vertical);
         }
         if (pressedOnce(action.confirm, previous.confirm)) (document.activeElement as HTMLElement)?.click?.();
         if (pressedOnce(action.cancel, previous.cancel)) controllerCancel();
@@ -2878,7 +2888,14 @@ export default function WormholeGame() {
       frame = requestAnimationFrame(poll);
     };
     frame = requestAnimationFrame(poll);
-    return () => { cancelAnimationFrame(frame); controllerInput.current = EMPTY_GAMEPAD; };
+    return () => {
+      cancelAnimationFrame(frame);
+      controllerInput.current = EMPTY_GAMEPAD;
+      window.removeEventListener("pointerdown", leaveControllerMode);
+      window.removeEventListener("pointermove", leaveControllerMode);
+      window.removeEventListener("keydown", leaveControllerMode);
+      clearControllerFocus();
+    };
   }, [controllerCancel, toggleMenu]);
 
   useEffect(() => {
