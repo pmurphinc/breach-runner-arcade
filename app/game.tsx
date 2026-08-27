@@ -64,6 +64,7 @@ import {
   type ZoomLevel,
 } from "./view-settings";
 import { aimGuideSegment } from "./aim-guide";
+import { followCameraFrame } from "./camera-framing";
 import { MAX_OFFSCREEN_PUP_INDICATORS, OFFSCREEN_INDICATOR_INSET, OFFSCREEN_MARKER_EXTENT, OFFSCREEN_MARKER_RADIUS, intersectBounds, isTargetOffscreen, markerBlockFor, nearestOffscreenTargets, offscreenIndicatorFor, type BlockedRegion, type CameraBounds, type OffscreenIndicator } from "./offscreen-indicators";
 import GlobalSystemControls, { useFullscreen } from "./system-controls";
 import { MenuScreen } from "./ui-system";
@@ -4935,14 +4936,17 @@ export default function WormholeGame() {
 
       const locked = cameraRef.current;
       const camScale = locked ? ZOOM_SCALE[zoomRef.current] : Math.min(VIEW_WIDTH / game.worldWidth, renderViewHeight / game.worldHeight);
-      const camX = locked ? cap(VIEW_WIDTH / 2 - player.x * camScale, VIEW_WIDTH - game.worldWidth * camScale, 0) : (VIEW_WIDTH - game.worldWidth * camScale) / 2;
       // On short landscape phones, bias critical focal objects below the DOM
       // HUD. This changes framing only; simulation bounds remain untouched.
       const focalTop = cssWidth > cssHeight ? Math.min(renderViewHeight * .42, cameraSafeTop) : 0;
-      const focalHeight = Math.max(1, renderViewHeight - focalTop);
-      const camY = locked
-        ? cap(focalTop + focalHeight / 2 - player.y * camScale, renderViewHeight - game.worldHeight * camScale, 0)
-        : (renderViewHeight - game.worldHeight * camScale) / 2;
+      // Use the same measured playfield as markers: clipped canvas overhang is
+      // not usable follow-camera space. Full Arena retains its whole-world fit.
+      const followed = locked
+        ? followCameraFrame(player, { width: game.worldWidth, height: game.worldHeight }, camScale,
+            playfieldBox, Math.max(playfieldBox.top, focalTop))
+        : null;
+      const camX = followed?.camX ?? (VIEW_WIDTH - game.worldWidth * camScale) / 2;
+      const camY = followed?.camY ?? (renderViewHeight - game.worldHeight * camScale) / 2;
       const viewLeft = -camX / camScale;
       const viewTop = -camY / camScale;
       const viewRight = (VIEW_WIDTH - camX) / camScale;
