@@ -152,10 +152,9 @@ import {
 } from "./survival-board";
 import { formatRunTime, normalizeInitials, settleScore } from "./run-scoring";
 import {
-  AUTO_GUN_DAMAGE,
   AUTO_GUN_PROJECTILE_SPEED,
-  AUTO_GUN_PROJECTILE_TICKS,
   autoGunDelayTicks,
+  effectiveAutoGunTuning,
   selectAutoGunTarget,
 } from "./auto-gun";
 import {
@@ -464,6 +463,8 @@ type Player = {
   flagshipField: number;
   /** Ticks remaining in Kestrel's SALVAGE LINK collection window. */
   salvageLink: number;
+  /** Ticks remaining in Warden's SENTRY OVERDRIVE tuning window. */
+  sentryOverdrive: number;
   autoGunCooldown: number;
   autoGunAngle: number;
   flashMode: "tank" | "squid";
@@ -686,6 +687,7 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
       viperGuidance: 0,
       flagshipField: 0,
       salvageLink: 0,
+      sentryOverdrive: 0,
       autoGunCooldown: 0,
       autoGunAngle: -90,
       flashMode: "tank",
@@ -2157,6 +2159,8 @@ export default function WormholeGame() {
         ? { frequencies: [640, 400, 250, 155], duration: 0.9, gap: 0.075, type: "sine" as OscillatorType }
       : cue === "overcharge:core"
         ? { frequencies: [110, 74, 52, 190], duration: 1.05, gap: 0.085, type: "sawtooth" as OscillatorType }
+      : cue === "sentry-overdrive"
+        ? { frequencies: [150, 220, 330, 510], duration: 0.48, gap: 0.035, type: "sawtooth" as OscillatorType }
       : cue === "ricochet"
         ? { frequencies: [720, 980], duration: 0.09, gap: 0.018, type: "triangle" as OscillatorType }
       : cue === "cannon-hit"
@@ -3673,6 +3677,9 @@ export default function WormholeGame() {
       } else if (ship === "kestrel") {
         player.salvageLink = ticksForSeconds(spec.activeSeconds ?? 0);
         game.notice = `SALVAGE LINK // ${spec.activeSeconds ?? 0}S`;
+      } else if (ship === "warden") {
+        player.sentryOverdrive = ticksForSeconds(spec.activeSeconds ?? 0);
+        game.notice = `SENTRY OVERDRIVE // ${spec.activeSeconds ?? 0}S`;
       }
 
       player.specialCooldown = ticksForSeconds(spec.cooldownSeconds);
@@ -3680,6 +3687,7 @@ export default function WormholeGame() {
       if (!overcharge) {
         burst(game, player.x, player.y, "#68f2ff", 26, 8);
         if (ship === "kestrel") playCue("salvage-link-active", 0.22);
+        else if (ship === "warden") playCue("sentry-overdrive", 0.2);
         else play("magic", 0.22);
       }
     };
@@ -4152,6 +4160,7 @@ export default function WormholeGame() {
       player.overchargeFlash = Math.max(0, player.overchargeFlash - 1);
       player.viperGuidance = Math.max(0, player.viperGuidance - 1);
       player.salvageLink = Math.max(0, player.salvageLink - 1);
+      player.sentryOverdrive = Math.max(0, player.sentryOverdrive - 1);
       player.emp = Math.max(0, player.emp - 1);
       player.ricochetTicks = Math.max(0, player.ricochetTicks - 1);
       // Wormhole motion is a rule, not a constant: EASY locks it dead centre
@@ -4324,13 +4333,18 @@ export default function WormholeGame() {
         play("fire", 0.12, cannonPlaybackRate(player.gun));
       }
 
+      // Activation precedes acquisition so the new tuning applies on this
+      // simulation tick without resetting the existing turret cooldown.
+      activateSpecial(game, controller.special);
+
       // The Warden reacquires from live authoritative entities every fixed
       // simulation tick. This neither reads nor mutates cannon input/state.
       if (game.ship.id === "warden") {
+        const autoGun = effectiveAutoGunTuning(player.sentryOverdrive > 0);
         const target = selectAutoGunTarget(player, game.enemies.map((enemy) => ({
           id: enemyIdentity(game, enemy), x: enemy.x, y: enemy.y, hp: enemy.hp,
           kind: enemy.kind, hostile: true,
-        })));
+        })), autoGun.range);
         if (target) {
           const angle = Math.atan2(target.y - player.y, target.x - player.x);
           player.autoGunAngle = angle / DEG;
@@ -4340,14 +4354,14 @@ export default function WormholeGame() {
               y: player.y + Math.sin(angle) * 15,
               vx: Math.cos(angle) * AUTO_GUN_PROJECTILE_SPEED,
               vy: Math.sin(angle) * AUTO_GUN_PROJECTILE_SPEED,
-              damage: AUTO_GUN_DAMAGE,
-              life: AUTO_GUN_PROJECTILE_TICKS,
+              damage: autoGun.damage,
+              life: autoGun.projectileTicks,
               enemy: false,
               color: "#ffd166",
               autoGun: true,
             });
-            player.autoGunCooldown = autoGunDelayTicks(TICK_MS);
-            burst(game, player.x + Math.cos(angle) * 16, player.y + Math.sin(angle) * 16, "#ffd166", 3, 2);
+            player.autoGunCooldown = autoGunDelayTicks(TICK_MS, autoGun.fireRate);
+            burst(game, player.x + Math.cos(angle) * 16, player.y + Math.sin(angle) * 16, "#ffd166", player.sentryOverdrive > 0 ? 6 : 3, player.sentryOverdrive > 0 ? 3.5 : 2);
           }
         }
       }
@@ -4365,8 +4379,6 @@ export default function WormholeGame() {
         play("fire", 0.2);
       }
       if (!launch) keys.current.__launchLatch = false;
-      activateSpecial(game, controller.special);
-
       // The Flagship field is continuous rather than a one-tick impulse, so
       // enemy steering and pickup drag cannot erase the special immediately.
       if (player.flagshipField > 0) {
@@ -5283,12 +5295,30 @@ export default function WormholeGame() {
           ctx.save();
           ctx.translate(player.x, player.y);
           ctx.rotate(player.autoGunAngle * DEG);
-          ctx.strokeStyle = "#ffd166";
+          const overdriven = player.sentryOverdrive > 0;
+          ctx.strokeStyle = overdriven ? "#fff3b0" : "#ffd166";
           ctx.fillStyle = "#152331";
-          ctx.lineWidth = 2;
+          ctx.lineWidth = overdriven ? 3 : 2;
+          if (overdriven && profile.shadows) { ctx.shadowColor = "#ffd166"; ctx.shadowBlur = 14; }
           ctx.beginPath(); ctx.arc(0, 0, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
           ctx.beginPath(); ctx.moveTo(3, 0); ctx.lineTo(17, 0); ctx.stroke();
           ctx.restore();
+          if (overdriven) {
+            const total = ticksForSeconds(SHIP_SPECIALS.warden.activeSeconds ?? 0);
+            ctx.save();
+            ctx.translate(player.x, player.y);
+            ctx.strokeStyle = "#ffd166";
+            ctx.globalAlpha = 0.2 + Math.sin(time * 0.025) * 0.1;
+            ctx.setLineDash([2, 6]);
+            ctx.beginPath(); ctx.arc(0, 0, 25 + Math.sin(time * 0.018) * 2, 0, Math.PI * 2); ctx.stroke();
+            if (player.sentryOverdrive > total - 12) {
+              const pulse = (total - player.sentryOverdrive) / 12;
+              ctx.globalAlpha = (1 - pulse) * 0.7;
+              ctx.setLineDash([]);
+              ctx.beginPath(); ctx.arc(0, 0, 24 + pulse * 30, 0, Math.PI * 2); ctx.stroke();
+            }
+            ctx.restore();
+          }
         }
 
         if (player.emp > 0) {
