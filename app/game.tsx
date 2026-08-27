@@ -63,6 +63,7 @@ import {
   type ZoomLevel,
 } from "./view-settings";
 import { aimGuideSegment } from "./aim-guide";
+import { OFFSCREEN_INDICATOR_INSET, offscreenIndicatorFor } from "./offscreen-indicators";
 import GlobalSystemControls, { useFullscreen } from "./system-controls";
 import { MenuScreen } from "./ui-system";
 import {
@@ -205,6 +206,13 @@ const WORLD_WIDTH = 1504;
 const WORLD_HEIGHT = 940;
 /** Cannon damage the rift absorbs per power-up, before any escalation. */
 const PORTAL_THRESHOLD = 150;
+/**
+ * Drawn-body radii the off-screen markers reason about, in world units. They
+ * match the rift glow and the ally ring so a target still half outside the
+ * frame keeps its marker up.
+ */
+const PORTAL_VISUAL_RADIUS = 55;
+const ALLY_VISUAL_RADIUS = 34;
 const DEG = Math.PI / 180;
 const STOCK_LIMIT = 10;
 const ticksForSeconds = (seconds: number) => Math.round(seconds * 1000 / TICK_MS);
@@ -5211,6 +5219,83 @@ export default function WormholeGame() {
           }
           ctx.restore();
         }
+      }
+
+      /**
+       * Off-screen awareness. Purely local presentation: it reads world
+       * positions the client already knows and sends nothing, and every target
+       * goes through the one shared helper so the maths cannot drift apart.
+       *
+       * Bounds come from the live camera rectangle, so this follows Full Arena,
+       * ship-lock and every zoom without touching camera behaviour. The inset
+       * is converted out of presentation units into world units, and the marker
+       * counter-scales, so markers keep a constant on-screen size and a
+       * constant distance from the border at any magnification.
+       */
+      if (!game.result) {
+        const cameraBounds = { left: viewLeft, top: viewTop, right: viewRight, bottom: viewBottom };
+        const markerInset = OFFSCREEN_INDICATOR_INSET / camScale;
+        const drawOffscreenMarker = (
+          indicator: { x: number; y: number; angle: number },
+          accent: string,
+          ally: boolean,
+        ) => {
+          ctx.save();
+          ctx.translate(indicator.x, indicator.y);
+          // Counter-scaling out of the camera keeps the marker the same size
+          // whether the pilot is in Full Arena or the closest zoom.
+          ctx.scale(1 / camScale, 1 / camScale);
+          ctx.rotate(indicator.angle);
+          ctx.globalAlpha = 0.85;
+          ctx.lineJoin = "round";
+          ctx.lineCap = "round";
+          if (profile.shadows) { ctx.shadowColor = accent; ctx.shadowBlur = 7; }
+          // An identity mark behind the chevron, on the marker's own axis: the
+          // rift keeps its flattened ring, the ally gets swept hull bars, so
+          // the two never read as each other.
+          ctx.strokeStyle = accent;
+          ctx.lineWidth = 1.8;
+          ctx.beginPath();
+          if (ally) {
+            ctx.moveTo(-3, -9);
+            ctx.lineTo(-12, -4);
+            ctx.moveTo(-3, 9);
+            ctx.lineTo(-12, 4);
+          } else {
+            ctx.ellipse(-6, 0, 8, 4.5, 0, 0, Math.PI * 2);
+          }
+          ctx.stroke();
+          ctx.fillStyle = `${accent}59`;
+          ctx.lineWidth = 1.6;
+          ctx.beginPath();
+          ctx.moveTo(13, 0);
+          ctx.lineTo(0, -8);
+          ctx.lineTo(3, 0);
+          ctx.lineTo(0, 8);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+          ctx.restore();
+        };
+
+        const riftMarker = offscreenIndicatorFor(
+          { x: game.portalX, y: game.portalY, radius: PORTAL_VISUAL_RADIUS },
+          cameraBounds,
+          markerInset,
+        );
+        if (riftMarker) drawOffscreenMarker(riftMarker, game.enrageActive ? "#ff2a3f" : "#ff4cbe", false);
+
+        // Co-op only. Solo PvE and Survival have no ally, and a PvP rival is
+        // an opponent rather than one, so neither gets this marker.
+        const allyTarget = game.mode === "coop" ? netRef.current?.renderedTeammate(time) : null;
+        const allyMarker = allyTarget
+          ? offscreenIndicatorFor(
+              { x: allyTarget.x, y: allyTarget.y, radius: ALLY_VISUAL_RADIUS },
+              cameraBounds,
+              markerInset,
+            )
+          : null;
+        if (allyMarker) drawOffscreenMarker(allyMarker, "#b6ff57", true);
       }
       ctx.restore();
 
