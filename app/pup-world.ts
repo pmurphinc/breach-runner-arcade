@@ -73,9 +73,22 @@ export const PUP_FRAME_SHAPES = Object.freeze({
   rare: "diamond",
 } as const satisfies Record<import("./game-data").PupClass, PupFrameShape>);
 
+/** The single class-to-color vocabulary for loose arena PUP frames. */
+export const PUP_FRAME_COLORS = Object.freeze({
+  payload: "#ff7043",
+  upgrade: "#4fc3f7",
+  recovery: "#66e07a",
+  rare: "#b783ff",
+} as const satisfies Record<import("./game-data").PupClass, string>);
+
 /** Resolve frame art from canonical gameplay classification, never a PUP ID. */
 export function pupFrameShape(pupClass: import("./game-data").PupClass): PupFrameShape {
   return PUP_FRAME_SHAPES[pupClass];
+}
+
+/** Resolve frame color from canonical gameplay classification, never a PUP ID. */
+export function pupFrameColor(pupClass: import("./game-data").PupClass): string {
+  return PUP_FRAME_COLORS[pupClass];
 }
 
 /**
