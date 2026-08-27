@@ -144,6 +144,7 @@ export class PvpClient {
   private snapshot: PvpSnapshot = EMPTY;
   private damageSeq = 0;
   private transmitSeq = 0;
+  private inventorySeq = 0;
   private resume: string | null = null;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private attempts = 0;
@@ -491,6 +492,12 @@ export class PvpClient {
     if (amount <= 0) return;
     this.damageSeq += 1;
     this.send({ type: "damage", seq: this.damageSeq, source, amount: Math.round(amount), cause });
+  }
+
+  /** Reports the concrete simulation event; the server owns the resulting count. */
+  reportInventory(action: "collect" | "launch" | "remove", weapon: string) {
+    this.inventorySeq += 1;
+    return this.send({ type: "inventory", seq: this.inventorySeq, action, weapon });
   }
 
   reportPosition(x: number, y: number, angle: number, now = performance.now()) {

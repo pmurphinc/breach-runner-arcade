@@ -41,6 +41,10 @@ test("co-op rival health is doubled by difficulty", () => {
 
 test("both pilots damage one authoritative rival", () => {
   const { server, a, b, room } = activeCoop("easy");
+  server.updateInventory(a.player, { seq: 1, action: "collect", weapon: "mines" }, 3900);
+  server.updateInventory(a.player, { seq: 2, action: "launch", weapon: "mines" }, 3950);
+  server.updateInventory(b.player, { seq: 1, action: "collect", weapon: "nuke" }, 4000);
+  server.updateInventory(b.player, { seq: 2, action: "launch", weapon: "nuke" }, 4050);
   server.transmit(a.player, { seq: 1, weapon: "mines" }, 4000);
   server.transmit(b.player, { seq: 1, weapon: "nuke" }, 4100);
   assert.equal(room.rivalHealth, 164);
@@ -221,6 +225,8 @@ test("co-op victory reports the power-up and exact damage that destroyed the wor
   let seq = 1;
   let now = 4000;
   while (room.rivalHealth > 0 && seq < 20) {
+    server.updateInventory(a.player, { seq: seq * 2 - 1, action: "collect", weapon: "nuke" }, now - 100);
+    server.updateInventory(a.player, { seq: seq * 2, action: "launch", weapon: "nuke" }, now - 50);
     server.transmit(a.player, { seq: seq++, weapon: "nuke" }, now);
     now += 1100;
   }

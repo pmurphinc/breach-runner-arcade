@@ -99,7 +99,8 @@ import {
   type ScreenPreset,
 } from "./layout-budget";
 import { cannonPlaybackRate, hapticsAllow } from "./combat-feedback";
-import { consumeLoadedPup, pupInventoryLayout } from "./pup-inventory";
+import { PUP_INVENTORY_CAPACITY, consumeLoadedPup, pupInventoryLayout } from "./pup-inventory";
+import { pupRegenHull } from "./pup-regen.js";
 import { inventoryPayloadIconLayout, inventoryPupVisual } from "./pup-inventory-visual";
 import { pupPickupSoundProfile, type PupPickupSoundProfile } from "./pup-audio";
 import { RICOCHET_BOUNCES, RICOCHET_DURATION_SECONDS, reflectRicochet } from "./ricochet";
@@ -254,7 +255,7 @@ const OFFSCREEN_ENEMY_BADGE: readonly { x: number; y: number }[] = Array.from(
   },
 );
 const DEG = Math.PI / 180;
-const STOCK_LIMIT = 10;
+const STOCK_LIMIT = PUP_INVENTORY_CAPACITY;
 const ticksForSeconds = (seconds: number) => Math.round(seconds * 1000 / TICK_MS);
 const wholeSecondsForTicks = (ticks: number) => Math.max(0, Math.ceil(ticks * TICK_MS / 1000));
 const DEFEAT_CAUSE_LABELS: Record<string, string> = {
@@ -3650,6 +3651,9 @@ export default function WormholeGame() {
       } else if (ship === "flagship") {
         player.flagshipField = ticksForSeconds(3);
         game.notice = "GRAVITY PULSE // 3S";
+      } else if (ship === "kestrel") {
+        // Schema-compatible placeholder only; the collector active is future work.
+        game.notice = "ACTIVE SYSTEM // NOT INSTALLED";
       }
 
       player.specialCooldown = ticksForSeconds(spec.cooldownSeconds);
@@ -3866,7 +3870,10 @@ export default function WormholeGame() {
             const hit = damagePlayer(game, 8, "beam");
             const contact = hostileBeamContact(Boolean(enemy.playerBeamContact), touchesPlayer, hit);
             enemy.playerBeamContact = contact.active;
-            if (contact.consume) consumeLoadedPup(game.stock);
+            if (contact.consume) {
+              const removed = consumeLoadedPup(game.stock);
+              if (removed && game.mode !== "pve") netRef.current?.reportInventory("remove", removed);
+            }
           }
           for (const pickup of game.pickups) {
             if (
@@ -4051,6 +4058,14 @@ export default function WormholeGame() {
 
       game.cycles += 1;
       game.elapsedTicks += 1;
+      if (game.mode === "pve") {
+        const beforeRegen = player.health;
+        player.health = pupRegenHull(game.ship.id, player.health, player.maxHealth, game.stock.length, TICK_MS / 1000);
+        // The existing particle renderer is enough for a faint repair pulse.
+        if (player.health > beforeRegen && game.cycles % 24 === 0) {
+          game.particles.push({ x: player.x + range(-12, 12), y: player.y + range(-12, 12), vx: 0, vy: -0.25, color: "#6dffd6", size: 1.5, life: 18, maxLife: 18 });
+        }
+      }
       // PvpClient owns the single 33ms (~30Hz) position cadence.
       if (game.mode === "coop") {
         netRef.current?.reportPosition(player.x, player.y, player.angle);
@@ -4243,6 +4258,7 @@ export default function WormholeGame() {
       if (launch && game.stock.length > 0 && !keys.current.__launchLatch) {
         keys.current.__launchLatch = true;
         const type = consumeLoadedPup(game.stock)!;
+        if (game.mode !== "pve") netRef.current?.reportInventory("launch", type);
         const angle = player.angle * DEG;
         const homing = game.ship.id === "rabbit" && player.viperGuidance > 0;
         game.powers.push({ x: player.x + Math.cos(angle) * 12, y: player.y + Math.sin(angle) * 12, vx: Math.cos(angle) * 10 + player.vx, vy: Math.sin(angle) * 10 + player.vy, type, life: homing ? 320 : 160, homing });
@@ -4471,6 +4487,7 @@ export default function WormholeGame() {
           else if (game.stock.length < STOCK_LIMIT) {
             const wasBelowCapacity = game.stock.length === STOCK_LIMIT - 1;
             game.stock.push(type);
+            if (game.mode !== "pve") netRef.current?.reportInventory("collect", type);
             if (wasBelowCapacity) playCue("inventory-full", 0.2);
           }
           else { game.notice = "POWERUP BIN FULL"; game.noticeLife = 75; return; }
