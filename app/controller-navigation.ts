@@ -92,7 +92,6 @@ export function moveControllerFocus(controls: readonly HTMLElement[], horizontal
     const current = radios.indexOf(active);
     const next = radios[(Math.max(0, current) + Math.sign(horizontal) + radios.length) % radios.length];
     next?.focus();
-    next?.click();
     showControllerFocus(next);
     return next;
   }
