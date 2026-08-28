@@ -29,6 +29,18 @@ type GlyphFn = (ctx: CanvasRenderingContext2D, g: GlyphContext) => void;
 type ShipPoint = readonly [number, number];
 type ShipShape = readonly ShipPoint[];
 
+/**
+ * Identifying geometry that must not be reduced by the graphics-quality
+ * setting. Detail-aware renderers may omit decoration around these shapes,
+ * but every device draws the same outer contour.
+ */
+export const CANONICAL_GLYPH_GEOMETRY = {
+  inflatorLobes: 9,
+  mineSpikes: 10,
+  ghostHemWaves: 5,
+  clearBurstPoints: 10,
+} as const;
+
 /** Canonical outlines shared by the arena and ship-selection screen. */
 export const SHIP_SHAPES = {
   tank: [[18, 0], [9, -12], [-11, -16], [-8, -5], [-17, -6], [-13, 0], [-17, 6], [-8, 5], [-11, 16], [9, 12]],
@@ -123,7 +135,7 @@ const mines: GlyphFn = (ctx, { r, t, detail }) => {
   const s = r / 15;
   ctx.save();
   ctx.rotate(t * 0.0009);
-  const spikes = detail < 0.35 ? 6 : 10;
+  const spikes = CANONICAL_GLYPH_GEOMETRY.mineSpikes;
   for (let i = 0; i < spikes; i += 1) {
     const a = (i / spikes) * Math.PI * 2;
     ctx.beginPath();
@@ -179,7 +191,7 @@ const ufo: GlyphFn = (ctx, { r, t, detail }) => {
 
 const inflator: GlyphFn = (ctx, { r, t, detail }) => {
   // Organic swelling sac: lobed blob that breathes.
-  const lobes = detail < 0.35 ? 6 : 9;
+  const lobes = CANONICAL_GLYPH_GEOMETRY.inflatorLobes;
   ctx.beginPath();
   const steps = lobes * 6;
   for (let i = 0; i <= steps; i += 1) {
@@ -247,7 +259,7 @@ const gunship: GlyphFn = (ctx, { r, detail }) => {
   ctx.fillRect(14 * s, 2.6 * s, 12 * s, 2.4 * s);
 };
 
-const scarab: GlyphFn = (ctx, { r, t, detail }) => {
+const scarab: GlyphFn = (ctx, { r, t }) => {
   const s = r / 15;
   const stride = Math.sin(t * 0.012) * 1.6 * s;
   ctx.save();
@@ -275,14 +287,12 @@ const scarab: GlyphFn = (ctx, { r, t, detail }) => {
   // Head plate and mandibles.
   poly(ctx, [[9 * s, -4 * s], [14 * s, -2.5 * s], [14 * s, 2.5 * s], [9 * s, 4 * s]]);
   fillStroke(ctx);
-  if (detail >= 0.35) {
-    ctx.beginPath();
-    ctx.moveTo(14 * s, -2 * s);
-    ctx.lineTo(20 * s, -5.5 * s);
-    ctx.moveTo(14 * s, 2 * s);
-    ctx.lineTo(20 * s, 5.5 * s);
-    ctx.stroke();
-  }
+  ctx.beginPath();
+  ctx.moveTo(14 * s, -2 * s);
+  ctx.lineTo(20 * s, -5.5 * s);
+  ctx.moveTo(14 * s, 2 * s);
+  ctx.lineTo(20 * s, 5.5 * s);
+  ctx.stroke();
 };
 
 const nuke: GlyphFn = (ctx, { r, t, detail, charge }) => {
@@ -397,14 +407,14 @@ const emp: GlyphFn = (ctx, { r, t, detail }) => {
   }
 };
 
-const ghost: GlyphFn = (ctx, { r, t, detail }) => {
+const ghost: GlyphFn = (ctx, { r, t }) => {
   ctx.save();
   ctx.globalAlpha *= 0.62;
   // Hooded silhouette with a rippling hem.
   ctx.beginPath();
   ctx.arc(0, -r * 0.15, r * 0.8, Math.PI, 0);
   const hem = r * 0.95;
-  const waves = detail < 0.35 ? 3 : 5;
+  const waves = CANONICAL_GLYPH_GEOMETRY.ghostHemWaves;
   for (let i = 0; i <= waves; i += 1) {
     const x = r * 0.8 - (i / waves) * r * 1.6;
     const y = hem + Math.sin(t * 0.004 + i * 1.7) * r * 0.18;
@@ -488,8 +498,8 @@ const shieldIcon: GlyphFn = (ctx, { r, detail }) => {
   }
 };
 
-const zapIcon: GlyphFn = (ctx, { r, t, detail }) => {
-  const spikes = detail < 0.35 ? 6 : 10;
+const zapIcon: GlyphFn = (ctx, { r, t }) => {
+  const spikes = CANONICAL_GLYPH_GEOMETRY.clearBurstPoints;
   ctx.beginPath();
   for (let i = 0; i < spikes * 2; i += 1) {
     const a = (i / (spikes * 2)) * Math.PI * 2 + t * 0.002;
