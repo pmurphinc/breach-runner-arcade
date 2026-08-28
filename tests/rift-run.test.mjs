@@ -219,6 +219,37 @@ test("deep deterministic progression always retains exactly one eligible card pe
   }
 });
 
+test("adversarial single-category progression cannot exhaust any class or category", () => {
+  const classes=[["wing","light"],["squid","medium"],["tank","heavy"]];
+  const categories=["offensive","defensive","mobility"];
+  for (const [ship,shipClass] of classes) for (const selectedCategory of categories) {
+    let run=createRiftRun(ship,`${shipClass}-${selectedCategory}-exhaustion`);
+    run.status="active";
+    run=breachRiftRun(run,{integrity:0,maximumIntegrity:100,reformRemainingMs:0,breached:false}).state;
+    run=mountUnlockedWeapon(run,0,"railgun");
+    for (let level=0; level<75; level++) {
+      run.pendingLevels=1;
+      const roll=rollUpgradeChoices(run);
+      assert.equal(roll.choices.length,3,`${shipClass} ${selectedCategory} level ${level+1}`);
+      assert.deepEqual(roll.choices.map(x=>x.gameplayCategory),categories);
+      assert.equal(new Set(roll.choices.map(x=>x.key)).size,3);
+      for (const card of roll.choices) {
+        if (card.kind==="evolution") continue;
+        const definition=RIFT_UPGRADES.find(x=>x.id===card.upgradeId);
+        assert.ok(definition);
+        assert.ok(definition.repeatable || upgradeStack(run,definition.id,card.targetInstanceId)<definition.maxStacks,`${card.key} was offered maxed`);
+      }
+      const selected=roll.choices.find(x=>x.gameplayCategory===selectedCategory);
+      run=applyUpgrade({...run,rollIndex:roll.nextRollIndex},selected);
+      const available=run.hardpoints.find(x=>x.status==="available");
+      if (available) run=mountUnlockedWeapon(run,available.index,"pulse-cannon");
+    }
+    const next=rollUpgradeChoices({...run,pendingLevels:1});
+    assert.equal(next.choices.length,3);
+    assert.deepEqual(next.choices.map(x=>x.gameplayCategory),categories);
+  }
+});
+
 test("every selectable upgrade effect has a live combat or flight consumer", async () => {
   const effects=new Set(RIFT_UPGRADES.map(x=>x.effect));
   assert.deepEqual([...effects].sort(), ["cannonDamage","cannonFireRate","coneWidth","damage","damageReduction","explosionRadius","fireRate","handling","hardpoint","hull","movement","penetration","projectileCount","projectileSpeed","range","shield"].sort());

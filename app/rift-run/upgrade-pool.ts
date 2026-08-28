@@ -9,12 +9,12 @@ function random(seed: string, index: number): number { let x=hash(`${seed}:${ind
 export function eligibleUpgradeChoices(state: RiftRunState): UpgradeChoice[] {
   return RIFT_UPGRADES.flatMap(def => {
     if (def.category === "weapon") return occupiedWeapons(state).flatMap(({ hardpointIndex, weapon }) => {
-      if (def.weapons && !def.weapons.includes(weapon.weaponId) || def.excludes?.includes(weapon.weaponId) || upgradeStack(state, def.id, weapon.instanceId) >= def.maxStacks) return [];
+      if (def.weapons && !def.weapons.includes(weapon.weaponId) || def.excludes?.includes(weapon.weaponId) || !def.repeatable && upgradeStack(state, def.id, weapon.instanceId) >= def.maxStacks) return [];
       return [{ key: `${def.id}:${weapon.instanceId}`, upgradeId: def.id, gameplayCategory: def.gameplayCategory, targetInstanceId: weapon.instanceId, hardpointIndex, title: def.name, target: `${RIFT_WEAPON_BY_ID[weapon.weaponId].name} · HARDPOINT ${hardpointIndex+1}`, description: def.description }];
     });
     if (def.id === "hardpoint-online" && (state.riftBreaches === 0 || state.hardpoints.some(p => p.status === "available") || !state.hardpoints.some(p => p.status === "locked"))) return [];
     if (def.id === "shield-capacitor" && state.shipClass === "light") return [];
-    if (upgradeStack(state, def.id) >= def.maxStacks) return [];
+    if (!def.repeatable && upgradeStack(state, def.id) >= def.maxStacks) return [];
     return [{ key: def.id, upgradeId: def.id, gameplayCategory: def.gameplayCategory, title: def.name, target: def.gameplayCategory.toUpperCase(), description: def.description }];
   });
 }
