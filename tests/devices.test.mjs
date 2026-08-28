@@ -289,6 +289,99 @@ for (const device of DEVICES) {
       assert.equal(reach.menu, "ok", `gameplay: Menu ${reach.menu}`);
       assert.equal(reach.fullscreen, "ok", `gameplay: Fullscreen ${reach.fullscreen}`);
 
+      // The in-run HUD, which the menu sweep above never sees. Both readability
+      // regressions this file uncovered — a 7px loaded-PUP caption and health
+      // rail labels on a clamp that bottomed out at 10px — live here, and they
+      // are only mounted once a run is live.
+      const hud = await page.evaluate((worldAspect) => {
+        const box = (selector) => {
+          const element = document.querySelector(selector);
+          if (!element) return null;
+          const rect = element.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0 ? rect : null;
+        };
+        const overlaps = (a, b) =>
+          !!a && !!b && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+        const inViewport = (rect) =>
+          !rect || (rect.left >= -1 && rect.top >= -1 && rect.right <= innerWidth + 1 && rect.bottom <= innerHeight + 1);
+
+        // A box only clips when it is the one that hides its overflow, so read
+        // the computed style rather than trusting scrollHeight on its own.
+        const clipped = [];
+        for (const selector of [
+          ".touch-powerup-loaded", ".touch-powerup-loaded small", ".touch-powerup-loaded strong",
+          ".touch-powerup-loaded button", ".health-rail", ".health-rail span", ".health-rail small",
+        ]) {
+          for (const element of document.querySelectorAll(selector)) {
+            const rect = element.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) continue;
+            const style = getComputedStyle(element);
+            // Horizontal ellipsis is the designed behaviour for the long PUP
+            // names, so only a vertical cut counts as text being lost.
+            if (style.overflowY === "hidden" && element.scrollHeight > element.clientHeight) {
+              clipped.push(`${element.className || element.tagName}+${element.scrollHeight - element.clientHeight}px`);
+            }
+          }
+        }
+
+        const tiny = [];
+        document.querySelectorAll(".canvas-wrap *").forEach((element) => {
+          if (!element.textContent?.trim() || element.children.length) return;
+          const style = getComputedStyle(element);
+          if (style.display === "none" || style.visibility === "hidden") return;
+          const rect = element.getBoundingClientRect();
+          if (rect.width === 0 || rect.height === 0) return;
+          if (parseFloat(style.fontSize) < 11) tiny.push(`${element.className || element.tagName}@${style.fontSize}`);
+        });
+
+        const small = [];
+        document.querySelectorAll(".touch-utility button").forEach((element) => {
+          const rect = element.getBoundingClientRect();
+          if (rect.height > 0 && rect.height < 44) {
+            small.push(`${element.textContent.trim().slice(0, 12)}@${Math.round(rect.height)}px`);
+          }
+        });
+
+        const wrap = document.querySelector(".canvas-wrap");
+        const published = wrap
+          ? {
+              width: parseFloat(getComputedStyle(wrap).getPropertyValue("--arena-canvas-width")) || 0,
+              height: parseFloat(getComputedStyle(wrap).getPropertyValue("--arena-canvas-height")) || 0,
+            }
+          : { width: 0, height: 0 };
+
+        return {
+          tiny,
+          clipped,
+          small,
+          offscreen: [".health-rails", ".touch-powerup-hud", ".touch-powerup-loaded"]
+            .filter((selector) => !inViewport(box(selector))),
+          inventoryOverRails: overlaps(box(".touch-powerup-hud"), box(".health-rails")),
+          hudOverControls: [".system-menu", ".system-fullscreen"].filter(
+            (selector) => overlaps(box(".touch-powerup-hud"), box(selector))
+              || overlaps(box(".health-rails"), box(selector))
+          ),
+          // The arena is a fixed-aspect window on a fixed world. HUD retuning
+          // is allowed to change its own height; it is not allowed to distort
+          // or resize what the player is looking through.
+          aspect: published.width > 0 ? published.width / published.height : worldAspect,
+          overflow: {
+            x: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+            y: document.documentElement.scrollHeight - document.documentElement.clientHeight,
+          },
+        };
+      }, 1504 / 940);
+
+      assert.deepEqual(hud.tiny, [], "in-run HUD text below the 11px readability floor");
+      assert.deepEqual(hud.clipped, [], "in-run HUD text cut off by its own box");
+      assert.deepEqual(hud.small, [], "in-run touch targets under 44px");
+      assert.deepEqual(hud.offscreen, [], "in-run HUD leaves the viewport");
+      assert.ok(!hud.inventoryOverRails, "the PUP inventory overlaps the health rails");
+      assert.deepEqual(hud.hudOverControls, [], "the HUD overlaps the global controls");
+      assert.ok(Math.abs(hud.aspect - 1504 / 940) < 0.01, `arena aspect drifted to ${hud.aspect}`);
+      assert.ok(hud.overflow.x <= 0, `in-run horizontal overflow of ${hud.overflow.x}px`);
+      assert.ok(hud.overflow.y <= 0, `in-run vertical overflow of ${hud.overflow.y}px`);
+
       // Menu during a run opens Pause, and Pause offers Resume.
       await page.locator(".system-menu").click();
       await page.waitForTimeout(300);

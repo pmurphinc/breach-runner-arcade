@@ -221,7 +221,7 @@ test('phone HUD cards and inventory use constrained responsive grids', () => {
   assert.match(arenaHudCss, /grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/);
   assert.match(arenaHudCss, /\.health-rail \{[^}]*min-width:\s*0[^}]*overflow:\s*hidden/s);
   assert.match(arenaHudCss, /grid-template-columns:\s*repeat\(9, minmax\(0, 1fr\)\)/);
-  assert.match(arenaHudCss, /grid-template-columns:\s*minmax\(0, 1fr\) clamp\(104px, 29vw, 126px\)/);
+  assert.match(arenaHudCss, /grid-template-columns:\s*minmax\(0, 1fr\) clamp\(128px, 33vw, 146px\)/);
 });
 
 

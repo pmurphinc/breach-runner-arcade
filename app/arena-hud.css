@@ -42,14 +42,17 @@
 }
 .touch-powerup-loaded {
   width: clamp(92px, 17vw, 142px); min-width: 0; display: grid;
-  grid-template-rows: 11px 1fr; color: var(--pup); overflow: hidden;
+  /* The caption row is whatever --fs-nano needs; the symbol takes the rest.
+     A fixed 11px row is what forced the 7px caption this replaces. */
+  grid-template-rows: auto minmax(0, 1fr); color: var(--pup); overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--pup) 78%, transparent); border-radius: 3px;
   background: color-mix(in srgb, var(--pup) 13%, rgba(2, 9, 15, .97));
   box-shadow: 0 0 9px color-mix(in srgb, var(--pup) 38%, transparent);
 }
 .touch-powerup-loaded small {
-  display: flex; justify-content: space-between; padding: 1px 4px;
-  color: #eaffff; font: 900 7px/1 var(--mono); letter-spacing: .04em;
+  display: flex; align-items: center; justify-content: space-between; gap: 5px;
+  min-width: 0; padding: 1px 4px; white-space: nowrap;
+  color: #eaffff; font: 900 var(--fs-nano)/1 var(--mono); letter-spacing: .04em;
 }
 .touch-powerup-loaded small b { color: var(--lime); }
 .touch-powerup-loaded button {
@@ -58,8 +61,12 @@
 }
 .touch-powerup-loaded .weapon-icon {
   position: static;
-  width: min(28px, 34%);
-  height: auto;
+  flex: 0 0 auto;
+  /* Sized from the row rather than a constant: whatever the caption does not
+     use is the symbol, so lifting the caption to the token cannot clip it. */
+  width: auto;
+  height: 100%;
+  max-width: 34%;
   max-height: 28px;
   aspect-ratio: 1;
   object-fit: contain;
@@ -67,9 +74,14 @@
 }
 .touch-powerup-loaded strong {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  color: inherit; font: 900 clamp(8px, 1.25vw, 11px)/1 var(--mono);
+  color: inherit; font: 900 var(--fs-nano)/1.2 var(--mono);
 }
-.touch-powerup-loaded > span { display: grid; place-items: center; color: var(--muted); }
+/* The empty placeholder is HUD text too: left on the inherited 16px body font
+   it outgrew the row the caption now shares with it. */
+.touch-powerup-loaded > span {
+  display: grid; place-items: center; min-height: 0; color: var(--muted);
+  font: 900 var(--fs-nano)/1 var(--mono);
+}
 /* Spawn notices hang off the bottom edge of the inventory panel, so they
    travel with it through every responsive rule above instead of carrying
    their own viewport offsets. */
@@ -84,7 +96,7 @@
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: #eafcff; border: 1px solid color-mix(in srgb, var(--notice-accent) 67%, transparent);
   background: rgba(2, 7, 12, .86);
-  font: 800 clamp(9px, 1.7vw, 13px)/1.25 var(--mono);
+  font: 800 var(--fs-nano)/1.25 var(--mono);
   animation: pup-notice-life linear both;
 }
 .pup-notice.hostile { color: #ffd9de; }
@@ -106,10 +118,11 @@
 @media (max-width: 560px) {
   .touch-capable .canvas-wrap > .touch-powerup-hud,
   .touch-capable[data-touch-controls="off"] .touch-powerup-hud {
-    --pup-slot: clamp(16px, 5vw, 24px); gap: 2px; height: 38px;
+    --pup-slot: clamp(16px, 5vw, 24px); gap: 2px; height: 42px;
   }
   .touch-powerup-slots { gap: 1px; }
-  .touch-powerup-loaded { width: clamp(76px, 24vw, 104px); }
+  /* Same caption at the same token, so the same width it needs elsewhere. */
+  .touch-powerup-loaded { width: clamp(124px, 33vw, 142px); }
 }
 
 /* Phone portrait is three deliberate vertical regions: measured HUD, flexible
@@ -226,7 +239,7 @@
   overflow: hidden;
   transform: none;
   text-overflow: ellipsis;
-  font-size: clamp(10px, 2.8vw, 12px);
+  font-size: var(--fs-nano);
 }
 
 /* Inventory owns the full row below health, where the system controls no
@@ -240,7 +253,7 @@
   width: auto;
   height: 42px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) clamp(104px, 29vw, 126px);
+  grid-template-columns: minmax(0, 1fr) clamp(128px, 33vw, 146px);
   gap: 4px;
 }
 .touch-capable[data-immersive="true"][data-form="phone"] .touch-powerup-slots {
@@ -255,19 +268,10 @@
 .touch-capable[data-immersive="true"][data-form="phone"] .touch-powerup-loaded {
   width: auto;
   min-width: 0;
-  grid-template-rows: 12px minmax(0, 1fr);
 }
 .touch-capable[data-immersive="true"][data-form="phone"] .touch-powerup-loaded button {
   justify-content: center;
   overflow: hidden;
-}
-.touch-capable[data-immersive="true"][data-form="phone"] .touch-powerup-loaded .weapon-icon {
-  flex: 0 0 auto;
-  width: 24px;
-  max-height: 24px;
-}
-.touch-capable[data-immersive="true"][data-form="phone"] .touch-powerup-loaded strong {
-  font-size: clamp(9px, 2.6vw, 11px);
 }
 
 /* Landscape notices stay compact and attached to inventory.  Bounding their
@@ -354,21 +358,16 @@ html[data-mirror-touch-actions="on"] .touch-capable[data-immersive="true"][data-
 }
 .touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .health-rail span {
   padding: 1px 5px;
-  font-size: 11px;
 }
 .touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .canvas-wrap > .touch-powerup-hud {
   top: calc(var(--health-bottom, 56px) + 4px);
-  height: 32px;
+  /* Two token-sized rows plus the card's own chrome. Deriving the strip from
+     --fs-nano keeps the landscape budget honest on the shortest phones, where
+     the token itself is smaller, instead of pinning a constant to the tallest. */
+  height: calc(var(--fs-nano) * 2.2 + 12px);
 }
 .touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .touch-powerup-slot {
   height: min(24px, 6.5vw);
-}
-.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .touch-powerup-loaded {
-  grid-template-rows: 10px minmax(0, 1fr);
-}
-.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .touch-powerup-loaded .weapon-icon {
-  width: 20px;
-  max-height: 20px;
 }
 /* ------------------------------------------------------- end-game menu -- */
 /* The run summary is a dialog, not a HUD element. Anchoring it inside
