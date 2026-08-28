@@ -463,3 +463,8 @@ html[data-mirror-touch-actions="on"] .touch-capable[data-immersive="true"][data-
 .touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"] .run-summary {
   width: min(360px, 100%);
 }
+.rift-evolution-card {
+  border-color: #ffd166 !important;
+  box-shadow: inset 0 0 24px rgb(255 209 102 / 18%), 0 0 18px rgb(255 90 200 / 20%);
+}
+.rift-evolution-card small { color: #ffd166; font-weight: 900; letter-spacing: .16em; }

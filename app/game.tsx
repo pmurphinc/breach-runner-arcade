@@ -95,9 +95,9 @@ import type { RiftRunState, RiftWeaponId } from "./rift-run/types";
 import { RIFT_WEAPONS } from "./rift-run/weapons";
 import { createWeaponRuntime, tickWeaponRuntime, type WeaponRuntime } from "./rift-run/weapon-runtime";
 import { processHardpointFire } from "./rift-run/weapon-fire";
-import { admitsProjectile, detonateMissile, penetrate, projectileFromShot, steerMissile, targetsInFlameCone, type RiftProjectile } from "./rift-run/weapon-projectiles";
+import { admitsProjectile, detonateMissile, evolutionRadialHit, penetrate, projectileFromShot, steerMissile, targetsInFlameCone, type RiftProjectile } from "./rift-run/weapon-projectiles";
 import { awardRiftEnergy, enemyKillEnergy, riftDamaged, riftEnergyRequiredForLevel } from "./rift-run/progression";
-import { applyRiftRunHullWeaponDamage } from "./rift-run/rift-damage";
+import { applyRiftRunHullWeaponDamage, RIFT_RUN_BASE_INTEGRITY, RIFT_RUN_BREACH_REWARDS, RIFT_RUN_REFORM_DELAY_MS, riftIntegrityForBreach } from "./rift-run/rift-damage";
 import { rollUpgradeChoices } from "./rift-run/upgrade-pool";
 import { applyUpgrade, mountUnlockedWeapon } from "./rift-run/upgrade-apply";
 import { PvpClient, countdownLabel, type PvpSnapshot } from "./pvp-client";
@@ -544,6 +544,8 @@ type Game = {
   /** Rift-only entities stay out of standard cannon and its global shot budget. */
   riftProjectiles: RiftProjectile[];
   riftFlames: RiftFlameFx[];
+  /** Rift Run-only invulnerability/reform countdown; zero in standard modes. */
+  riftReformTicks: number;
   pickups: Pickup[];
   enemies: Enemy[];
   nextEnemyId: number;
@@ -726,6 +728,7 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
     bullets: [],
     riftProjectiles: [],
     riftFlames: [],
+    riftReformTicks: 0,
     pickups: [],
     enemies: [],
     nextEnemyId: 0,
@@ -3634,19 +3637,12 @@ export default function WormholeGame() {
         if (next.pendingLevels) game.paused = true;
       }
 
-      // Sector progression is intentionally not part of Phase 3A. Keep the
-      // existing temporary mission ending rather than leaving a dead Rift.
-      if (game.rivalHealth <= 0 && game.victorySequence <= 0 && !game.result) {
-        game.rivalHealth = 0;
-        game.victorySequence = ticksForSeconds(VICTORY_TOTAL_SECONDS);
-        game.victoryExplosionFired = false;
-        game.enrageActive = false;
-        game.enrageTimer = 0;
-        game.enrageMineTimer = 0;
-        game.enrageRecovery = createEnrageRecovery();
-        game.incoming = null;
-        game.notice = "RIVAL ELIMINATED // REALITY LOCKED";
-        game.noticeLife = game.victorySequence;
+      if (run && game.rivalHealth <= 0 && game.riftReformTicks <= 0 && !game.result) {
+        const breaches=run.riftBreaches+1;
+        const next=awardRiftEnergy({...riftRunRef.current!,riftBreaches:breaches,score:riftRunRef.current!.score+RIFT_RUN_BREACH_REWARDS.score},RIFT_RUN_BREACH_REWARDS.energy);
+        riftRunRef.current=next; setRiftRun(next); game.score+=RIFT_RUN_BREACH_REWARDS.score;
+        game.riftReformTicks=Math.ceil(RIFT_RUN_REFORM_DELAY_MS/TICK_MS); game.notice=`RIFT BREACHED // DEPTH ${breaches}`; game.noticeLife=game.riftReformTicks;
+        burst(game,game.portalX,game.portalY,"#ffffff",40,10); playCue("wormhole-explosion",.18);
       }
       return integrityDamage;
     };
@@ -4432,6 +4428,7 @@ export default function WormholeGame() {
 
       const activeRiftRun = riftRunRef.current;
       if (activeRiftRun) {
+        if (game.riftReformTicks>0 && --game.riftReformTicks===0) { game.rivalMaxHealth=riftIntegrityForBreach(RIFT_RUN_BASE_INTEGRITY,activeRiftRun.riftBreaches); game.rivalHealth=game.rivalMaxHealth; game.notice=`RIFT REFORMED // DEPTH ${activeRiftRun.riftBreaches}`; game.noticeLife=90; }
         tickWeaponRuntime(riftWeaponRuntime.current);
         const mountedShots = processHardpointFire(activeRiftRun.hardpoints, riftWeaponRuntime.current, Boolean(fire), { x: player.x, y: player.y }, player.angle * DEG);
         for (const mounted of mountedShots) {
@@ -4575,6 +4572,12 @@ export default function WormholeGame() {
           } else {
             damageEnemy(game, enemy, projectile.state.damage);
             projectile.state.hitTargetIds.add(id);
+            if (projectile.state.evolutionId === "nova-cannon" || projectile.state.evolutionId === "seismic-rail") {
+              const radialTargets=game.enemies.filter(item=>item.hp>0&&item.kind!=="ghost").map(item=>({id:enemyIdentity(game,item),x:item.x,y:item.y}));
+              const victims=new Set(evolutionRadialHit(projectile,enemy,radialTargets));
+              for(const victim of game.enemies) if(victim.hp>0&&victims.has(enemyIdentity(game,victim))) damageEnemy(game,victim,projectile.state.damage*.35);
+              burst(game,projectile.x,projectile.y,projectile.state.evolutionId==="seismic-rail"?"#9cf6ff":"#fff1a8",12,5);
+            }
             if (projectile.state.weaponId !== "railgun") projectile.state.remainingLifetime = 0;
             else {
               // Railgun penetrates exactly the configured number of unique
@@ -6656,7 +6659,7 @@ export default function WormholeGame() {
               ) : upgradeRoll ? (
                 <div className="rift-upgrade-layer"><section className="rift-upgrade-dialog" data-controller-surface role="dialog" aria-modal="true" aria-label="Upgrade available">
                   <header><p>UPGRADE AVAILABLE</p><h2>CHOOSE ONE</h2></header>
-                  <div className="rift-upgrade-options">{upgradeRoll.choices.map(choice=><button type="button" key={choice.key} onClick={()=>chooseUpgrade(choice)}><b>{choice.title}</b><em>{choice.target}</em><span>{choice.description}</span></button>)}</div>
+                  <div className="rift-upgrade-options">{upgradeRoll.choices.map(choice=><button type="button" className={choice.kind==="evolution"?"rift-evolution-card":undefined} key={choice.key} onClick={()=>chooseUpgrade(choice)}>{choice.kind==="evolution"?<small>WEAPON EVOLUTION</small>:null}<b>{choice.title}</b><em>{choice.target}</em><span>{choice.description}</span></button>)}</div>
                 </section></div>
               ) : null}
               {summary ? (

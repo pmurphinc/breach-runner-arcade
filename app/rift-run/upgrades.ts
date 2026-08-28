@@ -3,7 +3,7 @@ import type { RiftRunState, RiftWeaponId, RiftWeaponInstance } from "./types";
 export type UpgradeCategory = "weapon" | "ship" | "hardpoint" | "rift-tech";
 export type UpgradeEffect = "fireRate" | "damage" | "projectileCount" | "penetration" | "explosionRadius" | "projectileSpeed" | "range" | "coneWidth" | "hull" | "shield" | "movement" | "hardpoint";
 export type UpgradeDefinition = { id: string; name: string; description: string; category: UpgradeCategory; tier: 1; maxStacks: number; effect: UpgradeEffect; amount: number; weapons?: readonly RiftWeaponId[]; excludes?: readonly RiftWeaponId[] };
-export type UpgradeChoice = { key: string; upgradeId: string; targetInstanceId?: string; hardpointIndex?: number; title: string; target: string; description: string };
+export type UpgradeChoice = { key: string; upgradeId: string; evolutionId?: import("./types").RiftEvolutionId; targetInstanceId?: string; hardpointIndex?: number; title: string; target: string; description: string; kind?: "upgrade" | "evolution" };
 
 const weapon = (id: string, name: string, description: string, effect: UpgradeEffect, amount: number, weapons?: readonly RiftWeaponId[], maxStacks=4): UpgradeDefinition => ({ id, name, description, category: "weapon", tier: 1, maxStacks, effect, amount, weapons });
 export const RIFT_UPGRADES: readonly UpgradeDefinition[] = [

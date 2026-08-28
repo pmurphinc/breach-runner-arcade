@@ -6,6 +6,7 @@ export type EntityId = string | number;
 export type CombatTarget = Point & { id: EntityId; hostile?: boolean; radius?: number; hp?: number };
 export type RiftProjectileState = {
   weaponId: Exclude<RiftWeaponId, "flamethrower">;
+  evolutionId: string | null;
   instanceId: string;
   hardpointIndex: number;
   damage: number;
@@ -30,7 +31,7 @@ export function projectileFromShot(shot: FireShot, inheritedVelocity: Point = { 
     vy: Math.sin(shot.angle) * shot.speed + inheritedVelocity.y,
     radius: shot.radius,
     state: {
-      weaponId: shot.weaponId as RiftProjectileState["weaponId"], instanceId: shot.instanceId,
+      weaponId: shot.weaponId as RiftProjectileState["weaponId"], evolutionId: shot.evolutionId ?? null, instanceId: shot.instanceId,
       hardpointIndex: shot.hardpointIndex, damage: shot.damage, remainingLifetime: shot.life,
       remainingPenetrations: shot.penetrations, explosionRadius: shot.explosionRadius,
       hitTargetIds: new Set(), targetId: null, reacquireIn: 0, detonated: false,
@@ -97,3 +98,13 @@ export function activeProjectileCounts(projectiles: readonly RiftProjectile[]): 
 export function admitsProjectile(projectiles: readonly RiftProjectile[], instanceId: string, weaponId: RiftWeaponId): boolean {
   return (activeProjectileCounts(projectiles).get(instanceId) ?? 0) < RIFT_WEAPON_BY_ID[weaponId].maxProjectiles;
 }
+
+/** Bounded, non-recursive radial victims for evolved impact effects. */
+export function evolutionRadialHit(projectile: RiftProjectile, center: Point, targets: readonly CombatTarget[]): EntityId[] {
+  if (projectile.state.evolutionId !== "nova-cannon" && projectile.state.evolutionId !== "seismic-rail") return [];
+  return targetsInExplosion(center, projectile.state.explosionRadius, targets).filter(id => !projectile.state.hitTargetIds.has(id));
+}
+export type ScorchedState = { remainingTicks: number; tickIn: number };
+export const SCORCHED_DURATION_TICKS=90, SCORCHED_TICK_CADENCE=15, SCORCHED_DAMAGE=1.5;
+export function applyScorched(statuses: Map<EntityId,ScorchedState>, id: EntityId): void { statuses.set(id,{remainingTicks:SCORCHED_DURATION_TICKS,tickIn:Math.min(statuses.get(id)?.tickIn ?? SCORCHED_TICK_CADENCE,SCORCHED_TICK_CADENCE)}); }
+export function tickScorched(statuses: Map<EntityId,ScorchedState>): EntityId[] { const damage:EntityId[]=[]; for(const [id,s] of statuses){ s.remainingTicks--; s.tickIn--; if(s.tickIn<=0){damage.push(id);s.tickIn=SCORCHED_TICK_CADENCE;} if(s.remainingTicks<=0) statuses.delete(id); } return damage; }
