@@ -18,6 +18,7 @@ export type MenuRoute =
   | "play"
   | "ships"
   | "modes"
+  | "rift-run"
   | "settings"
   | "info"
   | "leaderboard"
@@ -29,6 +30,7 @@ export const MENU_ROUTES: readonly MenuRoute[] = [
   "play",
   "ships",
   "modes",
+  "rift-run",
   "settings",
   "info",
   "leaderboard",
@@ -45,6 +47,7 @@ export const ROUTE_TITLES: Record<MenuRoute, string> = {
   play: "Launch",
   ships: "Ships",
   modes: "Game Modes",
+  "rift-run": "Rift Run",
   settings: "Settings",
   info: "Game Info",
   leaderboard: "Leaderboard",

@@ -85,9 +85,13 @@ import {
   InfoScreen,
   ModesScreen,
   PauseScreen,
+  RiftRunSetupScreen,
   SettingsScreen,
   ShipsScreen,
 } from "./main-menu";
+import { activeHardpointCount, activateRiftRun, createRiftRun } from "./rift-run/state";
+import { RIFT_RUN_SHIPS, riftRunShip } from "./rift-run/ships";
+import type { RiftRunState } from "./rift-run/types";
 import { PvpClient, countdownLabel, type PvpSnapshot } from "./pvp-client";
 import {
   DEFAULT_PRESET,
@@ -1489,11 +1493,13 @@ function DifficultyBadge({
   pending,
   pendingMode,
   live,
+  riftRun,
 }: {
   hud: Hud;
   pending: DifficultyRules;
   pendingMode: GameMode;
   live: boolean;
+  riftRun: RiftRunState | null;
 }) {
   const activeRules = live ? DIFFICULTIES[hud.difficulty] : pending;
   const pendingShield = activeRules.collisionShield.enabled;
@@ -1537,6 +1543,19 @@ function DifficultyBadge({
       : hazardArmed
         ? `CONTACT ${contact}`
         : "CONTACT SAFE";
+
+  if (riftRun?.status === "active") {
+    const active = activeHardpointCount(riftRun);
+    return (
+      <div className="difficulty-badge rift-run-badge" role="status" aria-live="polite"
+        aria-label={`Rift Run. Sector ${riftRun.sector}. ${active} of ${riftRun.maximumHardpoints} hardpoints active.`}>
+        <span className="rule-score">SCORE {hud.score.toLocaleString().padStart(6, "0")}</span>
+        <span className="rule-mode">RIFT RUN</span>
+        <span className="rule-rift-level">SECTOR {riftRun.sector}</span>
+        <span>HARDPOINTS {active}/{riftRun.maximumHardpoints}</span>
+      </div>
+    );
+  }
 
   return (
     <div className={`difficulty-badge ${contactActive ? "hazard" : ""}`} role="status" aria-live="polite" aria-label={`Score ${hud.score}. Active rules: ${status}`}>
@@ -1858,6 +1877,8 @@ export default function WormholeGame() {
    */
   const [menu, setMenu] = useState<MenuStack>(INITIAL_STACK);
   const route = activeRoute(menu);
+  const [riftShipId, setRiftShipId] = useState<ShipId>(RIFT_RUN_SHIPS[0].id);
+  const [riftRun, setRiftRun] = useState<RiftRunState | null>(null);
   const menuOpen = menuIsOpen(menu);
   const go = useCallback((next: MenuRoute) => setMenu((stack) => pushRoute(stack, next)), []);
   const back = useCallback(() => setMenu((stack) => popRoute(stack)), []);
@@ -2511,10 +2532,17 @@ export default function WormholeGame() {
     gameRef.current = createGame(selectedShip(shipId), mode, difficulty);
   }, [difficulty, mode, shipId]);
 
-  const start = useCallback(() => {
+  const start = useCallback((riftShip?: ShipId) => {
     stopVictorySuction();
     const confirmedShip = mode === "coop" ? netRef.current?.state.you?.ship : null;
-    const game = createGame(selectedShip((confirmedShip ?? shipId) as ShipId), mode, difficulty);
+    const launchShip = riftShip && riftRunShip(riftShip) ? riftShip : (confirmedShip ?? shipId) as ShipId;
+    const game = createGame(selectedShip(launchShip), mode, difficulty);
+    if (riftShip && riftRunShip(riftShip)) {
+      const seed = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${riftShip}`;
+      setRiftRun(activateRiftRun(createRiftRun(riftShip, seed)));
+    } else {
+      setRiftRun(null);
+    }
     game.roundId = mode === "coop" ? (netRef.current?.state.roundId ?? 0) : 0;
     game.running = true;
     game.notice = "ENTERING NEW GROUND";
@@ -2538,6 +2566,12 @@ export default function WormholeGame() {
     closeMenu();
     play("magic", 0.28);
   }, [closeMenu, difficulty, mode, play, shipId, stopVictorySuction, sync]);
+
+  const launchRiftRun = useCallback(() => {
+    modePreference.set("pve");
+    difficultyPreference.set("difficult");
+    start(riftShipId);
+  }, [riftShipId, start]);
 
   // The server decides when the match is live. When it says so, launch the
   // local arena; the client never starts a PvP run on its own timing.
@@ -6444,7 +6478,7 @@ export default function WormholeGame() {
                 <span><em>PILOT HULL</em><b>{hud.health}/{hud.maxHealth}</b></span>
                 <div className="meter hull"><i style={{ width: `${healthPct}%` }} /></div>
               </div>
-              <DifficultyBadge hud={hud} pending={pendingRules} pendingMode={mode} live={badgeLive} />
+              <DifficultyBadge hud={hud} pending={pendingRules} pendingMode={mode} live={badgeLive} riftRun={riftRun} />
               <i className="reticle tl" aria-hidden="true" /><i className="reticle tr" aria-hidden="true" />
               <i className="reticle bl" aria-hidden="true" /><i className="reticle br" aria-hidden="true" />
               {summary ? (
@@ -6832,7 +6866,20 @@ export default function WormholeGame() {
           onMode={chooseMode}
           onDifficulty={chooseDifficulty}
           onSurvival={chooseSurvival}
+          onRiftRun={() => go("rift-run")}
           onLaunch={launchFromMenu}
+          go={go}
+          back={back}
+          close={resumeOrClose}
+        />
+      ) : null}
+
+      {route === "rift-run" ? (
+        <RiftRunSetupScreen
+          ship={riftShipId}
+          onSelect={setRiftShipId}
+          onLaunch={launchRiftRun}
+          renderShip={renderShip}
           go={go}
           back={back}
           close={resumeOrClose}

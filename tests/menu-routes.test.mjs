@@ -73,6 +73,7 @@ test("a fresh session starts on Home", () => {
 
 test("the stack behaves like a stack", () => {
   assert.deepEqual(push(["home"], "ships"), ["home", "ships"]);
+  assert.deepEqual(push(["home", "modes"], "rift-run"), ["home", "modes", "rift-run"]);
   // Re-entering the top route is a no-op, so a double tap cannot build a stack
   // the player has to unwind twice.
   assert.deepEqual(push(["home", "ships"], "ships"), ["home", "ships"]);
