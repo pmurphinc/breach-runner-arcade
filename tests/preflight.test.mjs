@@ -833,7 +833,7 @@ test("the canvas HUD is never drawn underneath the panels floating over it", { s
   }
 });
 
-test("touch HUD mirrors action geometry, renders the full queue, and keeps canvas behind controls", { skip, timeout: 120_000 }, async () => {
+test("touch HUD mirrors action geometry, renders the full queue, and keeps canvas clear of controls", { skip, timeout: 120_000 }, async () => {
   const browser = await playwright.chromium.launch({ executablePath: CHROME });
   try {
     for (const viewport of [
@@ -870,14 +870,26 @@ test("touch HUD mirrors action geometry, renders the full queue, and keeps canva
         });
         const canvas = rect(".canvas-wrap > canvas");
         const wrap = rect(".canvas-wrap");
-        return { pairs, canvasBottom: canvas.bottom, wrapBottom: wrap.bottom };
+        const controls = rect(".touch-controls");
+        const shell = document.querySelector(".app-shell");
+        return {
+          pairs,
+          canvasBottom: canvas.bottom,
+          wrapBottom: wrap.bottom,
+          controlsTop: controls.top,
+          reservesPortraitDeck: shell?.dataset.form === "phone" && shell?.dataset.orientation === "portrait",
+        };
       });
       for (const pair of geometry.pairs) {
         assert.ok(Math.abs(pair.leftDelta.x + pair.rightDelta.x) <= 2, `${viewport.name} ${pair.name} X offsets are not mirrored: ${JSON.stringify(pair)}`);
         assert.ok(Math.abs(pair.leftDelta.y - pair.rightDelta.y) <= 2, `${viewport.name} ${pair.name} Y offsets differ: ${JSON.stringify(pair)}`);
         assert.ok(pair.leftOutside && pair.rightOutside, `${viewport.name} ${pair.name} overlaps a stick: ${JSON.stringify(pair)}`);
       }
-      assert.ok(Math.abs(geometry.canvasBottom - geometry.wrapBottom) <= 2, `${viewport.name} canvas stops above arena bottom: ${JSON.stringify(geometry)}`);
+      const intendedArenaBottom = geometry.reservesPortraitDeck ? geometry.controlsTop : geometry.wrapBottom;
+      assert.ok(
+        Math.abs(geometry.canvasBottom - intendedArenaBottom) <= 2,
+        `${viewport.name} canvas misses its intended arena bottom: ${JSON.stringify(geometry)}`
+      );
 
       for (const count of [0, 4, 10]) {
         await page.evaluate((amount) => {
