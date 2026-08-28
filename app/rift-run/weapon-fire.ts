@@ -24,8 +24,12 @@ export function processHardpointFire(hardpoints: RiftHardpoint[], runtime: Weapo
     state.triggerTicks = held ? state.triggerTicks + 1 : 0;
     if (!held || state.cooldown > 0) continue;
     const definition = RIFT_WEAPON_BY_ID[point.weapon.weaponId];
-    const spread = definition.id === "minigun" ? ((state.shotsFired % 5) - 2) * 0.012 : 0;
-    shots.push({ kind: definition.id === "flamethrower" ? "flame" : "projectile", weaponId: definition.id, instanceId: point.weapon.instanceId, hardpointIndex: point.index, origin: mountOrigin(center, angle, hardpoints.length, point.index), angle: angle + spread, damage: definition.damage * point.weapon.modifiers.damage, speed: definition.projectileSpeed, radius: definition.projectileRadius, life: definition.lifetimeTicks, penetrations: definition.penetration + point.weapon.modifiers.penetration, explosionRadius: definition.explosionRadius + point.weapon.modifiers.explosionRadius, range: definition.range, coneDegrees: definition.coneDegrees });
+    const count = definition.id === "flamethrower" ? 1 : 1 + point.weapon.modifiers.projectileCount;
+    for (let shotIndex=0; shotIndex<count; shotIndex++) {
+      const volleySpread=(shotIndex-(count-1)/2)*.045;
+      const spinSpread=definition.id === "minigun" ? ((state.shotsFired % 5) - 2) * 0.012 : 0;
+      shots.push({ kind: definition.id === "flamethrower" ? "flame" : "projectile", weaponId: definition.id, instanceId: point.weapon.instanceId, hardpointIndex: point.index, origin: mountOrigin(center, angle, hardpoints.length, point.index), angle: angle + volleySpread + spinSpread, damage: definition.damage * point.weapon.modifiers.damage, speed: definition.projectileSpeed * point.weapon.modifiers.projectileSpeed, radius: definition.projectileRadius, life: definition.lifetimeTicks, penetrations: definition.penetration + point.weapon.modifiers.penetration, explosionRadius: definition.explosionRadius + point.weapon.modifiers.explosionRadius, range: definition.range + point.weapon.modifiers.range, coneDegrees: definition.coneDegrees + point.weapon.modifiers.coneWidth });
+    }
     state.cooldown = Math.max(1, Math.round(definition.cadenceTicks / point.weapon.modifiers.fireRate));
     state.shotsFired += 1;
   }

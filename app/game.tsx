@@ -92,10 +92,13 @@ import {
 import { activeHardpointCount, activateRiftRun, createRiftRun } from "./rift-run/state";
 import { RIFT_RUN_SHIPS, riftRunShip } from "./rift-run/ships";
 import type { RiftRunState, RiftWeaponId } from "./rift-run/types";
-import { RIFT_WEAPON_BY_ID } from "./rift-run/weapons";
+import { RIFT_WEAPONS } from "./rift-run/weapons";
 import { createWeaponRuntime, tickWeaponRuntime, type WeaponRuntime } from "./rift-run/weapon-runtime";
 import { processHardpointFire } from "./rift-run/weapon-fire";
 import { admitsProjectile, detonateMissile, penetrate, projectileFromShot, steerMissile, targetsInFlameCone, type RiftProjectile } from "./rift-run/weapon-projectiles";
+import { awardRiftEnergy, enemyKillEnergy, riftDamaged, riftEnergyRequiredForLevel } from "./rift-run/progression";
+import { rollUpgradeChoices } from "./rift-run/upgrade-pool";
+import { applyUpgrade, mountUnlockedWeapon } from "./rift-run/upgrade-apply";
 import { PvpClient, countdownLabel, type PvpSnapshot } from "./pvp-client";
 import {
   DEFAULT_PRESET,
@@ -1562,8 +1565,9 @@ function DifficultyBadge({
         aria-label={`Rift Run. Sector ${riftRun.sector}. ${active} of ${riftRun.maximumHardpoints} hardpoints active.`}>
         <span className="rule-score">SCORE {hud.score.toLocaleString().padStart(6, "0")}</span>
         <span className="rule-mode">RIFT RUN</span>
+        <span className="rule-rift-level">LEVEL {riftRun.level}</span>
         <span className="rule-rift-level">SECTOR {riftRun.sector}</span>
-        <span>{RIFT_WEAPON_BY_ID[riftRun.mountedStartingWeapon].name}</span>
+        <span>ENERGY {Math.floor(riftRun.riftEnergy)}/{riftEnergyRequiredForLevel(riftRun.level)}</span>
         <span>HARDPOINTS {active}/{riftRun.maximumHardpoints}</span>
       </div>
     );
@@ -1894,6 +1898,19 @@ export default function WormholeGame() {
   const [riftRun, setRiftRun] = useState<RiftRunState | null>(null);
   const riftRunRef = useRef<RiftRunState | null>(null);
   const riftWeaponRuntime = useRef<WeaponRuntime>({});
+  const upgradeRoll = useMemo(() => riftRun && riftRun.pendingLevels > 0 ? rollUpgradeChoices(riftRun) : null, [riftRun]);
+  const pendingHardpoint = riftRun?.hardpoints.find(point => point.status === "available");
+  const commitRiftRun = useCallback((next: RiftRunState) => { riftRunRef.current=next; setRiftRun(next); }, []);
+  const chooseUpgrade = useCallback((choice: NonNullable<typeof upgradeRoll>["choices"][number]) => {
+    const current=riftRunRef.current; if (!current || !upgradeRoll) return;
+    const next=applyUpgrade({...current,rollIndex:upgradeRoll.nextRollIndex},choice); commitRiftRun(next);
+    if (!next.pendingLevels && !next.hardpoints.some(p=>p.status==="available")) gameRef.current.paused=false;
+  }, [commitRiftRun, upgradeRoll]);
+  const chooseHardpointWeapon = useCallback((weaponId: RiftWeaponId) => {
+    const current=riftRunRef.current, point=current?.hardpoints.find(p=>p.status==="available"); if (!current || !point) return;
+    const next=mountUnlockedWeapon(current,point.index,weaponId); commitRiftRun(next); riftWeaponRuntime.current=createWeaponRuntime(next);
+    if (!next.pendingLevels) gameRef.current.paused=false;
+  }, [commitRiftRun]);
   const menuOpen = menuIsOpen(menu);
   const go = useCallback((next: MenuRoute) => setMenu((stack) => pushRoute(stack, next)), []);
   const back = useCallback(() => setMenu((stack) => popRoute(stack)), []);
@@ -3528,6 +3545,12 @@ export default function WormholeGame() {
     const destroyEnemy = (game: Game, enemy: Enemy, guaranteedDrop = false) => {
       enemy.hp = 0;
       game.score += enemy.kind === "nuke" ? 600 : enemy.kind === "gunship" ? 300 : 100;
+      const run=riftRunRef.current;
+      if (run) {
+        const next=awardRiftEnergy(run,enemyKillEnergy(enemy.kind));
+        riftRunRef.current=next; setRiftRun(next);
+        if (next.pendingLevels>0) game.paused=true;
+      }
       burst(game, enemy.x, enemy.y, POWER_COLORS[enemy.kind], 18, 8);
       play("explosion", 0.16);
       if (enemy.kind !== "ghost" && enemy.kind !== "beam" && enemy.kind !== "emp" && enemy.kind !== "mines" && (guaranteedDrop || Math.random() < 0.48)) {
@@ -4389,6 +4412,7 @@ export default function WormholeGame() {
             // cannot be multiplied by render rate or overlap samples.
             if (targetsInFlameCone(mounted.origin, mounted.angle, mounted.range, mounted.coneDegrees, [{ id: "rift", x: game.portalX, y: game.portalY }]).length) {
               game.portalCharge += mounted.damage; awardRiftDamage(game, mounted.damage);
+              const next=riftDamaged(activeRiftRun,mounted.damage,mounted.instanceId); riftRunRef.current=next; setRiftRun(next); if(next.pendingLevels) game.paused=true;
             }
             continue;
           }
@@ -4503,6 +4527,7 @@ export default function WormholeGame() {
           // still strike it. Rail rounds stop at the Rift; only normal hostile
           // contacts consume their configured penetration allowance.
           game.portalCharge += projectile.state.damage; awardRiftDamage(game, projectile.state.damage);
+          const run=riftRunRef.current; if(run) { const next=riftDamaged(run,projectile.state.damage,projectile.state.instanceId); riftRunRef.current=next; setRiftRun(next); if(next.pendingLevels) game.paused=true; }
           projectile.state.remainingLifetime = 0; game.portalPulse = Math.max(game.portalPulse, .4);
           burst(game, projectile.x, projectile.y, "#ff5ac8", 5, 3);
           continue;
@@ -6593,6 +6618,17 @@ export default function WormholeGame() {
               <DifficultyBadge hud={hud} pending={pendingRules} pendingMode={mode} live={badgeLive} riftRun={riftRun} />
               <i className="reticle tl" aria-hidden="true" /><i className="reticle tr" aria-hidden="true" />
               <i className="reticle bl" aria-hidden="true" /><i className="reticle br" aria-hidden="true" />
+              {pendingHardpoint ? (
+                <div className="rift-upgrade-layer"><section className="rift-upgrade-dialog" data-controller-surface role="dialog" aria-modal="true" aria-label="Select weapon">
+                  <header><p>HARDPOINT {pendingHardpoint.index+1} ONLINE</p><h2>SELECT WEAPON</h2></header>
+                  <div className="rift-weapon-options">{RIFT_WEAPONS.map(weapon=><button type="button" key={weapon.id} onClick={()=>chooseHardpointWeapon(weapon.id)}><b>{weapon.name}</b><span>{weapon.role}</span></button>)}</div>
+                </section></div>
+              ) : upgradeRoll ? (
+                <div className="rift-upgrade-layer"><section className="rift-upgrade-dialog" data-controller-surface role="dialog" aria-modal="true" aria-label="Upgrade available">
+                  <header><p>UPGRADE AVAILABLE</p><h2>CHOOSE ONE</h2></header>
+                  <div className="rift-upgrade-options">{upgradeRoll.choices.map(choice=><button type="button" key={choice.key} onClick={()=>chooseUpgrade(choice)}><b>{choice.title}</b><em>{choice.target}</em><span>{choice.description}</span></button>)}</div>
+                </section></div>
+              ) : null}
               {summary ? (
                 <div className="run-summary-layer">
                   <section className="run-summary" data-controller-surface aria-live="polite" aria-label="Run result">
