@@ -61,7 +61,7 @@ test("gameplay uses the shared PNG renderer and polygons only as its fallback", 
   assert.match(game, /drawShipModel\(ctx, game\.ship\.id/);
   assert.match(game, /drawShipModel\(ctx, allyShip/);
   assert.doesNotMatch(game, /drawShipShape/);
-  assert.match(models, /drawShipShape\(ctx, ship, scale\)/);
+  assert.match(models, /drawShipShape\(ctx, ship, shipModelScale\(ship, presentationScale\)\)/);
 });
 
 test("Kestrel renders through the shared ship renderer", () => {
