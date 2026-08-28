@@ -171,6 +171,8 @@ test("two guests quick-match, ready up, and fight to a hull victory", async () =
     assert.equal(active.you.shieldPct, 100);
 
     // A transmission must reach only the opponent.
+    alpha.send({ type: "inventory", seq: 1, action: "collect", weapon: "nuke" });
+    alpha.send({ type: "inventory", seq: 2, action: "launch", weapon: "nuke" });
     alpha.send({ type: "transmit", seq: 1, weapon: "nuke" });
     const incoming = await bravo.waitFor("incoming");
     assert.equal(incoming.weapon, "nuke");
