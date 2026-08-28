@@ -16,6 +16,34 @@ import { applyUpgrade, mountUnlockedWeapon } from "../app/rift-run/upgrade-apply
 import { RIFT_UPGRADES, upgradeStack } from "../app/rift-run/upgrades.ts";
 import { riftRunHandling, riftRunHullDamage } from "../app/rift-run/live-modifiers.ts";
 import { applyIntent, intentFromKeys } from "../app/movement.ts";
+import { createRunAgainRiftRun, replayForCompletedRun } from "../app/run-replay.ts";
+
+test("Run Again preserves Rift Run identity and ship while creating fresh progression", () => {
+  const completed = createArmedRun("tank", "completed-seed", "railgun");
+  completed.level = 8;
+  completed.riftEnergy = 42;
+  completed.riftBreaches = 3;
+  completed.upgradeHistory = [{ upgradeId: "impact-plating", stack: 2, level: 2 }];
+  completed.status = "completed";
+
+  const replay = replayForCompletedRun("pve", "difficult", completed);
+  assert.deepEqual(replay, { kind: "rift-run", shipId: "tank" });
+  const restarted = createRunAgainRiftRun(replay, "new-seed");
+
+  assert.equal(restarted.selectedShip, completed.selectedShip);
+  assert.equal(restarted.status, "active");
+  assert.equal(restarted.seed, "new-seed");
+  assert.equal(restarted.level, 1);
+  assert.equal(restarted.riftEnergy, 0);
+  assert.equal(restarted.riftBreaches, 0);
+  assert.deepEqual(restarted.upgradeHistory, []);
+  assert.ok(restarted.hardpoints.every(({ status }) => status === "locked"));
+  assert.equal(activeHardpointCount(restarted), 0);
+});
+
+test("normal PvE Run Again remains normal PvE", () => {
+  assert.deepEqual(replayForCompletedRun("pve", "difficult", null), { kind: "pve" });
+});
 
 test("Rift Run exposes exactly its canonical eight-ship fleet", () => {
   assert.equal(RIFT_RUN_SHIPS.length, 8);

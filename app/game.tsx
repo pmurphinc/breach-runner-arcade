@@ -90,11 +90,12 @@ import {
   SettingsScreen,
   ShipsScreen,
 } from "./main-menu";
-import { activeHardpointCount, activateRiftRun, createRiftRun } from "./rift-run/state";
+import { activeHardpointCount } from "./rift-run/state";
 import { RIFT_RUN_SHIPS, riftRunShip } from "./rift-run/ships";
 import type { RiftRunState, RiftWeaponId } from "./rift-run/types";
 import { RIFT_WEAPONS } from "./rift-run/weapons";
 import { createWeaponRuntime, tickWeaponRuntime, type WeaponRuntime } from "./rift-run/weapon-runtime";
+import { createRunAgainRiftRun, replayForCompletedRun, type RunReplay } from "./run-replay";
 import { processHardpointFire } from "./rift-run/weapon-fire";
 import { admitsProjectile, applyScorched, detonateMissile, evolutionRadialHit, penetrate, projectileFromShot, SCORCHED_DAMAGE, steerMissile, targetsInFlameCone, tickScorched, type EntityId, type RiftProjectile, type ScorchedState } from "./rift-run/weapon-projectiles";
 import { awardRiftEnergy, enemyKillEnergy, riftDamaged, riftEnergyRequiredForLevel } from "./rift-run/progression";
@@ -1128,6 +1129,8 @@ function WeaponCodex({ onClose, reducedMotion }: { onClose: () => void; reducedM
 
 type RunSummary = {
   run: RunResult;
+  /** The concrete run type that ended, retained independently of PvE mode. */
+  replay: RunReplay;
   /** This device's best after the run — may be the run itself. */
   best: LocalBest | null;
   isBest: boolean;
@@ -2443,6 +2446,7 @@ export default function WormholeGame() {
     // Survival, having no win condition, can never produce. So the roadmap's
     // "the normal PvE time penalty does not apply" needs no exception here.
     const survivalRun = hud.difficulty === "survival";
+    const replay = replayForCompletedRun(hud.mode, hud.difficulty, riftRunRef.current);
     const run: RunResult = {
       runId: createArcadeRunId(),
       score: settlement.finalScore,
@@ -2484,6 +2488,7 @@ export default function WormholeGame() {
       const placement = recordSurvivalRun(identifiedRun);
       setSummary({
         run: identifiedRun,
+        replay,
         best: null,
         isBest: placement.rank === 1,
         runs: 0,
@@ -2498,6 +2503,7 @@ export default function WormholeGame() {
     } else if (hud.result === "victory" && hud.mode === "pve" && !practice && !storedInitials) {
       setSummary({
         run,
+        replay,
         best: loadLocalBest(),
         isBest: false,
         runs: 0,
@@ -2506,10 +2512,10 @@ export default function WormholeGame() {
         deathCause: hud.deathCause,
       });
     } else if (practice) {
-      setSummary({ run: identifiedRun, best: loadLocalBest(), isBest: false, runs: 0, restored: false, awaitingInitials: false, deathCause: hud.deathCause });
+      setSummary({ run: identifiedRun, replay, best: loadLocalBest(), isBest: false, runs: 0, restored: false, awaitingInitials: false, deathCause: hud.deathCause });
     } else {
       const local = saveLocalRun(identifiedRun);
-      setSummary({ run: identifiedRun, best: local.best, isBest: local.isBest, runs: local.runs, restored: false, awaitingInitials: false, deathCause: hud.deathCause });
+      setSummary({ run: identifiedRun, replay, best: local.best, isBest: local.isBest, runs: local.runs, restored: false, awaitingInitials: false, deathCause: hud.deathCause });
     }
     setSaveState({ status: "idle" });
   }, [hud.breaches, hud.deathCause, hud.deathDamage, hud.difficulty, hud.elapsedSeconds, hud.mode, hud.result, hud.riftLevel, hud.rivalFinalCause, hud.rivalFinalDamage, hud.rivalHealth, hud.score, netResult, settings.playerInitials]);
@@ -2563,7 +2569,7 @@ export default function WormholeGame() {
     const game = createGame(selectedShip(launchShip), mode, difficulty);
     if (riftShip && riftRunShip(riftShip)) {
       const seed = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${riftShip}`;
-      const run = activateRiftRun(createRiftRun(riftShip, seed));
+      const run = createRunAgainRiftRun({ kind: "rift-run", shipId: riftShip }, seed);
       riftRunRef.current = run;
       riftWeaponRuntime.current = createWeaponRuntime(run);
       setRiftRun(run);
@@ -6858,7 +6864,8 @@ export default function WormholeGame() {
                           className="run-action primary"
                           disabled={summary.awaitingInitials || (mode !== "pve" && Boolean(net?.rematch?.you))}
                           onClick={() => {
-                            if (mode === "pve") start();
+                            if (summary.replay.kind === "rift-run") start(summary.replay.shipId);
+                            else if (summary.replay.kind === "pve" || summary.replay.kind === "survival") start();
                             else netRef.current?.requestRematch();
                           }}
                         >
