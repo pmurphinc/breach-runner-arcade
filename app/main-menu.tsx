@@ -19,6 +19,9 @@ import { PRODUCT_TAGLINE, PRODUCT_TITLE } from "./product";
 import type { MenuRoute } from "./menu-routes";
 import { settingsStore, type AimGuide, type CombatHaptics, type SoundLevel, type TouchControlHeight, type TouchControlSize, type ViewMode, type ZoomLevel } from "./view-settings";
 import { GAMEPAD_BINDINGS } from "./gamepad";
+import { RIFT_RUN_DESCRIPTION, RIFT_RUN_TAGLINE, RIFT_RUN_TITLE, RIFT_SHIP_CLASSES } from "./rift-run/data";
+import { RIFT_RUN_SHIPS, riftRunShip } from "./rift-run/ships";
+import { createStartingHardpoints } from "./rift-run/state";
 
 /** One line each. A mode a player cannot summarise is a mode they will not pick. */
 export const MODE_INFO: Record<GameMode, { label: string; blurb: string }> = {
@@ -250,6 +253,7 @@ export function ModesScreen({
   onMode,
   onDifficulty,
   onSurvival,
+  onRiftRun,
   onLaunch,
   back,
 }: MenuCallbacks & {
@@ -259,6 +263,8 @@ export function ModesScreen({
   onDifficulty: (next: DifficultyId) => void;
   /** Switch the launch selection to the endless Rift Survival challenge. */
   onSurvival: () => void;
+  /** Opens the mode's own loadout instead of selecting a difficulty. */
+  onRiftRun: () => void;
   onLaunch: () => void;
 }) {
   const survival = difficulty === "survival";
@@ -317,6 +323,16 @@ export function ModesScreen({
             <b>{CHALLENGE_INFO.survival.label}</b>
             <small>{CHALLENGE_INFO.survival.blurb}</small>
           </button>
+          <button
+            type="button"
+            className="mode-card"
+            data-mode="rift-run"
+            onClick={onRiftRun}
+          >
+            <span className="option-check" aria-hidden="true" />
+            <b>{RIFT_RUN_TITLE}</b>
+            <small>{RIFT_RUN_TAGLINE} · {RIFT_RUN_DESCRIPTION}</small>
+          </button>
         </div>
       </MenuSection>
 
@@ -336,6 +352,60 @@ export function ModesScreen({
           />
         </MenuSection>
       )}
+    </MenuScreen>
+  );
+}
+
+/* -------------------------------------------------------------- Rift Run -- */
+
+export function RiftRunSetupScreen({
+  ship,
+  onSelect,
+  onLaunch,
+  back,
+  renderShip,
+}: MenuCallbacks & {
+  ship: ShipId;
+  onSelect: (id: ShipId) => void;
+  onLaunch: () => void;
+  renderShip: (id: ShipId, size: number) => React.ReactNode;
+}) {
+  const selected = riftRunShip(ship) ?? RIFT_RUN_SHIPS[0];
+  const sockets = createStartingHardpoints(selected.maximumHardpoints);
+  return (
+    <MenuScreen
+      route="rift-run"
+      title={RIFT_RUN_TITLE}
+      eyebrow={RIFT_RUN_TAGLINE}
+      onBack={back}
+      wide
+      footer={<button type="button" className="play-button" onClick={onLaunch}>Start Run · {selected.name}</button>}
+    >
+      <p className="menu-hint rift-run-intro">{RIFT_RUN_DESCRIPTION}</p>
+      <div className="rift-run-layout">
+        <div className="ship-grid" role="radiogroup" aria-label="Choose a Rift Run ship">
+          {RIFT_RUN_SHIPS.map((candidate) => (
+            <button key={candidate.id} type="button" role="radio" aria-checked={selected.id === candidate.id}
+              className={`ship-card ${selected.id === candidate.id ? "active" : ""}`} onClick={() => onSelect(candidate.id)}>
+              <span className="ship-card-art" aria-hidden="true">{renderShip(candidate.id, 44)}</span>
+              <b>{candidate.name}</b>
+              <small>{RIFT_SHIP_CLASSES[candidate.shipClass].label} · {candidate.maximumHardpoints} sockets</small>
+              <small>{candidate.abilityName}</small>
+              {selected.id === candidate.id ? <span className="ship-card-check" aria-hidden="true">✓</span> : null}
+            </button>
+          ))}
+        </div>
+        <section className="ship-detail rift-run-detail" aria-live="polite">
+          <div className="ship-detail-art" aria-hidden="true">{renderShip(selected.id, 112)}</div>
+          <h3>{selected.name}</h3>
+          <p className="ship-detail-role">{RIFT_SHIP_CLASSES[selected.shipClass].label} class · {selected.abilityName}</p>
+          <div className="rift-sockets" aria-label={`One of ${selected.maximumHardpoints} gun sockets active`}>
+            <span>GUN SOCKETS</span>
+            <b aria-hidden="true">{sockets.map((socket) => socket.status === "occupied" ? "●" : "○").join(" ")}</b>
+          </div>
+          <p className="menu-hint">Standard cannon mounted. Additional physical sockets are locked for Phase 1.</p>
+        </section>
+      </div>
     </MenuScreen>
   );
 }
