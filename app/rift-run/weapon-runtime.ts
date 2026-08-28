@@ -1,4 +1,4 @@
-import type { RiftRunState } from "./types";
+import type { RiftRunState } from "./types.ts";
 
 export type HardpointRuntime = { cooldown: number; triggerTicks: number; shotsFired: number };
 export type WeaponRuntime = Record<string, HardpointRuntime>;

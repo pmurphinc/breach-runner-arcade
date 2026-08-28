@@ -1,7 +1,7 @@
-import type { RiftHardpoint } from "./types";
-import type { WeaponRuntime } from "./weapon-runtime";
-import { RIFT_WEAPON_BY_ID } from "./weapons";
-import { activeEvolution, RIFT_EVOLUTION_BY_ID } from "./evolutions";
+import type { RiftHardpoint } from "./types.ts";
+import type { WeaponRuntime } from "./weapon-runtime.ts";
+import { RIFT_WEAPON_BY_ID } from "./weapons.ts";
+import { activeEvolution, RIFT_EVOLUTION_BY_ID } from "./evolutions.ts";
 
 export type Point = { x: number; y: number };
 export type FireShot = { kind: "projectile" | "flame"; weaponId: string; evolutionId: string | null; salvoIndex: number; instanceId: string; hardpointIndex: number; origin: Point; angle: number; damage: number; speed: number; radius: number; life: number; penetrations: number; explosionRadius: number; range: number; coneDegrees: number };

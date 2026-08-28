@@ -1,4 +1,4 @@
-import type { RiftRunState, RiftWeaponId, RiftWeaponInstance } from "./types";
+import type { RiftRunState, RiftWeaponId, RiftWeaponInstance } from "./types.ts";
 
 export type UpgradeCategory = "weapon" | "ship" | "hardpoint" | "rift-tech";
 export type GameplayCategory = "offensive" | "defensive" | "mobility";
@@ -19,6 +19,7 @@ export const RIFT_UPGRADES: readonly UpgradeDefinition[] = [
   weapon("high-explosive", "HIGH EXPLOSIVE", "+16 blast radius", "explosionRadius", 16, ["missile-pod"], 3), weapon("warhead", "WARHEAD", "+35% damage", "damage", .35, ["missile-pod"]), weapon("salvo", "SALVO", "+1 missile", "projectileCount", 1, ["missile-pod"], 3),
   weapon("extended-nozzle", "EXTENDED NOZZLE", "+25 flame range", "range", 25, ["flamethrower"], 4), weapon("wide-burn", "WIDE BURN", "+10° cone width", "coneWidth", 10, ["flamethrower"], 4), weapon("hot-mix", "HOT MIX", "+30% flame damage", "damage", .3, ["flamethrower"]),
   { id: "reinforced-hull", name: "REINFORCED HULL", description: "+20 maximum and current hull", category: "ship", gameplayCategory: "defensive", tier: 1, maxStacks: 8, effect: "hull", amount: 20 },
+  { id: "hull-restoration", name: "HULL RESTORATION", description: "+12 maximum and current hull", category: "ship", gameplayCategory: "defensive", tier: 1, maxStacks: 8, effect: "hull", amount: 12 },
   { id: "shield-capacitor", name: "SHIELD CAPACITOR", description: "+15 maximum and current shield", category: "ship", gameplayCategory: "defensive", tier: 1, maxStacks: 8, effect: "shield", amount: 15 },
   { id: "impact-plating", name: "IMPACT PLATING", description: "+5% damage resistance", category: "ship", gameplayCategory: "defensive", tier: 1, maxStacks: 8, effect: "damageReduction", amount: .05 },
   { id: "thruster-tuning", name: "THRUSTER TUNING", description: "+7% acceleration and speed", category: "ship", gameplayCategory: "mobility", tier: 1, maxStacks: 10, effect: "movement", amount: .07 },
@@ -27,5 +28,5 @@ export const RIFT_UPGRADES: readonly UpgradeDefinition[] = [
 ] as const;
 export const RIFT_UPGRADE_BY_ID = Object.fromEntries(RIFT_UPGRADES.map(x => [x.id, x])) as Record<string, UpgradeDefinition>;
 
-export function upgradeStack(state: RiftRunState, id: string, targetInstanceId?: string): number { return state.upgradeHistory.filter(x => x.upgradeId === id && x.targetInstanceId === targetInstanceId).length; }
+export function upgradeStack(state: RiftRunState, id: string, targetInstanceId?: string): number { return state.upgradeHistory.filter(x => x.upgradeId === id && x.targetInstanceId === targetInstanceId).reduce((highest, entry) => Math.max(highest, entry.stack), 0); }
 export function occupiedWeapons(state: RiftRunState): Array<{ hardpointIndex: number; weapon: RiftWeaponInstance }> { return state.hardpoints.flatMap(p => p.status === "occupied" ? [{ hardpointIndex: p.index, weapon: p.weapon }] : []); }

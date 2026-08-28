@@ -1,4 +1,4 @@
-import type { RiftShipClass } from "./types";
+import type { RiftShipClass } from "./types.ts";
 
 export const RIFT_RUN_TITLE = "RIFT RUN";
 export const RIFT_RUN_TAGLINE = "A Roguelite Game Mode";

@@ -45,7 +45,7 @@ test("class pickup cues use the existing muted Web Audio path", () => {
 });
 
 test("one loose-PUP collection plays one class cue and no old generic cue", () => {
-  const collection = game.slice(game.indexOf("const resolvePlayerPickup"), game.indexOf("const coopNetwork"));
+  const collection = game.slice(game.indexOf("const resolvePlayerPickup"), game.indexOf("Burns Phantom's lance"));
   assert.equal(collection.match(/playPupPickupSound\(/g)?.length, 1);
   assert.doesNotMatch(collection, /play\("magic"/);
   assert.doesNotMatch(collection, /playCue\("shield-pickup"/);

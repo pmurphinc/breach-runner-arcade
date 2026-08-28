@@ -1,6 +1,6 @@
-import { awardRiftEnergy } from "./progression";
-import { RIFT_RUN_BREACH_REWARDS, RIFT_RUN_REFORM_DELAY_MS, riftIntegrityForBreach } from "./rift-damage";
-import type { RiftRunState } from "./types";
+import { awardRiftEnergy } from "./progression.ts";
+import { RIFT_RUN_BREACH_REWARDS, RIFT_RUN_REFORM_DELAY_MS, riftIntegrityForBreach } from "./rift-damage.ts";
+import type { RiftRunState } from "./types.ts";
 
 export type RiftBreachRuntime = { integrity: number; maximumIntegrity: number; reformRemainingMs: number; breached: boolean };
 

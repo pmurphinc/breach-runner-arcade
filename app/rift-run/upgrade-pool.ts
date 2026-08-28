@@ -1,7 +1,7 @@
-import type { RiftRunState } from "./types";
-import { RIFT_UPGRADES, occupiedWeapons, upgradeStack, type UpgradeChoice } from "./upgrades";
-import { RIFT_WEAPON_BY_ID } from "./weapons";
-import { eligibleEvolutions } from "./evolutions";
+import type { RiftRunState } from "./types.ts";
+import { RIFT_UPGRADES, occupiedWeapons, upgradeStack, type UpgradeChoice } from "./upgrades.ts";
+import { RIFT_WEAPON_BY_ID } from "./weapons.ts";
+import { eligibleEvolutions } from "./evolutions.ts";
 
 function hash(text: string): number { let h=2166136261; for (let i=0;i<text.length;i++) { h^=text.charCodeAt(i); h=Math.imul(h,16777619); } return h>>>0; }
 function random(seed: string, index: number): number { let x=hash(`${seed}:${index}`); x^=x<<13; x^=x>>>17; x^=x<<5; return (x>>>0)/4294967296; }

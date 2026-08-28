@@ -1,4 +1,4 @@
-import type { ShipId } from "../game-data";
+import type { ShipId } from "../game-data.ts";
 
 export type RiftShipClass = "light" | "medium" | "heavy";
 export type RiftRunStatus = "setup" | "active" | "completed" | "abandoned";

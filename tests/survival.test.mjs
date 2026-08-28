@@ -486,7 +486,7 @@ test("the loop pays for rift damage where it is applied, not where it is fired",
   // Cannon damage is paid for beside the charge it actually adds to the rift.
   assert.match(
     gameCode,
-    /game\.portalCharge \+= bullet\.damage;\s*awardRiftDamage\(game, bullet\.damage\);/,
+    /chargeRiftPup\(game, bullet\.damage\);[\s\S]*?awardRiftDamage\(game, bullet\.damage\);/,
   );
   // A payload is paid for on the integrity actually removed — never on the
   // projectile's nominal damage, which an enrage shield may have swallowed.

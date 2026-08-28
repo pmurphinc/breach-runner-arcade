@@ -1,6 +1,6 @@
-import type { ShipId } from "../game-data";
-import { riftRunShip } from "./ships";
-import type { RiftHardpoint, RiftRunState } from "./types";
+import type { ShipId } from "../game-data.ts";
+import { riftRunShip } from "./ships.ts";
+import type { RiftHardpoint, RiftRunState } from "./types.ts";
 
 export function createStartingHardpoints(maximum: number): RiftHardpoint[] {
   return Array.from({ length: maximum }, (_, index) => ({ index, status: "locked" as const }));

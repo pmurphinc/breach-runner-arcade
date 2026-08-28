@@ -1,6 +1,6 @@
-import type { FireShot, Point } from "./weapon-fire";
-import type { RiftWeaponId } from "./types";
-import { RIFT_WEAPON_BY_ID } from "./weapons";
+import type { FireShot, Point } from "./weapon-fire.ts";
+import type { RiftWeaponId } from "./types.ts";
+import { RIFT_WEAPON_BY_ID } from "./weapons.ts";
 
 export type EntityId = string | number;
 export type CombatTarget = Point & { id: EntityId; hostile?: boolean; radius?: number; hp?: number };

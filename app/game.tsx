@@ -101,6 +101,7 @@ import { awardRiftEnergy, enemyKillEnergy, riftDamaged, riftEnergyRequiredForLev
 import { applyRiftRunHullWeaponDamage, RIFT_RUN_BASE_INTEGRITY } from "./rift-run/rift-damage";
 import { breachRiftRun, tickRiftReform } from "./rift-run/breach";
 import { rollUpgradeChoices } from "./rift-run/upgrade-pool";
+import { riftRunHandling, riftRunHullDamage } from "./rift-run/live-modifiers";
 import { applyUpgrade, mountUnlockedWeapon } from "./rift-run/upgrade-apply";
 import { PvpClient, countdownLabel, type PvpSnapshot } from "./pvp-client";
 import {
@@ -1890,6 +1891,11 @@ export default function WormholeGame() {
   const chooseUpgrade = useCallback((choice: NonNullable<typeof upgradeRoll>["choices"][number]) => {
     const current=riftRunRef.current; if (!current || !upgradeRoll) return;
     const next=applyUpgrade({...current,rollIndex:upgradeRoll.nextRollIndex},choice); commitRiftRun(next);
+    const player=gameRef.current.player;
+    const hullGain=next.shipModifiers.hull-current.shipModifiers.hull;
+    const shieldGain=next.shipModifiers.shield-current.shipModifiers.shield;
+    if (hullGain>0) { player.maxHealth+=hullGain; player.health=Math.min(player.maxHealth,player.health+hullGain); }
+    if (shieldGain>0) player.shield+=shieldGain;
     if (!next.pendingLevels && !next.hardpoints.some(p=>p.status==="available")) gameRef.current.paused=false;
   }, [commitRiftRun, upgradeRoll]);
   const chooseHardpointWeapon = useCallback((weaponId: RiftWeaponId) => {
@@ -3277,6 +3283,7 @@ export default function WormholeGame() {
      */
     const applyHullDamage = (game: Game, amount: number) => {
       const player = game.player;
+      amount = riftRunHullDamage(amount, riftRunRef.current);
       if (game.rules.unlimitedHull) {
         player.health = player.maxHealth;
         game.notice = "SIMULATION // HULL LOCKED";
@@ -4378,8 +4385,9 @@ export default function WormholeGame() {
           ? { seconds: 0, accelerationScale: player.riderAcceleration, maxSpeedScale: player.riderMaxSpeed }
           : null,
       );
-      const maxSpeed = specialHandling.maxSpeed;
-      const acceleration = specialHandling.acceleration;
+      const liveHandling = riftRunHandling(specialHandling, riftRunRef.current);
+      const maxSpeed = liveHandling.maxSpeed;
+      const acceleration = liveHandling.acceleration;
 
       const moved = applyIntent(
         { vx: player.vx, vy: player.vy },

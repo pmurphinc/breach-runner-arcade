@@ -1,5 +1,5 @@
-import type { ShipId } from "./game-data";
-import { drawShipShape } from "./weapon-art";
+import type { ShipId } from "./game-data.ts";
+import { drawShipShape } from "./weapon-art.ts";
 
 /** The single authoritative fleet-art manifest used by canvas and menus. */
 export const SHIP_MODEL_ASSETS: Record<ShipId, string> = {

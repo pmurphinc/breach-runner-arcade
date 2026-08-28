@@ -1,4 +1,4 @@
-import type { RiftWeaponId, RiftWeaponInstance } from "./types";
+import type { RiftWeaponId, RiftWeaponInstance } from "./types.ts";
 
 export type RiftWeaponDefinition = {
   id: RiftWeaponId; name: string; role: string; summary: string;
