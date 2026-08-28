@@ -24,7 +24,8 @@ import {
   type ShipSpec,
   type WeaponMeta,
 } from "./game-data";
-import { DIRECTIONAL, drawPowerProjectile, drawShipShape, drawWeaponGlyph } from "./weapon-art";
+import { DIRECTIONAL, drawPowerProjectile, drawWeaponGlyph } from "./weapon-art";
+import { drawShipModel, preloadShipModels, SHIP_MODEL_ASSETS } from "./ship-models";
 import {
   DIFFICULTIES,
   RULESET_IDS,
@@ -1826,33 +1827,11 @@ function MultiplayerLobby({
  * the art in the menu is literally the art in the game.
  */
 const MenuShip = memo(function MenuShip({ id, size }: { id: ShipId; size: number }) {
-  const ref = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    const canvas = ref.current;
-    if (!canvas) return;
-    const context = canvas.getContext("2d");
-    if (!context) return;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.round(size * dpr);
-    canvas.height = Math.round(size * dpr);
-    context.setTransform(dpr, 0, 0, dpr, 0, 0);
-    context.clearRect(0, 0, size, size);
-    context.save();
-    context.translate(size / 2, size / 2);
-    context.rotate(-Math.PI / 2);
-    context.scale(size / 90, size / 90);
-    context.lineWidth = 2.2;
-    context.strokeStyle = "#69ecff";
-    context.fillStyle = "rgba(86, 226, 255, .14)";
-    drawShipShape(context, id, id === "flagship" ? 1.5 : 1.9);
-    context.fill();
-    context.stroke();
-    context.restore();
-  }, [id, size]);
-  return <canvas ref={ref} style={{ width: size, height: size }} aria-hidden="true" />;
+  return <img src={SHIP_MODEL_ASSETS[id]} width={size} height={size} alt="" draggable={false} />;
 });
 
 export default function WormholeGame() {
+  useEffect(() => preloadShipModels(), []);
   const shellRef = useRef<HTMLElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const canvasWrapRef = useRef<HTMLDivElement>(null);
@@ -1902,7 +1881,6 @@ export default function WormholeGame() {
   const [menu, setMenu] = useState<MenuStack>(INITIAL_STACK);
   const route = activeRoute(menu);
   const [riftShipId, setRiftShipId] = useState<ShipId>(RIFT_RUN_SHIPS[0].id);
-  const [riftWeaponId, setRiftWeaponId] = useState<RiftWeaponId>("pulse-cannon");
   const [riftRun, setRiftRun] = useState<RiftRunState | null>(null);
   const riftRunRef = useRef<RiftRunState | null>(null);
   const riftWeaponRuntime = useRef<WeaponRuntime>({});
@@ -2579,7 +2557,7 @@ export default function WormholeGame() {
     const game = createGame(selectedShip(launchShip), mode, difficulty);
     if (riftShip && riftRunShip(riftShip)) {
       const seed = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${riftShip}`;
-      const run = activateRiftRun(createRiftRun(riftShip, seed, riftWeaponId));
+      const run = activateRiftRun(createRiftRun(riftShip, seed));
       riftRunRef.current = run;
       riftWeaponRuntime.current = createWeaponRuntime(run);
       setRiftRun(run);
@@ -2610,7 +2588,7 @@ export default function WormholeGame() {
     setLaunched(true);
     closeMenu();
     play("magic", 0.28);
-  }, [closeMenu, difficulty, mode, play, riftWeaponId, shipId, stopVictorySuction, sync]);
+  }, [closeMenu, difficulty, mode, play, shipId, stopVictorySuction, sync]);
 
   const launchRiftRun = useCallback(() => {
     modePreference.set("pve");
@@ -3595,6 +3573,19 @@ export default function WormholeGame() {
       game.score += scoreRiftDamage(survival, damage);
     };
 
+    /** Shared nominal-damage path for cannon and additive Rift Run hull guns. */
+    const chargeRiftPup = (game: Game, nominalDamage: number) => {
+      game.portalCharge += nominalDamage;
+      if (game.portalCharge <= game.portalThreshold) return;
+      game.portalCharge = 0;
+      const type = randomPower();
+      game.pickups.push({ x: game.portalX + range(-28, 28), y: game.portalY + range(-28, 28), vx: range(-1.2, 1.2), vy: range(-1.2, 1.2), type, life: 900, phase: range(0, 6) });
+      game.notice = `${WEAPONS[type].short} READY TO COLLECT`;
+      game.noticeLife = 100;
+      pushSpawn(game, "friendly", type, game.portalX, game.portalY, 1);
+      playCue(`spawn:${type}`, 0.17);
+    };
+
     /**
      * The rift has been driven to zero integrity in Survival.
      *
@@ -3631,7 +3622,7 @@ export default function WormholeGame() {
     const hitRiftWithRiftRunWeapon = (game: Game, weaponDamage: number, weaponInstanceId: string) => {
       // Nominal damage keeps feeding the temporary PUP loop even when the
       // separate integrity pool is nearly (or already) exhausted.
-      game.portalCharge += weaponDamage;
+      chargeRiftPup(game, weaponDamage);
       const integrityDamage = applyRiftRunHullWeaponDamage(game, weaponDamage);
       const run = riftRunRef.current;
       if (run && integrityDamage > 0) {
@@ -3657,7 +3648,7 @@ export default function WormholeGame() {
         game.riftReformTicks = Math.ceil(breached.runtime.reformRemainingMs / TICK_MS);
         game.notice = `RIFT BREACHED // DEPTH ${breached.state.riftBreaches}`;
         game.noticeLife = game.riftReformTicks;
-        if (breached.state.pendingLevels > 0) game.paused = true;
+        if (breached.state.pendingLevels > 0 || breached.state.hardpoints.some(point => point.status === "available")) game.paused = true;
         burst(game, game.portalX, game.portalY, "#ffffff", 40, 10);
         playCue("wormhole-explosion", .18);
       }
@@ -4490,15 +4481,16 @@ export default function WormholeGame() {
           play(id === "missile-pod" ? "thrust" : id === "flamethrower" ? "magic" : "fire", id === "minigun" ? 0.04 : 0.11, id === "railgun" ? 0.6 : id === "minigun" ? 1.8 : id === "flamethrower" ? 0.7 : 1);
           vibrateCombat("gun");
         }
-      } else if (fire && game.shotCycle <= 0 && game.playerShots < SHOT_LEVELS[player.gun].maxShots) {
+      }
+      if (fire && game.shotCycle <= 0 && game.playerShots < SHOT_LEVELS[player.gun].maxShots) {
         const shot = SHOT_LEVELS[player.gun];
         const offsets = shot.shots === 2 ? [-0.05, 0.05] : [0];
         offsets.forEach((offset) => {
           const angle = player.angle * DEG + offset;
-          game.bullets.push({ x: player.x + Math.cos(angle) * 12, y: player.y + Math.sin(angle) * 12, vx: Math.cos(angle) * 10 + player.vx, vy: Math.sin(angle) * 10 + player.vy, damage: shot.damage, life: 110, enemy: false, color: shot.color, bouncesLeft: player.ricochetTicks > 0 ? RICOCHET_BOUNCES : 0, salvageLinked: game.ship.id === "kestrel" && player.salvageLink > 0 });
+          game.bullets.push({ x: player.x + Math.cos(angle) * 12, y: player.y + Math.sin(angle) * 12, vx: Math.cos(angle) * 10 + player.vx, vy: Math.sin(angle) * 10 + player.vy, damage: shot.damage * (activeRiftRun?.shipModifiers.cannonDamage ?? 1), life: 110, enemy: false, color: shot.color, bouncesLeft: player.ricochetTicks > 0 ? RICOCHET_BOUNCES : 0, salvageLinked: game.ship.id === "kestrel" && player.salvageLink > 0 });
           game.playerShots += 1;
         });
-        game.shotCycle = shot.delay;
+        game.shotCycle = Math.max(1, Math.round(shot.delay / (activeRiftRun?.shipModifiers.cannonFireRate ?? 1)));
         play("fire", 0.12, cannonPlaybackRate(player.gun));
       }
 
@@ -4703,7 +4695,7 @@ export default function WormholeGame() {
         if (bullet.life <= 0) return;
         if (!bullet.autoGun && dist(bullet, { x: game.portalX, y: game.portalY }) < 43) {
           bullet.life = 0;
-          game.portalCharge += bullet.damage;
+          chargeRiftPup(game, bullet.damage);
           // This is where cannon damage is actually applied to the rift — the
           // coach line calls it damage and the charge meter measures it — so
           // it is where Survival pays for it. Awarding at the muzzle instead
@@ -4712,15 +4704,6 @@ export default function WormholeGame() {
           game.portalPulse = Math.max(game.portalPulse, 0.4);
           burst(game, bullet.x, bullet.y, "#ff5ac8", 4, 2.5);
           cannonImpactFeedback(game, bullet);
-          if (game.portalCharge > game.portalThreshold) {
-            game.portalCharge = 0;
-            const type = randomPower();
-            game.pickups.push({ x: game.portalX + range(-28, 28), y: game.portalY + range(-28, 28), vx: range(-1.2, 1.2), vy: range(-1.2, 1.2), type, life: 900, phase: range(0, 6) });
-            game.notice = `${WEAPONS[type].short} READY TO COLLECT`;
-            game.noticeLife = 100;
-            pushSpawn(game, "friendly", type, game.portalX, game.portalY, 1);
-            playCue(`spawn:${type}`, 0.17);
-          }
         }
         for (const enemy of game.enemies) {
           if (enemy.hp <= 0 || bullet.life <= 0 || enemy.kind === "ghost") continue;
@@ -5523,9 +5506,7 @@ export default function WormholeGame() {
         ctx.fillStyle = "rgba(86, 226, 255, .12)";
         if (profile.shadows) { ctx.shadowColor = "#62eaff"; ctx.shadowBlur = 10; }
         ctx.lineWidth = 2;
-        drawShipShape(ctx, game.ship.id, (game.ship.id === "flagship" ? .82 : 1) * 1.15);
-        ctx.fill();
-        ctx.stroke();
+        drawShipModel(ctx, game.ship.id, (game.ship.id === "flagship" ? .82 : 1) * 1.15);
         if (player.salvageLink > 0) {
           ctx.strokeStyle = "#75ffd0";
           ctx.globalAlpha = 0.42 + Math.sin(time * 0.012) * 0.18;
@@ -5645,9 +5626,7 @@ export default function WormholeGame() {
           ctx.fillStyle = "rgba(182,255,87,.42)";
           ctx.lineWidth = 4;
           const allyShip = netRef.current?.state.opponent?.ship as ShipId | undefined;
-          drawShipShape(ctx, allyShip ?? "wing", (allyShip === "flagship" ? .82 : 1) * 1.15);
-          ctx.fill();
-          ctx.stroke();
+          drawShipModel(ctx, allyShip ?? "wing", (allyShip === "flagship" ? .82 : 1) * 1.15);
           ctx.restore();
           const allyDx = teammate.x - player.x;
           const allyDy = teammate.y - player.y;
@@ -6709,7 +6688,7 @@ export default function WormholeGame() {
               ) : upgradeRoll ? (
                 <div className="rift-upgrade-layer"><section className="rift-upgrade-dialog" data-controller-surface role="dialog" aria-modal="true" aria-label="Upgrade available">
                   <header><p>UPGRADE AVAILABLE</p><h2>CHOOSE ONE</h2></header>
-                  <div className="rift-upgrade-options">{upgradeRoll.choices.map(choice=><button type="button" className={choice.kind==="evolution"?"rift-evolution-card":undefined} key={choice.key} onClick={()=>chooseUpgrade(choice)}>{choice.kind==="evolution"?<small>WEAPON EVOLUTION</small>:null}<b>{choice.title}</b><em>{choice.target}</em><span>{choice.description}</span></button>)}</div>
+                  <div className="rift-upgrade-options">{upgradeRoll.choices.map(choice=><button type="button" className={choice.kind==="evolution"?"rift-evolution-card":undefined} key={choice.key} onClick={()=>chooseUpgrade(choice)}><small>{choice.gameplayCategory.toUpperCase()}</small><b>{choice.title}</b><em>{choice.target}</em><span>{choice.description}</span></button>)}</div>
                 </section></div>
               ) : null}
               {summary ? (
@@ -7108,9 +7087,7 @@ export default function WormholeGame() {
       {route === "rift-run" ? (
         <RiftRunSetupScreen
           ship={riftShipId}
-          weapon={riftWeaponId}
           onSelect={setRiftShipId}
-          onSelectWeapon={setRiftWeaponId}
           onLaunch={launchRiftRun}
           renderShip={renderShip}
           go={go}

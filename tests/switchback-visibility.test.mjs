@@ -13,7 +13,7 @@ test("live player draw starts from an explicit visible canvas state", () => {
   assert.match(draw, /ctx\.globalAlpha = 1/);
   assert.match(draw, /ctx\.globalCompositeOperation = "source-over"/);
   assert.match(draw, /ctx\.setLineDash\(\[\]\)/);
-  assert.match(draw, /drawShipShape\(ctx, game\.ship\.id/);
+  assert.match(draw, /drawShipModel\(ctx, game\.ship\.id/);
 });
 
 test("Switchback Form Shift remains a handling-only state toggle", () => {

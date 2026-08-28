@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { SHIPS } from "../app/game-data.ts";
 import { SHIP_ORDER } from "../app/ship-data.ts";
 import { SHIP_SHAPES, drawShipShape } from "../app/weapon-art.ts";
+import { SHIP_MODEL_ASSETS } from "../app/ship-models.ts";
 
 const ORIGINAL_SHAPES = {
   tank: [[18, 0], [9, -12], [-11, -16], [-8, -5], [-17, -6], [-13, 0], [-17, 6], [-8, 5], [-11, 16], [9, 12]],
@@ -41,6 +42,26 @@ test("every canonical ship has a finite, drawable silhouette", () => {
     assert.equal(ctx.calls.filter(([method]) => method === "moveTo").length, 1, `${id} has a starting point`);
     assert.equal(ctx.calls.filter(([method]) => method === "lineTo").length, points.length - 1, `${id} traces every point`);
   }
+});
+
+test("every ship has one canonical existing PNG model", async () => {
+  const expected = {
+    tank: "/ships/Ironclad.png", wing: "/ships/Starling.png", squid: "/ships/Phantom.png", rabbit: "/ships/Needle.png",
+    turtle: "/ships/Rampart.png", flash: "/ships/Switchback.png", hunter: "/ships/Talon.png", flagship: "/ships/Leviathan.png",
+    kestrel: "/ships/Kestrel.png", warden: "/ships/Warden.png",
+  };
+  assert.deepEqual(SHIP_MODEL_ASSETS, expected);
+  assert.deepEqual(Object.keys(SHIP_MODEL_ASSETS).sort(), [...SHIP_ORDER].sort());
+  for (const asset of Object.values(SHIP_MODEL_ASSETS)) await readFile(new URL(`../public${asset}`, import.meta.url));
+});
+
+test("gameplay uses the shared PNG renderer and polygons only as its fallback", async () => {
+  const game = await readFile(new URL("../app/game.tsx", import.meta.url), "utf8");
+  const models = await readFile(new URL("../app/ship-models.ts", import.meta.url), "utf8");
+  assert.match(game, /drawShipModel\(ctx, game\.ship\.id/);
+  assert.match(game, /drawShipModel\(ctx, allyShip/);
+  assert.doesNotMatch(game, /drawShipShape/);
+  assert.match(models, /drawShipShape\(ctx, ship, scale\)/);
 });
 
 test("Kestrel renders through the shared ship renderer", () => {

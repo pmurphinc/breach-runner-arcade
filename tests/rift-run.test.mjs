@@ -27,19 +27,26 @@ test("Rift Run classes constrain physical hardpoints", () => {
   for (const ship of RIFT_RUN_SHIPS) assert.equal(ship.maximumHardpoints, expected[ship.shipClass]);
 });
 
-test("a fresh run has one occupied pulse cannon and all remaining hardpoints locked", () => {
+test("fresh runs start with every class socket locked and no hull guns", () => {
+  const maximums = { light: 1, medium: 2, heavy: 3 };
   for (const ship of RIFT_RUN_SHIPS) {
     const state = createRiftRun(ship.id, "phase-1-test");
-    assert.equal(activeHardpointCount(state), 1);
-    assert.equal(state.hardpoints[0].weapon.weaponId, "pulse-cannon");
-    assert.ok(state.hardpoints.slice(1).every(({ status }) => status === "locked"));
+    assert.equal(activeHardpointCount(state), 0);
+    assert.equal(state.hardpoints.length, maximums[ship.shipClass]);
+    assert.ok(state.hardpoints.every(({ status }) => status === "locked"));
     assert.equal(JSON.parse(JSON.stringify(state)).seed, "phase-1-test");
   }
 });
 
-test("all five stable weapons can start a serializable run", () => {
+function createArmedRun(ship, seed, weaponId) {
+  const run = createRiftRun(ship, seed);
+  run.hardpoints[0] = { index: 0, status: "available" };
+  return mountUnlockedWeapon(run, 0, weaponId);
+}
+
+test("all five stable weapons can be mounted after a socket unlock", () => {
   assert.deepEqual(RIFT_WEAPONS.map(({ id }) => id), ["pulse-cannon", "minigun", "railgun", "missile-pod", "flamethrower"]);
-  for (const weapon of RIFT_WEAPONS) assert.equal(createRiftRun("wing", "seed", weapon.id).hardpoints[0].weapon.weaponId, weapon.id);
+  for (const weapon of RIFT_WEAPONS) assert.equal(createArmedRun("wing", "seed", weapon.id).hardpoints[0].weapon.weaponId, weapon.id);
 });
 
 test("hardpoints schedule independently and ignore locked or empty sockets", () => {
@@ -85,7 +92,7 @@ test("missile blast damages in-radius targets once", () => {
 
 test("flame cone is multi-target, directional, and hardpoint cadence is bounded", () => {
   assert.deepEqual(targetsInFlameCone({ x: 0, y: 0 }, 0, 100, 60, [{ id: "a", x: 40, y: 5 }, { id: "b", x: 60, y: -5 }, { id: "behind", x: -10, y: 0 }, { id: "wide", x: 20, y: 80 }]), ["a", "b"]);
-  const run = createRiftRun("wing", "flame", "flamethrower"), runtime = createWeaponRuntime(run);
+  const run = createArmedRun("wing", "flame", "flamethrower"), runtime = createWeaponRuntime(run);
   assert.equal(processHardpointFire(run.hardpoints, runtime, true, { x: 0, y: 0 }, 0).length, 1);
   for (let i=0;i<4;i++) { runtime[run.hardpoints[0].weapon.instanceId].cooldown--; assert.equal(processHardpointFire(run.hardpoints, runtime, true, { x: 0, y: 0 }, 0).length, 0); }
 });
@@ -104,7 +111,7 @@ test("Rift Run remains a format rather than a DifficultyId", () => {
 test("combat energy rewards and an increasing curve safely queue multiple levels", () => {
   assert.ok(enemyKillEnergy("nuke") > enemyKillEnergy("turret")); assert.ok(enemyKillEnergy("turret") > enemyKillEnergy("ufo"));
   assert.ok(riftEnergyRequiredForLevel(4) > riftEnergyRequiredForLevel(2));
-  const start=createRiftRun("wing","energy"), damaged=riftDamaged(start,10,"socket-1"); assert.ok(damaged.riftEnergy>0);
+  const start=createRiftRun("wing", "energy"), damaged=riftDamaged(start,10,"socket-1"); assert.ok(damaged.riftEnergy>0);
   const advanced=awardRiftEnergy(start,1000); assert.ok(advanced.level>3); assert.equal(advanced.pendingLevels,advanced.level-1);
 });
 
@@ -128,7 +135,7 @@ for (const [weaponId, label] of [
 });
 
 test("Flamethrower cadence tick applies exactly one scaled Rift hit", () => {
-  const run = createRiftRun("wing", "flame-rift", "flamethrower");
+  const run = createArmedRun("wing", "flame-rift", "flamethrower");
   const runtime = createWeaponRuntime(run);
   const [tick] = processHardpointFire(run.hardpoints, runtime, true, { x: 0, y: 0 }, 0);
   const game = { rivalHealth: 200, portalCharge: 0 };
@@ -156,20 +163,22 @@ test("Railgun and missile Rift collision remain direct, terminating impacts with
   assert.match(source, /hitRiftWithRiftRunWeapon\(game, projectile\.state\.damage, projectile\.state\.instanceId\);\s*projectile\.state\.remainingLifetime = 0/);
 });
 
-test("standard PvE cannon Rift contact retains its unscaled portal-charge behavior", async () => {
+test("standard PvE cannon and hull weapons share nominal PUP charging", async () => {
   const source = await import("node:fs/promises").then(({ readFile }) => readFile(new URL("../app/game.tsx", import.meta.url), "utf8"));
-  assert.match(source, /if \(!bullet\.autoGun && dist\(bullet, \{ x: game\.portalX, y: game\.portalY \}\) < 43\) \{\s*bullet\.life = 0;\s*game\.portalCharge \+= bullet\.damage;/);
+  assert.match(source, /chargeRiftPup\(game, bullet\.damage\)/);
+  assert.match(source, /chargeRiftPup\(game, weaponDamage\)/);
 });
 
 test("upgrade rolls are deterministic, unique, seeded, and weapon eligible", () => {
-  const a=createRiftRun("tank","same","railgun"), b=createRiftRun("tank","same","railgun"), c=createRiftRun("tank","other","railgun");
+  const a=createArmedRun("tank", "same", "railgun"), b=createArmedRun("tank", "same", "railgun"), c=createArmedRun("tank", "other", "railgun");
   assert.deepEqual(rollUpgradeChoices(a),rollUpgradeChoices(b)); assert.notDeepEqual(rollUpgradeChoices(a).choices,rollUpgradeChoices(c).choices);
   const choices=rollUpgradeChoices(a).choices; assert.equal(choices.length,3); assert.equal(new Set(choices.map(x=>x.key)).size,3);
+  assert.deepEqual(choices.map(x=>x.gameplayCategory), ["offensive", "defensive", "mobility"]);
   assert.ok(!eligibleUpgradeChoices(createRiftRun("wing","pulse")).some(x=>x.upgradeId==="penetrator"));
 });
 
 test("per-instance upgrades are capped and create deterministic real volleys", () => {
-  let run=createRiftRun("tank","upgrades","pulse-cannon"); run.hardpoints[1]={index:1,status:"occupied",weapon:createWeaponInstance("pulse-cannon","second")};
+  let run=createArmedRun("tank", "upgrades", "pulse-cannon"); run.hardpoints[1]={index:1,status:"occupied",weapon:createWeaponInstance("pulse-cannon","second")};
   const choice={key:"twin-pulse:second",upgradeId:"twin-pulse",targetInstanceId:"second",hardpointIndex:1,title:"",target:"",description:""};
   run=applyUpgrade(run,choice); assert.equal(run.hardpoints[0].weapon.modifiers.projectileCount,0); assert.equal(run.hardpoints[1].weapon.modifiers.projectileCount,1);
   const shots=processHardpointFire(run.hardpoints,createWeaponRuntime(run),true,{x:0,y:0},0).filter(x=>x.instanceId==="second"); assert.equal(shots.length,2); assert.notEqual(shots[0].angle,shots[1].angle);
@@ -178,8 +187,11 @@ test("per-instance upgrades are capped and create deterministic real volleys", (
 
 test("hardpoint online activates one socket and mounting creates a fresh instance", () => {
   const light=createRiftRun("wing","light"); assert.ok(!eligibleUpgradeChoices(light).some(x=>x.upgradeId==="hardpoint-online"));
-  let heavy=createRiftRun("flagship","heavy"), choice=eligibleUpgradeChoices(heavy).find(x=>x.upgradeId==="hardpoint-online"); assert.ok(choice);
-  heavy=applyUpgrade(heavy,choice); assert.equal(heavy.hardpoints.filter(x=>x.status==="available").length,1); assert.equal(heavy.hardpoints.filter(x=>x.status==="locked").length,1);
+  let heavy=createRiftRun("flagship", "heavy");
+  heavy=breachRiftRun(heavy,{integrity:0,maximumIntegrity:100,reformRemainingMs:0,breached:false}).state;
+  heavy=mountUnlockedWeapon(heavy,0,"pulse-cannon");
+  const choice=eligibleUpgradeChoices(heavy).find(x=>x.upgradeId==="hardpoint-online"); assert.ok(choice);
+  heavy.pendingLevels=1; heavy=applyUpgrade(heavy,choice); assert.equal(heavy.hardpoints.filter(x=>x.status==="available").length,1);
   heavy=mountUnlockedWeapon(heavy,1,"missile-pod"); assert.equal(heavy.hardpoints[1].weapon.level,1); assert.notEqual(heavy.hardpoints[1].weapon.instanceId,heavy.hardpoints[0].weapon.instanceId);
 });
 
@@ -225,7 +237,7 @@ function qualifyForEvolution(run, evolution, instanceId = run.hardpoints[0].weap
 
 test("all five evolution recipes are per-instance and prioritized on the next roll", () => {
   for (const evolution of RIFT_EVOLUTIONS) {
-    const run = qualifyForEvolution(createRiftRun("tank", `evo-${evolution.id}`, evolution.sourceWeapon), evolution);
+    const run = qualifyForEvolution(createArmedRun("tank", `evo-${evolution.id}`, evolution.sourceWeapon), evolution);
     const instanceId = run.hardpoints[0].weapon.instanceId;
     const eligible = eligibleEvolutions(run);
     assert.ok(eligible.some(({ definition, weapon }) => definition.id === evolution.id && weapon.instanceId === instanceId));
@@ -237,7 +249,7 @@ test("all five evolution recipes are per-instance and prioritized on the next ro
 
 test("duplicate weapon stacks never combine and duplicate instances can evolve independently", () => {
   const evolution = RIFT_EVOLUTIONS.find(({ id }) => id === "seismic-rail");
-  let run = createRiftRun("tank", "duplicate-rails", "railgun");
+  let run = createArmedRun("tank", "duplicate-rails", "railgun");
   run.hardpoints[1] = { index: 1, status: "occupied", weapon: createWeaponInstance("railgun", "rail-two") };
   const first = run.hardpoints[0].weapon.instanceId;
   const second = run.hardpoints[1].weapon.instanceId;
@@ -272,10 +284,10 @@ test("Nova and Seismic radial effects are bounded and respect already-hit identi
 });
 
 test("MIRV salvos spread wider, distribute deterministic targets, and keep per-instance caps", () => {
-  const normal = createRiftRun("tank", "normal-missiles", "missile-pod");
+  const normal = createArmedRun("tank", "normal-missiles", "missile-pod");
   normal.hardpoints[0].weapon.modifiers.projectileCount = 2;
   const normalShots = processHardpointFire(normal.hardpoints, createWeaponRuntime(normal), true, { x: 0, y: 0 }, 0);
-  const mirv = createRiftRun("tank", "mirv-missiles", "missile-pod");
+  const mirv = createArmedRun("tank", "mirv-missiles", "missile-pod");
   mirv.hardpoints[0].weapon.modifiers.projectileCount = 2;
   mirv.hardpoints[0].weapon.evolution = { id: "mirv-battery", name: "MIRV BATTERY" };
   const mirvShots = processHardpointFire(mirv.hardpoints, createWeaponRuntime(mirv), true, { x: 0, y: 0 }, 0);
