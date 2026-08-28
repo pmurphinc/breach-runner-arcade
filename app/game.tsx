@@ -25,7 +25,7 @@ import {
   type WeaponMeta,
 } from "./game-data";
 import { DIRECTIONAL, drawPowerProjectile, drawWeaponGlyph } from "./weapon-art";
-import { drawShipModel, preloadShipModels, SHIP_MODEL_ASSETS } from "./ship-models";
+import { drawShipModel, preloadShipModels, SHIP_MODEL_ASSETS, shipForwardVelocity, shipMuzzleWorldPoint, shipThrusterWorldPoints } from "./ship-models";
 import {
   DIFFICULTIES,
   RULESET_IDS,
@@ -3268,6 +3268,16 @@ export default function WormholeGame() {
       spawnParticles(game, x, y, color, Math.max(2, Math.round(count * scale)), speed, profile.maxParticles);
     };
 
+    const exhaustBurst = (game: Game, x: number, y: number, heading: number, color: string, count: number, speed: number) => {
+      const scale = reducedMotionRef.current ? 0.35 : 0.45 + profile.detail * 0.55;
+      const total = Math.min(Math.max(1, Math.round(count * scale)), profile.maxParticles - game.particles.length);
+      for (let i = 0; i < total; i += 1) {
+        const angle = heading + Math.PI + range(-0.35, 0.35), force = range(speed * 0.45, speed);
+        const life = range(18, 55);
+        game.particles.push({ x, y, vx: Math.cos(angle) * force, vy: Math.sin(angle) * force, color, size: range(1, 3.4), life, maxLife: life });
+      }
+    };
+
     const pushSpawn = (game: Game, kind: SpawnKind, type: PickupId, x: number, y: number, count: number) => {
       nextSpawnId += 1;
       game.spawns.push({ id: nextSpawnId, x, y, type, kind, age: 0, life: kind === "hostile" ? 145 : 115, count });
@@ -4416,18 +4426,6 @@ export default function WormholeGame() {
       // throws a couple more sparks a little harder per mark. No new artwork,
       // and nothing here touches how the ship actually flies.
       const exhaustEvery = player.thrust > 0 ? 2 : 3;
-      if (intent.active && intent.heading !== null && game.cycles % exhaustEvery === 0) {
-        const exhaust = intent.heading * DEG;
-        burst(
-          game,
-          player.x - Math.cos(exhaust) * 14,
-          player.y - Math.sin(exhaust) * 14,
-          player.thrust > 1 ? "#9dfbff" : "#63efff",
-          2 + player.thrust,
-          2.5 + player.thrust * 0.5,
-        );
-      }
-
       // The hull turns toward travel unless the player is aiming, and keeps its
       // last heading when nothing is held.
       player.angle = facingFor(
@@ -4435,6 +4433,11 @@ export default function WormholeGame() {
         firingHeading === null ? null : player.emp > 0 ? firingHeading + 180 : firingHeading,
         player.angle
       );
+      if (intent.active && intent.heading !== null && game.cycles % exhaustEvery === 0) {
+        const points = shipThrusterWorldPoints(game.ship.id, player, player.angle * DEG, 1.15);
+        const count = Math.max(1, Math.round((2 + player.thrust) / points.length));
+        for (const point of points) exhaustBurst(game, point.x, point.y, player.angle * DEG, player.thrust > 1 ? "#9dfbff" : "#63efff", count, 2.5 + player.thrust * 0.5);
+      }
 
       const playerSpeed = Math.hypot(player.vx, player.vy);
       if (playerSpeed > maxSpeed) { player.vx = (player.vx / playerSpeed) * maxSpeed; player.vy = (player.vy / playerSpeed) * maxSpeed; }
@@ -4461,7 +4464,7 @@ export default function WormholeGame() {
           }
         }
         tickWeaponRuntime(riftWeaponRuntime.current);
-        const mountedShots = processHardpointFire(activeRiftRun.hardpoints, riftWeaponRuntime.current, Boolean(fire), { x: player.x, y: player.y }, player.angle * DEG);
+        const mountedShots = processHardpointFire(activeRiftRun.hardpoints, riftWeaponRuntime.current, Boolean(fire), shipMuzzleWorldPoint(game.ship.id, player, player.angle * DEG, 1.15), player.angle * DEG);
         for (const mounted of mountedShots) {
           if (mounted.kind === "flame") {
             game.riftFlames.push({ origin: mounted.origin, angle: mounted.angle, range: mounted.range, coneDegrees: mounted.coneDegrees, life: 6 });
@@ -4496,7 +4499,8 @@ export default function WormholeGame() {
         const offsets = shot.shots === 2 ? [-0.05, 0.05] : [0];
         offsets.forEach((offset) => {
           const angle = player.angle * DEG + offset;
-          game.bullets.push({ x: player.x + Math.cos(angle) * 12, y: player.y + Math.sin(angle) * 12, vx: Math.cos(angle) * 10 + player.vx, vy: Math.sin(angle) * 10 + player.vy, damage: shot.damage * (activeRiftRun?.shipModifiers.cannonDamage ?? 1), life: 110, enemy: false, color: shot.color, bouncesLeft: player.ricochetTicks > 0 ? RICOCHET_BOUNCES : 0, salvageLinked: game.ship.id === "kestrel" && player.salvageLink > 0 });
+          const muzzle = shipMuzzleWorldPoint(game.ship.id, player, angle, 1.15), velocity = shipForwardVelocity(angle, 10, { x: player.vx, y: player.vy });
+          game.bullets.push({ x: muzzle.x, y: muzzle.y, vx: velocity.x, vy: velocity.y, damage: shot.damage * (activeRiftRun?.shipModifiers.cannonDamage ?? 1), life: 110, enemy: false, color: shot.color, bouncesLeft: player.ricochetTicks > 0 ? RICOCHET_BOUNCES : 0, salvageLinked: game.ship.id === "kestrel" && player.salvageLink > 0 });
           game.playerShots += 1;
         });
         game.shotCycle = Math.max(1, Math.round(shot.delay / (activeRiftRun?.shipModifiers.cannonFireRate ?? 1)));
@@ -4542,7 +4546,8 @@ export default function WormholeGame() {
         if (game.mode !== "pve") netRef.current?.reportInventory("launch", type);
         const angle = player.angle * DEG;
         const homing = game.ship.id === "rabbit" && player.viperGuidance > 0;
-        game.powers.push({ x: player.x + Math.cos(angle) * 12, y: player.y + Math.sin(angle) * 12, vx: Math.cos(angle) * 10 + player.vx, vy: Math.sin(angle) * 10 + player.vy, type, life: homing ? 320 : 160, homing });
+        const muzzle = shipMuzzleWorldPoint(game.ship.id, player, angle, 1.15), velocity = shipForwardVelocity(angle, 10, { x: player.vx, y: player.vy });
+        game.powers.push({ x: muzzle.x, y: muzzle.y, vx: velocity.x, vy: velocity.y, type, life: homing ? 320 : 160, homing });
         game.notice = homing ? `${WEAPONS[type].short} // TARGET LINK` : `${WEAPONS[type].short} ARMED`;
         game.noticeLife = 75;
         burst(game, player.x, player.y, POWER_COLORS[type], 10, 4);
@@ -5515,7 +5520,7 @@ export default function WormholeGame() {
         ctx.fillStyle = "rgba(86, 226, 255, .12)";
         if (profile.shadows) { ctx.shadowColor = "#62eaff"; ctx.shadowBlur = 10; }
         ctx.lineWidth = 2;
-        drawShipModel(ctx, game.ship.id, (game.ship.id === "flagship" ? .82 : 1) * 1.15);
+        drawShipModel(ctx, game.ship.id, 1.15);
         if (player.salvageLink > 0) {
           ctx.strokeStyle = "#75ffd0";
           ctx.globalAlpha = 0.42 + Math.sin(time * 0.012) * 0.18;
@@ -5635,7 +5640,7 @@ export default function WormholeGame() {
           ctx.fillStyle = "rgba(182,255,87,.42)";
           ctx.lineWidth = 4;
           const allyShip = netRef.current?.state.opponent?.ship as ShipId | undefined;
-          drawShipModel(ctx, allyShip ?? "wing", (allyShip === "flagship" ? .82 : 1) * 1.15);
+          drawShipModel(ctx, allyShip ?? "wing", 1.15);
           ctx.restore();
           const allyDx = teammate.x - player.x;
           const allyDy = teammate.y - player.y;
