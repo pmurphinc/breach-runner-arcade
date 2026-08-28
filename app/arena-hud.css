@@ -1,6 +1,6 @@
 /* Final arena HUD placement; imported after globals.css. */
-.touch-capable .canvas-wrap > .touch-powerup-hud,
-.touch-capable[data-touch-controls="off"] .touch-powerup-hud {
+.modern-hud .canvas-wrap > .touch-powerup-hud,
+.modern-hud[data-touch-controls="off"] .touch-powerup-hud {
   --pup-slot: clamp(20px, 3.8vw, 32px);
   /* The measured health edge includes the Hull, Shield, and Rival labels. */
   top: calc(var(--health-bottom, 94px) + 8px);
@@ -116,8 +116,8 @@
   .pup-notice { animation: none; opacity: 1; }
 }
 @media (max-width: 560px) {
-  .touch-capable .canvas-wrap > .touch-powerup-hud,
-  .touch-capable[data-touch-controls="off"] .touch-powerup-hud {
+  .modern-hud .canvas-wrap > .touch-powerup-hud,
+  .modern-hud[data-touch-controls="off"] .touch-powerup-hud {
     --pup-slot: clamp(16px, 5vw, 24px); gap: 2px; height: 42px;
   }
   .touch-powerup-slots { gap: 1px; }

@@ -105,8 +105,9 @@
   --z-system: 400;
 }
 
-/* Touch hardware reads at a longer distance: lift the whole scale, not one rule. */
-.touch-capable {
+/* The arena HUD uses one modern, arm's-length-readable type scale in every
+   input mode. Input capability must not select a different visual build. */
+.modern-hud {
   --fs-nano: clamp(12px, 1.6vw, 13.5px);
   --fs-micro: clamp(12.5px, 1.8vw, 14.5px);
   --fs-xs: clamp(13px, 2vw, 15px);
@@ -1308,7 +1309,7 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
 .canvas-wrap > .touch-powerup-hud {
   display: none;
 }
-.touch-capable .canvas-wrap > .touch-powerup-hud {
+.modern-hud .canvas-wrap > .touch-powerup-hud {
   position: absolute;
   left: 50%;
   bottom: 8px;
@@ -1367,15 +1368,15 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
 .touch-powerup-equipped:disabled {
   opacity: .55;
 }
-.touch-capable .power-bin {
+.modern-hud .power-bin {
   display: none;
 }
-.touch-capable .match-bar { width: auto; min-height: 0; grid-template-columns: auto; justify-content: start; padding: 5px 8px; background: rgba(4,13,21,.9); }
-.touch-capable .match-bar > div:first-child,
-.touch-capable .match-bar .match-hull,
-.touch-capable .match-bar .rival { display: none; }
-.touch-capable .match-bar .score b { margin-top: 2px; font-size: var(--fs-xs); }
-.touch-capable .status-dock { display: none !important; }
+.modern-hud .match-bar { width: auto; min-height: 0; grid-template-columns: auto; justify-content: start; padding: 5px 8px; background: rgba(4,13,21,.9); }
+.modern-hud .match-bar > div:first-child,
+.modern-hud .match-bar .match-hull,
+.modern-hud .match-bar .rival { display: none; }
+.modern-hud .match-bar .score b { margin-top: 2px; font-size: var(--fs-xs); }
+.modern-hud .status-dock { display: none !important; }
 .touch-capable[data-touch-controls="off"] .virtual-stick { display: none !important; pointer-events: none !important; }
 .touch-capable[data-touch-controls="off"] .touch-flight { display: none !important; pointer-events: none !important; }
 .touch-capable[data-touch-controls="off"] .touch-action { width: auto !important; right: max(8px, env(safe-area-inset-right)) !important; left: auto !important; bottom: max(8px, env(safe-area-inset-bottom)) !important; }
@@ -1402,7 +1403,7 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
 }
 
 @media (max-width: 420px) {
-  .touch-capable .canvas-wrap > .touch-powerup-hud {
+  .modern-hud .canvas-wrap > .touch-powerup-hud {
     width: min(190px, calc(54% - 14px));
     min-width: 112px;
   }
@@ -1434,7 +1435,7 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
 .rule-score {
   display: none !important;
 }
-.touch-capable .match-bar {
+.modern-hud .match-bar {
   display: none;
 }
 .touch-capable .difficulty-badge .rule-score {
@@ -1530,12 +1531,12 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
 /* Touch/Hybrid portrait uses the complete remaining viewport as one framed
    control surface. The square world canvas remains undistorted at the top;
    the lower extension is a HUD/control deck with matching arena grid. */
-.touch-capable[data-immersive="true"] .arena-stage {
+.modern-hud[data-immersive="true"] .arena-stage {
   flex: 1 1 auto;
   height: calc(100dvh - 54px - max(6px, env(safe-area-inset-bottom)));
   min-height: 0;
 }
-.touch-capable[data-immersive="true"] .canvas-wrap {
+.modern-hud[data-immersive="true"] .canvas-wrap {
   height: 100%;
   overflow: hidden;
   border: 2px solid rgba(101, 232, 255, .32);
@@ -1551,7 +1552,7 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
 /* The Touch/Hybrid HUD occupies a real header lane. The square canvas is
    measured into the remaining space and begins two pixels below the bars, so
    world objects can never travel behind the rules or health UI. */
-.touch-capable[data-immersive="true"] .canvas-wrap > canvas {
+.modern-hud[data-immersive="true"] .canvas-wrap > canvas {
   position: absolute;
   top: var(--arena-playfield-top, 0);
   bottom: 0;
@@ -1564,13 +1565,13 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
   border-top: 2px solid rgba(101, 232, 255, .48);
   box-sizing: border-box;
 }
-.touch-capable .reticle.tl,
-.touch-capable .reticle.tr {
+.modern-hud .reticle.tl,
+.modern-hud .reticle.tr {
   top: calc(var(--arena-playfield-top, 0px) + 7px);
 }
 
 /* Fighting-game bars attach directly beneath the measured rules rail. */
-.touch-capable .health-rails {
+.modern-hud .health-rails {
   position: absolute;
   z-index: 6;
   top: var(--rules-bottom, 52px);
@@ -1583,7 +1584,7 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
   gap: clamp(28px, 8vw, 84px);
   pointer-events: none;
 }
-.touch-capable .health-rail {
+.modern-hud .health-rail {
   position: relative;
   top: auto;
   right: auto;
@@ -1595,43 +1596,43 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
   border: 1px solid rgba(255, 255, 255, .58);
   background: rgba(1, 5, 9, .88);
 }
-.touch-capable .rail-fill {
+.modern-hud .rail-fill {
   top: 1px;
   bottom: 1px;
   height: auto !important;
   max-height: none;
 }
-.touch-capable .pilot-rail .hull-fill {
+.modern-hud .pilot-rail .hull-fill {
   right: auto;
   left: 1px;
 }
-.touch-capable .pilot-rail .shield-fill {
+.modern-hud .pilot-rail .shield-fill {
   top: auto;
   right: auto;
   bottom: -7px;
   left: 1px;
   height: 4px !important;
 }
-.touch-capable .rival-rail .rival-fill {
+.modern-hud .rival-rail .rival-fill {
   right: 1px;
   left: auto;
 }
-.touch-capable .health-rail span {
+.modern-hud .health-rail span {
   top: 50%;
   bottom: auto;
   padding: 3px 7px;
   transform: translateY(-50%);
   background: rgba(1, 5, 9, .72);
 }
-.touch-capable .pilot-rail span {
+.modern-hud .pilot-rail span {
   right: auto;
   left: 7px;
 }
-.touch-capable .rival-rail span {
+.modern-hud .rival-rail span {
   right: 7px;
   left: auto;
 }
-.touch-capable .pilot-rail small {
+.modern-hud .pilot-rail small {
   top: calc(100% + 5px);
   bottom: auto;
   left: 1px;

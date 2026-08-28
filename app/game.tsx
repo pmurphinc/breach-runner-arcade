@@ -1959,7 +1959,7 @@ export default function WormholeGame() {
   // desktop one, so a handheld never flashes a layout it cannot use.
   const layout: LayoutBudget = budget ?? FALLBACK_BUDGET;
   const touchCapable = viewProfile.touch;
-  const immersive = viewProfile.touch;
+  const immersive = viewProfile.modernHud;
 
   // One measurement drives the whole interface. It is recomputed on every
   // event that can change the answer — resize, visualViewport changes from
@@ -2012,7 +2012,7 @@ export default function WormholeGame() {
     if (!wrap) return;
 
     const measure = () => {
-      if (!viewProfile.verticalRails) {
+      if (!viewProfile.modernHud) {
         wrap.style.removeProperty("--arena-playfield-top");
         wrap.style.removeProperty("--arena-canvas-width");
         wrap.style.removeProperty("--arena-canvas-height");
@@ -2059,7 +2059,7 @@ export default function WormholeGame() {
       if (element) observer.observe(element);
     }
     return () => observer.disconnect();
-  }, [immersive, layout.arena, layout.form, layout.orientation, layout.preset, layout.sticks, mode, net?.phase, viewProfile.verticalRails]);
+  }, [immersive, layout.arena, layout.form, layout.orientation, layout.preset, layout.sticks, mode, net?.phase, viewProfile.modernHud]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -6002,54 +6002,12 @@ export default function WormholeGame() {
       const base = cap(W / 655, 0.96, 1.3);
       const fs = (size: number) => Math.max(11.5, Math.round(size * base * 10) / 10);
       const mono = (weight: number, size: number) => `${weight} ${fs(size)}px ui-monospace, SFMono-Regular, Menlo, monospace`;
-      const pad = Math.round(fs(12));
-
       const fit = (text: string, maxWidth: number) => {
         if (ctx.measureText(text).width <= maxWidth) return text;
         let clipped = text;
         while (clipped.length > 1 && ctx.measureText(`${clipped}…`).width > maxWidth) clipped = clipped.slice(0, -1);
         return `${clipped}…`;
       };
-
-      const panel = (x: number, y: number, w: number, h: number, stroke: string) => {
-        ctx.fillStyle = "rgba(2,7,12,.86)";
-        ctx.fillRect(x, y, w, h);
-        ctx.strokeStyle = stroke;
-        ctx.lineWidth = 1;
-        ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
-      };
-
-
-      // Next weapon in the bin, mirrored by the HTML inventory below the arena.
-      const queued = nextWeapon(game.stock);
-      if (queued && game.running && !game.result && viewProfileRef.current.canvasQueue) {
-        const meta = WEAPONS[queued];
-        const visual = inventoryPupVisual(queued);
-        const chipH = Math.round(fs(12) * 3);
-        const chipW = cap(W * 0.4, 176, 250);
-        const chipX = W - pad - chipW;
-        const chipY = H - pad - chipH;
-        const iconLayout = inventoryPayloadIconLayout({ width: chipH, height: chipH });
-        panel(chipX, chipY, chipW, chipH, `${visual.color}66`);
-        ctx.save();
-        ctx.translate(chipX + iconLayout.centerX, chipY + iconLayout.centerY);
-        ctx.strokeStyle = visual.color;
-        ctx.fillStyle = `${visual.color}24`;
-        ctx.lineWidth = iconLayout.strokeWidth;
-        ctx.lineJoin = "round";
-        drawPupFrame(ctx, visual.pupClass, iconLayout.frameRadius, iconLayout.rotation);
-        ctx.fill();
-        ctx.stroke();
-        drawWeaponGlyph(ctx, visual.glyphId, iconLayout.glyphRadius, 0, { detail: profile.detail });
-        ctx.restore();
-        ctx.textAlign = "left";
-        ctx.fillStyle = "#8fb2bb";
-        ctx.font = mono(700, 11.5);
-        ctx.fillText("NEXT — PRESS E / PUP", chipX + chipH, chipY + fs(12) * 0.95);
-        ctx.fillStyle = meta.color;
-        ctx.font = mono(800, 13);
-        ctx.fillText(fit(meta.name, chipW - chipH - pad), chipX + chipH, chipY + fs(12) * 2.15);
-      }
 
       // Rival wormhole label follows the portal.
       const portalX = (game.portalX * camera.camScale + camera.camX) * (W / VIEW_WIDTH);
@@ -6270,7 +6228,7 @@ export default function WormholeGame() {
   return (
     <main
       ref={shellRef}
-      className={`app-shell ${touchCapable ? "touch-capable" : ""} compact-menu`}
+      className={`app-shell modern-hud ${touchCapable ? "touch-capable" : ""} compact-menu`}
       data-view-mode={viewMode}
       data-immersive={immersive ? "true" : "false"}
       data-orientation={layout.orientation}
@@ -6399,7 +6357,7 @@ export default function WormholeGame() {
                 role="img"
                 aria-label={`Breach Runner combat arena. Hull ${hud.health} of ${hud.maxHealth}. Rift charge ${hud.portalCharge} percent. Rival integrity ${hud.rivalHealth} percent. ${hud.enrageActive ? "Rift enraged. " : ""}${queued ? `Next power-up ${WEAPONS[queued].name}.` : "Power-up bin empty."}`}
               />
-              {viewProfile.verticalRails ? <div className="health-rails" aria-label={`Pilot hull ${hud.health} of ${hud.maxHealth}. Shield ${hud.shield ? `${hud.shield} percent${hud.shield < 100 ? ", recharging" : ", ready"}` : "disabled"}. ${mode === "pvp" ? `Opponent hull ${net?.opponentCombat ? Math.round(net.opponentCombat.hull) : "unavailable"}` : `Rival integrity ${hud.rivalCurrentHealth} of ${hud.rivalMaxHealth}`}.`}>
+              {viewProfile.modernHud ? <div className="health-rails" aria-label={`Pilot hull ${hud.health} of ${hud.maxHealth}. Shield ${hud.shield ? `${hud.shield} percent${hud.shield < 100 ? ", recharging" : ", ready"}` : "disabled"}. ${mode === "pvp" ? `Opponent hull ${net?.opponentCombat ? Math.round(net.opponentCombat.hull) : "unavailable"}` : `Rival integrity ${hud.rivalCurrentHealth} of ${hud.rivalMaxHealth}`}.`}>
                 <div className="health-rail pilot-rail"><span>HULL {hud.health}/{hud.maxHealth}</span><i className="rail-fill hull-fill" style={{ width: `${healthPct}%` }} /><i className="rail-fill shield-fill" style={{ width: `${hud.shield}%` }} /><small>{hud.shield ? `SHIELD ${hud.shield}% ${hud.shield < 100 ? "RECHARGING" : "READY"}` : "SHIELD DISABLED"}</small></div>
                 <div className={`health-rail rival-rail ${hud.enrageActive ? "enraged" : ""}`}><span>{mode === "pvp" ? "OPPONENT" : "RIVAL"} {mode === "pvp" ? (net?.opponentCombat ? Math.round(net.opponentCombat.hull) : "—") : `${hud.rivalCurrentHealth}/${hud.rivalMaxHealth}`}</span><i className="rail-fill rival-fill" style={{ width: `${mode === "pvp" ? opponentHullPct : hud.rivalHealth}%` }} /></div>
               </div> : null}
@@ -6696,7 +6654,7 @@ export default function WormholeGame() {
                 </div>
               ) : null}
             </div>
-            <div className="touch-controls" aria-label="Twin-stick touch controls">
+            {touchCapable ? <div className="touch-controls" aria-label="Twin-stick touch controls">
               <div className="touch-flight">
                 <div
                   ref={moveStickRef}
@@ -6737,7 +6695,7 @@ export default function WormholeGame() {
                 </div>
                 {touchUtility()}
               </div>
-            </div>
+            </div> : null}
 
             <div className="status-dock">
             <div className="vitals">

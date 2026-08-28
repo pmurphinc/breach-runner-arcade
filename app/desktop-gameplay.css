@@ -1,22 +1,3 @@
-/* Desktop gameplay must stay a single centered arena column.
- *
- * globals.css still carries the old screen-preset cockpit grids for legacy
- * Fit/Balanced/Arena preset state. Those selectors are more specific than the
- * later plain `.cockpit` single-column rule. With the ship/intel panels hidden,
- * Fit/Balanced could therefore leave the live game in the first ~260px legacy
- * grid track, which is the tiny arena seen on desktop.
- *
- * This file is imported last so the gameplay composition, not a legacy preset
- * grid, owns the desktop cockpit. The selector is also intentionally more
- * specific than `[data-preset] .cockpit` so this cannot regress through source
- * order alone.
- */
-.app-shell:not([data-immersive="true"]) .cockpit {
-  width: min(1120px, 100%);
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.app-shell:not([data-immersive="true"]) .play-column {
-  width: min(100%, 980px);
-  margin-inline: auto;
-}
+/* Desktop gameplay now uses the canonical immersive arena shell. Keep this
+ * late-loaded sheet as the extension point for desktop-only corrections, but
+ * do not reintroduce the legacy fixed-width cockpit or play-column caps. */
