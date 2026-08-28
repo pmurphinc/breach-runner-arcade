@@ -3,6 +3,7 @@ import type { ShipId } from "../game-data";
 export type RiftShipClass = "light" | "medium" | "heavy";
 export type RiftRunStatus = "setup" | "active" | "completed" | "abandoned";
 export type RiftWeaponId = "pulse-cannon" | "minigun" | "railgun" | "missile-pod" | "flamethrower";
+export type RiftEvolutionId = "nova-cannon" | "hellstorm" | "seismic-rail" | "mirv-battery" | "inferno-projector";
 
 export type RiftWeaponModifiers = {
   fireRate: number;
@@ -42,6 +43,8 @@ export type RiftRunState = {
   level: number;
   pendingLevels: number;
   rollIndex: number;
+  riftBreaches: number;
+  evolutionHistory: RiftEvolutionHistory[];
   upgradeHistory: RiftUpgradeHistory[];
   shipModifiers: { hull: number; shield: number; movement: number };
   score: number;
@@ -50,3 +53,4 @@ export type RiftRunState = {
 };
 
 export type RiftUpgradeHistory = { upgradeId: string; targetInstanceId?: string; hardpointIndex?: number; stack: number; level: number };
+export type RiftEvolutionHistory = { evolutionId: RiftEvolutionId; weaponInstanceId: string; hardpoint: number; level: number };

@@ -25,6 +25,8 @@ export function createRiftRun(shipId: ShipId, seed: string, weaponId = STARTING_
     level: 1,
     pendingLevels: 0,
     rollIndex: 0,
+    riftBreaches: 0,
+    evolutionHistory: [],
     upgradeHistory: [],
     shipModifiers: { hull: 0, shield: 0, movement: 1 },
     score: 0,
