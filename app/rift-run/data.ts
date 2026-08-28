@@ -5,7 +5,7 @@ export const RIFT_RUN_TAGLINE = "A Roguelite Game Mode";
 export const RIFT_RUN_DESCRIPTION =
   "Enter the Rift, mount weapons, evolve your ship, clear escalating sectors, and push deeper for greater rewards.";
 
-export const STARTING_WEAPON: RiftWeaponId = "standard-cannon";
+export const STARTING_WEAPON: RiftWeaponId = "pulse-cannon";
 
 export const RIFT_SHIP_CLASSES: Record<RiftShipClass, {
   label: string;
