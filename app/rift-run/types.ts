@@ -2,13 +2,30 @@ import type { ShipId } from "../game-data";
 
 export type RiftShipClass = "light" | "medium" | "heavy";
 export type RiftRunStatus = "setup" | "active" | "completed" | "abandoned";
-export type RiftWeaponId = "standard-cannon";
+export type RiftWeaponId = "pulse-cannon" | "minigun" | "railgun" | "missile-pod" | "flamethrower";
+
+export type RiftWeaponModifiers = {
+  fireRate: number;
+  damage: number;
+  projectileCount: number;
+  penetration: number;
+  explosionRadius: number;
+};
+
+/** Serializable, independently evolvable equipment. Combat timers do not belong here. */
+export type RiftWeaponInstance = {
+  instanceId: string;
+  weaponId: RiftWeaponId;
+  level: number;
+  modifiers: RiftWeaponModifiers;
+  evolution: Record<string, number | string | boolean>;
+};
 
 export type RiftHardpoint =
   | { index: number; status: "locked" }
   | { index: number; status: "available" }
   | { index: number; status: "empty" }
-  | { index: number; status: "occupied"; weaponId: RiftWeaponId };
+  | { index: number; status: "occupied"; weapon: RiftWeaponInstance };
 
 export type RiftRunState = {
   selectedShip: ShipId;

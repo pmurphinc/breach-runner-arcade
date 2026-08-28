@@ -91,7 +91,10 @@ import {
 } from "./main-menu";
 import { activeHardpointCount, activateRiftRun, createRiftRun } from "./rift-run/state";
 import { RIFT_RUN_SHIPS, riftRunShip } from "./rift-run/ships";
-import type { RiftRunState } from "./rift-run/types";
+import type { RiftRunState, RiftWeaponId } from "./rift-run/types";
+import { RIFT_WEAPON_BY_ID } from "./rift-run/weapons";
+import { createWeaponRuntime, tickWeaponRuntime, type WeaponRuntime } from "./rift-run/weapon-runtime";
+import { processHardpointFire } from "./rift-run/weapon-fire";
 import { PvpClient, countdownLabel, type PvpSnapshot } from "./pvp-client";
 import {
   DEFAULT_PRESET,
@@ -1552,6 +1555,7 @@ function DifficultyBadge({
         <span className="rule-score">SCORE {hud.score.toLocaleString().padStart(6, "0")}</span>
         <span className="rule-mode">RIFT RUN</span>
         <span className="rule-rift-level">SECTOR {riftRun.sector}</span>
+        <span>{RIFT_WEAPON_BY_ID[riftRun.mountedStartingWeapon].name}</span>
         <span>HARDPOINTS {active}/{riftRun.maximumHardpoints}</span>
       </div>
     );
@@ -1878,7 +1882,10 @@ export default function WormholeGame() {
   const [menu, setMenu] = useState<MenuStack>(INITIAL_STACK);
   const route = activeRoute(menu);
   const [riftShipId, setRiftShipId] = useState<ShipId>(RIFT_RUN_SHIPS[0].id);
+  const [riftWeaponId, setRiftWeaponId] = useState<RiftWeaponId>("pulse-cannon");
   const [riftRun, setRiftRun] = useState<RiftRunState | null>(null);
+  const riftRunRef = useRef<RiftRunState | null>(null);
+  const riftWeaponRuntime = useRef<WeaponRuntime>({});
   const menuOpen = menuIsOpen(menu);
   const go = useCallback((next: MenuRoute) => setMenu((stack) => pushRoute(stack, next)), []);
   const back = useCallback(() => setMenu((stack) => popRoute(stack)), []);
@@ -2539,8 +2546,13 @@ export default function WormholeGame() {
     const game = createGame(selectedShip(launchShip), mode, difficulty);
     if (riftShip && riftRunShip(riftShip)) {
       const seed = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${riftShip}`;
-      setRiftRun(activateRiftRun(createRiftRun(riftShip, seed)));
+      const run = activateRiftRun(createRiftRun(riftShip, seed, riftWeaponId));
+      riftRunRef.current = run;
+      riftWeaponRuntime.current = createWeaponRuntime(run);
+      setRiftRun(run);
     } else {
+      riftRunRef.current = null;
+      riftWeaponRuntime.current = {};
       setRiftRun(null);
     }
     game.roundId = mode === "coop" ? (netRef.current?.state.roundId ?? 0) : 0;
@@ -2565,7 +2577,7 @@ export default function WormholeGame() {
     setLaunched(true);
     closeMenu();
     play("magic", 0.28);
-  }, [closeMenu, difficulty, mode, play, shipId, stopVictorySuction, sync]);
+  }, [closeMenu, difficulty, mode, play, riftWeaponId, shipId, stopVictorySuction, sync]);
 
   const launchRiftRun = useCallback(() => {
     modePreference.set("pve");
@@ -4355,7 +4367,19 @@ export default function WormholeGame() {
       if (player.x < 12 || player.x > game.worldWidth - 12) { player.x = cap(player.x, 12, game.worldWidth - 12); player.vx *= -0.55; damageCollision(game, 2, "wall"); }
       if (player.y < 12 || player.y > game.worldHeight - 12) { player.y = cap(player.y, 12, game.worldHeight - 12); player.vy *= -0.55; damageCollision(game, 2, "wall"); }
 
-      if (fire && game.shotCycle <= 0 && game.playerShots < SHOT_LEVELS[player.gun].maxShots) {
+      const activeRiftRun = riftRunRef.current;
+      if (activeRiftRun) {
+        tickWeaponRuntime(riftWeaponRuntime.current);
+        const mountedShots = processHardpointFire(activeRiftRun.hardpoints, riftWeaponRuntime.current, Boolean(fire), { x: player.x, y: player.y }, player.angle * DEG);
+        for (const mounted of mountedShots) {
+          // Continuous flame remains a bounded tick event; projectile families
+          // enter the established arena projectile/death pipeline.
+          if (mounted.kind === "flame") continue;
+          game.bullets.push({ x: mounted.origin.x, y: mounted.origin.y, vx: Math.cos(mounted.angle) * mounted.speed + player.vx, vy: Math.sin(mounted.angle) * mounted.speed + player.vy, damage: mounted.damage, life: mounted.life, enemy: false, color: RIFT_WEAPON_BY_ID[mounted.weaponId as RiftWeaponId].id === "railgun" ? "#dffcff" : "#69ecff", bouncesLeft: 0, salvageLinked: false });
+          game.playerShots += 1;
+        }
+        if (mountedShots.length > 0) play("fire", mountedShots[0].weaponId === "minigun" ? 0.05 : 0.12, mountedShots[0].weaponId === "railgun" ? 0.7 : mountedShots[0].weaponId === "minigun" ? 1.7 : 1);
+      } else if (fire && game.shotCycle <= 0 && game.playerShots < SHOT_LEVELS[player.gun].maxShots) {
         const shot = SHOT_LEVELS[player.gun];
         const offsets = shot.shots === 2 ? [-0.05, 0.05] : [0];
         offsets.forEach((offset) => {
@@ -6877,7 +6901,9 @@ export default function WormholeGame() {
       {route === "rift-run" ? (
         <RiftRunSetupScreen
           ship={riftShipId}
+          weapon={riftWeaponId}
           onSelect={setRiftShipId}
+          onSelectWeapon={setRiftWeaponId}
           onLaunch={launchRiftRun}
           renderShip={renderShip}
           go={go}
