@@ -97,6 +97,7 @@ import { createWeaponRuntime, tickWeaponRuntime, type WeaponRuntime } from "./ri
 import { processHardpointFire } from "./rift-run/weapon-fire";
 import { admitsProjectile, detonateMissile, penetrate, projectileFromShot, steerMissile, targetsInFlameCone, type RiftProjectile } from "./rift-run/weapon-projectiles";
 import { awardRiftEnergy, enemyKillEnergy, riftDamaged, riftEnergyRequiredForLevel } from "./rift-run/progression";
+import { applyRiftRunHullWeaponDamage } from "./rift-run/rift-damage";
 import { rollUpgradeChoices } from "./rift-run/upgrade-pool";
 import { applyUpgrade, mountUnlockedWeapon } from "./rift-run/upgrade-apply";
 import { PvpClient, countdownLabel, type PvpSnapshot } from "./pvp-client";
@@ -3619,6 +3620,37 @@ export default function WormholeGame() {
       playCue("wormhole-explosion", 0.2);
     };
 
+    /** Resolves every Rift Run hull-weapon hit through one integrity path. */
+    const hitRiftWithRiftRunWeapon = (game: Game, weaponDamage: number, weaponInstanceId: string) => {
+      // Nominal damage keeps feeding the temporary PUP loop even when the
+      // separate integrity pool is nearly (or already) exhausted.
+      game.portalCharge += weaponDamage;
+      const integrityDamage = applyRiftRunHullWeaponDamage(game, weaponDamage);
+      const run = riftRunRef.current;
+      if (run && integrityDamage > 0) {
+        const next = riftDamaged(run, integrityDamage, weaponInstanceId);
+        riftRunRef.current = next;
+        setRiftRun(next);
+        if (next.pendingLevels) game.paused = true;
+      }
+
+      // Sector progression is intentionally not part of Phase 3A. Keep the
+      // existing temporary mission ending rather than leaving a dead Rift.
+      if (game.rivalHealth <= 0 && game.victorySequence <= 0 && !game.result) {
+        game.rivalHealth = 0;
+        game.victorySequence = ticksForSeconds(VICTORY_TOTAL_SECONDS);
+        game.victoryExplosionFired = false;
+        game.enrageActive = false;
+        game.enrageTimer = 0;
+        game.enrageMineTimer = 0;
+        game.enrageRecovery = createEnrageRecovery();
+        game.incoming = null;
+        game.notice = "RIVAL ELIMINATED // REALITY LOCKED";
+        game.noticeLife = game.victorySequence;
+      }
+      return integrityDamage;
+    };
+
     const spawnEnemyBullet = (game: Game, enemy: Enemy, speed = 5, damage = 10) => {
       const dx = game.player.x - enemy.x;
       const dy = game.player.y - enemy.y;
@@ -4411,8 +4443,7 @@ export default function WormholeGame() {
             // Rift contact is one cadence-bounded tick, just like an enemy; it
             // cannot be multiplied by render rate or overlap samples.
             if (targetsInFlameCone(mounted.origin, mounted.angle, mounted.range, mounted.coneDegrees, [{ id: "rift", x: game.portalX, y: game.portalY }]).length) {
-              game.portalCharge += mounted.damage; awardRiftDamage(game, mounted.damage);
-              const next=riftDamaged(activeRiftRun,mounted.damage,mounted.instanceId); riftRunRef.current=next; setRiftRun(next); if(next.pendingLevels) game.paused=true;
+              hitRiftWithRiftRunWeapon(game, mounted.damage, mounted.instanceId);
             }
             continue;
           }
@@ -4526,8 +4557,7 @@ export default function WormholeGame() {
           // Missiles never acquire the Rift, but a manually aimed missile can
           // still strike it. Rail rounds stop at the Rift; only normal hostile
           // contacts consume their configured penetration allowance.
-          game.portalCharge += projectile.state.damage; awardRiftDamage(game, projectile.state.damage);
-          const run=riftRunRef.current; if(run) { const next=riftDamaged(run,projectile.state.damage,projectile.state.instanceId); riftRunRef.current=next; setRiftRun(next); if(next.pendingLevels) game.paused=true; }
+          hitRiftWithRiftRunWeapon(game, projectile.state.damage, projectile.state.instanceId);
           projectile.state.remainingLifetime = 0; game.portalPulse = Math.max(game.portalPulse, .4);
           burst(game, projectile.x, projectile.y, "#ff5ac8", 5, 3);
           continue;

@@ -8,6 +8,7 @@ import { createWeaponRuntime } from "../app/rift-run/weapon-runtime.ts";
 import { processHardpointFire, logicalMountOffset } from "../app/rift-run/weapon-fire.ts";
 import { admitsProjectile, detonateMissile, projectileFromShot, penetrate, selectMissileTarget, steerMissile, targetsInExplosion, targetsInFlameCone } from "../app/rift-run/weapon-projectiles.ts";
 import { awardRiftEnergy, enemyKillEnergy, riftDamaged, riftEnergyRequiredForLevel } from "../app/rift-run/progression.ts";
+import { applyRiftRunHullWeaponDamage, RIFT_RUN_RIFT_DAMAGE_SCALE } from "../app/rift-run/rift-damage.ts";
 import { eligibleUpgradeChoices, rollUpgradeChoices } from "../app/rift-run/upgrade-pool.ts";
 import { applyUpgrade, mountUnlockedWeapon } from "../app/rift-run/upgrade-apply.ts";
 
@@ -103,6 +104,59 @@ test("combat energy rewards and an increasing curve safely queue multiple levels
   assert.ok(riftEnergyRequiredForLevel(4) > riftEnergyRequiredForLevel(2));
   const start=createRiftRun("wing","energy"), damaged=riftDamaged(start,10,"socket-1"); assert.ok(damaged.riftEnergy>0);
   const advanced=awardRiftEnergy(start,1000); assert.ok(advanced.level>3); assert.equal(advanced.pendingLevels,advanced.level-1);
+});
+
+function riftRunHullHit(game, run, weaponDamage, instanceId = "weapon-1") {
+  game.portalCharge += weaponDamage;
+  const integrityDamage = applyRiftRunHullWeaponDamage(game, weaponDamage);
+  return { integrityDamage, run: integrityDamage > 0 ? riftDamaged(run, integrityDamage, instanceId) : run };
+}
+
+for (const [weaponId, label] of [
+  ["pulse-cannon", "Pulse Cannon"],
+  ["minigun", "Minigun"],
+  ["railgun", "Railgun"],
+  ["missile-pod", "Missile direct impact"],
+]) test(`${label} Rift hit reduces integrity using Rift Run scaling`, () => {
+  const weapon = RIFT_WEAPONS.find(({ id }) => id === weaponId);
+  const game = { rivalHealth: 200, portalCharge: 0 };
+  const hit = riftRunHullHit(game, createRiftRun("wing", weaponId), weapon.damage);
+  assert.equal(hit.integrityDamage, weapon.damage * RIFT_RUN_RIFT_DAMAGE_SCALE);
+  assert.equal(game.rivalHealth, 200 - hit.integrityDamage);
+});
+
+test("Flamethrower cadence tick applies exactly one scaled Rift hit", () => {
+  const run = createRiftRun("wing", "flame-rift", "flamethrower");
+  const runtime = createWeaponRuntime(run);
+  const [tick] = processHardpointFire(run.hardpoints, runtime, true, { x: 0, y: 0 }, 0);
+  const game = { rivalHealth: 200, portalCharge: 0 };
+  const hit = riftRunHullHit(game, run, tick.damage, tick.instanceId);
+  assert.equal(hit.integrityDamage, tick.damage * RIFT_RUN_RIFT_DAMAGE_SCALE);
+  assert.equal(processHardpointFire(run.hardpoints, runtime, true, { x: 0, y: 0 }, 0).length, 0);
+});
+
+test("Rift Energy uses actual removed integrity and zero integrity awards no more", () => {
+  const start = createRiftRun("wing", "clamped-energy");
+  const game = { rivalHealth: 0.5, portalCharge: 0 };
+  const first = riftRunHullHit(game, start, 10);
+  assert.equal(first.integrityDamage, 0.5);
+  assert.equal(game.rivalHealth, 0);
+  assert.equal(first.run.riftEnergy, 0.5 * 0.12);
+  const second = riftRunHullHit(game, first.run, 10);
+  assert.equal(second.integrityDamage, 0);
+  assert.equal(second.run.riftEnergy, first.run.riftEnergy);
+  assert.equal(game.portalCharge, 20, "portal charge advances independently for both nominal hits");
+});
+
+test("Railgun and missile Rift collision remain direct, terminating impacts without homing at the Rift", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) => readFile(new URL("../app/game.tsx", import.meta.url), "utf8"));
+  assert.match(source, /steerMissile\(projectile, liveTargets\)/);
+  assert.match(source, /hitRiftWithRiftRunWeapon\(game, projectile\.state\.damage, projectile\.state\.instanceId\);\s*projectile\.state\.remainingLifetime = 0/);
+});
+
+test("standard PvE cannon Rift contact retains its unscaled portal-charge behavior", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) => readFile(new URL("../app/game.tsx", import.meta.url), "utf8"));
+  assert.match(source, /if \(!bullet\.autoGun && dist\(bullet, \{ x: game\.portalX, y: game\.portalY \}\) < 43\) \{\s*bullet\.life = 0;\s*game\.portalCharge \+= bullet\.damage;/);
 });
 
 test("upgrade rolls are deterministic, unique, seeded, and weapon eligible", () => {
