@@ -1,150 +1,54 @@
-/* Desktop gameplay must stay a single centered arena column.
- *
- * globals.css still carries the old screen-preset cockpit grids for legacy
- * Fit/Balanced/Arena preset state. Those selectors are more specific than the
- * later plain `.cockpit` single-column rule. With the ship/intel panels hidden,
- * Fit/Balanced could therefore leave the live game in the first ~260px legacy
- * grid track, which is the tiny arena seen on desktop.
- *
- * This file is imported last so the gameplay composition, not a legacy preset
- * grid, owns the desktop cockpit. The selector is also intentionally more
- * specific than `[data-preset] .cockpit` so this cannot regress through source
- * order alone.
+/* Desktop gameplay uses the canonical modern HUD and keeps this late-loaded
+ * sheet for Mouse & Keys viewport corrections. These rules are PC-only: touch
+ * and hybrid keep their own immersive arena geometry from globals.css and
+ * arena-hud.css.
  */
-.app-shell:not([data-immersive="true"]) .cockpit {
-  width: 100%;
-  grid-template-columns: minmax(0, 1fr);
-}
 
-.app-shell:not([data-immersive="true"]) .play-column {
-  width: 100%;
-  margin-inline: auto;
-}
-
-/* ==========================================================================
-   PC / MOUSE & KEYS FULLSCREEN ARENA
-   ==========================================================================
-   Presentation only. Nothing here touches the simulation: WORLD_WIDTH and
-   WORLD_HEIGHT are unchanged, and the renderer keeps drawing the world with
-   one uniform scale.
-
-   What this replaces: the arena used to be the *smallest* of three unrelated
-   caps — a 1120px cockpit, a 980px play column, and `--arena-size`, which is
-   a square edge computed by layout-budget.ts for the touch layouts. On a
-   1920x1080 monitor that resolved to a 952x595 canvas with 484px of dead
-   gutter on each side and 485px of unused height.
-
-   The fix is to stop asking those caps for a width at all on PC. The canvas
-   is given the whole play column, so its CSS rectangle takes the monitor's
-   aspect rather than the world's. That is safe because the rendering pipeline
-   is already aspect-agnostic: canvasBackingSize() builds a backing store from
-   the *measured* CSS rectangle and derives logicalHeight from it, game.tsx
-   takes renderViewHeight from that value, and both the renderer and
-   updateMouseAim() run the same camera transform over it. A wider or taller
-   rectangle therefore shows more of the world; it never stretches it.
-
-   `[data-view-mode="pc"]` and `:not([data-immersive="true"])` currently select
-   the same shell (immersive is exactly viewProfile.touch). Both are named so
-   the intent survives if that ever stops being true, and so touch and hybrid
-   cannot pick these rules up by accident.
-   ========================================================================== */
-
-/* The shell owns the viewport, so the cockpit can take everything the top bar
-   leaves and the page never scrolls during a run. */
-.app-shell[data-view-mode="pc"]:not([data-immersive="true"]) {
+.app-shell[data-view-mode="pc"].modern-hud[data-immersive="true"] {
   height: 100dvh;
-  display: flex;
-  flex-direction: column;
   overflow: hidden;
 }
 
-.app-shell[data-view-mode="pc"]:not([data-immersive="true"]) .cockpit {
-  flex: 1 1 auto;
+.app-shell[data-view-mode="pc"].modern-hud[data-immersive="true"] .cockpit {
+  height: calc(100dvh - 48px);
   min-height: 0;
-  padding: 8px max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  padding: 0;
 }
 
-/* The play column is the arena. The HUD stays in flow at the top of it and
-   paints over the arena, which is absolutely positioned behind. Keeping the
-   HUD in flow is what lets the match bar and the coaching line stack without
-   either one needing a hard-coded height. */
-.app-shell[data-view-mode="pc"]:not([data-immersive="true"]) .play-column {
+.app-shell[data-view-mode="pc"].modern-hud[data-immersive="true"] .play-column {
   position: relative;
   width: 100%;
   height: 100%;
   min-height: 0;
-  /* Clearance for the rules rail, which is the arena's own top lane
-     (`.difficulty-badge`, absolute at `top: 8px` with `left`/`right` both 8px).
-     It is a single line of ~580px of text on any arena wider than about 600px,
-     which is every desktop window that reaches this layout, so the floating HUD
-     stacks underneath it rather than across it. */
-  padding-top: 40px;
+  padding: 0;
 }
 
-/* Overrides `width: min(100%, var(--arena-size))`. The square touch-budget
-   edge decides nothing here; the available rectangle does. */
-.app-shell[data-view-mode="pc"]:not([data-immersive="true"]) .arena-stage {
+.app-shell[data-view-mode="pc"].modern-hud[data-immersive="true"] .arena-stage {
   position: absolute;
   inset: 0;
   width: auto;
+  height: auto;
   max-width: none;
   margin: 0;
 }
 
-.app-shell[data-view-mode="pc"]:not([data-immersive="true"]) .canvas-wrap {
+.app-shell[data-view-mode="pc"].modern-hud[data-immersive="true"] .canvas-wrap {
   position: absolute;
   inset: 0;
+  width: auto;
+  height: auto;
 }
 
-/* The one rule that lets the canvas take the monitor's shape. `height: auto`
-   plus `aspect-ratio: 1504/940` is what pinned the presentation to the world's
-   proportions; the backing store and the camera follow the measured rectangle
-   instead, so the world is still drawn at a single uniform scale. */
-.app-shell[data-view-mode="pc"]:not([data-immersive="true"]) .canvas-wrap > canvas {
+.app-shell[data-view-mode="pc"].modern-hud[data-immersive="true"] .canvas-wrap > canvas {
+  top: 0;
+  left: 0;
   width: 100%;
+  min-width: 0;
   height: 100%;
   aspect-ratio: auto;
+  transform: none;
 }
 
-/* ------------------------------------------------------------- floating HUD */
-/* Score, hull and rival state read over the top of the arena rather than
-   taking a strip out of it. Width-limited and centered so the rules badge
-   keeps its top-left corner, and pointer-transparent so every pixel of the
-   arena underneath still aims and fires. */
-.app-shell[data-view-mode="pc"]:not([data-immersive="true"]) .play-column > .match-bar,
-.app-shell[data-view-mode="pc"]:not([data-immersive="true"]) .play-column > .coach-strip {
-  position: relative;
-  z-index: var(--z-hud);
-  width: min(100%, 780px);
-  margin-inline: auto;
-  border-radius: 4px;
-  background: linear-gradient(180deg, rgba(6, 18, 27, .92), rgba(2, 9, 14, .88));
-  box-shadow: 0 10px 26px rgba(0, 0, 0, .42);
-  pointer-events: none;
-}
-
-/* The instrument rail keeps the full power-up bin and stays interactive, but
-   only its controls take the pointer — the rest of the strip is arena. */
-.app-shell[data-view-mode="pc"]:not([data-immersive="true"]) .status-dock {
-  position: absolute;
-  z-index: var(--z-hud);
-  left: 50%;
-  bottom: 8px;
-  width: min(100% - 16px, 1180px);
-  margin: 0;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  transform: translateX(-50%);
-  box-shadow: 0 12px 30px rgba(0, 0, 0, .46);
-  pointer-events: none;
-}
-
-.app-shell[data-view-mode="pc"]:not([data-immersive="true"]) .status-dock :is(button, a, input, select) {
-  pointer-events: auto;
-}
-
-/* The end-of-run card belongs above the floating HUD, the same way it sat
-   above a docked HUD that lived outside the arena. */
-.app-shell[data-view-mode="pc"]:not([data-immersive="true"]) .run-summary-layer {
+.app-shell[data-view-mode="pc"].modern-hud[data-immersive="true"] .run-summary-layer {
   z-index: var(--z-hud-float);
 }

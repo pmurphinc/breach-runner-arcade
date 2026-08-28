@@ -11,8 +11,8 @@ const game = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
 const stripComments = (css) => css.replace(/\/\*[\s\S]*?\*\//g, "");
 const desktopRules = stripComments(desktopGameplay);
 
-/** Every PC gameplay rule is scoped to the mouse-and-keys shell and nothing else. */
-const PC = '.app-shell\\[data-view-mode="pc"\\]:not\\(\\[data-immersive="true"\\]\\)';
+/** Every PC gameplay rule is scoped to the modern mouse-and-keys shell and nothing else. */
+const PC = '.app-shell\\[data-view-mode="pc"\\]\\.modern-hud\\[data-immersive="true"\\]';
 const pcRule = (selector) =>
   new RegExp(`${PC}\\s+${selector}\\s*\\{([^}]*)\\}`, "s");
 
@@ -35,37 +35,37 @@ function splitSelectorGroup(group) {
   return out;
 }
 
-test("desktop gameplay defeats the legacy preset cockpit grid", () => {
+test("desktop gameplay uses the uncapped immersive arena", () => {
   // Keep the regression fixture honest: the legacy preset selector is the
   // rule that collapsed the arena after the side panels were hidden.
   assert.match(globals, /\[data-preset="fit"\]\s+\.cockpit\s*\{[^}]*grid-template-columns:/s);
   assert.match(globals, /\.ship-panel,\s*\n?\.intel-panel\s*\{\s*display:\s*none;/s);
 
-  // The repair must be loaded after the older layout sheets and must carry
-  // enough specificity to beat `[data-preset] .cockpit` without !important.
+  // Desktop corrections remain late-loaded, but the canonical modern profile
+  // now enters the immersive shell rather than a capped legacy column.
   const globalImport = layout.indexOf('import "./globals.css";');
   const desktopImport = layout.indexOf('import "./desktop-gameplay.css";');
   assert.ok(globalImport >= 0 && desktopImport > globalImport, "desktop gameplay CSS should load after globals.css");
 
   assert.match(
-    desktopGameplay,
-    /\.app-shell:not\(\[data-immersive="true"\]\)\s+\.cockpit\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s,
+    game,
+    /className=\{`app-shell modern-hud/,
   );
+  assert.doesNotMatch(desktopGameplay, /1120px|980px/);
+  assert.match(desktopGameplay, /modern HUD/);
   assert.doesNotMatch(desktopGameplay, /!important/);
 });
 
 test("no desktop cap re-crops the arena into a centred column", () => {
-  // The three caps that produced a 952x595 canvas with 484px gutters on a
-  // 1920x1080 monitor: a 1120px cockpit, a 980px play column, and the square
-  // touch-budget edge in --arena-size. None of them may bound PC gameplay.
-  assert.doesNotMatch(desktopRules, /1120px/);
-  assert.doesNotMatch(desktopRules, /980px/);
-  assert.match(desktopGameplay, /\.app-shell:not\(\[data-immersive="true"\]\)\s+\.cockpit\s*\{[^}]*width:\s*100%/s);
-  assert.match(desktopGameplay, /\.app-shell:not\(\[data-immersive="true"\]\)\s+\.play-column\s*\{[^}]*width:\s*100%/s);
+  // The old desktop column caps and the square touch-budget edge must not
+  // bound PC gameplay.
+  assert.doesNotMatch(desktopGameplay, /1120px|980px/);
+  assert.match(desktopGameplay, new RegExp(`${PC}\\s+\\.play-column\\s*\\{[^}]*width:\\s*100%`, "s"));
+  assert.match(desktopGameplay, new RegExp(`${PC}\\s+\\.play-column\\s*\\{[^}]*height:\\s*100%`, "s"));
 
-  // globals.css still hands non-immersive `.arena-stage` a `min(100%,
-  // var(--arena-size))`. PC must overrule it rather than inherit it.
-  assert.match(globals, /\.app-shell:not\(\[data-immersive="true"\]\)\s+\.arena-stage\s*\{[^}]*var\(--arena-size\)/s);
+  // globals.css still hands immersive `.arena-stage` the measured touch budget.
+  // PC must overrule it rather than inherit it.
+  assert.match(globals, /\[data-immersive="true"\]\s+\.arena-stage\s*\{[^}]*var\(--arena-size\)/s);
   const stage = desktopGameplay.match(pcRule("\\.arena-stage"));
   assert.ok(stage, "PC needs its own .arena-stage rule");
   assert.match(stage[1], /position:\s*absolute/);
@@ -103,29 +103,13 @@ test("Full Arena still fits the whole world instead of cropping it", () => {
 });
 
 test("the PC HUD floats over the arena and keeps its controls usable", () => {
-  const hud = desktopGameplay.match(
-    new RegExp(`${PC}\\s+\\.play-column > \\.match-bar,\\s*${PC}\\s+\\.play-column > \\.coach-strip\\s*\\{([^}]*)\\}`, "s"),
-  );
-  assert.ok(hud, "the match bar and coaching line need a PC overlay rule");
-  assert.match(hud[1], /z-index:\s*var\(--z-hud\)/);
-  // Pointer-transparent, or the top of the arena would stop aiming and firing.
-  assert.match(hud[1], /pointer-events:\s*none/);
+  assert.match(globals, /\.modern-hud \.match-bar\s*\{[^}]*grid-template-columns:\s*auto/s);
+  assert.match(globals, /\.modern-hud \.status-dock\s*\{\s*display:\s*none !important/s);
+  assert.match(game, /viewProfile\.modernHud \? <div className="health-rails"/);
+  assert.match(game, /className="touch-powerup-hud"/);
 
-  const dock = desktopGameplay.match(pcRule("\\.status-dock"));
-  assert.ok(dock, "the instrument rail needs a PC overlay rule");
-  assert.match(dock[1], /position:\s*absolute/);
-  assert.match(dock[1], /z-index:\s*var\(--z-hud\)/);
-  assert.match(dock[1], /pointer-events:\s*none/);
-  // ...but the inventory itself still takes the pointer.
-  assert.match(
-    desktopGameplay,
-    new RegExp(`${PC}\\s+\\.status-dock :is\\(button, a, input, select\\)\\s*\\{[^}]*pointer-events:\\s*auto`, "s"),
-  );
-
-  // The rules rail is the arena's own top lane; the floating HUD stacks under
-  // it rather than across it.
+  // The rules rail is the arena's own top lane in the modern HUD.
   assert.match(globals, /\.difficulty-badge\s*\{[^}]*top:\s*8px;\s*left:\s*8px;\s*right:\s*8px/s);
-  assert.match(desktopGameplay, new RegExp(`${PC}\\s+\\.play-column\\s*\\{[^}]*padding-top:`, "s"));
 
   // Menus and the global controls stay above everything, and the end-of-run
   // card stays above the floating HUD.
@@ -139,9 +123,7 @@ test("the PC HUD floats over the arena and keeps its controls usable", () => {
 test("the fullscreen arena is PC-only, so touch and hybrid keep their layout", () => {
   // Every rule added for the fullscreen arena carries the PC scope. A bare
   // `.cockpit` or `.arena-stage` here would reach the immersive shell too.
-  const banner = desktopGameplay.indexOf("PC / MOUSE & KEYS FULLSCREEN ARENA");
-  assert.ok(banner > 0, "the PC section should be signposted");
-  const selectors = stripComments(desktopGameplay.slice(desktopGameplay.lastIndexOf("/*", banner)))
+  const selectors = stripComments(desktopGameplay)
     .split("}")
     .map((block) => block.split("{")[0].trim())
     .filter(Boolean)
@@ -150,8 +132,15 @@ test("the fullscreen arena is PC-only, so touch and hybrid keep their layout", (
   assert.ok(selectors.length > 0, "the PC section should carry rules");
   for (const selector of selectors) {
     assert.ok(
-      selector.startsWith('.app-shell[data-view-mode="pc"]:not([data-immersive="true"])'),
+      selector.startsWith('.app-shell[data-view-mode="pc"].modern-hud[data-immersive="true"]'),
       `${selector} is not scoped to the PC shell`,
     );
   }
+});
+
+test("Mouse & Keys uses the modern HUD without enabling touch controls", () => {
+  assert.match(game, /const touchCapable = viewProfile\.touch/);
+  assert.match(game, /const immersive = viewProfile\.modernHud/);
+  assert.match(game, /\{touchCapable \? <div className="touch-controls"/);
+  assert.match(game, /data-touch-controls=\{layout\.showTouchControls \? "on" : "off"\}/);
 });
