@@ -10,6 +10,9 @@ export type RiftWeaponModifiers = {
   projectileCount: number;
   penetration: number;
   explosionRadius: number;
+  projectileSpeed: number;
+  range: number;
+  coneWidth: number;
 };
 
 /** Serializable, independently evolvable equipment. Combat timers do not belong here. */
@@ -36,7 +39,14 @@ export type RiftRunState = {
   sector: number;
   wave: number;
   riftEnergy: number;
+  level: number;
+  pendingLevels: number;
+  rollIndex: number;
+  upgradeHistory: RiftUpgradeHistory[];
+  shipModifiers: { hull: number; shield: number; movement: number };
   score: number;
   status: RiftRunStatus;
   seed: string;
 };
+
+export type RiftUpgradeHistory = { upgradeId: string; targetInstanceId?: string; hardpointIndex?: number; stack: number; level: number };

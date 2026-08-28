@@ -18,5 +18,5 @@ export const RIFT_WEAPONS: readonly RiftWeaponDefinition[] = [
 export const RIFT_WEAPON_BY_ID = Object.fromEntries(RIFT_WEAPONS.map((weapon) => [weapon.id, weapon])) as Record<RiftWeaponId, RiftWeaponDefinition>;
 
 export function createWeaponInstance(weaponId: RiftWeaponId, instanceId: string): RiftWeaponInstance {
-  return { instanceId, weaponId, level: 1, modifiers: { fireRate: 1, damage: 1, projectileCount: 0, penetration: 0, explosionRadius: 0 }, evolution: {} };
+  return { instanceId, weaponId, level: 1, modifiers: { fireRate: 1, damage: 1, projectileCount: 0, penetration: 0, explosionRadius: 0, projectileSpeed: 1, range: 0, coneWidth: 0 }, evolution: {} };
 }
