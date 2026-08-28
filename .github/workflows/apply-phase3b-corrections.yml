@@ -22,6 +22,14 @@ jobs:
       - name: Apply focused corrections
         run: python scripts/apply_phase3b_corrections.py
 
+      - name: Normalize test EOF
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("tests/rift-run.test.mjs")
+          path.write_text(path.read_text(encoding="utf-8").rstrip() + "\n", encoding="utf-8")
+          PY
+
       - name: Remove temporary patch machinery
         run: rm scripts/apply_phase3b_corrections.py .github/workflows/apply-phase3b-corrections.yml
 
