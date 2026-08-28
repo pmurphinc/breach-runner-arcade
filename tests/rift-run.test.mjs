@@ -6,9 +6,11 @@ import { activeHardpointCount, createRiftRun } from "../app/rift-run/state.ts";
 import { RIFT_WEAPONS, createWeaponInstance } from "../app/rift-run/weapons.ts";
 import { createWeaponRuntime } from "../app/rift-run/weapon-runtime.ts";
 import { processHardpointFire, logicalMountOffset } from "../app/rift-run/weapon-fire.ts";
-import { admitsProjectile, detonateMissile, projectileFromShot, penetrate, selectMissileTarget, steerMissile, targetsInExplosion, targetsInFlameCone } from "../app/rift-run/weapon-projectiles.ts";
+import { admitsProjectile, applyScorched, detonateMissile, evolutionRadialHit, projectileFromShot, penetrate, SCORCHED_DURATION_TICKS, SCORCHED_TICK_CADENCE, selectMissileTarget, steerMissile, targetsInExplosion, targetsInFlameCone, tickScorched } from "../app/rift-run/weapon-projectiles.ts";
 import { awardRiftEnergy, enemyKillEnergy, riftDamaged, riftEnergyRequiredForLevel } from "../app/rift-run/progression.ts";
-import { applyRiftRunHullWeaponDamage, RIFT_RUN_RIFT_DAMAGE_SCALE } from "../app/rift-run/rift-damage.ts";
+import { applyRiftRunHullWeaponDamage, RIFT_RUN_BASE_INTEGRITY, RIFT_RUN_BREACH_REWARDS, RIFT_RUN_REFORM_DELAY_MS, RIFT_RUN_RIFT_DAMAGE_SCALE, riftIntegrityForBreach } from "../app/rift-run/rift-damage.ts";
+import { breachRiftRun, tickRiftReform } from "../app/rift-run/breach.ts";
+import { RIFT_EVOLUTIONS, eligibleEvolutions } from "../app/rift-run/evolutions.ts";
 import { eligibleUpgradeChoices, rollUpgradeChoices } from "../app/rift-run/upgrade-pool.ts";
 import { applyUpgrade, mountUnlockedWeapon } from "../app/rift-run/upgrade-apply.ts";
 
@@ -179,4 +181,146 @@ test("hardpoint online activates one socket and mounting creates a fresh instanc
   let heavy=createRiftRun("flagship","heavy"), choice=eligibleUpgradeChoices(heavy).find(x=>x.upgradeId==="hardpoint-online"); assert.ok(choice);
   heavy=applyUpgrade(heavy,choice); assert.equal(heavy.hardpoints.filter(x=>x.status==="available").length,1); assert.equal(heavy.hardpoints.filter(x=>x.status==="locked").length,1);
   heavy=mountUnlockedWeapon(heavy,1,"missile-pod"); assert.equal(heavy.hardpoints[1].weapon.level,1); assert.notEqual(heavy.hardpoints[1].weapon.instanceId,heavy.hardpoints[0].weapon.instanceId);
+});
+
+test("Phase 3B breach rewards once, blocks reform damage, and reforms stronger", () => {
+  const run = createRiftRun("tank", "breach-once");
+  const runtime = { integrity: 0, maximumIntegrity: RIFT_RUN_BASE_INTEGRITY, reformRemainingMs: 0, breached: false };
+  const first = breachRiftRun(run, runtime);
+  assert.equal(first.state.riftBreaches, 1);
+  assert.equal(first.state.riftEnergy, RIFT_RUN_BREACH_REWARDS.energy);
+  assert.equal(first.state.score, RIFT_RUN_BREACH_REWARDS.score);
+  assert.equal(first.runtime.reformRemainingMs, RIFT_RUN_REFORM_DELAY_MS);
+  const duplicate = breachRiftRun(first.state, first.runtime);
+  assert.equal(duplicate.state.riftBreaches, 1);
+  assert.equal(duplicate.state.riftEnergy, first.state.riftEnergy);
+  assert.equal(duplicate.state.score, first.state.score);
+  const guarded = { rivalHealth: 100, riftReformTicks: 2 };
+  assert.equal(applyRiftRunHullWeaponDamage(guarded, 999), 0);
+  assert.equal(guarded.rivalHealth, 100);
+  const reformed = tickRiftReform(first.runtime, RIFT_RUN_REFORM_DELAY_MS, RIFT_RUN_BASE_INTEGRITY, first.state.riftBreaches);
+  assert.equal(reformed.breached, false);
+  assert.equal(reformed.integrity, riftIntegrityForBreach(RIFT_RUN_BASE_INTEGRITY, 1));
+  assert.equal(reformed.maximumIntegrity, reformed.integrity);
+});
+
+test("breach energy can queue a level-up and live integration pauses it", async () => {
+  const run = createRiftRun("tank", "breach-level");
+  run.riftEnergy = riftEnergyRequiredForLevel(run.level) - 1;
+  const breached = breachRiftRun(run, { integrity: 0, maximumIntegrity: RIFT_RUN_BASE_INTEGRITY, reformRemainingMs: 0, breached: false });
+  assert.ok(breached.state.pendingLevels > 0);
+  const source = await import("node:fs/promises").then(({ readFile }) => readFile(new URL("../app/game.tsx", import.meta.url), "utf8"));
+  assert.match(source, /breachRiftRun\(run,/);
+  assert.match(source, /if \(breached\.state\.pendingLevels > 0\) game\.paused = true;/);
+  assert.match(source, /if \(!game\.running \|\| game\.paused \|\| game\.result\) return;/);
+  assert.match(source, /else if \(game\.rivalHealth <= 0\)/, "standard PvE retains its normal zero-integrity victory branch");
+});
+
+function qualifyForEvolution(run, evolution, instanceId = run.hardpoints[0].weapon.instanceId, hardpointIndex = 0) {
+  for (const [upgradeId, stack] of Object.entries(evolution.prerequisites)) {
+    run.upgradeHistory.push({ upgradeId, targetInstanceId: instanceId, hardpointIndex, stack, level: run.level });
+  }
+  return run;
+}
+
+test("all five evolution recipes are per-instance and prioritized on the next roll", () => {
+  for (const evolution of RIFT_EVOLUTIONS) {
+    const run = qualifyForEvolution(createRiftRun("tank", `evo-${evolution.id}`, evolution.sourceWeapon), evolution);
+    const instanceId = run.hardpoints[0].weapon.instanceId;
+    const eligible = eligibleEvolutions(run);
+    assert.ok(eligible.some(({ definition, weapon }) => definition.id === evolution.id && weapon.instanceId === instanceId));
+    const roll = rollUpgradeChoices(run);
+    assert.equal(roll.choices[0].kind, "evolution");
+    assert.equal(roll.choices[0].evolutionId, evolution.id);
+  }
+});
+
+test("duplicate weapon stacks never combine and duplicate instances can evolve independently", () => {
+  const evolution = RIFT_EVOLUTIONS.find(({ id }) => id === "seismic-rail");
+  let run = createRiftRun("tank", "duplicate-rails", "railgun");
+  run.hardpoints[1] = { index: 1, status: "occupied", weapon: createWeaponInstance("railgun", "rail-two") };
+  const first = run.hardpoints[0].weapon.instanceId;
+  const second = run.hardpoints[1].weapon.instanceId;
+  const requirements = Object.entries(evolution.prerequisites);
+  requirements.forEach(([upgradeId, count], index) => {
+    run.upgradeHistory.push({ upgradeId, targetInstanceId: index % 2 ? second : first, hardpointIndex: index % 2, stack: count, level: 1 });
+  });
+  assert.equal(eligibleEvolutions(run).length, 0, "split stacks cannot combine across weapon instances");
+  run.upgradeHistory = [];
+  qualifyForEvolution(run, evolution, first, 0);
+  run.pendingLevels = 1;
+  const choice = rollUpgradeChoices(run).choices.find(({ evolutionId }) => evolutionId === evolution.id);
+  assert.ok(choice);
+  run = applyUpgrade(run, choice);
+  assert.equal(run.hardpoints[0].weapon.evolution.id, evolution.id);
+  assert.equal(run.hardpoints[1].weapon.evolution.id, null);
+  qualifyForEvolution(run, evolution, second, 1);
+  assert.ok(eligibleEvolutions(run).some(({ weapon }) => weapon.instanceId === second));
+  assert.ok(!eligibleEvolutions(run).some(({ weapon }) => weapon.instanceId === first));
+});
+
+test("Nova and Seismic radial effects are bounded and respect already-hit identities", () => {
+  for (const evolutionId of ["nova-cannon", "seismic-rail"]) {
+    const projectile = projectileFromShot(shot(evolutionId === "nova-cannon" ? "pulse-cannon" : "railgun", { evolutionId, explosionRadius: 40 }));
+    projectile.state.hitTargetIds.add("direct");
+    assert.deepEqual(evolutionRadialHit(projectile, { x: 0, y: 0 }, [
+      { id: "direct", x: 0, y: 0 },
+      { id: "near", x: 30, y: 0 },
+      { id: "far", x: 41, y: 0 },
+    ]), ["near"]);
+  }
+});
+
+test("MIRV salvos spread wider, distribute deterministic targets, and keep per-instance caps", () => {
+  const normal = createRiftRun("tank", "normal-missiles", "missile-pod");
+  normal.hardpoints[0].weapon.modifiers.projectileCount = 2;
+  const normalShots = processHardpointFire(normal.hardpoints, createWeaponRuntime(normal), true, { x: 0, y: 0 }, 0);
+  const mirv = createRiftRun("tank", "mirv-missiles", "missile-pod");
+  mirv.hardpoints[0].weapon.modifiers.projectileCount = 2;
+  mirv.hardpoints[0].weapon.evolution = { id: "mirv-battery", name: "MIRV BATTERY" };
+  const mirvShots = processHardpointFire(mirv.hardpoints, createWeaponRuntime(mirv), true, { x: 0, y: 0 }, 0);
+  assert.ok(Math.abs(mirvShots[0].angle - mirvShots.at(-1).angle) > Math.abs(normalShots[0].angle - normalShots.at(-1).angle));
+  assert.deepEqual(mirvShots.map(({ salvoIndex }) => salvoIndex), [0, 1, 2]);
+  const projectiles = mirvShots.map((entry) => projectileFromShot(entry));
+  const targets = [
+    { id: "a", x: 120, y: -8, hostile: true },
+    { id: "b", x: 130, y: 0, hostile: true },
+    { id: "c", x: 120, y: 8, hostile: true },
+    { id: "rift", x: 100, y: 0, hostile: false },
+  ];
+  projectiles.forEach((projectile) => steerMissile(projectile, targets));
+  assert.equal(new Set(projectiles.map(({ state }) => state.targetId)).size, 3);
+  assert.ok(projectiles.every(({ state }) => state.targetId !== "rift"));
+  const max = RIFT_WEAPONS.find(({ id }) => id === "missile-pod").maxProjectiles;
+  const saturated = Array.from({ length: max }, () => projectileFromShot(mirvShots[0]));
+  assert.equal(admitsProjectile(saturated, mirv.hardpoints[0].weapon.instanceId, "missile-pod"), false);
+});
+
+test("Scorched refreshes one status, ticks on cadence, and fully expires", () => {
+  const statuses = new Map();
+  applyScorched(statuses, "enemy");
+  for (let i = 0; i < 5; i++) tickScorched(statuses);
+  const cadenceBeforeRefresh = statuses.get("enemy").tickIn;
+  applyScorched(statuses, "enemy");
+  assert.equal(statuses.size, 1);
+  assert.equal(statuses.get("enemy").remainingTicks, SCORCHED_DURATION_TICKS);
+  assert.equal(statuses.get("enemy").tickIn, cadenceBeforeRefresh, "refresh preserves the current damage cadence");
+  let ticks = 0;
+  let damageEvents = 0;
+  while (statuses.size > 0 && ticks < SCORCHED_DURATION_TICKS + SCORCHED_TICK_CADENCE + 5) {
+    damageEvents += tickScorched(statuses).length;
+    ticks += 1;
+  }
+  assert.ok(damageEvents > 0);
+  assert.equal(statuses.size, 0);
+});
+
+test("Inferno/Scorched and breach runtime are integrated and reset with fresh game state", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) => readFile(new URL("../app/game.tsx", import.meta.url), "utf8"));
+  assert.match(source, /riftScorched: new Map\(\)/);
+  assert.match(source, /mounted\.evolutionId === "inferno-projector"/);
+  assert.match(source, /applyScorched\(game\.riftScorched, id\)/);
+  assert.match(source, /tickScorched\(game\.riftScorched\)/);
+  assert.match(source, /if \(!liveScorched\.has\(id\)\) game\.riftScorched\.delete\(id\)/);
+  assert.match(source, /tickRiftReform\(/);
 });

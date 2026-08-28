@@ -95,9 +95,10 @@ import type { RiftRunState, RiftWeaponId } from "./rift-run/types";
 import { RIFT_WEAPONS } from "./rift-run/weapons";
 import { createWeaponRuntime, tickWeaponRuntime, type WeaponRuntime } from "./rift-run/weapon-runtime";
 import { processHardpointFire } from "./rift-run/weapon-fire";
-import { admitsProjectile, detonateMissile, evolutionRadialHit, penetrate, projectileFromShot, steerMissile, targetsInFlameCone, type RiftProjectile } from "./rift-run/weapon-projectiles";
+import { admitsProjectile, applyScorched, detonateMissile, evolutionRadialHit, penetrate, projectileFromShot, SCORCHED_DAMAGE, steerMissile, targetsInFlameCone, tickScorched, type EntityId, type RiftProjectile, type ScorchedState } from "./rift-run/weapon-projectiles";
 import { awardRiftEnergy, enemyKillEnergy, riftDamaged, riftEnergyRequiredForLevel } from "./rift-run/progression";
-import { applyRiftRunHullWeaponDamage, RIFT_RUN_BASE_INTEGRITY, RIFT_RUN_BREACH_REWARDS, RIFT_RUN_REFORM_DELAY_MS, riftIntegrityForBreach } from "./rift-run/rift-damage";
+import { applyRiftRunHullWeaponDamage, RIFT_RUN_BASE_INTEGRITY } from "./rift-run/rift-damage";
+import { breachRiftRun, tickRiftReform } from "./rift-run/breach";
 import { rollUpgradeChoices } from "./rift-run/upgrade-pool";
 import { applyUpgrade, mountUnlockedWeapon } from "./rift-run/upgrade-apply";
 import { PvpClient, countdownLabel, type PvpSnapshot } from "./pvp-client";
@@ -544,6 +545,8 @@ type Game = {
   /** Rift-only entities stay out of standard cannon and its global shot budget. */
   riftProjectiles: RiftProjectile[];
   riftFlames: RiftFlameFx[];
+  /** Inferno-only damage-over-time state, keyed by stable enemy identity. */
+  riftScorched: Map<EntityId, ScorchedState>;
   /** Rift Run-only invulnerability/reform countdown; zero in standard modes. */
   riftReformTicks: number;
   pickups: Pickup[];
@@ -728,6 +731,7 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
     bullets: [],
     riftProjectiles: [],
     riftFlames: [],
+    riftScorched: new Map(),
     riftReformTicks: 0,
     pickups: [],
     enemies: [],
@@ -3638,11 +3642,24 @@ export default function WormholeGame() {
       }
 
       if (run && game.rivalHealth <= 0 && game.riftReformTicks <= 0 && !game.result) {
-        const breaches=run.riftBreaches+1;
-        const next=awardRiftEnergy({...riftRunRef.current!,riftBreaches:breaches,score:riftRunRef.current!.score+RIFT_RUN_BREACH_REWARDS.score},RIFT_RUN_BREACH_REWARDS.energy);
-        riftRunRef.current=next; setRiftRun(next); game.score+=RIFT_RUN_BREACH_REWARDS.score;
-        game.riftReformTicks=Math.ceil(RIFT_RUN_REFORM_DELAY_MS/TICK_MS); game.notice=`RIFT BREACHED // DEPTH ${breaches}`; game.noticeLife=game.riftReformTicks;
-        burst(game,game.portalX,game.portalY,"#ffffff",40,10); playCue("wormhole-explosion",.18);
+        const breached = breachRiftRun(run, {
+          integrity: game.rivalHealth,
+          maximumIntegrity: game.rivalMaxHealth,
+          reformRemainingMs: 0,
+          breached: false,
+        });
+        const scoreDelta = breached.state.score - run.score;
+        riftRunRef.current = breached.state;
+        setRiftRun(breached.state);
+        game.score += scoreDelta;
+        game.rivalHealth = breached.runtime.integrity;
+        game.rivalMaxHealth = breached.runtime.maximumIntegrity;
+        game.riftReformTicks = Math.ceil(breached.runtime.reformRemainingMs / TICK_MS);
+        game.notice = `RIFT BREACHED // DEPTH ${breached.state.riftBreaches}`;
+        game.noticeLife = game.riftReformTicks;
+        if (breached.state.pendingLevels > 0) game.paused = true;
+        burst(game, game.portalX, game.portalY, "#ffffff", 40, 10);
+        playCue("wormhole-explosion", .18);
       }
       return integrityDamage;
     };
@@ -4428,7 +4445,21 @@ export default function WormholeGame() {
 
       const activeRiftRun = riftRunRef.current;
       if (activeRiftRun) {
-        if (game.riftReformTicks>0 && --game.riftReformTicks===0) { game.rivalMaxHealth=riftIntegrityForBreach(RIFT_RUN_BASE_INTEGRITY,activeRiftRun.riftBreaches); game.rivalHealth=game.rivalMaxHealth; game.notice=`RIFT REFORMED // DEPTH ${activeRiftRun.riftBreaches}`; game.noticeLife=90; }
+        if (game.riftReformTicks > 0) {
+          const reformed = tickRiftReform({
+            integrity: game.rivalHealth,
+            maximumIntegrity: game.rivalMaxHealth,
+            reformRemainingMs: game.riftReformTicks * TICK_MS,
+            breached: true,
+          }, TICK_MS, RIFT_RUN_BASE_INTEGRITY, activeRiftRun.riftBreaches);
+          game.riftReformTicks = Math.ceil(reformed.reformRemainingMs / TICK_MS);
+          game.rivalHealth = reformed.integrity;
+          game.rivalMaxHealth = reformed.maximumIntegrity;
+          if (!reformed.breached) {
+            game.notice = `RIFT REFORMED // DEPTH ${activeRiftRun.riftBreaches}`;
+            game.noticeLife = 90;
+          }
+        }
         tickWeaponRuntime(riftWeaponRuntime.current);
         const mountedShots = processHardpointFire(activeRiftRun.hardpoints, riftWeaponRuntime.current, Boolean(fire), { x: player.x, y: player.y }, player.angle * DEG);
         for (const mounted of mountedShots) {
@@ -4436,7 +4467,12 @@ export default function WormholeGame() {
             game.riftFlames.push({ origin: mounted.origin, angle: mounted.angle, range: mounted.range, coneDegrees: mounted.coneDegrees, life: 6 });
             const targets = game.enemies.filter((enemy) => enemy.hp > 0 && enemy.kind !== "ghost").map((enemy) => ({ id: enemyIdentity(game, enemy), x: enemy.x, y: enemy.y }));
             const hit = new Set(targetsInFlameCone(mounted.origin, mounted.angle, mounted.range, mounted.coneDegrees, targets));
-            for (const enemy of game.enemies) if (enemy.hp > 0 && hit.has(enemyIdentity(game, enemy))) damageEnemy(game, enemy, mounted.damage);
+            for (const enemy of game.enemies) {
+              const id = enemyIdentity(game, enemy);
+              if (enemy.hp <= 0 || !hit.has(id)) continue;
+              damageEnemy(game, enemy, mounted.damage);
+              if (mounted.evolutionId === "inferno-projector" && enemy.hp > 0) applyScorched(game.riftScorched, id);
+            }
             // Rift contact is one cadence-bounded tick, just like an enemy; it
             // cannot be multiplied by render rate or overlap samples.
             if (targetsInFlameCone(mounted.origin, mounted.angle, mounted.range, mounted.coneDegrees, [{ id: "rift", x: game.portalX, y: game.portalY }]).length) {
@@ -4588,6 +4624,20 @@ export default function WormholeGame() {
             }
             burst(game, projectile.x, projectile.y, POWER_COLORS[enemy.kind], projectile.state.weaponId === "railgun" ? 7 : 4, 3);
           }
+        }
+      }
+
+      if (activeRiftRun && game.riftScorched.size > 0) {
+        const liveScorched = new Map<EntityId, Enemy>();
+        for (const enemy of game.enemies) {
+          if (enemy.hp > 0) liveScorched.set(enemyIdentity(game, enemy), enemy);
+        }
+        for (const id of tickScorched(game.riftScorched)) {
+          const enemy = liveScorched.get(id);
+          if (enemy?.hp > 0) damageEnemy(game, enemy, SCORCHED_DAMAGE);
+        }
+        for (const id of game.riftScorched.keys()) {
+          if (!liveScorched.has(id)) game.riftScorched.delete(id);
         }
       }
 

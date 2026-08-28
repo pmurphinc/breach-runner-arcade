@@ -7,6 +7,7 @@ export type CombatTarget = Point & { id: EntityId; hostile?: boolean; radius?: n
 export type RiftProjectileState = {
   weaponId: Exclude<RiftWeaponId, "flamethrower">;
   evolutionId: string | null;
+  salvoIndex: number;
   instanceId: string;
   hardpointIndex: number;
   damage: number;
@@ -31,7 +32,7 @@ export function projectileFromShot(shot: FireShot, inheritedVelocity: Point = { 
     vy: Math.sin(shot.angle) * shot.speed + inheritedVelocity.y,
     radius: shot.radius,
     state: {
-      weaponId: shot.weaponId as RiftProjectileState["weaponId"], evolutionId: shot.evolutionId ?? null, instanceId: shot.instanceId,
+      weaponId: shot.weaponId as RiftProjectileState["weaponId"], evolutionId: shot.evolutionId ?? null, salvoIndex: shot.salvoIndex ?? 0, instanceId: shot.instanceId,
       hardpointIndex: shot.hardpointIndex, damage: shot.damage, remainingLifetime: shot.life,
       remainingPenetrations: shot.penetrations, explosionRadius: shot.explosionRadius,
       hitTargetIds: new Set(), targetId: null, reacquireIn: 0, detonated: false,
@@ -60,9 +61,10 @@ export function targetsInFlameCone(origin: Point, angle: number, range: number, 
   }).map(({ id }) => id);
 }
 
-export function selectMissileTarget(origin: Point, angle: number, range: number, coneDegrees: number, targets: readonly (CombatTarget & { hostile: boolean })[]): EntityId | null {
-  const candidates = targetsInFlameCone(origin, angle, range, coneDegrees, targets.filter(({ hostile }) => hostile));
-  return candidates.sort((a,b) => String(a).localeCompare(String(b)))[0] ?? null;
+export function selectMissileTarget(origin: Point, angle: number, range: number, coneDegrees: number, targets: readonly (CombatTarget & { hostile: boolean })[], targetOffset = 0): EntityId | null {
+  const candidates = targetsInFlameCone(origin, angle, range, coneDegrees, targets.filter(({ hostile }) => hostile))
+    .sort((a,b) => String(a).localeCompare(String(b)));
+  return candidates.length > 0 ? candidates[Math.abs(targetOffset) % candidates.length] : null;
 }
 
 export function steerMissile(projectile: RiftProjectile, targets: readonly (CombatTarget & { hostile: boolean })[]): void {
@@ -70,7 +72,10 @@ export function steerMissile(projectile: RiftProjectile, targets: readonly (Comb
   let target = projectile.state.targetId === null ? undefined : targets.find(({ id, hostile }) => hostile && id === projectile.state.targetId);
   if (!target && projectile.state.reacquireIn <= 0) {
     const angle = Math.atan2(projectile.vy, projectile.vx), definition = RIFT_WEAPON_BY_ID["missile-pod"];
-    const id = selectMissileTarget(projectile, angle, definition.range, definition.coneDegrees, targets);
+    const mirv = projectile.state.evolutionId === "mirv-battery";
+    const acquisitionRange = mirv ? definition.range * 1.35 : definition.range;
+    const acquisitionCone = mirv ? Math.min(180, definition.coneDegrees + 35) : definition.coneDegrees;
+    const id = selectMissileTarget(projectile, angle, acquisitionRange, acquisitionCone, targets, mirv ? projectile.state.salvoIndex : 0);
     projectile.state.targetId = id;
     target = id === null ? undefined : targets.find((item) => item.id === id);
     projectile.state.reacquireIn = MISSILE_REACQUIRE_TICKS;
