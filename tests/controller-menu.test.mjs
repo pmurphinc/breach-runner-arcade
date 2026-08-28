@@ -1,13 +1,43 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { CONTROLLER_FOCUSABLE, controllerCancelTarget, isControllerControlVisible } from "../app/controller-navigation.ts";
-import { pressedOnce } from "../app/gamepad.ts";
+import { CONTROLLER_FOCUSABLE, controllerCancelTarget, isControllerControlVisible, moveControllerFocus } from "../app/controller-navigation.ts";
+import { GAMEPAD_BINDINGS, pressedOnce } from "../app/gamepad.ts";
 
 const game = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
 const ui = readFileSync(new URL("../app/ui-system.tsx", import.meta.url), "utf8");
 const navigation = readFileSync(new URL("../app/controller-navigation.ts", import.meta.url), "utf8");
 const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+
+function radioNavigationHarness(values, selectedValue) {
+  const originalDocument = globalThis.document;
+  const originalSelect = globalThis.HTMLSelectElement;
+  let selected = selectedValue;
+  const group = { querySelectorAll: () => radios };
+  const radios = values.map((value) => ({
+    offsetParent: {},
+    getAttribute: (name) => name === "role" ? "radio" : null,
+    closest: (selector) => selector === '[role="radiogroup"]' ? group : null,
+    matches: () => false,
+    focus() { globalThis.document.activeElement = this; },
+    click() { selected = value; },
+    setAttribute() {},
+    removeAttribute() {},
+  }));
+  globalThis.HTMLSelectElement = class {};
+  globalThis.document = {
+    activeElement: radios[values.indexOf(selectedValue)],
+    querySelectorAll: () => radios,
+  };
+  return {
+    radios,
+    selected: () => selected,
+    restore() {
+      globalThis.document = originalDocument;
+      globalThis.HTMLSelectElement = originalSelect;
+    },
+  };
+}
 
 test("one controller surface query covers complete interactive dialogs", () => {
   for (const control of ["button", "input", "select", "a[href]"]) assert.ok(CONTROLLER_FOCUSABLE.includes(control));
@@ -37,6 +67,7 @@ test("Cancel resolves to the visible surface action", () => {
 });
 
 test("held Cancel is edge-triggered and polling stays mounted across routes", () => {
+  assert.deepEqual(GAMEPAD_BINDINGS.buttons.cancel.indices, [1]);
   assert.equal(pressedOnce(true, false), true);
   assert.equal(pressedOnce(true, true), false);
   assert.match(game, /pressedOnce\(action\.cancel, previous\.cancel\)/);
@@ -48,6 +79,54 @@ test("D-pad and left stick both feed the existing shared menu navigator", () => 
   assert.match(game, /menuY = action\.menuY \|\| action\.moveY/);
   assert.match(game, /moveControllerFocus\(controls, horizontal, vertical\)/);
   assert.match(navigation, /current \+ Math\.sign\(direction\) \+ controls\.length/);
+});
+
+test("D-pad or stick horizontal input highlights a game mode without selecting it", () => {
+  const harness = radioNavigationHarness(["pve", "coop", "pvp"], "pve");
+  try {
+    const highlighted = moveControllerFocus(harness.radios, 1, 0);
+    assert.equal(highlighted, harness.radios[1]);
+    assert.equal(globalThis.document.activeElement, harness.radios[1]);
+    assert.equal(harness.selected(), "pve");
+  } finally {
+    harness.restore();
+  }
+});
+
+test("A or Cross confirms the highlighted game mode", () => {
+  const harness = radioNavigationHarness(["pve", "coop", "pvp"], "pve");
+  try {
+    moveControllerFocus(harness.radios, 1, 0);
+    assert.deepEqual(GAMEPAD_BINDINGS.buttons.confirm.indices, [0]);
+    globalThis.document.activeElement.click();
+    assert.equal(harness.selected(), "coop");
+    assert.match(game, /pressedOnce\(action\.confirm, previous\.confirm\)[^\n]*document\.activeElement[^\n]*\.click/);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("difficulty cards highlight first and select only after confirmation", () => {
+  const harness = radioNavigationHarness(["practice", "easy", "difficult", "hard"], "easy");
+  try {
+    moveControllerFocus(harness.radios, 1, 0);
+    assert.equal(globalThis.document.activeElement, harness.radios[2]);
+    assert.equal(harness.selected(), "easy");
+    globalThis.document.activeElement.click();
+    assert.equal(harness.selected(), "difficult");
+  } finally {
+    harness.restore();
+  }
+});
+
+test("mouse or touch clicking a radio card still selects it", () => {
+  const harness = radioNavigationHarness(["pve", "coop"], "pve");
+  try {
+    harness.radios[1].click();
+    assert.equal(harness.selected(), "coop");
+  } finally {
+    harness.restore();
+  }
 });
 
 test("hidden and disabled controls are skipped", () => {
