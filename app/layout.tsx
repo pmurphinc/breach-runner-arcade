@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import "./arena-hud.css";
 import "./mirrored-touch-actions.css";
+import "./desktop-gameplay.css";
 import { PRODUCT_TAGLINE, PRODUCT_TITLE } from "./product";
 
 const PRODUCTION_URL = "https://breachrunner.murphtournaments.com";
