@@ -3786,7 +3786,8 @@ export default function WormholeGame() {
         game.enemies.forEach((enemy) => {
           if (enemy.kind !== "ghost") destroyEnemy(game, enemy);
         });
-        player.health = Math.max(1, player.health - (Math.random() < 0.75 ? 20 : 0));
+        const reactorCost = Math.random() < 0.75 ? 20 : 0;
+        player.health = Math.max(1, player.health - riftRunHullDamage(reactorCost, riftRunRef.current));
         game.notice = "REACTOR BURST";
       } else if (ship === "flash") {
         player.flashMode = player.flashMode === "tank" ? "squid" : "tank";

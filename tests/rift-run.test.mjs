@@ -70,6 +70,13 @@ test("Rift Run defensive and mobility modifiers alter live simulation inputs onl
   assert.ok(applyIntent({ vx: 0, vy: 0 }, intent, tuned).vx > applyIntent({ vx: 0, vy: 0 }, intent, base).vx);
 });
 
+test("every local hull-loss path applies Rift Run damage resistance", async () => {
+  const game = await import("node:fs/promises").then(({ readFile }) => readFile(new URL("../app/game.tsx", import.meta.url), "utf8"));
+  assert.doesNotMatch(game, /player\.health\s*=\s*Math\.max\(1,\s*player\.health\s*-\s*\(Math\.random/,
+    "Reactor Burst must not bypass Impact Plating with a direct health subtraction");
+  assert.match(game, /player\.health\s*=\s*Math\.max\(1,\s*player\.health\s*-\s*riftRunHullDamage\(reactorCost,\s*riftRunRef\.current\)\)/);
+});
+
 test("hardpoints schedule independently and ignore locked or empty sockets", () => {
   const run = createRiftRun("flagship", "multi");
   run.hardpoints = ["minigun", "railgun", "missile-pod"].map((id, index) => ({ index, status: "occupied", weapon: createWeaponInstance(id, `w${index}`) }));
