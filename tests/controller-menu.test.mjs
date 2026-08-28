@@ -13,6 +13,7 @@ function radioNavigationHarness(values, selectedValue) {
   const originalDocument = globalThis.document;
   const originalSelect = globalThis.HTMLSelectElement;
   let selected = selectedValue;
+  let activations = 0;
   const group = { querySelectorAll: () => radios };
   const radios = values.map((value) => ({
     offsetParent: {},
@@ -20,7 +21,7 @@ function radioNavigationHarness(values, selectedValue) {
     closest: (selector) => selector === '[role="radiogroup"]' ? group : null,
     matches: () => false,
     focus() { globalThis.document.activeElement = this; },
-    click() { selected = value; },
+    click() { activations += 1; selected = value; },
     setAttribute() {},
     removeAttribute() {},
   }));
@@ -31,6 +32,7 @@ function radioNavigationHarness(values, selectedValue) {
   };
   return {
     radios,
+    activations: () => activations,
     selected: () => selected,
     restore() {
       globalThis.document = originalDocument;
@@ -88,6 +90,12 @@ test("D-pad or stick horizontal input highlights a game mode without selecting i
     assert.equal(highlighted, harness.radios[1]);
     assert.equal(globalThis.document.activeElement, harness.radios[1]);
     assert.equal(harness.selected(), "pve");
+    assert.equal(harness.activations(), 0);
+
+    const highlightedAgain = moveControllerFocus(harness.radios, -1, 0);
+    assert.equal(highlightedAgain, harness.radios[0]);
+    assert.equal(harness.selected(), "pve");
+    assert.equal(harness.activations(), 0);
   } finally {
     harness.restore();
   }
@@ -100,6 +108,7 @@ test("A or Cross confirms the highlighted game mode", () => {
     assert.deepEqual(GAMEPAD_BINDINGS.buttons.confirm.indices, [0]);
     globalThis.document.activeElement.click();
     assert.equal(harness.selected(), "coop");
+    assert.equal(harness.activations(), 1);
     assert.match(game, /pressedOnce\(action\.confirm, previous\.confirm\)[^\n]*document\.activeElement[^\n]*\.click/);
   } finally {
     harness.restore();
@@ -112,8 +121,10 @@ test("difficulty cards highlight first and select only after confirmation", () =
     moveControllerFocus(harness.radios, 1, 0);
     assert.equal(globalThis.document.activeElement, harness.radios[2]);
     assert.equal(harness.selected(), "easy");
+    assert.equal(harness.activations(), 0);
     globalThis.document.activeElement.click();
     assert.equal(harness.selected(), "difficult");
+    assert.equal(harness.activations(), 1);
   } finally {
     harness.restore();
   }
@@ -124,6 +135,20 @@ test("mouse or touch clicking a radio card still selects it", () => {
   try {
     harness.radios[1].click();
     assert.equal(harness.selected(), "coop");
+  } finally {
+    harness.restore();
+  }
+});
+
+test("B or Circle cancels without activating the focused radio card", () => {
+  const harness = radioNavigationHarness(["pve", "coop", "pvp"], "pve");
+  try {
+    moveControllerFocus(harness.radios, 1, 0);
+    assert.deepEqual(GAMEPAD_BINDINGS.buttons.cancel.indices, [1]);
+    assert.equal(controllerCancelTarget({ codex: false, summary: false, route: "modes" }), "back");
+    assert.match(game, /pressedOnce\(action\.cancel, previous\.cancel\)\) controllerCancel\(\)/);
+    assert.equal(harness.selected(), "pve");
+    assert.equal(harness.activations(), 0);
   } finally {
     harness.restore();
   }
