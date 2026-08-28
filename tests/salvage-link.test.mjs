@@ -44,7 +44,7 @@ test("successful payloads and instant upgrades share identical resolution after 
 
 test("linked cannon handling preserves the existing enemy and Rift damage values", () => {
   const game = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
-  assert.match(game, /game\.portalCharge \+= bullet\.damage/);
+  assert.match(game, /chargeRiftPup\(game, bullet\.damage\)/);
   assert.match(game, /damageEnemy\(game, enemy, bullet\.damage\)/);
   assert.match(game, /bullet\.special \? "overcharge" : "cannon"/);
   assert.match(game, /game\.pickups\.find\([^\n]+salvageLinkHitsPup/);

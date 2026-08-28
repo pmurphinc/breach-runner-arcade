@@ -1,14 +1,17 @@
-import { awardRiftEnergy } from "./progression";
-import { RIFT_RUN_BREACH_REWARDS, RIFT_RUN_REFORM_DELAY_MS, riftIntegrityForBreach } from "./rift-damage";
-import type { RiftRunState } from "./types";
+import { awardRiftEnergy } from "./progression.ts";
+import { RIFT_RUN_BREACH_REWARDS, RIFT_RUN_REFORM_DELAY_MS, riftIntegrityForBreach } from "./rift-damage.ts";
+import type { RiftRunState } from "./types.ts";
 
 export type RiftBreachRuntime = { integrity: number; maximumIntegrity: number; reformRemainingMs: number; breached: boolean };
 
 /** Starts exactly one breach and pays its serialized rewards exactly once. */
 export function breachRiftRun(state: RiftRunState, runtime: RiftBreachRuntime, delayMs = RIFT_RUN_REFORM_DELAY_MS): { state: RiftRunState; runtime: RiftBreachRuntime } {
   if (runtime.breached || runtime.integrity > 0) return { state, runtime };
+  const firstBreach = state.riftBreaches === 0;
   const riftBreaches = state.riftBreaches + 1;
-  const rewarded = awardRiftEnergy({ ...state, riftBreaches, score: state.score + RIFT_RUN_BREACH_REWARDS.score }, RIFT_RUN_BREACH_REWARDS.energy);
+  const hardpoints = structuredClone(state.hardpoints);
+  if (firstBreach && hardpoints[0]?.status === "locked") hardpoints[0] = { index: 0, status: "available" };
+  const rewarded = awardRiftEnergy({ ...state, hardpoints, riftBreaches, score: state.score + RIFT_RUN_BREACH_REWARDS.score }, RIFT_RUN_BREACH_REWARDS.energy);
   return { state: rewarded, runtime: { ...runtime, integrity: 0, reformRemainingMs: delayMs, breached: true } };
 }
 

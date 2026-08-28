@@ -1,6 +1,6 @@
-import { SHIP_SPECIALS, type ShipId } from "../game-data";
-import { RIFT_SHIP_CLASSES } from "./data";
-import type { RiftShipClass } from "./types";
+import { SHIP_SPECIALS, type ShipId } from "../game-data.ts";
+import { RIFT_SHIP_CLASSES } from "./data.ts";
+import type { RiftShipClass } from "./types.ts";
 
 export type RiftRunShip = {
   id: ShipId;

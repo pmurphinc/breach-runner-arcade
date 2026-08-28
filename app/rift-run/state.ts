@@ -1,24 +1,19 @@
-import type { ShipId } from "../game-data";
-import { STARTING_WEAPON } from "./data";
-import { riftRunShip } from "./ships";
-import type { RiftHardpoint, RiftRunState } from "./types";
-import { createWeaponInstance } from "./weapons";
+import type { ShipId } from "../game-data.ts";
+import { riftRunShip } from "./ships.ts";
+import type { RiftHardpoint, RiftRunState } from "./types.ts";
 
-export function createStartingHardpoints(maximum: number, weaponId = STARTING_WEAPON): RiftHardpoint[] {
-  return Array.from({ length: maximum }, (_, index) => index === 0
-    ? { index, status: "occupied" as const, weapon: createWeaponInstance(weaponId, `socket-${index + 1}`) }
-    : { index, status: "locked" as const });
+export function createStartingHardpoints(maximum: number): RiftHardpoint[] {
+  return Array.from({ length: maximum }, (_, index) => ({ index, status: "locked" as const }));
 }
 
-export function createRiftRun(shipId: ShipId, seed: string, weaponId = STARTING_WEAPON): RiftRunState {
+export function createRiftRun(shipId: ShipId, seed: string): RiftRunState {
   const ship = riftRunShip(shipId);
   if (!ship) throw new Error(`${shipId} is not selectable in Rift Run`);
   return {
     selectedShip: ship.id,
     shipClass: ship.shipClass,
     maximumHardpoints: ship.maximumHardpoints,
-    hardpoints: createStartingHardpoints(ship.maximumHardpoints, weaponId),
-    mountedStartingWeapon: weaponId,
+    hardpoints: createStartingHardpoints(ship.maximumHardpoints),
     sector: 1,
     wave: 1,
     riftEnergy: 0,
@@ -28,7 +23,7 @@ export function createRiftRun(shipId: ShipId, seed: string, weaponId = STARTING_
     riftBreaches: 0,
     evolutionHistory: [],
     upgradeHistory: [],
-    shipModifiers: { hull: 0, shield: 0, movement: 1 },
+    shipModifiers: { hull: 0, shield: 0, movement: 1, damageReduction: 0, handling: 1, cannonDamage: 1, cannonFireRate: 1 },
     score: 0,
     status: "setup",
     seed,

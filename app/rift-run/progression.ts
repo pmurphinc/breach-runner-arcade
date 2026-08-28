@@ -1,4 +1,4 @@
-import type { RiftRunState } from "./types";
+import type { RiftRunState } from "./types.ts";
 
 export const RIFT_ENERGY_REWARDS = { normalKill: 8, toughKill: 15, majorKill: 28, riftDamageRatio: 0.12 } as const;
 

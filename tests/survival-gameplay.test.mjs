@@ -147,9 +147,16 @@ test("a Survival run ends on the pilot's hull and reports time, not a settlement
     const { context, page, errors } = await openSurvival(browser);
     await page.locator(".play-button").click();
 
-    // An unflown pilot is destroyed inside a minute, which is the end
-    // condition the mode has: there is nothing else to lose to.
-    await page.waitForSelector(".run-summary", { timeout: 90_000 });
+    // Force a deterministic hull defeat instead of relying on random Survival
+    // hazards to eventually kill an idle pilot. Holding left repeatedly drives
+    // the ship into the arena wall; wall impacts are real hull damage and use
+    // the same defeat path this test is meant to verify.
+    await page.keyboard.down("ArrowLeft");
+    try {
+      await page.waitForSelector(".run-summary", { timeout: 60_000 });
+    } finally {
+      await page.keyboard.up("ArrowLeft");
+    }
     const summary = await page.locator(".run-summary").innerText();
 
     assert.match(summary, /RIFT LEVEL \d+ REACHED/);

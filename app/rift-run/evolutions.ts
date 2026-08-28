@@ -1,5 +1,5 @@
-import type { RiftEvolutionId, RiftRunState, RiftWeaponId, RiftWeaponInstance } from "./types";
-import { occupiedWeapons, upgradeStack } from "./upgrades";
+import type { RiftEvolutionId, RiftRunState, RiftWeaponId, RiftWeaponInstance } from "./types.ts";
+import { occupiedWeapons, upgradeStack } from "./upgrades.ts";
 
 export type EvolutionDefinition = {
   id: RiftEvolutionId; name: string; sourceWeapon: RiftWeaponId;

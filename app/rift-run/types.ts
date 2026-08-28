@@ -1,4 +1,4 @@
-import type { ShipId } from "../game-data";
+import type { ShipId } from "../game-data.ts";
 
 export type RiftShipClass = "light" | "medium" | "heavy";
 export type RiftRunStatus = "setup" | "active" | "completed" | "abandoned";
@@ -36,7 +36,6 @@ export type RiftRunState = {
   shipClass: RiftShipClass;
   maximumHardpoints: number;
   hardpoints: RiftHardpoint[];
-  mountedStartingWeapon: RiftWeaponId;
   sector: number;
   wave: number;
   riftEnergy: number;
@@ -46,7 +45,7 @@ export type RiftRunState = {
   riftBreaches: number;
   evolutionHistory: RiftEvolutionHistory[];
   upgradeHistory: RiftUpgradeHistory[];
-  shipModifiers: { hull: number; shield: number; movement: number };
+  shipModifiers: { hull: number; shield: number; movement: number; damageReduction: number; handling: number; cannonDamage: number; cannonFireRate: number };
   score: number;
   status: RiftRunStatus;
   seed: string;

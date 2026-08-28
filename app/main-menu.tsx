@@ -21,9 +21,6 @@ import { settingsStore, type AimGuide, type CombatHaptics, type SoundLevel, type
 import { GAMEPAD_BINDINGS } from "./gamepad";
 import { RIFT_RUN_DESCRIPTION, RIFT_RUN_TAGLINE, RIFT_RUN_TITLE, RIFT_SHIP_CLASSES } from "./rift-run/data";
 import { RIFT_RUN_SHIPS, riftRunShip } from "./rift-run/ships";
-import { createStartingHardpoints } from "./rift-run/state";
-import { RIFT_WEAPONS } from "./rift-run/weapons";
-import type { RiftWeaponId } from "./rift-run/types";
 
 /** One line each. A mode a player cannot summarise is a mode they will not pick. */
 export const MODE_INFO: Record<GameMode, { label: string; blurb: string }> = {
@@ -362,22 +359,17 @@ export function ModesScreen({
 
 export function RiftRunSetupScreen({
   ship,
-  weapon,
   onSelect,
-  onSelectWeapon,
   onLaunch,
   back,
   renderShip,
 }: MenuCallbacks & {
   ship: ShipId;
-  weapon: RiftWeaponId;
   onSelect: (id: ShipId) => void;
-  onSelectWeapon: (id: RiftWeaponId) => void;
   onLaunch: () => void;
   renderShip: (id: ShipId, size: number) => React.ReactNode;
 }) {
   const selected = riftRunShip(ship) ?? RIFT_RUN_SHIPS[0];
-  const sockets = createStartingHardpoints(selected.maximumHardpoints, weapon);
   return (
     <MenuScreen
       route="rift-run"
@@ -405,16 +397,12 @@ export function RiftRunSetupScreen({
           <div className="ship-detail-art" aria-hidden="true">{renderShip(selected.id, 112)}</div>
           <h3>{selected.name}</h3>
           <p className="ship-detail-role">{RIFT_SHIP_CLASSES[selected.shipClass].label} class · {selected.abilityName}</p>
-          <div className="rift-weapon-grid" role="radiogroup" aria-label="Choose starting weapon">
-            {RIFT_WEAPONS.map((candidate) => <button key={candidate.id} type="button" role="radio"
-              aria-checked={weapon === candidate.id} className={weapon === candidate.id ? "active" : ""}
-              onClick={() => onSelectWeapon(candidate.id)}><b>{candidate.name}</b><small>{candidate.role}</small><small>{candidate.summary}</small></button>)}
+          <p className="menu-hint"><b>BASE CANNON</b><br />Ship&apos;s standard cannon remains equipped.</p>
+          <div className="rift-sockets" aria-label={`Zero of ${selected.maximumHardpoints} hull hardpoints online`}>
+            <span>HULL HARDPOINTS</span>
+            <b>0 / {selected.maximumHardpoints} ONLINE</b>
           </div>
-          <div className="rift-sockets" aria-label={`One of ${selected.maximumHardpoints} gun sockets active`}>
-            <span>GUN SOCKETS</span>
-            <b aria-hidden="true">{sockets.map((socket) => socket.status === "occupied" ? "●" : "○").join(" ")}</b>
-          </div>
-          <p className="menu-hint">{RIFT_WEAPONS.find(({ id }) => id === weapon)?.name} mounted. Additional sockets remain locked.</p>
+          <p className="menu-hint">Destroy the first Rift to bring your first hull hardpoint online.</p>
         </section>
       </div>
     </MenuScreen>
