@@ -9,6 +9,7 @@ export type RiftProjectileState = {
   evolutionId: string | null;
   instanceId: string;
   hardpointIndex: number;
+  salvoIndex: number;
   damage: number;
   remainingLifetime: number;
   remainingPenetrations: number;
@@ -32,7 +33,7 @@ export function projectileFromShot(shot: FireShot, inheritedVelocity: Point = { 
     radius: shot.radius,
     state: {
       weaponId: shot.weaponId as RiftProjectileState["weaponId"], evolutionId: shot.evolutionId ?? null, instanceId: shot.instanceId,
-      hardpointIndex: shot.hardpointIndex, damage: shot.damage, remainingLifetime: shot.life,
+      hardpointIndex: shot.hardpointIndex, salvoIndex: shot.salvoIndex ?? 0, damage: shot.damage, remainingLifetime: shot.life,
       remainingPenetrations: shot.penetrations, explosionRadius: shot.explosionRadius,
       hitTargetIds: new Set(), targetId: null, reacquireIn: 0, detonated: false,
     },
@@ -70,7 +71,10 @@ export function steerMissile(projectile: RiftProjectile, targets: readonly (Comb
   let target = projectile.state.targetId === null ? undefined : targets.find(({ id, hostile }) => hostile && id === projectile.state.targetId);
   if (!target && projectile.state.reacquireIn <= 0) {
     const angle = Math.atan2(projectile.vy, projectile.vx), definition = RIFT_WEAPON_BY_ID["missile-pod"];
-    const id = selectMissileTarget(projectile, angle, definition.range, definition.coneDegrees, targets);
+    const flexible = projectile.state.evolutionId === "mirv-battery";
+    const candidates = targetsInFlameCone(projectile, angle, definition.range * (flexible ? 1.35 : 1), flexible ? 180 : definition.coneDegrees, targets.filter(({ hostile }) => hostile))
+      .sort((a,b) => String(a).localeCompare(String(b)));
+    const id = candidates.length ? candidates[projectile.state.salvoIndex % candidates.length] : null;
     projectile.state.targetId = id;
     target = id === null ? undefined : targets.find((item) => item.id === id);
     projectile.state.reacquireIn = MISSILE_REACQUIRE_TICKS;
@@ -106,5 +110,5 @@ export function evolutionRadialHit(projectile: RiftProjectile, center: Point, ta
 }
 export type ScorchedState = { remainingTicks: number; tickIn: number };
 export const SCORCHED_DURATION_TICKS=90, SCORCHED_TICK_CADENCE=15, SCORCHED_DAMAGE=1.5;
-export function applyScorched(statuses: Map<EntityId,ScorchedState>, id: EntityId): void { statuses.set(id,{remainingTicks:SCORCHED_DURATION_TICKS,tickIn:Math.min(statuses.get(id)?.tickIn ?? SCORCHED_TICK_CADENCE,SCORCHED_TICK_CADENCE)}); }
+export function applyScorched(statuses: Map<EntityId,ScorchedState>, id: EntityId): void { statuses.set(id,{remainingTicks:SCORCHED_DURATION_TICKS,tickIn:statuses.get(id)?.tickIn ?? SCORCHED_TICK_CADENCE}); }
 export function tickScorched(statuses: Map<EntityId,ScorchedState>): EntityId[] { const damage:EntityId[]=[]; for(const [id,s] of statuses){ s.remainingTicks--; s.tickIn--; if(s.tickIn<=0){damage.push(id);s.tickIn=SCORCHED_TICK_CADENCE;} if(s.remainingTicks<=0) statuses.delete(id); } return damage; }
