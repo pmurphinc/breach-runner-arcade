@@ -82,7 +82,9 @@ export function moveControllerFocus(controls: readonly HTMLElement[], horizontal
     return active;
   }
   // Roving radio groups (mode and difficulty rows) expose one tab stop, but
-  // left/right still needs to traverse every logical choice in the row.
+  // left/right still needs to traverse every logical choice in the row. Do
+  // not click here: controller activation is reserved for Confirm, just like
+  // mouse/touch activation remains reserved for an intentional press.
   const radioGroup = horizontal && active?.getAttribute("role") === "radio"
     ? active.closest<HTMLElement>('[role="radiogroup"]')
     : null;
