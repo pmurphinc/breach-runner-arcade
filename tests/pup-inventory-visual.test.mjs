@@ -30,8 +30,8 @@ test("the frame never replaces individual center-glyph identity", () => {
 
 test("mobile, desktop, and loaded renderers share the framed inventory icon", () => {
   assert.equal((game.match(/<WeaponIcon[^>]+inventoryFrame/g) ?? []).length, 3);
-  assert.match(game, /const visual = inventoryPupVisual\(queued\)/);
-  assert.match(game, /drawPupFrame\(ctx, visual\.pupClass, iconLayout\.frameRadius, iconLayout\.rotation\)/);
+  assert.match(game, /const visual = inventoryPupVisual\(id\)/);
+  assert.match(game, /drawPupFrame\(ctx, visual\.pupClass, layout\.frameRadius, layout\.rotation\)/);
 });
 
 test("inventory Payload triangles are static and centered with padded glyphs", () => {

@@ -30,7 +30,7 @@ test("the four classes have distinct audible profiles", () => {
 });
 
 test("pickup sound selection is class-driven rather than keyed by PUP ID", () => {
-  assert.match(game, /playPupPickupSound\(WEAPONS\[pickup\.type\]\.pupClass\)/);
+  assert.match(game, /playPupPickupSound\(WEAPONS\[type\]\.pupClass\)/);
   for (const id of Object.keys(WEAPONS)) {
     assert.doesNotMatch(game, new RegExp(`playPupPickupSound\\([^\\n]*["']${id}["']`));
   }
@@ -45,7 +45,7 @@ test("class pickup cues use the existing muted Web Audio path", () => {
 });
 
 test("one loose-PUP collection plays one class cue and no old generic cue", () => {
-  const collection = game.slice(game.indexOf("if (pupCollected(pickup, player))"), game.indexOf("const coopNetwork"));
+  const collection = game.slice(game.indexOf("const resolvePlayerPickup"), game.indexOf("const coopNetwork"));
   assert.equal(collection.match(/playPupPickupSound\(/g)?.length, 1);
   assert.doesNotMatch(collection, /play\("magic"/);
   assert.doesNotMatch(collection, /playCue\("shield-pickup"/);

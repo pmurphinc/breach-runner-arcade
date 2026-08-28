@@ -61,9 +61,9 @@ export const DEFAULT_SETTINGS: DeviceSettings = {
 };
 
 export const VIEW_PROFILES = {
-  touch: { mouseKeyboardPrimary: false, touch: true, thumbsticks: true, compactPowerups: true, fullInventory: false, verticalRails: true, pcHud: false, canvasQueue: false },
-  pc: { mouseKeyboardPrimary: true, touch: false, thumbsticks: false, compactPowerups: false, fullInventory: true, verticalRails: false, pcHud: true, canvasQueue: true },
-  hybrid: { mouseKeyboardPrimary: true, touch: true, thumbsticks: true, compactPowerups: true, fullInventory: false, verticalRails: true, pcHud: false, canvasQueue: false },
+  touch: { mouseKeyboardPrimary: false, touch: true, thumbsticks: true, modernHud: true },
+  pc: { mouseKeyboardPrimary: true, touch: false, thumbsticks: false, modernHud: true },
+  hybrid: { mouseKeyboardPrimary: true, touch: true, thumbsticks: true, modernHud: true },
 } as const satisfies Record<ViewMode, Record<string, boolean>>;
 
 const isViewMode = (value: unknown): value is ViewMode => value === "touch" || value === "pc" || value === "hybrid";

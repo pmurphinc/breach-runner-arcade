@@ -1,22 +1,54 @@
-/* Desktop gameplay must stay a single centered arena column.
- *
- * globals.css still carries the old screen-preset cockpit grids for legacy
- * Fit/Balanced/Arena preset state. Those selectors are more specific than the
- * later plain `.cockpit` single-column rule. With the ship/intel panels hidden,
- * Fit/Balanced could therefore leave the live game in the first ~260px legacy
- * grid track, which is the tiny arena seen on desktop.
- *
- * This file is imported last so the gameplay composition, not a legacy preset
- * grid, owns the desktop cockpit. The selector is also intentionally more
- * specific than `[data-preset] .cockpit` so this cannot regress through source
- * order alone.
+/* Desktop gameplay uses the canonical modern HUD and keeps this late-loaded
+ * sheet for Mouse & Keys viewport corrections. These rules are PC-only: touch
+ * and hybrid keep their own immersive arena geometry from globals.css and
+ * arena-hud.css.
  */
-.app-shell:not([data-immersive="true"]) .cockpit {
-  width: min(1120px, 100%);
-  grid-template-columns: minmax(0, 1fr);
+
+.app-shell[data-view-mode="pc"].modern-hud[data-immersive="true"] {
+  height: 100dvh;
+  overflow: hidden;
 }
 
-.app-shell:not([data-immersive="true"]) .play-column {
-  width: min(100%, 980px);
-  margin-inline: auto;
+.app-shell[data-view-mode="pc"].modern-hud[data-immersive="true"] .cockpit {
+  height: calc(100dvh - 48px);
+  min-height: 0;
+  padding: 0;
+}
+
+.app-shell[data-view-mode="pc"].modern-hud[data-immersive="true"] .play-column {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+}
+
+.app-shell[data-view-mode="pc"].modern-hud[data-immersive="true"] .arena-stage {
+  position: absolute;
+  inset: 0;
+  width: auto;
+  height: auto;
+  max-width: none;
+  margin: 0;
+}
+
+.app-shell[data-view-mode="pc"].modern-hud[data-immersive="true"] .canvas-wrap {
+  position: absolute;
+  inset: 0;
+  width: auto;
+  height: auto;
+}
+
+.app-shell[data-view-mode="pc"].modern-hud[data-immersive="true"] .canvas-wrap > canvas {
+  top: 0;
+  left: 0;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  aspect-ratio: auto;
+  transform: none;
+}
+
+.app-shell[data-view-mode="pc"].modern-hud[data-immersive="true"] .run-summary-layer {
+  z-index: var(--z-hud-float);
 }

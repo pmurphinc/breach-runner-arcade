@@ -160,11 +160,16 @@ test('the initials keyboard cannot reclassify the touch layout', () => {
   assert.match(game, /onBlur=\{finishInitialsEditing\}/);
 });
 
-test('view profile owns HUD and canvas queue behavior', () => {
-  assert.match(settings, /canvasQueue: false/);
-  assert.match(settings, /pc: .*fullInventory: true.*canvasQueue: true/);
-  assert.match(game, /viewProfileRef\.current\.canvasQueue/);
-  assert.match(game, /viewProfile\.verticalRails/);
+test('view profiles separate input capabilities from the canonical modern HUD', () => {
+  assert.match(settings, /pc: \{ mouseKeyboardPrimary: true, touch: false, thumbsticks: false, modernHud: true \}/);
+  assert.match(settings, /touch: \{ mouseKeyboardPrimary: false, touch: true, thumbsticks: true, modernHud: true \}/);
+  assert.match(settings, /hybrid: \{ mouseKeyboardPrimary: true, touch: true, thumbsticks: true, modernHud: true \}/);
+  assert.doesNotMatch(settings, /pcHud|canvasQueue|fullInventory|compactPowerups|verticalRails/);
+  assert.match(game, /const touchCapable = viewProfile\.touch/);
+  assert.match(game, /const immersive = viewProfile\.modernHud/);
+  assert.match(game, /viewProfile\.modernHud \? <div className="health-rails"/);
+  assert.match(game, /className=\{`app-shell modern-hud/);
+  assert.match(game, /\{touchCapable \? <div className="touch-controls"/);
   assert.match(game, /data-view-mode=\{viewMode\}/);
 });
 
@@ -269,7 +274,7 @@ test('touch-stick height participates in the shared safe-area reservation', () =
 
 test('touch score shares the rules rail and utilities orbit the fire stick', () => {
   assert.match(game, /className="rule-score">SCORE/);
-  assert.match(css, /\.touch-capable \.match-bar\s*\{\s*display:\s*none/);
+  assert.match(css, /\.modern-hud \.match-bar\s*\{\s*display:\s*none/);
   assert.match(css, /\.touch-capable \.difficulty-badge \.rule-score/);
   const satellites = css.slice(css.indexOf('Three independent circular utility buttons'));
   assert.match(satellites, /\.touch-pup[\s\S]*right:\s*calc\(100% \+ 8px\)/);

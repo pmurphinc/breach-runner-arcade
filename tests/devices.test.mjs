@@ -32,6 +32,11 @@ const skip = playwright ? false : "playwright is not installed";
 
 const DEVICES = [
   { name: "desktop",         width: 1440, height: 900,  touch: false },
+  // The PC matrix the fullscreen arena has to hold up across: a small laptop,
+  // the common 16:9 desktop, a high-resolution 16:9, and a 21:9 ultrawide.
+  { name: "laptop",          width: 1366, height: 768,  touch: false },
+  { name: "desktop-1080p",   width: 1920, height: 1080, touch: false },
+  { name: "desktop-1440p",   width: 2560, height: 1440, touch: false },
   { name: "ultrawide",       width: 2560, height: 1080, touch: false },
   { name: "fire-tablet",     width: 1280, height: 800,  touch: true },
   { name: "android-tablet",  width: 900,  height: 1280, touch: true },
@@ -381,6 +386,58 @@ for (const device of DEVICES) {
       assert.ok(Math.abs(hud.aspect - 1504 / 940) < 0.01, `arena aspect drifted to ${hud.aspect}`);
       assert.ok(hud.overflow.x <= 0, `in-run horizontal overflow of ${hud.overflow.x}px`);
       assert.ok(hud.overflow.y <= 0, `in-run vertical overflow of ${hud.overflow.y}px`);
+
+      /**
+       * PC gameplay is a fullscreen presentation.
+       *
+       * It used to be a centred column: three unrelated caps — a 1120px
+       * cockpit, a 980px play column, and `--arena-size`, the square edge
+       * layout-budget.ts computes for the touch layouts — met at a 952x595
+       * canvas on a 1920x1080 monitor, leaving 484px of dead gutter on each
+       * side. The arena now takes the viewport, so the checks are: it really
+       * fills it, its backing store still matches its own CSS box (one uniform
+       * world scale, nothing stretched), and the HUD floats over it instead of
+       * taking strips out of it or covering the rules rail.
+       */
+      if (!device.touch) {
+        const pc = await page.evaluate(() => {
+          const box = (selector) => {
+            const element = document.querySelector(selector);
+            if (!element) return null;
+            const rect = element.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0 ? rect : null;
+          };
+          const overlaps = (a, b) =>
+            !!a && !!b && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+          const canvas = document.querySelector("canvas");
+          const rect = canvas.getBoundingClientRect();
+          return {
+            viewMode: document.querySelector(".app-shell")?.dataset.viewMode,
+            widthShare: rect.width / innerWidth,
+            heightShare: rect.height / innerHeight,
+            // The backing store follows the measured CSS rectangle, so the
+            // world is drawn at one scale however wide the monitor is.
+            aspectDrift: Math.abs(rect.width / rect.height - canvas.width / canvas.height),
+            hudOverArena: [".match-bar", ".status-dock"].filter(
+              (selector) => !overlaps(box(selector), rect)
+            ),
+            hudOverRules: overlaps(box(".match-bar"), box(".difficulty-badge")),
+            // Aiming and firing must reach the arena through the floating HUD.
+            arenaCentre: (() => {
+              const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+              return hit === canvas;
+            })(),
+          };
+        });
+
+        assert.equal(pc.viewMode, "pc", "a mouse-and-keys viewport should resolve to the PC view");
+        assert.ok(pc.widthShare > 0.95, `the arena uses only ${Math.round(pc.widthShare * 100)}% of the width`);
+        assert.ok(pc.heightShare > 0.85, `the arena uses only ${Math.round(pc.heightShare * 100)}% of the height`);
+        assert.ok(pc.aspectDrift < 0.01, `the backing store drifted from the canvas box by ${pc.aspectDrift}`);
+        assert.deepEqual(pc.hudOverArena, [], "the PC HUD should float over the arena, not beside it");
+        assert.ok(!pc.hudOverRules, "the floating HUD covers the rules rail");
+        assert.ok(pc.arenaCentre, "the arena does not receive the pointer at its own centre");
+      }
 
       // Menu during a run opens Pause, and Pause offers Resume.
       await page.locator(".system-menu").click();
