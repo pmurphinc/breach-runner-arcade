@@ -3,7 +3,7 @@ import type { WeaponRuntime } from "./weapon-runtime";
 import { RIFT_WEAPON_BY_ID } from "./weapons";
 
 export type Point = { x: number; y: number };
-export type FireShot = { kind: "projectile" | "flame"; weaponId: string; instanceId: string; origin: Point; angle: number; damage: number; speed: number; radius: number; life: number; penetrations: number; explosionRadius: number };
+export type FireShot = { kind: "projectile" | "flame"; weaponId: string; instanceId: string; hardpointIndex: number; origin: Point; angle: number; damage: number; speed: number; radius: number; life: number; penetrations: number; explosionRadius: number; range: number; coneDegrees: number };
 
 export function logicalMountOffset(total: number, index: number): Point {
   if (total <= 1) return { x: 12, y: 0 };
@@ -25,7 +25,7 @@ export function processHardpointFire(hardpoints: RiftHardpoint[], runtime: Weapo
     if (!held || state.cooldown > 0) continue;
     const definition = RIFT_WEAPON_BY_ID[point.weapon.weaponId];
     const spread = definition.id === "minigun" ? ((state.shotsFired % 5) - 2) * 0.012 : 0;
-    shots.push({ kind: definition.id === "flamethrower" ? "flame" : "projectile", weaponId: definition.id, instanceId: point.weapon.instanceId, origin: mountOrigin(center, angle, hardpoints.length, point.index), angle: angle + spread, damage: definition.damage * point.weapon.modifiers.damage, speed: definition.projectileSpeed, radius: definition.projectileRadius, life: definition.lifetimeTicks, penetrations: definition.penetration + point.weapon.modifiers.penetration, explosionRadius: definition.explosionRadius + point.weapon.modifiers.explosionRadius });
+    shots.push({ kind: definition.id === "flamethrower" ? "flame" : "projectile", weaponId: definition.id, instanceId: point.weapon.instanceId, hardpointIndex: point.index, origin: mountOrigin(center, angle, hardpoints.length, point.index), angle: angle + spread, damage: definition.damage * point.weapon.modifiers.damage, speed: definition.projectileSpeed, radius: definition.projectileRadius, life: definition.lifetimeTicks, penetrations: definition.penetration + point.weapon.modifiers.penetration, explosionRadius: definition.explosionRadius + point.weapon.modifiers.explosionRadius, range: definition.range, coneDegrees: definition.coneDegrees });
     state.cooldown = Math.max(1, Math.round(definition.cadenceTicks / point.weapon.modifiers.fireRate));
     state.shotsFired += 1;
   }
