@@ -95,6 +95,7 @@ import type { RiftRunState, RiftWeaponId } from "./rift-run/types";
 import { RIFT_WEAPON_BY_ID } from "./rift-run/weapons";
 import { createWeaponRuntime, tickWeaponRuntime, type WeaponRuntime } from "./rift-run/weapon-runtime";
 import { processHardpointFire } from "./rift-run/weapon-fire";
+import { admitsProjectile, detonateMissile, penetrate, projectileFromShot, steerMissile, targetsInFlameCone, type RiftProjectile } from "./rift-run/weapon-projectiles";
 import { PvpClient, countdownLabel, type PvpSnapshot } from "./pvp-client";
 import {
   DEFAULT_PRESET,
@@ -337,6 +338,8 @@ type Bullet = {
   autoGun?: boolean;
 };
 
+type RiftFlameFx = { origin: { x: number; y: number }; angle: number; range: number; coneDegrees: number; life: number };
+
 /**
  * One overcharged power-up detonation, anchored where it went off.
  *
@@ -534,6 +537,9 @@ type Game = {
   /** Ticks until Hard Mode's next dedicated mine pulse. */
   enrageMineTimer: number;
   bullets: Bullet[];
+  /** Rift-only entities stay out of standard cannon and its global shot budget. */
+  riftProjectiles: RiftProjectile[];
+  riftFlames: RiftFlameFx[];
   pickups: Pickup[];
   enemies: Enemy[];
   nextEnemyId: number;
@@ -714,6 +720,8 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
     enrageRecovery: createEnrageRecovery(),
     enrageMineTimer: 0,
     bullets: [],
+    riftProjectiles: [],
+    riftFlames: [],
     pickups: [],
     enemies: [],
     nextEnemyId: 0,
@@ -4372,13 +4380,28 @@ export default function WormholeGame() {
         tickWeaponRuntime(riftWeaponRuntime.current);
         const mountedShots = processHardpointFire(activeRiftRun.hardpoints, riftWeaponRuntime.current, Boolean(fire), { x: player.x, y: player.y }, player.angle * DEG);
         for (const mounted of mountedShots) {
-          // Continuous flame remains a bounded tick event; projectile families
-          // enter the established arena projectile/death pipeline.
-          if (mounted.kind === "flame") continue;
-          game.bullets.push({ x: mounted.origin.x, y: mounted.origin.y, vx: Math.cos(mounted.angle) * mounted.speed + player.vx, vy: Math.sin(mounted.angle) * mounted.speed + player.vy, damage: mounted.damage, life: mounted.life, enemy: false, color: RIFT_WEAPON_BY_ID[mounted.weaponId as RiftWeaponId].id === "railgun" ? "#dffcff" : "#69ecff", bouncesLeft: 0, salvageLinked: false });
-          game.playerShots += 1;
+          if (mounted.kind === "flame") {
+            game.riftFlames.push({ origin: mounted.origin, angle: mounted.angle, range: mounted.range, coneDegrees: mounted.coneDegrees, life: 6 });
+            const targets = game.enemies.filter((enemy) => enemy.hp > 0 && enemy.kind !== "ghost").map((enemy) => ({ id: enemyIdentity(game, enemy), x: enemy.x, y: enemy.y }));
+            const hit = new Set(targetsInFlameCone(mounted.origin, mounted.angle, mounted.range, mounted.coneDegrees, targets));
+            for (const enemy of game.enemies) if (enemy.hp > 0 && hit.has(enemyIdentity(game, enemy))) damageEnemy(game, enemy, mounted.damage);
+            // Rift contact is one cadence-bounded tick, just like an enemy; it
+            // cannot be multiplied by render rate or overlap samples.
+            if (targetsInFlameCone(mounted.origin, mounted.angle, mounted.range, mounted.coneDegrees, [{ id: "rift", x: game.portalX, y: game.portalY }]).length) {
+              game.portalCharge += mounted.damage; awardRiftDamage(game, mounted.damage);
+            }
+            continue;
+          }
+          if (!admitsProjectile(game.riftProjectiles, mounted.instanceId, mounted.weaponId as RiftWeaponId)) continue;
+          const projectile = projectileFromShot(mounted, { x: player.vx, y: player.vy });
+          if (projectile) game.riftProjectiles.push(projectile);
         }
-        if (mountedShots.length > 0) play("fire", mountedShots[0].weaponId === "minigun" ? 0.05 : 0.12, mountedShots[0].weaponId === "railgun" ? 0.7 : mountedShots[0].weaponId === "minigun" ? 1.7 : 1);
+        if (mountedShots.length > 0 && game.cycles - lastGunFeedbackTick >= (mountedShots[0].weaponId === "minigun" ? 6 : mountedShots[0].weaponId === "flamethrower" ? 10 : 1)) {
+          lastGunFeedbackTick = game.cycles;
+          const id = mountedShots[0].weaponId;
+          play(id === "missile-pod" ? "thrust" : id === "flamethrower" ? "magic" : "fire", id === "minigun" ? 0.04 : 0.11, id === "railgun" ? 0.6 : id === "minigun" ? 1.8 : id === "flamethrower" ? 0.7 : 1);
+          vibrateCombat("gun");
+        }
       } else if (fire && game.shotCycle <= 0 && game.playerShots < SHOT_LEVELS[player.gun].maxShots) {
         const shot = SHOT_LEVELS[player.gun];
         const offsets = shot.shots === 2 ? [-0.05, 0.05] : [0];
@@ -4462,6 +4485,51 @@ export default function WormholeGame() {
         }
         if (player.flagshipField % 12 === 0) {
           burst(game, player.x, player.y, "#68f2ff", 5, 3);
+        }
+      }
+
+      // Rift projectiles retain combat identity for their whole flight. They
+      // deliberately never enter `bullets`, so standard cannon accounting and
+      // special-projectile behavior remain unchanged.
+      for (const projectile of game.riftProjectiles) {
+        const liveTargets = game.enemies.filter((enemy) => enemy.hp > 0 && enemy.kind !== "ghost").map((enemy) => ({
+          id: enemyIdentity(game, enemy), x: enemy.x, y: enemy.y, hostile: true,
+        }));
+        steerMissile(projectile, liveTargets);
+        projectile.x += projectile.vx; projectile.y += projectile.vy; projectile.state.remainingLifetime -= 1;
+        if (projectile.state.remainingLifetime <= 0) continue;
+        if (Math.hypot(projectile.x-game.portalX, projectile.y-game.portalY) < 43) {
+          // Missiles never acquire the Rift, but a manually aimed missile can
+          // still strike it. Rail rounds stop at the Rift; only normal hostile
+          // contacts consume their configured penetration allowance.
+          game.portalCharge += projectile.state.damage; awardRiftDamage(game, projectile.state.damage);
+          projectile.state.remainingLifetime = 0; game.portalPulse = Math.max(game.portalPulse, .4);
+          burst(game, projectile.x, projectile.y, "#ff5ac8", 5, 3);
+          continue;
+        }
+        for (const enemy of game.enemies) {
+          if (enemy.hp <= 0 || enemy.kind === "ghost" || projectile.state.remainingLifetime <= 0) continue;
+          const id = enemyIdentity(game, enemy);
+          if (projectile.state.hitTargetIds.has(id)) continue;
+          const dx=projectile.x-enemy.x, dy=projectile.y-enemy.y, radius=enemy.radius+projectile.radius;
+          if (dx*dx+dy*dy >= radius*radius) continue;
+          if (projectile.state.weaponId === "missile-pod") {
+            const victims = new Set(detonateMissile(projectile, game.enemies.filter((item) => item.hp > 0 && item.kind !== "ghost").map((item) => ({ id: enemyIdentity(game, item), x: item.x, y: item.y }))));
+            for (const victim of game.enemies) if (victim.hp > 0 && victims.has(enemyIdentity(game, victim))) damageEnemy(game, victim, projectile.state.damage);
+            burst(game, projectile.x, projectile.y, "#ffae5f", 14, 5); play("explosion", .14, 1.25);
+          } else {
+            damageEnemy(game, enemy, projectile.state.damage);
+            projectile.state.hitTargetIds.add(id);
+            if (projectile.state.weaponId !== "railgun") projectile.state.remainingLifetime = 0;
+            else {
+              // Railgun penetrates exactly the configured number of unique
+              // normal/major enemies, never the same entity on later ticks.
+              projectile.state.hitTargetIds.delete(id);
+              const persists = penetrate(projectile.state, id);
+              if (!persists || projectile.state.remainingPenetrations <= 0) projectile.state.remainingLifetime = 0;
+            }
+            burst(game, projectile.x, projectile.y, POWER_COLORS[enemy.kind], projectile.state.weaponId === "railgun" ? 7 : 4, 3);
+          }
         }
       }
 
@@ -4739,6 +4807,8 @@ export default function WormholeGame() {
         return alive;
       });
       game.playerShots = liveShots;
+      compact(game.riftProjectiles, (item) => item.state.remainingLifetime > 0 && item.x > -30 && item.x < game.worldWidth + 30 && item.y > -30 && item.y < game.worldHeight + 30);
+      compact(game.riftFlames, (item) => { item.life -= 1; return item.life > 0; });
       compact(game.pickups, (item) => item.life > 0);
       compact(game.powers, (item) => item.life > 0 && item.x > -30 && item.x < game.worldWidth + 30 && item.y > -30 && item.y < game.worldHeight + 30);
       compact(game.enemies, (item) => item.hp > 0);
@@ -5252,6 +5322,24 @@ export default function WormholeGame() {
           ctx.stroke();
         }
         ctx.restore();
+      }
+
+      for (const projectile of game.riftProjectiles) {
+        if (!visible(projectile.x, projectile.y, 30)) continue;
+        const id = projectile.state.weaponId, angle = Math.atan2(projectile.vy, projectile.vx);
+        ctx.save(); ctx.translate(projectile.x, projectile.y); ctx.rotate(angle);
+        ctx.shadowColor = id === "railgun" ? "#e9ffff" : id === "missile-pod" ? "#ff9b58" : id === "minigun" ? "#ffe67b" : "#69ecff";
+        if (profile.shadows) ctx.shadowBlur = id === "railgun" ? 15 : 8;
+        ctx.fillStyle = ctx.shadowColor;
+        if (id === "missile-pod") { ctx.fillRect(-8,-3,12,6); ctx.fillStyle="#ff5b39"; ctx.fillRect(-11,-2,4,4); }
+        else { ctx.fillRect(id === "railgun" ? -24 : -8, -projectile.radius, id === "railgun" ? 30 : 12, projectile.radius*2); }
+        ctx.restore();
+      }
+      for (const flame of game.riftFlames) {
+        ctx.save(); ctx.translate(flame.origin.x, flame.origin.y); ctx.rotate(flame.angle);
+        const width = flame.range * Math.tan(flame.coneDegrees * Math.PI / 360);
+        const gradient = ctx.createLinearGradient(0,0,flame.range,0); gradient.addColorStop(0,"rgba(255,245,135,.78)"); gradient.addColorStop(.45,"rgba(255,126,42,.48)"); gradient.addColorStop(1,"rgba(255,56,25,0)");
+        ctx.fillStyle=gradient; ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(flame.range,-width); ctx.lineTo(flame.range,width); ctx.closePath(); ctx.fill(); ctx.restore();
       }
 
       for (const fx of game.blasts) {
