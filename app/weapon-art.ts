@@ -175,10 +175,6 @@ const mines: GlyphFn = (ctx, { r, t, detail, phase }) => {
   ctx.arc(0, 0, 3 * s, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
-  ctx.beginPath();
-  ctx.moveTo(-8.2 * s, 0);
-  ctx.lineTo(8.2 * s, 0);
-  ctx.stroke();
   ctx.restore();
 };
 

@@ -21,6 +21,14 @@ test("multiple sea mines use the shared, phase-varied rendering path", () => {
   assert.match(game, /phase: enemy\.kind === "mines" \? enemy\.phase : undefined/);
 });
 
+test("mine center stays clear so the red blink remains unobstructed", () => {
+  const art = readFileSync(new URL("../app/weapon-art.ts", import.meta.url), "utf8");
+  const mineRenderer = art.slice(art.indexOf("const mines: GlyphFn"), art.indexOf("const ufo: GlyphFn"));
+  assert.match(mineRenderer, /ctx\.arc\(0, 0, 3 \* s/);
+  assert.doesNotMatch(mineRenderer, /ctx\.moveTo\(-8\.2 \* s, 0\)/);
+  assert.doesNotMatch(mineRenderer, /ctx\.lineTo\(8\.2 \* s, 0\)/);
+});
+
 test("mine visual pass leaves gameplay damage, collision radius, and spawning intact", () => {
   const game = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
   const data = readFileSync(new URL("../app/game-data.ts", import.meta.url), "utf8");
