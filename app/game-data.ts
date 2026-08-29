@@ -368,6 +368,13 @@ export function isMajorOffscreenHazard(kind: PowerId): boolean {
   return MAJOR_OFFSCREEN_HAZARD_IDS.has(kind);
 }
 
+/** Whether a major hazard has entered a phase that needs the strongest alarm. */
+export function isMajorOffscreenHazardUrgent(hazard: { kind: PowerId; countdown?: number }): boolean {
+  // A non-positive countdown is the expanding blast phase, which stays urgent
+  // until the existing hostile record expires.
+  return hazard.kind === "nuke" && (hazard.countdown ?? Number.POSITIVE_INFINITY) <= 180;
+}
+
 /** Damage a transmitted power-up deals to the rival's integrity. */
 export function rivalDamageFor(type: PowerId) {
   if (type === "nuke") return 24;

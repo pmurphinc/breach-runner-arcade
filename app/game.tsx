@@ -17,6 +17,7 @@ import {
   SHOT_LEVELS,
   WEAPONS,
   isMajorOffscreenHazard,
+  isMajorOffscreenHazardUrgent,
   rivalDamageFor,
   type PickupId,
   type PupClass,
@@ -6047,13 +6048,18 @@ export default function WormholeGame() {
         const drawOffscreenHazardMarker = (
           indicator: { x: number; y: number; angle: number },
           kind: PowerId,
+          urgent: boolean,
         ) => {
           const accent = OFFSCREEN_HAZARD_ACCENT;
-          const pulse = reducedMotionRef.current ? 1 : 0.86 + 0.14 * Math.sin(time * 0.006);
+          const pulse = reducedMotionRef.current
+            ? 1
+            : urgent
+              ? 0.82 + 0.18 * Math.sin(time * 0.012)
+              : 0.86 + 0.14 * Math.sin(time * 0.006);
           ctx.save();
           ctx.translate(indicator.x, indicator.y);
           ctx.scale(1 / camScale, 1 / camScale);
-          ctx.globalAlpha = 0.86 * pulse;
+          ctx.globalAlpha = (urgent ? 0.98 : 0.86) * pulse;
           ctx.lineJoin = "round";
           ctx.lineCap = "round";
           if (profile.shadows) { ctx.shadowColor = accent; ctx.shadowBlur = 9; }
@@ -6238,12 +6244,13 @@ export default function WormholeGame() {
           markerRadius: safePlacement.markerRadius,
           markerExtent: safePlacement.markerExtent,
         };
-        let hazardMarkers: { marker: OffscreenIndicator; kind: PowerId }[] | null = null;
+        let hazardMarkers: { marker: OffscreenIndicator; kind: PowerId; urgent: boolean }[] | null = null;
         for (const enemy of game.enemies) {
           if (enemy.hp <= 0 || !isMajorOffscreenHazard(enemy.kind)) continue;
           const marker = offscreenIndicatorFor(enemy, playfieldBounds, markerInset, hazardPlacement);
           if (!marker) continue;
-          (hazardMarkers ??= []).push({ marker, kind: enemy.kind });
+          const urgent = isMajorOffscreenHazardUrgent(enemy);
+          (hazardMarkers ??= []).push({ marker, kind: enemy.kind, urgent });
           hazardPlacement.blocked.push(markerBlockFor(marker, hazardPlacement.markerRadius));
         }
 
@@ -6322,7 +6329,11 @@ export default function WormholeGame() {
           enemyPlacement.blocked.push(markerBlockFor(marker, enemyPlacement.markerRadius));
         }
 
-        if (hazardMarkers) for (const hazard of hazardMarkers) drawOffscreenHazardMarker(hazard.marker, hazard.kind);
+        if (hazardMarkers) {
+          for (const hazard of hazardMarkers) {
+            drawOffscreenHazardMarker(hazard.marker, hazard.kind, hazard.urgent);
+          }
+        }
 
         if (riftMarker) drawOffscreenMarker(riftMarker, game.enrageActive ? "#ff2a3f" : "#ff4cbe", false);
         if (allyMarker) drawOffscreenMarker(allyMarker, "#b6ff57", true);

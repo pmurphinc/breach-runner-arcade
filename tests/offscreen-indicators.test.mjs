@@ -31,6 +31,7 @@ import {
   POWER_COLORS,
   WEAPONS,
   isMajorOffscreenHazard,
+  isMajorOffscreenHazardUrgent,
 } from "../app/game-data.ts";
 
 const game = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
@@ -982,8 +983,8 @@ test("the CORE BOMB is an existing hostile, and its own marker gets the hazard s
   // hostile's own kind, so CORE BOMB reads as CORE BOMB and not as a dot.
   const block = hazardBlock();
   assert.match(block, /if \(enemy\.hp <= 0 \|\| !isMajorOffscreenHazard\(enemy\.kind\)\) continue;/);
-  assert.match(block, /\(hazardMarkers \?\?= \[\]\)\.push\(\{ marker, kind: enemy\.kind \}\)/);
-  assert.match(renderBlock(), /drawOffscreenHazardMarker\(hazard\.marker, hazard\.kind\)/);
+  assert.match(block, /\(hazardMarkers \?\?= \[\]\)\.push\(\{ marker, kind: enemy\.kind, urgent \}\)/);
+  assert.match(renderBlock(), /drawOffscreenHazardMarker\(hazard\.marker, hazard\.kind, hazard\.urgent\)/);
   assert.match(hazardArt(), /ctx\.strokeStyle = POWER_COLORS\[kind\];/);
   assert.equal(POWER_COLORS.nuke, WEAPONS.nuke.color);
 });
@@ -1155,7 +1156,7 @@ test("a destroyed or despawned hazard stops producing a marker", () => {
   assert.doesNotMatch(block, /hazardCache|lastHazard|useRef|Ref\.current/);
   assert.doesNotMatch(block, /enemy\.(?:marker|indicator|offscreen)/);
   // The held list is rebuilt each frame and stays null when nothing is marked.
-  assert.match(block, /let hazardMarkers: \{ marker: OffscreenIndicator; kind: PowerId \}\[\] \| null = null;/);
+  assert.match(block, /let hazardMarkers: \{ marker: OffscreenIndicator; kind: PowerId; urgent: boolean \}\[\] \| null = null;/);
 });
 
 test("the hazard marker reads as an alarm, not as the ordinary threat badge", () => {
@@ -1184,8 +1185,9 @@ test("the hazard marker reads as an alarm, not as the ordinary threat badge", ()
 
 test("the hazard pulse is a badge alpha only, and flattens for reduced motion", () => {
   const art = hazardArt();
-  assert.match(art, /const pulse = reducedMotionRef\.current \? 1 : 0\.86 \+ 0\.14 \* Math\.sin\(time \* 0\.006\)/);
-  assert.match(art, /ctx\.globalAlpha = 0\.86 \* pulse;/);
+  assert.match(art, /urgent[\s\S]*0\.82 \+ 0\.18 \* Math\.sin\(time \* 0\.012\)/);
+  assert.match(art, /0\.86 \+ 0\.14 \* Math\.sin\(time \* 0\.006\)/);
+  assert.match(art, /ctx\.globalAlpha = \(urgent \? 0\.98 : 0\.86\) \* pulse;/);
   // Alpha only: nothing grows, nothing moves, and the screen is untouched.
   assert.doesNotMatch(art, /pulse \*|\* pulse[^;]|fillRect|globalCompositeOperation|W, H|shake/);
   // Named once and spent once: the alpha is the only thing it touches.
@@ -1194,6 +1196,21 @@ test("the hazard pulse is a badge alpha only, and flattens for reduced motion", 
   const steady = 0.86 * 1;
   const dimmest = 0.86 * (0.86 - 0.14);
   assert.ok(steady > 0.8 && dimmest > 0.6, "the pulse must never dim the warning away");
+});
+
+test("the CORE BOMB warning escalates for its final fuse and blast phase", () => {
+  const block = hazardBlock();
+  assert.match(block, /const urgent = isMajorOffscreenHazardUrgent\(enemy\);/);
+  assert.match(block, /push\(\{ marker, kind: enemy\.kind, urgent \}\)/);
+  assert.match(renderBlock(), /drawOffscreenHazardMarker\(hazard\.marker, hazard\.kind, hazard\.urgent\)/);
+
+  // The blast phase keeps counting below zero, so it remains urgent until the
+  // existing hostile expires. Other hazards retain the standard red pulse.
+  assert.equal(isMajorOffscreenHazardUrgent({ kind: "nuke", countdown: 181 }), false);
+  assert.equal(isMajorOffscreenHazardUrgent({ kind: "nuke", countdown: 180 }), true);
+  assert.equal(isMajorOffscreenHazardUrgent({ kind: "nuke", countdown: 0 }), true);
+  assert.equal(isMajorOffscreenHazardUrgent({ kind: "nuke", countdown: -20 }), true);
+  assert.equal(isMajorOffscreenHazardUrgent({ kind: "beam", countdown: 0 }), false);
 });
 
 test("ordinary hostiles, the Rift, the ally and the PUPs are untouched", () => {
