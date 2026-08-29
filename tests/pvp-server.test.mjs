@@ -6,11 +6,11 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import {
-  DIFFICULTIES,
-} from "../app/difficulty.ts";
+import { DIFFICULTIES } from "../app/difficulty.ts";
 import { SHIPS, SENDABLE_POWERUPS } from "../app/game-data.ts";
 import {
+  CODE_ALPHABET,
+  CODE_LENGTH,
   ERRORS,
   MAX_DAMAGE_EVENT,
   MAX_DAMAGE_TOTAL_PER_WINDOW,
@@ -97,11 +97,16 @@ test("oversized frames are refused without parsing", () => {
 test("invite codes avoid ambiguous characters", () => {
   for (let i = 0; i < 200; i += 1) {
     const code = randomCode();
+    assert.equal(code.length, 4);
+    assert.ok([...code].every((character) => CODE_ALPHABET.includes(character)));
     assert.ok(isValidCode(code), code);
     assert.doesNotMatch(code, /[O0I1]/, `ambiguous character in ${code}`);
   }
+  assert.equal(CODE_LENGTH, 4);
+  assert.equal(isValidCode("AB7K"), true);
   assert.equal(isValidCode("ABC"), false);
-  assert.equal(isValidCode("aaaaaa"), false);
+  assert.equal(isValidCode("AB7KQ"), false);
+  assert.equal(isValidCode("abcd"), false);
 });
 
 // ------------------------------------------------------------ shield maths --
@@ -255,12 +260,28 @@ test("private rooms are created, joined, and reject bad codes", () => {
   assert.equal(host.last("lobby").state, "waiting");
   assert.equal(host.last("lobby").code, room.code);
 
-  assert.equal(server.join(guest.player, "ZZZZZZ", 1100).code, ERRORS.UNKNOWN_ROOM);
+  assert.equal(server.join(guest.player, "ZZZZ", 1100).code, ERRORS.UNKNOWN_ROOM);
   assert.equal(server.join(guest.player, room.code, 1100).ok, true);
   assert.equal(guest.last("match").opponent.name, "HOST");
 
   const third = fakePlayer(server, "THIRD");
   assert.equal(server.join(third.player, room.code, 1200).code, ERRORS.ROOM_FULL);
+});
+
+test("private room code collisions regenerate without overwriting the active room", () => {
+  let calls = 0;
+  const random = () => calls++ < 8 ? 0 : 0.04;
+  const server = new MatchServer({ random });
+  const firstHost = fakePlayer(server, "FIRST");
+  const secondHost = fakePlayer(server, "SECOND");
+  const firstRoom = server.createPrivate(firstHost.player, 1000);
+  const secondRoom = server.createPrivate(secondHost.player, 1001);
+
+  assert.equal(firstRoom.code, "AAAA");
+  assert.equal(secondRoom.code, "BBBB");
+  assert.equal(server.rooms.get("AAAA"), firstRoom);
+  assert.equal(server.rooms.get("BBBB"), secondRoom);
+  assert.equal(server.rooms.size, 2);
 });
 
 test("the countdown starts only when both players are ready", () => {

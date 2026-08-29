@@ -17,7 +17,7 @@ import { RemoteMotion } from "./network-motion.ts";
 /** Must match server/protocol.mjs. `tests/pvp-protocol.test.mjs` asserts it. */
 export const PROTOCOL_VERSION = 6;
 export const PVP_PATH = "/pvp";
-export const CODE_LENGTH = 6;
+export const CODE_LENGTH = 4;
 export const COUNTDOWN_SECONDS = 3;
 export const RECONNECT_GRACE_MS = 20_000;
 

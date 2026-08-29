@@ -52,6 +52,7 @@ const coopPowerDamage = (weapon) => COOP_POWER_DAMAGE[weapon] ?? 12;
 
 /** The sole logical public PvP queue. Client properties never contribute to it. */
 export const PVP_QUICK_MATCH_QUEUE = "PVP_1V1_QUICK_MATCH";
+export const PRIVATE_CODE_ATTEMPTS = 50;
 
 const PHASES = {
   LOBBY: "lobby",
@@ -202,9 +203,17 @@ export class MatchServer {
     if (player.room) return null;
     this.leaveQueue(player);
 
-    let code = randomCode(this.random);
-    let guard = 0;
-    while (this.rooms.has(code) && guard++ < 50) code = randomCode(this.random);
+    let code = null;
+    for (let attempt = 0; attempt < PRIVATE_CODE_ATTEMPTS; attempt += 1) {
+      const candidate = randomCode(this.random);
+      if (!this.rooms.has(candidate)) {
+        code = candidate;
+        break;
+      }
+    }
+    // Never overwrite an active room if an extremely unlucky run exhausts
+    // the bounded retry budget. The caller can safely ask the player to retry.
+    if (!code) return null;
 
     const room = {
       code,
