@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { controllerStateForPads, EMPTY_GAMEPAD, headingDegrees, pressedOnce, readStandardGamepad, GAMEPAD_DEAD_ZONE } from "../app/gamepad.ts";
+import { activeGameplayGamepad, controllerStateForPads, EMPTY_GAMEPAD, headingDegrees, pressedOnce, readStandardGamepad, GAMEPAD_DEAD_ZONE } from "../app/gamepad.ts";
 
 const pad = (axes = [0, 0, 0, 0], pressed = [], connected = true) => ({
   axes, connected, mapping: "standard",
@@ -45,6 +45,14 @@ test("connect and disconnect update controller state without touching other sour
   const effect = game.slice(game.indexOf("// Controllers are optional"), game.indexOf("const canvas = canvasRef.current"));
   assert.doesNotMatch(effect, /keys\.current\.(?:Space|KeyE|KeyQ)\s*=/);
   assert.doesNotMatch(effect, /(?:moveHeading|aimHeading)\.current\s*=/);
+});
+
+test("rumble selection reuses the unchanged gameplay controller selection", () => {
+  const disconnected = pad(undefined, [], false);
+  const active = pad();
+  const second = pad();
+  assert.equal(activeGameplayGamepad([disconnected, active, second]), active);
+  assert.deepEqual(controllerStateForPads([disconnected, active, second]), readStandardGamepad(active));
 });
 
 test("right-stick heading drives facing and cannon projectile direction", () => {

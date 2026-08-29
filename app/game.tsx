@@ -117,7 +117,7 @@ import {
   type LayoutBudget,
   type ScreenPreset,
 } from "./layout-budget";
-import { cannonPlaybackRate, hapticsAllow } from "./combat-feedback";
+import { cannonPlaybackRate, playCombatHaptics } from "./combat-feedback";
 import { PUP_INVENTORY_CAPACITY, consumeLoadedPup, pupInventoryLayout } from "./pup-inventory";
 import { pupRegenHull } from "./pup-regen.js";
 import { salvageLinkHitsPup } from "./salvage-link";
@@ -3082,10 +3082,13 @@ export default function WormholeGame() {
     let hudDelay = 0;
     let lastGunFeedbackTick = -999;
 
-    const vibrateCombat = (event: "gun" | "hull") => {
-      if (reducedMotionRef.current || !hapticsAllow(combatHapticsRef.current, event)) return;
-      if (typeof navigator === "undefined" || !("vibrate" in navigator)) return;
-      navigator.vibrate(event === "gun" ? 9 : 24);
+    const vibrateCombat = (event: "gun" | "hull", damage?: number) => {
+      if (reducedMotionRef.current) return;
+      playCombatHaptics(combatHapticsRef.current, event, {
+        pads: Array.from(navigator.getGamepads?.() ?? []),
+        vibratePhone: "vibrate" in navigator ? navigator.vibrate.bind(navigator) : undefined,
+        damage,
+      });
     };
 
     const cannonImpactFeedback = (game: Game, bullet: Bullet) => {
@@ -3326,7 +3329,7 @@ export default function WormholeGame() {
         game.noticeLife = 55;
         return;
       }
-      if (amount > 0) vibrateCombat("hull");
+      if (amount > 0) vibrateCombat("hull", amount);
       player.health -= amount;
       if (game.mode !== "pve") {
         player.health = Math.max(0, player.health);
@@ -4557,6 +4560,7 @@ export default function WormholeGame() {
         });
         game.shotCycle = Math.max(1, Math.round(shot.delay / (activeRiftRun?.shipModifiers.cannonFireRate ?? 1)));
         play("fire", 0.12, cannonPlaybackRate(player.gun));
+        vibrateCombat("gun");
       }
 
       // Activation precedes acquisition so the new tuning applies on this
