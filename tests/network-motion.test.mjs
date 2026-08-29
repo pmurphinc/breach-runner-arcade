@@ -39,6 +39,31 @@ test("major corrections snap rather than gliding across the arena", () => {
   assert.equal(motion.sample(210)?.x, 10 + LARGE_CORRECTION_DISTANCE + 1);
 });
 
+test("normal corrections retain an interpolated display position without overshoot", () => {
+  const motion = new RemoteMotion();
+  motion.push(point(1, 100, 0));
+  motion.push(point(2, 200, LARGE_CORRECTION_DISTANCE - 1));
+  const rendered = motion.sample(200);
+  assert.ok(rendered.x > 0 && rendered.x < LARGE_CORRECTION_DISTANCE - 1);
+});
+
+test("an explicit respawn/reset snapshot snaps immediately", () => {
+  const motion = new RemoteMotion();
+  motion.push(point(1, 100, 20));
+  motion.push(point(2, 110, 80), true);
+  assert.equal(motion.sample(110)?.x, 80);
+});
+
+test("newer snapshots replace the target in the shared co-op/PvP motion model", () => {
+  for (const mode of ["coop", "pvp"]) {
+    const motion = new RemoteMotion();
+    motion.push(point(1, 100, 0));
+    motion.push(point(2, 200, 50));
+    motion.push(point(3, 300, 100));
+    assert.equal(motion.sample(350)?.x, 100, mode);
+  }
+});
+
 test("stale sequences are rejected and counted", () => {
   const motion = new RemoteMotion();
   assert.equal(motion.push(point(2, 100, 10)), true);
