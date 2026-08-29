@@ -88,7 +88,10 @@ import {
 import {
   HomeScreen,
   InfoScreen,
-  ModesScreen,
+  GameTypeScreen,
+  PvpModesScreen,
+  PveModesScreen,
+  DifficultyScreen,
   PauseScreen,
   RiftRunSetupScreen,
   SettingsScreen,
@@ -2610,13 +2613,15 @@ export default function WormholeGame() {
     gameRef.current = createGame(selectedShip(shipId), mode, difficulty);
   }, [difficulty, mode, shipId]);
 
-  const start = useCallback((riftShip?: ShipId) => {
+  const start = useCallback((riftShip?: ShipId, modeOverride?: GameMode, difficultyOverride?: DifficultyId) => {
+    const launchMode = modeOverride ?? mode;
+    const selectedDifficulty = difficultyOverride ?? difficulty;
     stopVictorySuction();
-    const confirmedShip = mode === "coop" ? netRef.current?.state.you?.ship : null;
+    const confirmedShip = launchMode === "coop" ? netRef.current?.state.you?.ship : null;
     const launchShip = riftShip && riftRunShip(riftShip) ? riftShip : (confirmedShip ?? shipId) as ShipId;
-    const launchDifficulty = safeDifficulty(difficulty, pilotProgressionStore.getSnapshot());
-    if (launchDifficulty !== difficulty) difficultyPreference.set(launchDifficulty);
-    const game = createGame(selectedShip(launchShip), mode, launchDifficulty);
+    const launchDifficulty = safeDifficulty(selectedDifficulty, pilotProgressionStore.getSnapshot());
+    if (launchDifficulty !== selectedDifficulty) difficultyPreference.set(launchDifficulty);
+    const game = createGame(selectedShip(launchShip), launchMode, launchDifficulty);
     if (riftShip && riftRunShip(riftShip)) {
       const seed = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${riftShip}`;
       const run = createRunAgainRiftRun({ kind: "rift-run", shipId: riftShip }, seed);
@@ -2628,7 +2633,7 @@ export default function WormholeGame() {
       riftWeaponRuntime.current = {};
       setRiftRun(null);
     }
-    game.roundId = mode === "coop" ? (netRef.current?.state.roundId ?? 0) : 0;
+    game.roundId = launchMode === "coop" ? (netRef.current?.state.roundId ?? 0) : 0;
     game.running = true;
     game.notice = "ENTERING NEW GROUND";
     gameRef.current = game;
@@ -2795,7 +2800,7 @@ export default function WormholeGame() {
   }, [mode, start]);
 
   const beginPlayFlow = useCallback(() => setMenu(resetRoute("ships")), []);
-  const confirmShip = useCallback(() => setMenu(resetRoute("modes")), []);
+  const confirmShip = useCallback(() => setMenu(["ships", "modes"]), []);
 
   /** Back out of the menu: resume the run if there is one, else stay home. */
   const resumeOrClose = useCallback(() => {
@@ -7237,22 +7242,19 @@ export default function WormholeGame() {
       ) : null}
 
       {route === "modes" ? (
-        <ModesScreen
-          mode={mode}
-          difficulty={difficulty}
-          ship={shipId}
-          renderShip={renderShip}
-          progression={progression}
-          onMode={chooseMode}
-          onDifficulty={chooseDifficulty}
-          onSurvival={chooseSurvival}
-          onRiftRun={() => go("rift-run")}
-          onLaunch={launchFromMenu}
-          go={go}
-          openSettings={openSettings}
-          back={back}
-          close={resumeOrClose}
-        />
+        <GameTypeScreen ship={shipId} go={go} openSettings={openSettings} back={back} close={resumeOrClose} />
+      ) : null}
+
+      {route === "pvp-modes" ? (
+        <PvpModesScreen ship={shipId} onSelect={() => { chooseMode("pvp"); setMenu(["ships", "modes", "pvp-modes", "lobby"]); }} go={go} openSettings={openSettings} back={back} close={resumeOrClose} />
+      ) : null}
+
+      {route === "pve-modes" ? (
+        <PveModesScreen ship={shipId} onMode={(next) => { chooseMode(next); setMenu(["ships", "modes", "pve-modes", "difficulty"]); }} onSurvival={() => { chooseSurvival(); start(undefined, "pve", "survival"); }} onRiftRun={() => go("rift-run")} go={go} openSettings={openSettings} back={back} close={resumeOrClose} />
+      ) : null}
+
+      {route === "difficulty" ? (
+        <DifficultyScreen ship={shipId} mode={mode === "coop" ? "coop" : "pve"} difficulty={difficulty} progression={progression} onDifficulty={chooseDifficulty} onLaunch={launchFromMenu} go={go} openSettings={openSettings} back={back} close={resumeOrClose} />
       ) : null}
 
       {route === "rift-run" ? (

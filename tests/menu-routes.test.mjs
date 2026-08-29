@@ -65,9 +65,9 @@ test("with a run, Menu toggles Pause against the game", () => {
   );
 });
 
-test("a fresh session starts on Home", () => {
-  assert.deepEqual(INITIAL_STACK, ["home"]);
-  assert.equal(activeRoute(INITIAL_STACK), "home");
+test("a fresh session starts on Ships", () => {
+  assert.deepEqual(INITIAL_STACK, ["ships"]);
+  assert.equal(activeRoute(INITIAL_STACK), "ships");
   assert.ok(isOpen(INITIAL_STACK));
 });
 

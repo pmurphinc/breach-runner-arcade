@@ -2290,9 +2290,11 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
   border: var(--border-2);
   border-radius: var(--radius-2);
   background: linear-gradient(110deg, rgba(12, 35, 48, .92), rgba(5, 15, 24, .78));
+  width: 100%; color: inherit; cursor: pointer; text-align: left;
 }
+.selected-ship-preview:hover, .selected-ship-preview:focus-visible { border-color: var(--focus); }
 .selected-ship-preview-art { width: clamp(72px, 15cqw, 112px); display: grid; place-items: center; }
-.selected-ship-preview-art img { width: 100%; height: auto; object-fit: contain; }
+.selected-ship-preview-art :is(img, canvas) { width: 100%; height: auto; object-fit: contain; }
 .selected-ship-preview > div:nth-child(2) { display: grid; gap: 2px; min-width: 0; }
 .selected-ship-preview span, .selected-ship-preview small, .difficulty-card em {
   color: var(--muted); font: 700 var(--fs-nano)/1.25 var(--mono); letter-spacing: .1em; text-transform: uppercase;
@@ -2496,6 +2498,11 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
 .mode-card small { grid-area: hint; color: var(--muted); font: 500 var(--fs-xs)/1.4 var(--mono); }
 .mode-card.active { border-color: var(--accent, var(--lime)); background: color-mix(in srgb, var(--accent, var(--lime)) 16%, rgba(4, 12, 19, .7)); }
 .mode-card:hover, .mode-card:focus-visible { border-color: var(--focus); }
+.launch-choice-grid .mode-card { min-height: clamp(100px, 22dvh, 180px); }
+.selected-mode-card { width: 100%; min-height: var(--control-h); padding: var(--space-2) var(--space-3); display: grid; gap: 2px; text-align: left; color: var(--ink); background: rgba(4, 12, 19, .7); border: var(--border-1); border-radius: var(--radius-2); cursor: pointer; }
+.selected-mode-card span { color: var(--muted); font: 700 var(--fs-nano)/1.2 var(--mono); text-transform: uppercase; }
+.selected-mode-card b { font: 800 var(--fs-sm)/1.2 var(--mono); text-transform: uppercase; }
+.selected-mode-card:hover, .selected-mode-card:focus-visible { border-color: var(--focus); }
 
 /*
  * Colour-coded modes, difficulties and challenges
@@ -2580,8 +2587,8 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
 
 /* ----------------------------------------------------------------- ships -- */
 
-.ships-layout { display: grid; gap: var(--space-4); }
-.ship-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: var(--space-2); }
+.ships-layout { display: grid; grid-template-columns: minmax(0, 3fr) minmax(230px, 2fr); gap: var(--space-3); min-height: 0; }
+.ship-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--space-2); align-content: start; }
 .ship-card {
   position: relative;
   min-height: var(--control-h-lg);
@@ -2595,6 +2602,30 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
   border-radius: var(--radius-2);
   cursor: pointer;
   text-align: center;
+}
+.menu-screen[data-route="ships"] .menu-content { overflow: hidden; padding-block: var(--space-2); }
+.menu-screen[data-route="ships"] .ship-card { min-height: 78px; padding: var(--space-1); }
+.menu-screen[data-route="ships"] .ship-detail { padding: var(--space-2); gap: var(--space-1); overflow: hidden; }
+.menu-screen[data-route="ships"] .ship-special { padding: var(--space-2); }
+
+@container menu (max-width: 680px) {
+  .ships-layout { grid-template-columns: 1fr; gap: var(--space-2); }
+  .ship-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+  .menu-screen[data-route="ships"] .ship-card { min-height: 64px; }
+  .menu-screen[data-route="ships"] .ship-card-art { height: 30px; }
+  .menu-screen[data-route="ships"] .ship-card-art img { max-height: 30px; }
+  .menu-screen[data-route="ships"] .ship-card small { display: none; }
+  .menu-screen[data-route="ships"] .ship-detail { grid-template-columns: auto 1fr; align-items: center; }
+  .menu-screen[data-route="ships"] .ship-detail-art { display: none; }
+  .menu-screen[data-route="ships"] .ship-stats, .menu-screen[data-route="ships"] .ship-special { grid-column: 1 / -1; }
+  .menu-screen[data-route="ships"] .ship-special p { display: none; }
+}
+
+@container menu (max-width: 390px) {
+  .ship-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .menu-screen[data-route="ships"] .ship-card { min-height: 48px; grid-template-columns: 28px minmax(0,1fr); text-align: left; justify-items: start; align-items: center; }
+  .menu-screen[data-route="ships"] .ship-card-art { height: 26px; }
+  .menu-screen[data-route="ships"] .ship-detail { display: none; }
 }
 .ship-card b { font: 800 var(--fs-xs)/1.2 var(--mono); letter-spacing: .06em; }
 .ship-card small { color: var(--muted); font: 500 var(--fs-nano)/1.25 var(--mono); }
