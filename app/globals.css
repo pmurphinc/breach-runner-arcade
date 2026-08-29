@@ -423,6 +423,8 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
    controls, so the chosen board and ship read the same way the mode cards do. */
 .board-tabs, .board-filter { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 14px 0; }
 .board-filter { padding-top: 0; }
+.board-difficulty-filter { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 0; }
+.board-difficulty-filter button { min-width: 0; padding-inline: 6px; }
 .board-tabs button, .board-filter button { flex: 0 0 auto; padding: 7px 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 3px; background: rgba(2, 8, 13, .55); cursor: pointer; font: 800 var(--fs-nano)/1 var(--mono); letter-spacing: .1em; }
 .board-tabs button:hover, .board-filter button:hover { color: #eafcff; border-color: var(--line-strong); }
 .board-tabs button.active, .board-filter button.active { color: var(--cyan); border-color: var(--cyan); background: rgba(100, 234, 255, .1); }
@@ -432,6 +434,7 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 .board-link { width: 100%; padding: 8px; color: var(--cyan); border: 0; background: transparent; cursor: pointer; text-decoration: none; text-align: center; font: 800 var(--fs-micro)/1.4 var(--mono); letter-spacing: .08em; }
 .board-link:hover, .board-link:focus-visible { text-decoration: underline; }
 @media (max-width: 420px) {
+  .board-difficulty-filter { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .board-list li { grid-template-columns: 26px minmax(0, 1fr) auto; }
   .board-runs { display: none; }
 }
