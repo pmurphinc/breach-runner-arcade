@@ -15,7 +15,8 @@ import { RIFT_EVOLUTIONS, activeEvolution, eligibleEvolutions } from "../app/rif
 import { eligibleUpgradeChoices, rollUpgradeChoices } from "../app/rift-run/upgrade-pool.ts";
 import { applyUpgrade, mountUnlockedWeapon } from "../app/rift-run/upgrade-apply.ts";
 import { RIFT_REWARD_CATEGORIES, RIFT_UPGRADES, rewardCategoryLabel, upgradeStack } from "../app/rift-run/upgrades.ts";
-import { claimHullGunUpgrade, claimHullGunWeapon, hullGunUpgradeChoices, pendingHullGunReward } from "../app/rift-run/hull-gun-reward.ts";
+import { claimHullGunWeapon, pendingHullGunReward } from "../app/rift-run/hull-gun-reward.ts";
+import { HARDPOINT_BREACH_MILESTONES, hardpointIndexForBreach, hardpointUnlockForBreach } from "../app/rift-run/hardpoint-milestones.ts";
 import { riftRunHandling, riftRunHullDamage } from "../app/rift-run/live-modifiers.ts";
 import { applyIntent, intentFromKeys } from "../app/movement.ts";
 import { createRunAgainRiftRun, replayForCompletedRun } from "../app/run-replay.ts";
@@ -72,7 +73,7 @@ test("Kestrel and Warden create fresh runs, earn the first Hull Gun, and replay"
     assert.ok(fresh.hardpoints.every(({ status }) => status === "locked"));
 
     const first = breachRiftRun(fresh, { integrity: 0, maximumIntegrity: 100, reformRemainingMs: 0, breached: false });
-    assert.equal(first.state.firstBreachHullGunReward, "select-weapon");
+    assert.deepEqual(first.state.pendingHullGunReward, { hardpointIndex: 0, breach: 1 });
     assert.equal(first.state.hardpoints.filter(({ status }) => status === "available").length, 1);
     assert.equal(activeHardpointCount(first.state), 0);
 
@@ -374,7 +375,7 @@ test("adversarial single-category progression cannot exhaust any class or catego
 
 test("every selectable upgrade effect has a live combat or flight consumer", async () => {
   const effects=new Set(RIFT_UPGRADES.map(x=>x.effect));
-  assert.deepEqual([...effects].sort(), ["cannonDamage","cannonFireRate","coneWidth","damage","damageReduction","explosionRadius","fireRate","handling","hardpoint","hull","movement","penetration","projectileCount","projectileSpeed","range","shield"].sort());
+  assert.deepEqual([...effects].sort(), ["cannonDamage","cannonFireRate","coneWidth","damage","damageReduction","explosionRadius","fireRate","handling","hull","movement","penetration","projectileCount","projectileSpeed","range","shield"].sort());
   const game=await import("node:fs/promises").then(({readFile})=>readFile(new URL("../app/game.tsx",import.meta.url),"utf8"));
   assert.match(game,/riftRunHullDamage\(amount, riftRunRef\.current\)/);
   assert.match(game,/riftRunHandling\(specialHandling, riftRunRef\.current\)/);
@@ -392,14 +393,35 @@ test("per-instance upgrades are capped and create deterministic real volleys", (
   for(let i=0;i<10;i++) run=applyUpgrade(run,choice); assert.ok(run.hardpoints[1].weapon.modifiers.projectileCount<=3);
 });
 
-test("hardpoint online activates one socket and mounting creates a fresh instance", () => {
-  const light=createRiftRun("wing","light"); assert.ok(!eligibleUpgradeChoices(light).some(x=>x.upgradeId==="hardpoint-online"));
-  let heavy=createRiftRun("flagship", "heavy");
-  heavy=breachRiftRun(heavy,{integrity:0,maximumIntegrity:100,reformRemainingMs:0,breached:false}).state;
-  heavy=mountUnlockedWeapon(heavy,0,"pulse-cannon");
-  const choice=eligibleUpgradeChoices(heavy).find(x=>x.upgradeId==="hardpoint-online"); assert.ok(choice);
-  heavy.pendingLevels=1; heavy=applyUpgrade(heavy,choice); assert.equal(heavy.hardpoints.filter(x=>x.status==="available").length,1);
-  heavy=mountUnlockedWeapon(heavy,1,"missile-pod"); assert.equal(heavy.hardpoints[1].weapon.level,1); assert.notEqual(heavy.hardpoints[1].weapon.instanceId,heavy.hardpoints[0].weapon.instanceId);
+test("hardpoint breach milestones map exact class-limited sockets", () => {
+  assert.deepEqual(HARDPOINT_BREACH_MILESTONES, [1, 3, 5]);
+  assert.equal(hardpointIndexForBreach(1, 3), 0);
+  assert.equal(hardpointIndexForBreach(3, 3), 1);
+  assert.equal(hardpointIndexForBreach(5, 3), 2);
+  for (const breach of [0, 2, 4, 6]) assert.equal(hardpointIndexForBreach(breach, 3), null);
+  assert.equal(hardpointIndexForBreach(3, 1), null);
+  assert.equal(hardpointIndexForBreach(5, 2), null);
+});
+
+test("milestone unlocking is exact and idempotent for available and occupied old state", () => {
+  const locked = createRiftRun("flagship", "idempotent").hardpoints;
+  const unlocked = hardpointUnlockForBreach(locked, 3, 3);
+  assert.equal(unlocked.hardpointIndex, 1);
+  assert.equal(unlocked.hardpoints[1].status, "available");
+  assert.equal(hardpointUnlockForBreach(unlocked.hardpoints, 3, 3).hardpointIndex, null);
+  const occupied = structuredClone(locked);
+  occupied[1] = { index: 1, status: "occupied", weapon: createWeaponInstance("railgun", "legacy") };
+  const unchanged = hardpointUnlockForBreach(occupied, 3, 3);
+  assert.equal(unchanged.hardpointIndex, null);
+  assert.equal(unchanged.hardpoints[2].status, "locked");
+  assert.equal(unchanged.hardpoints[1].weapon.instanceId, "legacy");
+});
+
+test("random upgrades contain no hardpoint activation and offensive upgrades remain valid", () => {
+  const armed = createArmedRun("flagship", "no-random-sockets", "pulse-cannon");
+  assert.ok(!RIFT_UPGRADES.some(({ id, effect }) => id === "hardpoint-online" || effect === "hardpoint"));
+  assert.ok(!eligibleUpgradeChoices(armed).some(({ upgradeId }) => upgradeId === "hardpoint-online"));
+  assert.ok(rollUpgradeChoices({ ...armed, pendingLevels: 1 }).choices.some(({ gameplayCategory }) => gameplayCategory === "offensive"));
 });
 
 test("Phase 3B breach rewards once, blocks reform damage, and reforms stronger", () => {
@@ -423,44 +445,52 @@ test("Phase 3B breach rewards once, blocks reform damage, and reforms stronger",
   assert.equal(reformed.maximumIntegrity, reformed.integrity);
 });
 
-test("first breach grants one locked hardpoint Hull Gun selection exactly once", () => {
-  const run = createRiftRun("tank", "first-hull-gun");
-  const runtime = { integrity: 0, maximumIntegrity: 100, reformRemainingMs: 0, breached: false };
-  const first = breachRiftRun(run, runtime);
-  assert.equal(first.state.riftBreaches, 1);
-  assert.equal(first.state.firstBreachHullGunReward, "select-weapon");
-  assert.equal(first.state.hardpoints.filter(point => point.status === "available").length, 1);
-  assert.equal(pendingHullGunReward(first.state), true);
-
-  const duplicate = breachRiftRun(first.state, first.runtime);
-  assert.equal(duplicate.state.firstBreachHullGunReward, "select-weapon");
-  assert.equal(duplicate.state.hardpoints.filter(point => point.status === "available").length, 1);
-  const mounted = claimHullGunWeapon(first.state, 0, "railgun");
-  assert.equal(mounted.firstBreachHullGunReward, "claimed");
-  assert.equal(mounted.hardpoints[0].weapon.weaponId, "railgun");
-  assert.equal(mounted.hardpoints[0].weapon.level, 1);
-  assert.deepEqual(mounted.hardpoints[0].weapon.modifiers, createWeaponInstance("railgun", "comparison").modifiers);
-
-  const reformed = tickRiftReform(first.runtime, RIFT_RUN_REFORM_DELAY_MS, RIFT_RUN_BASE_INTEGRITY, 1);
-  const second = breachRiftRun(mounted, { ...reformed, integrity: 0 });
-  assert.equal(second.state.riftBreaches, 2);
-  assert.equal(second.state.firstBreachHullGunReward, "claimed");
-  assert.equal(second.state.hardpoints.filter(point => point.status === "available").length, 0);
+test("Light, Medium, and Heavy earn exact milestone Hull Guns without exceeding capacity", () => {
+  for (const [ship, milestones] of [["wing", [1]], ["squid", [1, 3]], ["flagship", [1, 3, 5]]]) {
+    let run = createRiftRun(ship, `milestones-${ship}`);
+    let runtime = { integrity: 0, maximumIntegrity: 100, reformRemainingMs: 0, breached: false };
+    for (let breach = 1; breach <= 5; breach++) {
+      const result = breachRiftRun(run, runtime);
+      run = result.state;
+      if (milestones.includes(breach)) {
+        const index = milestones.indexOf(breach);
+        assert.deepEqual(run.pendingHullGunReward, { hardpointIndex: index, breach });
+        const pendingLevels = run.pendingLevels;
+        run = claimHullGunWeapon(run, index, "railgun");
+        assert.equal(run.pendingLevels, pendingLevels, "Hull Gun selection preserves normal levels");
+        assert.equal(run.hardpoints[index].status, "occupied");
+      } else {
+        assert.equal(run.pendingHullGunReward, null);
+      }
+      runtime = tickRiftReform(result.runtime, RIFT_RUN_REFORM_DELAY_MS, RIFT_RUN_BASE_INTEGRITY, run.riftBreaches);
+      runtime = { ...runtime, integrity: 0 };
+    }
+    const weapons = run.hardpoints.filter(point => point.status === "occupied").map(point => point.weapon);
+    assert.equal(weapons.length, milestones.length);
+    assert.equal(new Set(weapons.map(({ instanceId }) => instanceId)).size, weapons.length);
+  }
 });
 
-test("first breach with no locked socket offers three meaningful Hull Gun upgrades", () => {
-  const armedLight = createArmedRun("wing", "fallback-hull-gun", "minigun");
-  const breached = breachRiftRun(armedLight, { integrity: 0, maximumIntegrity: 100, reformRemainingMs: 0, breached: false }).state;
-  assert.equal(breached.firstBreachHullGunReward, "upgrade-weapon");
-  assert.equal(breached.hardpoints.some(point => point.status === "available"), false);
-  const choices = hullGunUpgradeChoices(breached);
-  assert.equal(choices.length, 3);
-  assert.ok(choices.every(choice => choice.targetInstanceId === breached.hardpoints[0].weapon.instanceId));
-  const pendingLevels = breached.pendingLevels;
-  const upgraded = claimHullGunUpgrade(breached, choices[0]);
-  assert.equal(upgraded.firstBreachHullGunReward, "claimed");
-  assert.equal(upgraded.pendingLevels, pendingLevels, "milestone reward does not consume generic level-up currency");
-  assert.equal(upgraded.upgradeHistory.at(-1).targetInstanceId, breached.hardpoints[0].weapon.instanceId);
+test("duplicate weapon types mount as fresh independent milestone instances", () => {
+  let run = createRiftRun("squid", "duplicates");
+  let first = breachRiftRun(run, { integrity: 0, maximumIntegrity: 100, reformRemainingMs: 0, breached: false });
+  run = claimHullGunWeapon(first.state, 0, "minigun");
+  run.riftBreaches = 2;
+  const third = breachRiftRun(run, { integrity: 0, maximumIntegrity: 100, reformRemainingMs: 0, breached: false }).state;
+  const mounted = claimHullGunWeapon(third, 1, "minigun");
+  assert.notEqual(mounted.hardpoints[0].weapon.instanceId, mounted.hardpoints[1].weapon.instanceId);
+  assert.deepEqual(mounted.hardpoints[0].weapon.modifiers, mounted.hardpoints[1].weapon.modifiers);
+});
+
+test("occupied or available milestone sockets do not reward or unlock a different socket", () => {
+  for (const status of ["available", "occupied"]) {
+    const run = createRiftRun("flagship", `legacy-${status}`);
+    run.riftBreaches = 2;
+    run.hardpoints[1] = status === "available" ? { index: 1, status } : { index: 1, status, weapon: createWeaponInstance("railgun", "existing") };
+    const breached = breachRiftRun(run, { integrity: 0, maximumIntegrity: 100, reformRemainingMs: 0, breached: false }).state;
+    assert.equal(breached.pendingHullGunReward, null);
+    assert.equal(breached.hardpoints[2].status, "locked");
+  }
 });
 
 test("breach energy can queue a level-up and live integration pauses it", async () => {
@@ -470,7 +500,7 @@ test("breach energy can queue a level-up and live integration pauses it", async 
   assert.ok(breached.state.pendingLevels > 0);
   const source = await import("node:fs/promises").then(({ readFile }) => readFile(new URL("../app/game.tsx", import.meta.url), "utf8"));
   assert.match(source, /breachRiftRun\(run,/);
-  assert.match(source, /breached\.state\.pendingLevels > 0 \|\| pendingHullGunReward\(breached\.state\) \|\| breached\.state\.hardpoints\.some/);
+  assert.match(source, /breached\.state\.pendingLevels > 0 \|\| pendingHullGunReward\(breached\.state\)/);
   assert.match(source, /if \(!game\.running \|\| game\.paused \|\| game\.result\) return;/);
   assert.match(source, /else if \(game\.rivalHealth <= 0\)/, "standard PvE retains its normal zero-integrity victory branch");
 });
