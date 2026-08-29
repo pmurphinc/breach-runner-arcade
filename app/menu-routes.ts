@@ -18,6 +18,9 @@ export type MenuRoute =
   | "play"
   | "ships"
   | "modes"
+  | "pvp-modes"
+  | "pve-modes"
+  | "difficulty"
   | "rift-run"
   | "settings"
   | "info"
@@ -30,6 +33,9 @@ export const MENU_ROUTES: readonly MenuRoute[] = [
   "play",
   "ships",
   "modes",
+  "pvp-modes",
+  "pve-modes",
+  "difficulty",
   "rift-run",
   "settings",
   "info",
@@ -47,6 +53,9 @@ export const ROUTE_TITLES: Record<MenuRoute, string> = {
   play: "Launch",
   ships: "Ships",
   modes: "Game Modes",
+  "pvp-modes": "PvP",
+  "pve-modes": "PvE Modes",
+  difficulty: "Difficulty",
   "rift-run": "Rift Run",
   settings: "Settings",
   info: "Game Info",
@@ -64,7 +73,7 @@ export type MenuStack = readonly MenuRoute[];
 export const CLOSED: MenuStack = [];
 
 /** Where a fresh browser session begins: the main menu. */
-export const INITIAL_STACK: MenuStack = ["home"];
+export const INITIAL_STACK: MenuStack = ["ships"];
 
 export function isMenuRoute(value: unknown): value is MenuRoute {
   return typeof value === "string" && (MENU_ROUTES as readonly string[]).includes(value);

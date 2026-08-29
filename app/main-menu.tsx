@@ -9,7 +9,7 @@
  * phone and an ultrawide render the same markup and the same words.
  */
 
-import { useEffect, useId, useMemo, useState, useSyncExternalStore, type KeyboardEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import { MenuScreen, MenuSection, OptionRow, SummaryRow, Toggle } from "./ui-system";
 import { MenuSectionNav } from "./menu-nav";
 import { WEAPONS, type PupClass, type ShipId } from "./game-data";
@@ -23,6 +23,7 @@ import { RIFT_RUN_DESCRIPTION, RIFT_RUN_TAGLINE, RIFT_RUN_TITLE, RIFT_SHIP_CLASS
 import { RIFT_RUN_SHIPS, riftRunShip } from "./rift-run/ships";
 import type { PilotProgression } from "./pilot-progression";
 import { isDifficultyUnlocked, PROGRESSION_DIFFICULTIES } from "./pilot-progression";
+import { drawShipModel } from "./ship-models";
 
 /** One line each. A mode a player cannot summarise is a mode they will not pick. */
 export const MODE_INFO: Record<GameMode, { label: string; blurb: string }> = {
@@ -122,17 +123,39 @@ export type MenuCallbacks = {
   close: () => void;
 };
 
-function SelectedShipPreview({ ship, renderShip, onChange }: {
+/** Canonical, presentation-only canvas preview. It owns no game entity or attachments. */
+export function MenuShipPreview({ ship, size = 104 }: { ship: ShipId; size?: number }) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const context = canvas.current?.getContext("2d");
+    if (!context) return;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let frame = 0;
+    const started = performance.now();
+    const paint = (now: number) => {
+      context.clearRect(0, 0, size, size);
+      context.save();
+      context.translate(size / 2, size / 2);
+      context.rotate(reduced ? -Math.PI / 8 : (now - started) * 0.00022);
+      drawShipModel(context, ship, size / 50);
+      context.restore();
+      if (!reduced) frame = requestAnimationFrame(paint);
+    };
+    paint(started);
+    return () => cancelAnimationFrame(frame);
+  }, [ship, size]);
+  return <canvas ref={canvas} width={size} height={size} data-canonical-ship-preview={ship} aria-hidden="true" />;
+}
+
+function SelectedShipPreview({ ship, onChange }: {
   ship: ShipId;
-  renderShip: (id: ShipId, size: number) => React.ReactNode;
   onChange: () => void;
 }) {
   const profile = SHIP_PROFILES[ship];
-  return <section className="selected-ship-preview" aria-label={`Selected ship: ${profile.name}`}>
-    <div className="selected-ship-preview-art" aria-hidden="true">{renderShip(ship, 104)}</div>
+  return <button type="button" className="selected-ship-preview" aria-label={`Selected ship: ${profile.name}. Choose another ship`} onClick={onChange}>
+    <span className="selected-ship-preview-art"><MenuShipPreview ship={ship} /></span>
     <div><span>Selected ship</span><b>{profile.name}</b><small>{profile.role}</small></div>
-    <button type="button" className="menu-link-button" onClick={onChange}>Change Ship</button>
-  </section>;
+  </button>;
 }
 
 /**
@@ -226,7 +249,7 @@ export function HomeScreen({
             Launch a run
           </h3>
 
-          <SelectedShipPreview ship={ship} renderShip={renderShip} onChange={() => go("ships")} />
+          <SelectedShipPreview ship={ship} onChange={() => go("ships")} />
           <div className="play-summary">
             <SummaryRow
               label="Mode"
@@ -260,135 +283,52 @@ export function HomeScreen({
 
 /* ----------------------------------------------------------------- modes -- */
 
-export function ModesScreen({
-  ship,
-  renderShip,
-  progression,
-  mode,
-  difficulty,
-  onMode,
-  onDifficulty,
-  onSurvival,
-  onRiftRun,
-  onLaunch,
-  go,
-  back,
-  openSettings,
-}: MenuCallbacks & {
-  mode: GameMode;
-  difficulty: DifficultyId;
-  onMode: (next: GameMode) => void;
-  onDifficulty: (next: DifficultyId) => void;
-  /** Switch the launch selection to the endless Rift Survival challenge. */
-  onSurvival: () => void;
-  /** Opens the mode's own loadout instead of selecting a difficulty. */
-  onRiftRun: () => void;
-  onLaunch: () => void;
-  ship: ShipId;
-  renderShip: (id: ShipId, size: number) => React.ReactNode;
-  progression: PilotProgression;
+export function GameTypeScreen({ ship, go, back, openSettings }: MenuCallbacks & { ship: ShipId }) {
+  return <MenuScreen route="modes" onOpenSettings={openSettings} title="Select Game Mode" onBack={back}>
+    <SelectedShipPreview ship={ship} onChange={() => go("ships")} />
+    <div className="mode-grid launch-choice-grid" aria-label="Game type">
+      <button type="button" className="mode-card" data-mode="pvp" onClick={() => go("pvp-modes")}><b>PvP</b><small>Competitive multiplayer</small></button>
+      <button type="button" className="mode-card" data-mode="pve" onClick={() => go("pve-modes")}><b>PvE</b><small>Rift missions and challenge modes</small></button>
+    </div>
+  </MenuScreen>;
+}
+
+export function PvpModesScreen({ ship, onSelect, go, back, openSettings }: MenuCallbacks & { ship: ShipId; onSelect: () => void }) {
+  return <MenuScreen route="pvp-modes" onOpenSettings={openSettings} title="Select PvP Mode" onBack={back}>
+    <SelectedShipPreview ship={ship} onChange={() => go("ships")} />
+    <div className="mode-grid"><button type="button" className="mode-card" data-mode="pvp" onClick={onSelect}><b>1v1</b><small>Matchmaking or private match</small></button></div>
+  </MenuScreen>;
+}
+
+export function PveModesScreen({ ship, onMode, onSurvival, onRiftRun, go, back, openSettings }: MenuCallbacks & {
+  ship: ShipId; onMode: (mode: "pve" | "coop") => void; onSurvival: () => void; onRiftRun: () => void;
 }) {
-  const survival = difficulty === "survival";
-  return (
-    <MenuScreen
-      route="modes"
-      onOpenSettings={openSettings}
-      title="Game Modes"
-      onBack={back}
-      footer={
-        <button type="button" className="play-button" onClick={onLaunch}>
-          {mode === "pve" ? "Play" : "Find a Match"}
-        </button>
-      }
-    >
-      <SelectedShipPreview ship={ship} renderShip={renderShip} onChange={() => go("ships")} />
-      <MenuSection title="Arcade">
-        <div className="mode-grid" role="radiogroup" aria-label="Arcade mode">
-          {MODE_ORDER.map((id) => {
-            // A challenge suppresses the arcade tick: the run about to launch
-            // is Survival, and two ticked cards would be two answers to one
-            // question.
-            const active = !survival && mode === id;
-            return (
-              <button
-                key={id}
-                type="button"
-                role="radio"
-                aria-checked={active}
-                className={`mode-card ${active ? "active" : ""}`}
-                data-mode={id}
-                onClick={() => onMode(id)}
-              >
-                <span className="option-check" aria-hidden="true">
-                  {active ? "✓" : ""}
-                </span>
-                <b>{MODE_INFO[id].label}</b>
-                <small>{MODE_INFO[id].blurb}</small>
-              </button>
-            );
-          })}
-        </div>
-      </MenuSection>
+  return <MenuScreen route="pve-modes" onOpenSettings={openSettings} title="Select PvE Mode" onBack={back}>
+    <SelectedShipPreview ship={ship} onChange={() => go("ships")} />
+    <div className="mode-grid pve-mode-grid">
+      <button type="button" className="mode-card" data-mode="pve" onClick={() => onMode("pve")}><b>Solo PvE</b><small>One pilot against the rift</small></button>
+      <button type="button" className="mode-card" data-mode="coop" onClick={() => onMode("coop")}><b>PvE Co-op</b><small>Two pilots, shared objective</small></button>
+      <button type="button" className="mode-card" data-mode="survival" onClick={onSurvival}><b>Rift Survival</b><small>Endless escalating challenge</small></button>
+      <button type="button" className="mode-card" data-mode="rift-run" onClick={onRiftRun}><b>{RIFT_RUN_TITLE}</b><small>{RIFT_RUN_TAGLINE}</small></button>
+    </div>
+  </MenuScreen>;
+}
 
-      {mode === "pvp" || survival ? null : (
-        <MenuSection title="PvE Difficulty" hint="Complete each tier to unlock the next.">
-          <div className="difficulty-progression" role="radiogroup" aria-label="PvE difficulty">
-            {PROGRESSION_DIFFICULTIES.map((id) => {
-              const unlocked = isDifficultyUnlocked(id, progression);
-              const completed = progression.completedDifficulties.includes(id);
-              const prerequisite = id === "difficult" ? "STABLE" : "VOLATILE";
-              return <button key={id} type="button" role="radio" aria-checked={difficulty === id}
-                disabled={!unlocked} aria-disabled={!unlocked}
-                className={`difficulty-card ${difficulty === id ? "active" : ""} ${unlocked ? "unlocked" : "locked"}`}
-                onClick={() => unlocked && onDifficulty(id)}>
-                <span className="option-check" aria-hidden="true">{difficulty === id ? "✓" : !unlocked ? "🔒" : ""}</span>
-                <b>{difficultyLabel(id)}</b>
-                <small>{unlocked ? difficultyBlurb(id) : `Complete ${prerequisite} to unlock`}</small>
-                <em>{completed ? "Completed" : unlocked ? "Available" : `Complete ${prerequisite} to unlock`}</em>
-              </button>;
-            })}
-          </div>
-          <div className="simulation-option">
-            <button type="button" role="radio" aria-checked={difficulty === "practice"}
-              className={`difficulty-card ${difficulty === "practice" ? "active" : ""}`} onClick={() => onDifficulty("practice")}>
-              <span className="option-check" aria-hidden="true">{difficulty === "practice" ? "✓" : ""}</span>
-              <b>Simulation</b><small>Practice / unscored</small><em>Training</em>
-            </button>
-          </div>
-        </MenuSection>
-      )}
-
-      <MenuSection title="Challenges" hint="Solo runs with their own rules.">
-        <div className="mode-grid" role="radiogroup" aria-label="Challenge">
-          <button
-            type="button"
-            role="radio"
-            aria-checked={survival}
-            className={`mode-card ${survival ? "active" : ""}`}
-            data-mode="survival"
-            onClick={onSurvival}
-          >
-            <span className="option-check" aria-hidden="true">
-              {survival ? "✓" : ""}
-            </span>
-            <b>{CHALLENGE_INFO.survival.label}</b>
-            <small>{CHALLENGE_INFO.survival.blurb}</small>
-          </button>
-          <button
-            type="button"
-            className="mode-card"
-            data-mode="rift-run"
-            onClick={onRiftRun}
-          >
-            <span className="option-check" aria-hidden="true" />
-            <b>{RIFT_RUN_TITLE}</b>
-            <small>{RIFT_RUN_TAGLINE} · {RIFT_RUN_DESCRIPTION}</small>
-          </button>
-        </div>
-      </MenuSection>
-
-    </MenuScreen>
-  );
+export function DifficultyScreen({ ship, mode, difficulty, progression, onDifficulty, onLaunch, go, back, openSettings }: MenuCallbacks & {
+  ship: ShipId; mode: "pve" | "coop"; difficulty: DifficultyId; progression: PilotProgression;
+  onDifficulty: (id: DifficultyId) => void; onLaunch: () => void;
+}) {
+  return <MenuScreen route="difficulty" onOpenSettings={openSettings} title="Select Difficulty" onBack={back}
+    footer={<button type="button" className="play-button" onClick={onLaunch} disabled={!isDifficultyUnlocked(difficulty, progression)}>{mode === "coop" ? "Continue to Co-op" : "Play"}</button>}>
+    <SelectedShipPreview ship={ship} onChange={() => go("ships")} />
+    <button type="button" className="selected-mode-card" onClick={() => go("pve-modes")}><span>Selected mode</span><b>{MODE_INFO[mode].label}</b></button>
+    <MenuSection title="Difficulty" hint="Complete each tier to unlock the next.">
+      <div className="difficulty-progression" role="radiogroup" aria-label="PvE difficulty">
+        {PROGRESSION_DIFFICULTIES.map((id) => { const unlocked=isDifficultyUnlocked(id, progression); const prerequisite=id === "difficult" ? "STABLE" : "VOLATILE"; return <button key={id} type="button" role="radio" aria-checked={difficulty===id} disabled={!unlocked} aria-disabled={!unlocked} className={`difficulty-card ${difficulty===id ? "active" : ""} ${unlocked ? "unlocked" : "locked"}`} onClick={() => onDifficulty(id)}><span className="option-check" aria-hidden="true">{difficulty===id ? "✓" : !unlocked ? "🔒" : ""}</span><b>{difficultyLabel(id)}</b><small>{unlocked ? difficultyBlurb(id) : `Complete ${prerequisite} to unlock`}</small><em>{progression.completedDifficulties.includes(id) ? "Completed" : unlocked ? "Available" : `Complete ${prerequisite} to unlock`}</em></button>; })}
+      </div>
+      <div className="simulation-option"><button type="button" role="radio" aria-checked={difficulty==="practice"} className={`difficulty-card ${difficulty==="practice" ? "active" : ""}`} onClick={() => onDifficulty("practice")}><span className="option-check">{difficulty==="practice" ? "✓" : ""}</span><b>Simulation</b><small>Practice / unscored</small><em>Training</em></button></div>
+    </MenuSection>
+  </MenuScreen>;
 }
 
 /* -------------------------------------------------------------- Rift Run -- */
@@ -513,7 +453,7 @@ export function ShipsScreen({
 
         <section className="ship-detail" aria-live="polite">
           <div className="ship-detail-art" aria-hidden="true">
-            {renderShip(ship, 132)}
+            <MenuShipPreview ship={ship} size={132} />
           </div>
           <h3>{profile.name}</h3>
           <p className="ship-detail-role">

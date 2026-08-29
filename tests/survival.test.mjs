@@ -390,11 +390,12 @@ test("survival is launched from Challenges, not from the difficulty list", () =>
   // The roadmap rules out Survival Easy / Survival Hard menu entries, so the
   // difficulty selector must not offer it at all.
   assert.ok(!DIFFICULTIES.survival.unlimitedHull);
-  assert.match(menu, /title="Challenges"/);
-  assert.match(menu, /CHALLENGE_INFO\.survival\.label/);
-  assert.match(menu, /const survival = difficulty === "survival"/);
-  // Choosing a challenge hides the difficulty rows it does not use.
-  assert.match(menu, /\{mode === "pvp" \|\| survival \? null : \(/);
+  assert.match(menu, /title="Select PvE Mode"/);
+  assert.match(menu, /data-mode="survival"/);
+  assert.match(menu, /onClick=\{onSurvival\}/);
+  // Survival owns its launch and never enters the standard Difficulty screen.
+  const difficultyScreen = menu.slice(menu.indexOf("export function DifficultyScreen"), menu.indexOf("Rift Run --"));
+  assert.doesNotMatch(difficultyScreen, /survival/);
 
   // Choosing an arcade mode leaves the challenge behind.
   assert.match(gameCode, /difficultyPreference\.get\(\) === "survival"/);
