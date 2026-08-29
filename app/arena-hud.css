@@ -340,7 +340,7 @@ html[data-mirror-touch-actions="on"] .touch-capable[data-immersive="true"][data-
   line-height: 1.1;
 }
 .touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .difficulty-badge
-  :is(.rule-score, .rule-time, .rule-mode, .rule-rift-level) {
+  :is(.rule-score, .rule-time, .rule-mode, .rule-rift-level, .rule-rift-stage) {
   grid-column: auto;
   justify-self: start;
 }

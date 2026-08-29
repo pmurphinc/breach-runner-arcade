@@ -1119,6 +1119,7 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 }
 .touch-capable[data-immersive="true"][data-form="phone"] .difficulty-badge .rule-mode { grid-column: 1; color: var(--cyan); }
 .touch-capable[data-immersive="true"][data-form="phone"] .difficulty-badge .rule-rift-level { grid-column: 2; }
+.touch-capable[data-immersive="true"][data-form="phone"] .difficulty-badge .rule-rift-stage { grid-column: 2; }
 .touch-capable[data-immersive="true"][data-form="phone"] .difficulty-badge :is(.rule-rift,.rule-shield,.rule-contact,.rule-enraged) { display: none; }
 .touch-capable[data-immersive="true"][data-form="phone"] .difficulty-badge .rule-context { grid-column: 1 / -1; color: #eafcff; }
 .touch-capable[data-immersive="true"][data-form="phone"] .health-rails {
@@ -1224,6 +1225,8 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
 /* Survival's Rift Level is the one number that is always climbing, so it gets
    the warning colour rather than the neutral one the static rules use. */
 .difficulty-badge .rule-rift-level { color: var(--amber); font-weight: 900; }
+/* Rift Run's escalation stage names the pressure the depth beside it bought. */
+.difficulty-badge .rule-rift-stage { color: var(--amber); font-weight: 900; letter-spacing: .04em; }
 .difficulty-badge .warn { color: var(--amber); }
 .difficulty-badge.hazard .warn { color: #ff8fa2; }
 .full-short { display: none; }

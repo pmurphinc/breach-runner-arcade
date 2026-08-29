@@ -111,6 +111,14 @@ import { awardRiftEnergy, enemyKillEnergy, riftDamaged, riftEnergyRequiredForLev
 import { hasEnemyAttackAuthority, hostileShotVelocity, nearestPilot } from "./coop-enemy-targeting.js";
 import { applyRiftRunHullWeaponDamage, RIFT_RUN_BASE_INTEGRITY } from "./rift-run/rift-damage";
 import { breachRiftRun, tickRiftReform } from "./rift-run/breach";
+import {
+  RIFT_RUN_HOSTILE_CAP,
+  createRiftRunEscalationRuntime,
+  escalateRiftRunToDepth,
+  riftRunBreachNotice,
+  riftRunStageForDepth,
+  type RiftRunEscalationRuntime,
+} from "./rift-run/escalation";
 import { rollUpgradeChoices } from "./rift-run/upgrade-pool";
 import { riftRunHandling, riftRunHullDamage } from "./rift-run/live-modifiers";
 import { applyUpgrade } from "./rift-run/upgrade-apply";
@@ -539,6 +547,14 @@ type Game = {
   portalThreshold: number;
   /** Rift Survival bookkeeping. Null in every other ruleset. */
   survival: SurvivalState | null;
+  /**
+   * Rift Run escalation bookkeeping. Null in every other mode.
+   *
+   * Rift Run has no clock of its own — its pressure comes from breach depth —
+   * so this holds the rules the current depth is flying under and the hazard
+   * cadences that depth armed.
+   */
+  riftEscalation: RiftRunEscalationRuntime | null;
   /** Remaining ticks in the staged wormhole-collapse victory sequence. */
   victorySequence: number;
   /** Ensures the central blast, sound, and particle payload fire exactly once. */
@@ -730,6 +746,8 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
     elapsedTicks: 0,
     portalThreshold: PORTAL_THRESHOLD,
     survival: isSurvival(rules) ? createSurvivalState() : null,
+    // Rift Run arms this in `start`, where the run itself is created.
+    riftEscalation: null,
     victorySequence: 0,
     victoryExplosionFired: false,
     enrageActive: false,
@@ -1613,13 +1631,19 @@ function DifficultyBadge({
 
   if (riftRun?.status === "active") {
     const active = activeHardpointCount(riftRun);
+    // Breach depth is Rift Run's difficulty clock, so the stage it has reached
+    // is derived from the run itself rather than plumbed through the HUD. It
+    // takes the slot the always-1 sector readout used to hold, which keeps the
+    // rail exactly as wide and as tall as the layout budget already measured.
+    const depthStage = riftRunStageForDepth(riftRun.riftBreaches).name;
     return (
       <div className="difficulty-badge rift-run-badge" role="status" aria-live="polite"
-        aria-label={`Rift Run. Sector ${riftRun.sector}. ${active} of ${riftRun.maximumHardpoints} hardpoints active.`}>
+        aria-label={`Rift Run. Depth ${riftRun.riftBreaches}, ${depthStage}. ${active} of ${riftRun.maximumHardpoints} hardpoints active.`}>
         <span className="rule-score">SCORE {hud.score.toLocaleString().padStart(6, "0")}</span>
         <span className="rule-mode">RIFT RUN</span>
         <span className="rule-rift-level">LEVEL {riftRun.level}</span>
-        <span className="rule-rift-level">SECTOR {riftRun.sector}</span>
+        <span className="rule-rift-level">DEPTH {riftRun.riftBreaches}</span>
+        <span className="rule-rift-stage">{depthStage}</span>
         <span>ENERGY {Math.floor(riftRun.riftEnergy)}/{riftEnergyRequiredForLevel(riftRun.level)}</span>
         <span>HARDPOINTS {active}/{riftRun.maximumHardpoints}</span>
       </div>
@@ -2676,6 +2700,13 @@ export default function WormholeGame() {
       riftRunRef.current = run;
       riftWeaponRuntime.current = createWeaponRuntime(run);
       setRiftRun(run);
+      // Depth zero is the arena Rift Run has always opened in — the rift
+      // locked centre, no contact hazard, no enrage. Arming it here rather
+      // than treating it as a special case means every later depth is the
+      // same code path applied to a bigger number.
+      game.riftEscalation = createRiftRunEscalationRuntime(game.rules);
+      game.rules = game.riftEscalation.current.rules;
+      game.portalThreshold = game.riftEscalation.current.escalation.powerUpCharge;
     } else {
       riftRunRef.current = null;
       riftWeaponRuntime.current = {};
@@ -3751,6 +3782,124 @@ export default function WormholeGame() {
       playCue("wormhole-explosion", 0.2);
     };
 
+    /**
+     * One Rift Run breach: rewards, the reform timer, and the next depth's rules.
+     *
+     * Rift Run is endless the way Survival is endless — the rift reforms
+     * rather than dying — so a breach is where the mode's difficulty clock
+     * ticks. Every rift the pilot destroys hands the run a deeper ruleset:
+     * the rift starts to orbit, then burns on contact, then enrages, and by
+     * the fourth breach the arena is running Survival's Rift Collapse stage.
+     * It keeps climbing after that with no ceiling.
+     *
+     * Shared by both breach call sites — hull-mounted Rift Run weapons and
+     * ordinary power-up damage — so a rift can only ever be collapsed, paid
+     * for, and escalated by one path.
+     */
+    const breachRiftRunNow = (game: Game) => {
+      const run = riftRunRef.current;
+      if (!run || game.rivalHealth > 0 || game.riftReformTicks > 0 || game.result) return;
+
+      const breached = breachRiftRun(run, {
+        integrity: game.rivalHealth,
+        maximumIntegrity: game.rivalMaxHealth,
+        reformRemainingMs: 0,
+        breached: false,
+      });
+      const scoreDelta = breached.state.score - run.score;
+      riftRunRef.current = breached.state;
+      setRiftRun(breached.state);
+      game.score += scoreDelta;
+      game.rivalHealth = breached.runtime.integrity;
+      game.rivalMaxHealth = breached.runtime.maximumIntegrity;
+      game.riftReformTicks = Math.ceil(breached.runtime.reformRemainingMs / TICK_MS);
+
+      // What the new depth means is decided in `escalateRiftRunToDepth`, as
+      // data. All that happens here is applying it — the loop was already
+      // reading every one of these rules every tick.
+      const escalation = game.riftEscalation ?? createRiftRunEscalationRuntime(game.rules);
+      game.riftEscalation = escalation;
+      const next = escalateRiftRunToDepth(escalation, breached.state.riftBreaches);
+      game.rules = next.rules;
+      game.portalThreshold = next.escalation.powerUpCharge;
+
+      // Enrage arrives at a depth here rather than at an integrity threshold,
+      // and every deeper breach refreshes the rift's regeneration and its
+      // temporary shield.
+      if (game.rules.wormholeEnrage.enabled) {
+        game.enrageActive = true;
+        game.enrageTimer = game.rules.wormholeEnrage.waveIntervalTicks;
+        game.enrageMineTimer = game.rules.wormholeEnrage.minePulseIntervalTicks;
+        activateEnrageRecovery(game.enrageRecovery, game.rules, game.rivalMaxHealth);
+      }
+
+      game.notice = riftRunBreachNotice(next);
+      game.noticeLife = Math.max(game.riftReformTicks, next.stageChanged ? 170 : 120);
+      if (breached.state.pendingLevels > 0 || pendingHullGunReward(breached.state)) game.paused = true;
+      game.portalPulse = 1;
+      burst(game, game.portalX, game.portalY, "#ffffff", next.stageChanged ? 60 : 40, next.stageChanged ? 12 : 10);
+      if (next.stageChanged) burst(game, game.portalX, game.portalY, "#ff4fd8", 40, 11);
+      playCue("wormhole-explosion", next.stageChanged ? 0.22 : 0.18);
+      if (next.stageChanged) playCue("rift-level", 0.24);
+    };
+
+    /**
+     * One tick of Rift Run escalation.
+     *
+     * Pure scheduling, and deliberately the same scheduling Survival does:
+     * waves, mine storms and sweep beams on the cadences the current depth
+     * armed. Nothing here scores — Rift Run pays for kills and rift damage in
+     * Rift Energy, not survived seconds — and nothing here spawns a hostile
+     * the game did not already have.
+     */
+    const tickRiftRunEscalation = (game: Game) => {
+      const runtime = game.riftEscalation;
+      if (!runtime || game.result || !riftRunRef.current) return;
+      const { escalation, ownsWaveSchedule } = runtime.current;
+
+      // A full arena skips the wave it was about to spawn instead of queuing
+      // another one behind it. A mode with no wave count has no other brake.
+      const crowded = game.enemies.length >= RIFT_RUN_HOSTILE_CAP;
+
+      // Before the first breach the ordinary PvE scheduler still owns waves,
+      // so the rift's own clock stays parked at zero.
+      if (ownsWaveSchedule) {
+        runtime.waveIn -= 1;
+        if (runtime.waveIn <= 0) {
+          runtime.waveIn = escalation.waveIntervalTicks;
+          if (!crowded) {
+            const pool = escalation.wavePool;
+            addIncoming(game, pool[Math.floor(Math.random() * pool.length)], escalation.waveSizeBonus);
+          }
+        }
+      }
+
+      if (escalation.mineStormIntervalTicks > 0) {
+        runtime.mineStormIn -= 1;
+        if (runtime.mineStormIn <= 0) {
+          runtime.mineStormIn = escalation.mineStormIntervalTicks;
+          if (!crowded) spawnSurvivalHostiles(game, "mines", escalation.mineStormCount, "MINE STORM");
+        }
+      }
+
+      // Beams are exempt from the crowding skip for the same reason they are
+      // in Survival: there are only ever one or two, they are anchored to the
+      // rift rather than chasing the pilot, and they are the stage's signature
+      // threat rather than part of the swarm the cap exists to stop.
+      if (escalation.beamIntervalTicks > 0) {
+        runtime.beamIn -= 1;
+        if (runtime.beamIn <= 0) {
+          runtime.beamIn = escalation.beamIntervalTicks;
+          spawnSurvivalHostiles(
+            game,
+            "beam",
+            escalation.beamCount,
+            escalation.beamCount > 1 ? "DOUBLE SWEEP" : "SWEEP BEAM",
+          );
+        }
+      }
+    };
+
     /** Resolves every Rift Run hull-weapon hit through one integrity path. */
     const hitRiftWithRiftRunWeapon = (game: Game, weaponDamage: number, weaponInstanceId: string) => {
       // Nominal damage keeps feeding the temporary PUP loop even when the
@@ -3765,26 +3914,7 @@ export default function WormholeGame() {
         if (next.pendingLevels) game.paused = true;
       }
 
-      if (run && game.rivalHealth <= 0 && game.riftReformTicks <= 0 && !game.result) {
-        const breached = breachRiftRun(run, {
-          integrity: game.rivalHealth,
-          maximumIntegrity: game.rivalMaxHealth,
-          reformRemainingMs: 0,
-          breached: false,
-        });
-        const scoreDelta = breached.state.score - run.score;
-        riftRunRef.current = breached.state;
-        setRiftRun(breached.state);
-        game.score += scoreDelta;
-        game.rivalHealth = breached.runtime.integrity;
-        game.rivalMaxHealth = breached.runtime.maximumIntegrity;
-        game.riftReformTicks = Math.ceil(breached.runtime.reformRemainingMs / TICK_MS);
-        game.notice = `RIFT BREACHED // DEPTH ${breached.state.riftBreaches}`;
-        game.noticeLife = game.riftReformTicks;
-        if (breached.state.pendingLevels > 0 || pendingHullGunReward(breached.state)) game.paused = true;
-        burst(game, game.portalX, game.portalY, "#ffffff", 40, 10);
-        playCue("wormhole-explosion", .18);
-      }
+      breachRiftRunNow(game);
       return integrityDamage;
     };
 
@@ -4438,6 +4568,9 @@ export default function WormholeGame() {
       // Survival re-derives `game.rules` on every Rift Level, so its clock has
       // to run before anything that reads them this tick.
       tickSurvival(game);
+      // Rift Run re-derives `game.rules` on every breach, so its hazard
+      // schedule runs in the same slot, before anything reads them this tick.
+      tickRiftRunEscalation(game);
 
       if (game.enrageActive && game.rules.wormholeEnrage.enabled) {
       const enrage = game.rules.wormholeEnrage;
@@ -4546,7 +4679,9 @@ export default function WormholeGame() {
       // Rift Collapse opens a gravity well. It is applied as acceleration
       // before the speed clamp, so it can drag a pilot off course but can
       // never carry them faster than their own frame flies.
-      const gravity = game.survival?.escalation.gravityPull ?? 0;
+      const gravity = game.survival?.escalation.gravityPull
+        ?? game.riftEscalation?.current.escalation.gravityPull
+        ?? 0;
       if (gravity > 0) {
         const dx = game.portalX - player.x;
         const dy = game.portalY - player.y;
@@ -4903,27 +5038,7 @@ export default function WormholeGame() {
               // rather than an ending: the arena clears and the rift reforms.
               breachRift(game);
             } else if (game.rivalHealth <= 0 && riftRunRef.current) {
-              const run = riftRunRef.current;
-              if (game.riftReformTicks <= 0) {
-                const breached = breachRiftRun(run, {
-                  integrity: game.rivalHealth,
-                  maximumIntegrity: game.rivalMaxHealth,
-                  reformRemainingMs: 0,
-                  breached: false,
-                });
-                const scoreDelta = breached.state.score - run.score;
-                riftRunRef.current = breached.state;
-                setRiftRun(breached.state);
-                game.score += scoreDelta;
-                game.rivalHealth = breached.runtime.integrity;
-                game.rivalMaxHealth = breached.runtime.maximumIntegrity;
-                game.riftReformTicks = Math.ceil(breached.runtime.reformRemainingMs / TICK_MS);
-                game.notice = `RIFT BREACHED // DEPTH ${breached.state.riftBreaches}`;
-                game.noticeLife = game.riftReformTicks;
-                if (breached.state.pendingLevels > 0 || pendingHullGunReward(breached.state)) game.paused = true;
-                burst(game, game.portalX, game.portalY, "#ffffff", 40, 10);
-                playCue("wormhole-explosion", .18);
-              }
+              breachRiftRunNow(game);
             } else if (game.rivalHealth <= 0) {
               game.rivalHealth = 0;
               game.victorySequence = ticksForSeconds(VICTORY_TOTAL_SECONDS);
@@ -5001,9 +5116,11 @@ export default function WormholeGame() {
           game.noticeLife = 140;
         }
       } else if (
-        // Survival schedules its own waves from the escalation table, so the
-        // PvE scheduler stands down rather than spawning alongside it.
+        // Survival — and a Rift Run that has breached at least once —
+        // schedules its own waves from an escalation table, so the PvE
+        // scheduler stands down rather than spawning alongside it.
         !game.survival
+        && !game.riftEscalation?.current.ownsWaveSchedule
         && (game.mode !== "coop" || coopIsHost)
         && game.botTimer <= 0
         && game.running
@@ -5378,9 +5495,14 @@ export default function WormholeGame() {
       ctx.setTransform(worldScale, 0, 0, worldScale, 0, 0);
       // Survival repaints the arena as it escalates, so the stage a run has
       // reached is legible before a single word of HUD is read.
+      // Survival repaints the arena as it escalates, and a Rift Run repaints
+      // it per breach, so the stage a run has reached is legible before a
+      // single word of HUD is read.
       const palette = game.survival
         ? SURVIVAL_PALETTES[game.survival.escalation.stage.id]
-        : ARENA_PALETTES[game.rules.id];
+        : game.riftEscalation
+          ? SURVIVAL_PALETTES[game.riftEscalation.current.stage.id]
+          : ARENA_PALETTES[game.rules.id];
       const gradient = ctx.createRadialGradient(VIEW_WIDTH / 2, renderViewHeight / 2, 10, VIEW_WIDTH / 2, renderViewHeight / 2, Math.max(VIEW_WIDTH, renderViewHeight) * .58);
       gradient.addColorStop(0, palette[0]);
       gradient.addColorStop(.58, palette[1]);
