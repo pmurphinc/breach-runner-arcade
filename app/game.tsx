@@ -6626,14 +6626,17 @@ export default function WormholeGame() {
 
       <header className="topbar">
         <div className="brand">
-          <div>
-            <img
-              className="brand-logo"
-              src="/branding/breach_runner_logo.webp"
-              alt="Breach Runner"
-              width={800}
-              height={320}
-            />
+          <div className="brand-lockup">
+            <div className="brand-row">
+              <img
+                className="brand-logo"
+                src="/branding/breach_runner_logo.webp"
+                alt="Breach Runner"
+                width={800}
+                height={320}
+              />
+              <BuildWatermark />
+            </div>
             <a className="brand-home" href={MURPH_SITE_URL} target="_blank" rel="noopener noreferrer">
               ← MURPH TOURNAMENTS
             </a>
@@ -7180,8 +7183,6 @@ export default function WormholeGame() {
           </div>
         </aside>
       </section>
-
-      <BuildWatermark />
 
       {/*
         The global system layer. Rendered last and pinned to --z-system so it
