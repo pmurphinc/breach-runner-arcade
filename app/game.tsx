@@ -54,6 +54,7 @@ import {
 } from "./difficulty";
 import {
   capabilityStore,
+  resolveMultiplayerName,
   resolveViewMode,
   settingsStore,
   SOUND_GAIN,
@@ -2406,13 +2407,13 @@ export default function WormholeGame() {
     const client = new PvpClient(mode === "coop" ? "coop" : "pvp", difficulty);
     netRef.current = client;
     const unsubscribe = client.subscribe(setNet);
-    client.connect();
+    client.connect(resolveMultiplayerName(settings.playerInitials));
     return () => {
       unsubscribe();
       client.disconnect();
       netRef.current = null;
     };
-  }, [difficulty, mode]);
+  }, [difficulty, mode, settings.playerInitials]);
 
   const chooseMode = useCallback((next: GameMode) => {
     modePreference.set(next);
