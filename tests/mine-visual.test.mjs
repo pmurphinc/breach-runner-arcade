@@ -21,10 +21,25 @@ test("multiple sea mines use the shared, phase-varied rendering path", () => {
   assert.match(game, /phase: enemy\.kind === "mines" \? enemy\.phase : undefined/);
 });
 
+test("hostile mines render only their model, without an external arena halo", () => {
+  const game = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
+  const arenaMinePass = game.slice(
+    game.indexOf("drawWeaponGlyph(ctx, enemy.kind, enemy.radius, time"),
+    game.indexOf("/** World-space portion of the wormhole spawn sequence.", game.indexOf("drawWeaponGlyph(ctx, enemy.kind, enemy.radius, time")),
+  );
+
+  assert.match(arenaMinePass, /drawWeaponGlyph\(ctx, enemy\.kind, enemy\.radius, time/);
+  assert.doesNotMatch(arenaMinePass, /enemy\.kind === "mines" && enemy\.armed/);
+  assert.doesNotMatch(arenaMinePass, /enemy\.radius\s*\+\s*3\s*\+\s*mineVisual\.blink\s*\*\s*2/);
+  assert.doesNotMatch(game, /import \{ mineVisualState \} from "\.\/mine-visual"/);
+});
+
 test("mine center stays clear so the red blink remains unobstructed", () => {
   const art = readFileSync(new URL("../app/weapon-art.ts", import.meta.url), "utf8");
   const mineRenderer = art.slice(art.indexOf("const mines: GlyphFn"), art.indexOf("const ufo: GlyphFn"));
   assert.match(mineRenderer, /ctx\.arc\(0, 0, 3 \* s/);
+  assert.match(mineRenderer, /ctx\.fillStyle = "#ff5a36"/);
+  assert.match(mineRenderer, /ctx\.globalAlpha = animated \? visual\.blink : 0\.42/);
   assert.doesNotMatch(mineRenderer, /ctx\.moveTo\(-8\.2 \* s, 0\)/);
   assert.doesNotMatch(mineRenderer, /ctx\.lineTo\(8\.2 \* s, 0\)/);
 });
