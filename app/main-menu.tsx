@@ -12,7 +12,7 @@
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import { MenuScreen, MenuSection, OptionRow, SummaryRow, Toggle } from "./ui-system";
 import { MenuSectionNav } from "./menu-nav";
-import { WEAPONS, type PupClass, type ShipId } from "./game-data";
+import { WEAPONS, type PickupId, type PupClass, type ShipId } from "./game-data";
 import { SHIP_ORDER, SHIP_PROFILES } from "./ship-data";
 import { DIFFICULTIES, DIFFICULTY_ORDER, type DifficultyId, type GameMode } from "./difficulty";
 import { PRODUCT_TAGLINE, PRODUCT_TITLE } from "./product";
@@ -24,6 +24,7 @@ import { RIFT_RUN_SHIPS, riftRunShip } from "./rift-run/ships";
 import type { PilotProgression } from "./pilot-progression";
 import { isDifficultyUnlocked, PROGRESSION_DIFFICULTIES } from "./pilot-progression";
 import { drawShipModel } from "./ship-models";
+import { drawWeaponGlyph } from "./weapon-art";
 
 /** One line each. A mode a player cannot summarise is a mode they will not pick. */
 export const MODE_INFO: Record<GameMode, { label: string; blurb: string }> = {
@@ -65,6 +66,21 @@ const PUP_CLASS_LABELS: Record<PupClass, string> = {
   payload: "Payload", upgrade: "Upgrade", recovery: "Recovery", rare: "Rare",
 };
 
+/** Static menu presentation of the same canonical glyph drawn in the arena. */
+export function MenuPupPreview({ pup, size = 88 }: { pup: PickupId; size?: number }) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const context = canvas.current?.getContext("2d");
+    if (!context) return;
+    context.clearRect(0, 0, size, size);
+    context.save();
+    context.translate(size / 2, size / 2);
+    drawWeaponGlyph(context, pup, size * 0.28, 0, { detail: 1 });
+    context.restore();
+  }, [pup, size]);
+  return <canvas className="game-info-model pup-info-model" ref={canvas} width={size} height={size} data-canonical-pup-preview={pup} aria-hidden="true" />;
+}
+
 /** Shared read-only reference, generated from gameplay and selection metadata. */
 export function GameInfoContent({ viewMode }: { viewMode: ViewMode }) {
   const touch = viewMode !== "pc";
@@ -100,6 +116,7 @@ export function GameInfoContent({ viewMode }: { viewMode: ViewMode }) {
     <MenuSection title="PUPs" hint="Canonical class and effect for every power-up the rift can produce.">
       <div className="game-info-grid pup-info-grid">
         {Object.values(WEAPONS).map((pup) => <article className="game-info-card" key={pup.id} data-pup={pup.id}>
+          <MenuPupPreview pup={pup.id} />
           <span className="game-info-kicker">{PUP_CLASS_LABELS[pup.pupClass]}</span><h4>{pup.name}</h4>
           <p>{pup.summary}</p><p>{pup.role}</p>
         </article>)}
@@ -108,6 +125,7 @@ export function GameInfoContent({ viewMode }: { viewMode: ViewMode }) {
     <MenuSection title="Ships &amp; Specials">
       <div className="game-info-grid ship-info-grid">
         {SHIP_ORDER.map((id) => { const ship = SHIP_PROFILES[id]; return <article className="game-info-card" key={id} data-ship={id}>
+          <MenuShipPreview ship={id} size={96} animated={false} />
           <span className="game-info-kicker">{ship.role}</span><h4>{ship.name}</h4>
           <p><b>{ship.special.name}</b> · {ship.special.cooldownSeconds}s</p><p>{ship.special.description}</p>
         </article>; })}
@@ -124,12 +142,12 @@ export type MenuCallbacks = {
 };
 
 /** Canonical, presentation-only canvas preview. It owns no game entity or attachments. */
-export function MenuShipPreview({ ship, size = 104 }: { ship: ShipId; size?: number }) {
+export function MenuShipPreview({ ship, size = 104, animated = true }: { ship: ShipId; size?: number; animated?: boolean }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const context = canvas.current?.getContext("2d");
     if (!context) return;
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const reduced = !animated || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     let frame = 0;
     const started = performance.now();
     const paint = (now: number) => {
@@ -143,8 +161,8 @@ export function MenuShipPreview({ ship, size = 104 }: { ship: ShipId; size?: num
     };
     paint(started);
     return () => cancelAnimationFrame(frame);
-  }, [ship, size]);
-  return <canvas ref={canvas} width={size} height={size} data-canonical-ship-preview={ship} aria-hidden="true" />;
+  }, [animated, ship, size]);
+  return <canvas className="menu-ship-preview" ref={canvas} width={size} height={size} data-canonical-ship-preview={ship} aria-hidden="true" />;
 }
 
 function SelectedShipPreview({ ship, onChange }: {
@@ -598,6 +616,13 @@ export function SettingsScreen({
         ))}
       </div>
 
+      <div
+        className="settings-tab-panel"
+        id={`${tabsId}-panel-${activeTab}`}
+        role="tabpanel"
+        aria-labelledby={`${tabsId}-tab-${activeTab}`}
+      >
+      {activeTab === "controls" ? <>
       <MenuSection title="Arcade identity" hint="Used automatically for future scores.">
         <div className="initials-field">
           <label htmlFor="menu-player-initials">Initials</label>
@@ -614,14 +639,7 @@ export function SettingsScreen({
           />
         </div>
       </MenuSection>
-
-      <div
-        className="settings-tab-panel"
-        id={`${tabsId}-panel-${activeTab}`}
-        role="tabpanel"
-        aria-labelledby={`${tabsId}-tab-${activeTab}`}
-      >
-      {activeTab === "controls" ? <MenuSection title="Controls">
+      <MenuSection title="Controls">
         <OptionRow
           label="Input"
           value={storedViewMode ?? "auto"}
@@ -703,7 +721,7 @@ export function SettingsScreen({
             </dl>
           </div>
         </div>
-      </MenuSection> : null}
+      </MenuSection></> : null}
 
       {activeTab === "audio" ? <MenuSection title="Audio">
         <Toggle label="Sound" value={sound} onChange={onSound} />

@@ -76,14 +76,23 @@ test("existing settings remain unique and retain their handlers", () => {
   assert.equal(menu.split('id="menu-player-initials"').length - 1, 1);
 });
 
-test("Arcade identity follows the tabs and precedes Controls without changing initials behavior", () => {
+test("Arcade identity renders only at the top of Controls without changing initials behavior", () => {
   const settingsScreen = menu.slice(menu.indexOf("export function SettingsScreen"), menu.indexOf("export function InfoScreen"));
   const tabs = settingsScreen.indexOf('className="settings-tabs"');
   const identity = settingsScreen.indexOf('title="Arcade identity"');
   const controls = settingsScreen.indexOf('title="Controls"');
   assert.ok(tabs < identity && identity < controls);
+  const controlsBranch = settingsScreen.slice(settingsScreen.indexOf('{activeTab === "controls"'), settingsScreen.indexOf('{activeTab === "audio"'));
+  assert.match(controlsBranch, /title="Arcade identity"[\s\S]*title="Controls"/);
+  for (const tab of ["audio", "video", "hud", "gameInfo"]) {
+    const start = settingsScreen.indexOf(`{activeTab === "${tab}"`);
+    const next = settingsScreen.indexOf('{activeTab === "', start + 1);
+    const branch = settingsScreen.slice(start, next < 0 ? settingsScreen.length : next);
+    assert.doesNotMatch(branch, /Arcade identity|menu-player-initials/, `${tab} must not expose Arcade identity`);
+  }
   assert.match(settingsScreen, /id="menu-player-initials"[\s\S]*maxLength=\{3\}[\s\S]*onChange=\{\(event\) => onInitials\(event\.target\.value\)\}/);
   assert.match(game, /onInitials=\{\(next\) => setSetting\("playerInitials", normalizeInitials\(next\)\)\}/);
+  assert.doesNotMatch(menu, /hidden=\{activeTab[^}]*\}[\s\S]*menu-player-initials/);
 });
 
 test("five tabs wrap on narrow settings panels without horizontal scrolling", () => {

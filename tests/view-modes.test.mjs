@@ -116,11 +116,13 @@ test('Settings Game Info renders the shared canonical reference without focus cl
 
   // PUP names, classes and effects and ship roles/specials remain owned by
   // their canonical gameplay/presentation records rather than copied here.
-  assert.match(menu, /import \{ WEAPONS, type PupClass/);
+  assert.match(menu, /import \{ WEAPONS, type PickupId, type PupClass/);
   assert.match(shared, /Object\.values\(WEAPONS\)/);
   assert.match(shared, /PUP_CLASS_LABELS\[pup\.pupClass\]/);
   assert.match(shared, /pup\.summary/);
   assert.match(shared, /pup\.role/);
+  assert.match(shared, /<MenuPupPreview pup=\{pup\.id\}/);
+  assert.match(shared, /<MenuShipPreview ship=\{id\} size=\{96\} animated=\{false\}/);
   assert.match(shared, /SHIP_ORDER\.map/);
   assert.match(shared, /SHIP_PROFILES\[id\]/);
   assert.match(shared, /ship\.special\.description/);
@@ -130,13 +132,13 @@ test('Settings Game Info renders the shared canonical reference without focus cl
   assert.match(shared, /difficultyBlurb\(id\)/);
 
   // Main menu and Settings share the same component; only main menu adds
-  // optional navigation buttons. The reference cards themselves are prose.
+  // optional navigation buttons. The reference cards remain non-interactive.
   assert.match(infoScreen, /<GameInfoContent viewMode=\{viewMode\}/);
   assert.doesNotMatch(shared, /<button|tabIndex=|role="button"/);
 });
 
 test('Settings owns vertical Game Info scrolling without narrow horizontal overflow', () => {
-  assert.match(css, /\.menu-screen\[data-route="settings"\] \.menu-content\s*\{[^}]*overflow:\s*hidden[^}]*grid-template-rows:\s*auto auto minmax\(0, 1fr\)/s);
+  assert.match(css, /\.menu-screen\[data-route="settings"\] \.menu-content\s*\{[^}]*overflow:\s*hidden[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\)/s);
   assert.match(css, /\.settings-tab-panel\s*\{[^}]*min-width:\s*0[^}]*overflow-x:\s*hidden[^}]*overflow-y:\s*auto/s);
   assert.match(css, /\.game-info-grid\s*\{[^}]*minmax\(min\(220px, 100%\), 1fr\)/s);
   assert.match(css, /\.game-info-card\s*\{[^}]*min-width:\s*0[^}]*overflow-wrap:\s*anywhere/s);
