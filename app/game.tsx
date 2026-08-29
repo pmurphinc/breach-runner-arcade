@@ -237,6 +237,7 @@ import {
   randomBeamDirection,
   type BeamDirection,
 } from "./beam-motion";
+import { BeamAudioManager } from "./beam-audio";
 
 const VIEW_WIDTH = 1048;
 const VIEW_HEIGHT = 655;
@@ -2018,6 +2019,7 @@ export default function WormholeGame() {
    */
   const audioPool = useRef<Map<string, HTMLAudioElement[]>>(new Map());
   const cueAudio = useRef<AudioContext | null>(null);
+  const beamAudio = useRef<BeamAudioManager | null>(null);
   const victorySuctionAudio = useRef<{
     context: AudioContext;
     master: GainNode;
@@ -2192,9 +2194,26 @@ export default function WormholeGame() {
     }
   }, []);
 
+  const getBeamAudio = useCallback(() => {
+    if (!beamAudio.current) {
+      beamAudio.current = new BeamAudioManager(() => {
+        if (typeof window === "undefined") return null;
+        const AudioContextClass = window.AudioContext
+          ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (!AudioContextClass) return null;
+        const context = cueAudio.current ?? new AudioContextClass();
+        cueAudio.current = context;
+        return context;
+      });
+    }
+    return beamAudio.current;
+  }, []);
+
   useEffect(() => {
     const pool = audioPool.current;
     return () => {
+      beamAudio.current?.stopAll(true);
+      beamAudio.current = null;
       stopVictorySuction(0.012);
       pool.forEach((clips) => clips.forEach((clip) => { clip.pause(); clip.removeAttribute("src"); clip.load(); }));
       pool.clear();
@@ -2354,8 +2373,11 @@ export default function WormholeGame() {
   }, []);
 
   useEffect(() => {
+    const beams = getBeamAudio();
+    beams.setVolume(SOUND_GAIN[settings.soundLevel]);
+    beams.setEnabled(sound);
     if (!sound) stopVictorySuction();
-  }, [sound, stopVictorySuction]);
+  }, [getBeamAudio, settings.soundLevel, sound, stopVictorySuction]);
 
   const sync = useCallback(() => {
     const next = hudFrom(gameRef.current);
@@ -6518,6 +6540,16 @@ export default function WormholeGame() {
       applyProfile();
       if (needsResize) applyResize();
       while (accumulator >= TICK_MS) { tick(); accumulator -= TICK_MS; }
+      const audioGame = gameRef.current;
+      const liveHostileBeams = audioGame.running && !audioGame.paused && !audioGame.result
+        ? audioGame.enemies.filter((enemy) => enemy.kind === "beam" && enemy.hp > 0 && enemy.age > 45)
+        : [];
+      getBeamAudio().sync(
+        Boolean(audioGame.running && !audioGame.paused && !audioGame.result
+          && audioGame.player.health > 0 && audioGame.player.beam && audioGame.player.beamTicks > 0),
+        liveHostileBeams.length,
+        liveHostileBeams[0]?.phase ?? 0,
+      );
       const camera = drawScene(now, profile.detail);
       drawOverlay(now, camera);
       raf = requestAnimationFrame(loop);
@@ -6525,6 +6557,7 @@ export default function WormholeGame() {
     raf = requestAnimationFrame(loop);
 
     return () => {
+      getBeamAudio().stopAll();
       cancelAnimationFrame(raf);
       observer.disconnect();
       window.removeEventListener("resize", onDprChange);
@@ -6532,7 +6565,7 @@ export default function WormholeGame() {
     };
     // playPupPickupSound is a stable playCue wrapper used only by this loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [play, playCue, playVictorySuction, stopVictorySuction, sync, viewMode]);
+  }, [getBeamAudio, play, playCue, playVictorySuction, stopVictorySuction, sync, viewMode]);
 
   const currentShip = selectedShip(shipId);
   const pendingRules = rulesFor(mode, difficulty);
