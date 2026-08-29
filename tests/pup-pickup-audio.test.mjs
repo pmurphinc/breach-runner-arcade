@@ -38,8 +38,9 @@ test("pickup sound selection is class-driven rather than keyed by PUP ID", () =>
 
 test("class pickup cues use the existing muted Web Audio path", () => {
   const cueBody = game.slice(game.indexOf("const playCue ="), game.indexOf("const playPupPickupSound ="));
-  assert.match(cueBody, /if \(!soundRef\.current \|\| typeof window === "undefined"\) return/);
-  assert.match(cueBody, /context\.resume\(\)/);
+  assert.match(cueBody, /const context = ensureAudioContext\(\)/);
+  assert.match(cueBody, /if \(!context\) return/);
+  assert.match(game, /unlockGameAudio\(cueAudio,/);
   const pickupCueBody = game.slice(game.indexOf("const playPupPickupSound ="), game.indexOf("Continuous victory riser"));
   assert.match(pickupCueBody, /SOUND_GAIN\[soundLevelRef\.current\]/);
 });

@@ -41,8 +41,11 @@ export class BeamAudioManager {
   private voices: Partial<Record<BeamKind, Voice>> = {};
   private enabled = true;
   private volume = 1;
+  private readonly getContext: BeamAudioContextProvider;
 
-  constructor(private readonly getContext: BeamAudioContextProvider) {}
+  constructor(getContext: BeamAudioContextProvider) {
+    this.getContext = getContext;
+  }
 
   setEnabled(enabled: boolean) {
     this.enabled = enabled;
@@ -85,7 +88,6 @@ export class BeamAudioManager {
   private start(kind: BeamKind, profile: BeamProfile) {
     const context = this.getContext();
     if (!context) return;
-    void context.resume().catch(() => undefined);
     const now = context.currentTime;
     const master = context.createGain();
     const filter = context.createBiquadFilter();
