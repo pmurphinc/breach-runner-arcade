@@ -18,6 +18,19 @@ import { RIFT_REWARD_CATEGORIES, RIFT_UPGRADES, rewardCategoryLabel, upgradeStac
 import { claimHullGunWeapon } from "../app/rift-run/hull-gun-reward.ts";
 import { HARDPOINT_BREACH_MILESTONES, hardpointIndexForBreach, hardpointUnlockForBreach } from "../app/rift-run/hardpoint-milestones.ts";
 import { riftRunHandling, riftRunHullDamage } from "../app/rift-run/live-modifiers.ts";
+import {
+  RIFT_RUN_COLLAPSE_DEPTH,
+  RIFT_RUN_DEPTH_LEVELS,
+  armRiftRunDepth,
+  createRiftRunEscalationRuntime,
+  escalateRiftRunToDepth,
+  riftRunBreachNotice,
+  riftRunEscalationForDepth,
+  riftRunStageForDepth,
+  survivalLevelForDepth,
+} from "../app/rift-run/escalation.ts";
+import { DIFFICULTIES } from "../app/difficulty.ts";
+import { escalationForLevel, survivalRulesFor } from "../app/survival.ts";
 import { applyIntent, intentFromKeys } from "../app/movement.ts";
 import { createRunAgainRiftRun, replayForCompletedRun } from "../app/run-replay.ts";
 
@@ -635,5 +648,169 @@ test("Rift Run payload destruction breaches instead of starting PvE victory", as
   const standardVictory = source.indexOf("game.victorySequence = ticksForSeconds(VICTORY_TOTAL_SECONDS)", riftRunBranch);
   assert.ok(riftRunBranch >= 0, "Rift Run must intercept zero integrity in the payload path");
   assert.ok(standardVictory > riftRunBranch, "standard PvE victory must remain after the Rift Run continuation branch");
-  assert.match(source.slice(riftRunBranch, standardVictory), /breachRiftRun\(run/);
+  assert.match(source.slice(riftRunBranch, standardVictory), /breachRiftRunNow\(game\)/);
+});
+
+test("both Rift Run breach paths go through the one helper that escalates the run", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) => readFile(new URL("../app/game.tsx", import.meta.url), "utf8"));
+  // Two call sites can collapse a rift — hull-mounted Rift Run weapons and
+  // ordinary power-up damage — and both have to pay the same rewards and buy
+  // the same escalation, so neither is allowed its own copy of the sequence.
+  assert.equal(source.match(/breachRiftRunNow\(game\)/g).length, 2);
+  assert.equal(source.match(/const breachRiftRunNow = /g).length, 1);
+  const helper = source.indexOf("const breachRiftRunNow = ");
+  const helperEnd = source.indexOf("const tickRiftRunEscalation = ");
+  const body = source.slice(helper, helperEnd);
+  assert.match(body, /escalateRiftRunToDepth\(escalation, breached\.state\.riftBreaches\)/);
+  assert.match(body, /game\.rules = next\.rules/);
+  assert.match(body, /game\.portalThreshold = next\.escalation\.powerUpCharge/);
+});
+
+test("Rift Run stands the PvE wave scheduler down once the rift schedules its own", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) => readFile(new URL("../app/game.tsx", import.meta.url), "utf8"));
+  // Two schedulers running at once would double every wave.
+  assert.match(source, /!game\.survival\s*\n\s*&& !game\.riftEscalation\?\.current\.ownsWaveSchedule/);
+  assert.match(source, /tickRiftRunEscalation\(game\)/);
+  // The gravity well and the arena palette are read from whichever escalation
+  // the run is flying under.
+  assert.match(source, /game\.riftEscalation\?\.current\.escalation\.gravityPull/);
+  assert.match(source, /SURVIVAL_PALETTES\[game\.riftEscalation\.current\.stage\.id\]/);
+});
+
+
+// -------------------------------------------------------- escalation --
+
+test("every breach deepens the ruleset, and the fourth lands on Rift Collapse", () => {
+  assert.deepEqual(
+    [0, 1, 2, 3, 4].map((depth) => riftRunStageForDepth(depth).id),
+    ["stable", "unstable", "critical", "enraged", "collapse"],
+  );
+  assert.equal(RIFT_RUN_COLLAPSE_DEPTH, 4);
+  assert.deepEqual([...RIFT_RUN_DEPTH_LEVELS], [1, 3, 5, 7, 11]);
+  // Each of the first four breaches opens a stage the pilot has not flown in,
+  // so no breach is ever a cosmetic one.
+  for (const depth of [1, 2, 3, 4]) {
+    assert.equal(riftRunEscalationForDepth(depth).stageChanged, true, `depth ${depth}`);
+  }
+  assert.equal(riftRunEscalationForDepth(0).stageChanged, false);
+});
+
+test("depth zero is the arena Rift Run has always opened in", () => {
+  const opening = riftRunEscalationForDepth(0);
+  assert.equal(opening.level, 1);
+  assert.deepEqual(opening.rules.wormhole, { kind: "locked" });
+  assert.equal(opening.rules.contactHazard.enabled, false);
+  assert.equal(opening.rules.wormholeEnrage.enabled, false);
+  assert.equal(opening.escalation.gravityPull, 0);
+  assert.equal(opening.escalation.beamIntervalTicks, 0);
+  assert.equal(opening.escalation.mineStormIntervalTicks, 0);
+  // The ordinary PvE scheduler still owns waves until the first rift dies.
+  assert.equal(opening.ownsWaveSchedule, false);
+  assert.equal(riftRunEscalationForDepth(1).ownsWaveSchedule, true);
+});
+
+test("each breach arms a hazard the previous depth did not have", () => {
+  const [stable, unstable, critical, enraged, collapse] =
+    [0, 1, 2, 3, 4].map((depth) => riftRunEscalationForDepth(depth));
+
+  // Depth 1: the rift breaks orbit and sweep beams open.
+  assert.equal(stable.rules.wormhole.kind, "locked");
+  assert.equal(unstable.rules.wormhole.kind, "orbit");
+  assert.equal(unstable.escalation.beamIntervalTicks > 0, true);
+
+  // Depth 2: touching the rift burns hull.
+  assert.equal(unstable.rules.contactHazard.enabled, false);
+  assert.equal(critical.rules.contactHazard.enabled, true);
+
+  // Depth 3: the rift enrages, regenerates and answers with mixed waves.
+  assert.equal(critical.rules.wormholeEnrage.enabled, false);
+  assert.equal(enraged.rules.wormholeEnrage.enabled, true);
+
+  // Depth 4: mine storms, the gravity well and double beams — Survival's
+  // deepest stage, which is what the mode is aiming at by the fourth rift.
+  assert.equal(enraged.escalation.gravityPull, 0);
+  assert.equal(collapse.escalation.gravityPull > 0, true);
+  assert.equal(collapse.escalation.mineStormIntervalTicks > 0, true);
+  assert.equal(collapse.escalation.beamCount, 2);
+  assert.deepEqual(collapse.escalation, escalationForLevel(11));
+});
+
+test("a run past Rift Collapse keeps escalating with no cap", () => {
+  assert.equal(survivalLevelForDepth(4), 11);
+  for (const depth of [5, 6, 7, 12, 40]) {
+    assert.equal(survivalLevelForDepth(depth), 11 + (depth - 4) * 2);
+  }
+  const collapse = riftRunEscalationForDepth(4).escalation;
+  const deep = riftRunEscalationForDepth(9).escalation;
+  assert.ok(deep.waveIntervalTicks <= collapse.waveIntervalTicks);
+  assert.ok(deep.mineStormIntervalTicks <= collapse.mineStormIntervalTicks);
+  assert.ok(deep.mineStormCount >= collapse.mineStormCount);
+  assert.ok(deep.gravityPull >= collapse.gravityPull);
+  assert.ok(deep.powerUpCharge >= collapse.powerUpCharge);
+  // Every depth past the fourth still reads as Rift Collapse rather than
+  // inventing a stage name the rest of the game has never shown.
+  assert.equal(riftRunStageForDepth(40).id, "collapse");
+  assert.equal(riftRunEscalationForDepth(5).stageChanged, false);
+});
+
+test("escalation never lets a Rift Run be mistaken for a Survival run", () => {
+  for (const base of [DIFFICULTIES.easy, DIFFICULTIES.difficult, DIFFICULTIES.hard]) {
+    for (const depth of [0, 1, 4, 9]) {
+      const { rules } = riftRunEscalationForDepth(depth, base);
+      // The launch ruleset owns identity, the leaderboard and the collision
+      // shield the pilot chose; escalation owns behaviour and nothing else.
+      assert.equal(rules.id, base.id);
+      assert.equal(rules.shortName, base.shortName);
+      assert.deepEqual(rules.collisionShield, base.collisionShield);
+      assert.equal(rules.rivalIntegrity, base.rivalIntegrity);
+      assert.equal(rules.unlimitedHull, base.unlimitedHull);
+      assert.match(rules.displayName, /^RIFT RUN \/\/ /);
+      // Behaviour, meanwhile, is exactly the Survival level this depth buys.
+      const survival = survivalRulesFor(survivalLevelForDepth(depth));
+      assert.deepEqual(rules.wormhole, survival.wormhole);
+      assert.deepEqual(rules.contactHazard, survival.contactHazard);
+      assert.deepEqual(rules.wormholeEnrage, survival.wormholeEnrage);
+    }
+  }
+});
+
+test("breaching tightens a running cadence rather than restarting it", () => {
+  const runtime = createRiftRunEscalationRuntime(DIFFICULTIES.easy);
+  assert.equal(runtime.waveIn, 0);
+  assert.equal(runtime.beamIn, 0);
+
+  // The first breach arms the wave clock and the beam clock fresh, so a newly
+  // armed hazard does not fire the same tick the rift reforms.
+  const first = escalateRiftRunToDepth(runtime, 1);
+  assert.equal(runtime.waveIn, first.escalation.waveIntervalTicks);
+  assert.equal(runtime.beamIn, first.escalation.beamIntervalTicks);
+
+  // A clock already close to firing keeps its remaining ticks: breaching one
+  // tick before a wave was due must not skip that wave.
+  runtime.waveIn = 4;
+  runtime.beamIn = 4;
+  escalateRiftRunToDepth(runtime, 2);
+  assert.equal(runtime.waveIn, 4);
+  assert.equal(runtime.beamIn, 4);
+
+  // And a clock left longer than the new depth allows is tightened to it.
+  const third = riftRunEscalationForDepth(3);
+  runtime.waveIn = third.escalation.waveIntervalTicks + 500;
+  armRiftRunDepth(runtime, third);
+  assert.equal(runtime.waveIn, third.escalation.waveIntervalTicks);
+});
+
+test("a breach that opens a stage says so, and one that only deepens stays short", () => {
+  assert.equal(riftRunBreachNotice(riftRunEscalationForDepth(4)), "RIFT BREACHED // DEPTH 4 // RIFT COLLAPSE");
+  assert.equal(riftRunBreachNotice(riftRunEscalationForDepth(5)), "RIFT BREACHED // DEPTH 5");
+});
+
+test("escalation survives nonsense depths rather than poisoning a run", () => {
+  for (const bad of [-3, Number.NaN, Number.POSITIVE_INFINITY, undefined]) {
+    const escalation = riftRunEscalationForDepth(bad);
+    assert.equal(Number.isFinite(escalation.level), true);
+    assert.ok(escalation.level >= 1);
+  }
+  assert.equal(riftRunEscalationForDepth(-3).depth, 0);
+  assert.equal(riftRunEscalationForDepth(2.7).depth, 2);
 });
