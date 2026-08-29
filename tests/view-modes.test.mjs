@@ -119,7 +119,7 @@ test('Settings Game Info renders the shared canonical reference without focus cl
 });
 
 test('Settings owns vertical Game Info scrolling without narrow horizontal overflow', () => {
-  assert.match(css, /\.menu-screen\[data-route="settings"\] \.menu-content\s*\{[^}]*overflow:\s*hidden[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\)/s);
+  assert.match(css, /\.menu-screen\[data-route="settings"\] \.menu-content\s*\{[^}]*overflow:\s*hidden[^}]*grid-template-rows:\s*auto auto minmax\(0, 1fr\)/s);
   assert.match(css, /\.settings-tab-panel\s*\{[^}]*min-width:\s*0[^}]*overflow-x:\s*hidden[^}]*overflow-y:\s*auto/s);
   assert.match(css, /\.game-info-grid\s*\{[^}]*minmax\(min\(220px, 100%\), 1fr\)/s);
   assert.match(css, /\.game-info-card\s*\{[^}]*min-width:\s*0[^}]*overflow-wrap:\s*anywhere/s);

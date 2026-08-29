@@ -258,7 +258,7 @@ test("WASD and the arrows move the ship in world space", { skip }, async () => {
     // reached from the pause menu via the global Menu control.
     await page.locator(".system-menu").click();
     await page.waitForTimeout(300);
-    await page.locator(".pause-actions button", { hasText: "Settings" }).click();
+    await page.getByRole("button", { name: "Open settings" }).click();
     await page.waitForTimeout(300);
     await page
       .locator(".option-row", { hasText: "Perspective" })
@@ -440,7 +440,7 @@ test("with no run, Menu returns to Home instead of an empty cockpit", { skip }, 
     assert.equal(await routeNow(), "home", "Menu on Home with no run must stay on Home");
 
     // From a deeper screen it returns to the root rather than closing.
-    await page.locator(".menu-nav button", { hasText: "Settings" }).click();
+    await page.getByRole("button", { name: "Open settings" }).click();
     await page.waitForTimeout(300);
     assert.equal(await routeNow(), "settings");
     await page.locator(".system-menu").click();

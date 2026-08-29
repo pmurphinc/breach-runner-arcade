@@ -80,6 +80,8 @@ export type MenuScreenProps = {
   /** Small line above the title. Optional; most screens do not need one. */
   eyebrow?: string;
   onBack: () => void;
+  /** Opens the existing Settings route from any open menu surface. */
+  onOpenSettings: () => void;
   /** Label for the back control — "Resume" when the game is behind it. */
   backLabel?: string;
   /**
@@ -109,6 +111,7 @@ export function MenuScreen({
   title,
   eyebrow,
   onBack,
+  onOpenSettings,
   backLabel = "Back",
   hideBack = false,
   footer,
@@ -150,6 +153,14 @@ export function MenuScreen({
             {eyebrow ? <p className="menu-eyebrow">{eyebrow}</p> : null}
             <h2 id={headingId}>{title}</h2>
           </div>
+          <button
+            type="button"
+            className="menu-settings"
+            onClick={onOpenSettings}
+            aria-label="Open settings"
+          >
+            <span aria-hidden="true">⚙</span>
+          </button>
         </header>
 
         <div className="menu-content">{children}</div>
