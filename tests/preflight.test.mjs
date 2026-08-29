@@ -692,7 +692,7 @@ test("changing display settings never resets the match", { skip }, async () => {
     // Every one of these is a pure presentation change, reached through the
     // pause menu's Settings destination — and none may disturb the run.
     await openDrawer();
-    await page.locator(".pause-actions button", { hasText: "Settings" }).click();
+    await page.getByRole("button", { name: "Open settings" }).click();
     await page.waitForTimeout(400);
     await pick("Volume", "Low");
     await pick("Input", "Both");

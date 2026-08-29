@@ -115,6 +115,7 @@ export function GameInfoContent({ viewMode }: { viewMode: ViewMode }) {
 
 export type MenuCallbacks = {
   go: (route: MenuRoute) => void;
+  openSettings: () => void;
   back: () => void;
   close: () => void;
 };
@@ -159,6 +160,7 @@ export function HomeScreen({
   running,
   onLaunch,
   go,
+  openSettings,
   close,
 }: MenuCallbacks & {
   mode: GameMode;
@@ -177,6 +179,7 @@ export function HomeScreen({
   return (
     <MenuScreen
       route="home"
+      onOpenSettings={openSettings}
       title={
         <img
           className="launch-brand-logo"
@@ -255,6 +258,7 @@ export function ModesScreen({
   onRiftRun,
   onLaunch,
   back,
+  openSettings,
 }: MenuCallbacks & {
   mode: GameMode;
   difficulty: DifficultyId;
@@ -270,6 +274,7 @@ export function ModesScreen({
   return (
     <MenuScreen
       route="modes"
+      onOpenSettings={openSettings}
       title="Game Modes"
       onBack={back}
       footer={
@@ -362,6 +367,7 @@ export function RiftRunSetupScreen({
   onSelect,
   onLaunch,
   back,
+  openSettings,
   renderShip,
 }: MenuCallbacks & {
   ship: ShipId;
@@ -373,6 +379,7 @@ export function RiftRunSetupScreen({
   return (
     <MenuScreen
       route="rift-run"
+      onOpenSettings={openSettings}
       title={RIFT_RUN_TITLE}
       eyebrow={RIFT_RUN_TAGLINE}
       onBack={back}
@@ -423,6 +430,7 @@ export function ShipsScreen({
   onSelect,
   onLaunch,
   back,
+  openSettings,
   renderShip,
 }: MenuCallbacks & {
   ship: ShipId;
@@ -437,6 +445,7 @@ export function ShipsScreen({
   return (
     <MenuScreen
       route="ships"
+      onOpenSettings={openSettings}
       title="Ships"
       onBack={back}
       wide
@@ -522,6 +531,7 @@ type SettingsTab = (typeof SETTINGS_TABS)[number]["id"];
 
 export function SettingsScreen({
   back,
+  openSettings,
   viewMode,
   storedViewMode,
   onViewMode,
@@ -598,7 +608,7 @@ export function SettingsScreen({
   };
 
   return (
-    <MenuScreen route="settings" title="Settings" onBack={back}>
+    <MenuScreen route="settings" title="Settings" onBack={back} onOpenSettings={openSettings}>
       <div className="settings-tabs" role="tablist" aria-label="Settings categories">
         {SETTINGS_TABS.map((tab) => (
           <button
@@ -616,6 +626,23 @@ export function SettingsScreen({
           </button>
         ))}
       </div>
+
+      <MenuSection title="Arcade identity" hint="Used automatically for future scores.">
+        <div className="initials-field">
+          <label htmlFor="menu-player-initials">Initials</label>
+          <input
+            id="menu-player-initials"
+            value={initials}
+            maxLength={3}
+            inputMode="text"
+            enterKeyHint="done"
+            autoCapitalize="characters"
+            autoComplete="off"
+            spellCheck={false}
+            onChange={(event) => onInitials(event.target.value)}
+          />
+        </div>
+      </MenuSection>
 
       <div
         className="settings-tab-panel"
@@ -771,22 +798,6 @@ export function SettingsScreen({
         <GameInfoContent viewMode={viewMode} />
       </MenuSection> : null}
 
-      {activeTab === "controls" ? <MenuSection title="Arcade identity" hint="Used automatically for future scores.">
-        <div className="initials-field">
-          <label htmlFor="menu-player-initials">Initials</label>
-          <input
-            id="menu-player-initials"
-            value={initials}
-            maxLength={3}
-            inputMode="text"
-            enterKeyHint="done"
-            autoCapitalize="characters"
-            autoComplete="off"
-            spellCheck={false}
-            onChange={(event) => onInitials(event.target.value)}
-          />
-        </div>
-      </MenuSection> : null}
       </div>
     </MenuScreen>
   );
@@ -797,11 +808,12 @@ export function SettingsScreen({
 export function InfoScreen({
   back,
   go,
+  openSettings,
   viewMode,
   onCodex,
 }: MenuCallbacks & { viewMode: ViewMode; onCodex: () => void }) {
   return (
-    <MenuScreen route="info" title="Game Info" onBack={back} wide>
+    <MenuScreen route="info" title="Game Info" onBack={back} onOpenSettings={openSettings} wide>
       <GameInfoContent viewMode={viewMode} />
       <MenuSection title="More detail">
         <button type="button" className="menu-link-button" onClick={onCodex} aria-haspopup="dialog">
@@ -826,6 +838,7 @@ export function InfoScreen({
  */
 export function PauseScreen({
   go,
+  openSettings,
   close,
   mode,
   onRestart,
@@ -847,6 +860,7 @@ export function PauseScreen({
   return (
     <MenuScreen
       route="pause"
+      onOpenSettings={openSettings}
       title="Paused"
       eyebrow={pausable ? undefined : `${MODE_INFO[mode].label} — the match keeps running`}
       onBack={close}

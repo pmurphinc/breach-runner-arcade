@@ -6,6 +6,7 @@ import { GAMEPAD_BINDINGS, pressedOnce } from "../app/gamepad.ts";
 
 const game = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
 const ui = readFileSync(new URL("../app/ui-system.tsx", import.meta.url), "utf8");
+const systemControls = readFileSync(new URL("../app/system-controls.tsx", import.meta.url), "utf8");
 const navigation = readFileSync(new URL("../app/controller-navigation.ts", import.meta.url), "utf8");
 const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
 
@@ -47,6 +48,18 @@ test("one controller surface query covers complete interactive dialogs", () => {
   assert.match(game, /className="codex board"[\s\S]*data-controller-surface/);
   assert.match(game, /className="codex lobby"[\s\S]*data-controller-surface/);
   assert.match(game, /className="run-summary" data-controller-surface/);
+});
+
+test("Settings moves from the gameplay controls into every menu controller surface", () => {
+  assert.doesNotMatch(systemControls, /system-settings|Open settings|>Settings</);
+  assert.match(systemControls, /className="system-button system-menu"/);
+  assert.match(systemControls, /className="system-button system-fullscreen"/);
+  assert.match(ui, /className="menu-panel"[\s\S]*className="menu-settings"[\s\S]*aria-label="Open settings"/);
+  assert.match(ui, /className="menu-settings"[\s\S]*onClick=\{onOpenSettings\}/);
+  assert.doesNotMatch(ui, /className="menu-settings"[\s\S]*<span[^>]*>Settings<\/span>/);
+  assert.match(game, /<HomeScreen[\s\S]*openSettings=\{openSettings\}/);
+  assert.match(game, /<PauseScreen[\s\S]*openSettings=\{openSettings\}/);
+  assert.match(game, /const openSettings = useCallback[\s\S]*pushRoute\(stack, "settings"\)/);
 });
 
 test("multiplayer controls and controller select changes are reachable", () => {

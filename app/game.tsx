@@ -1083,7 +1083,7 @@ function WeaponCard({
 
 const CODEX_ORDER: readonly PickupId[] = CODEX_PICKUPS;
 
-function WeaponCodex({ onClose, reducedMotion }: { onClose: () => void; reducedMotion: boolean }) {
+function WeaponCodex({ onClose, onOpenSettings, reducedMotion }: { onClose: () => void; onOpenSettings: () => void; reducedMotion: boolean }) {
   const [focused, setFocused] = useState<PickupId>(CODEX_ORDER[0]);
   const closeRef = useRef<HTMLButtonElement>(null);
   useEffect(() => { closeRef.current?.focus(); }, []);
@@ -1093,7 +1093,7 @@ function WeaponCodex({ onClose, reducedMotion }: { onClose: () => void; reducedM
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
   return (
-    <MenuScreen route="codex" title="Weapon Codex" onBack={onClose} wide>
+    <MenuScreen route="codex" title="Weapon Codex" onBack={onClose} onOpenSettings={onOpenSettings} wide>
       <div className="codex">
         <p className="codex-intro">Every power-up the rift can produce. Select one to read what it does.</p>
         <button ref={closeRef} type="button" className="sr-only" onClick={onClose}>Close weapon codex</button>
@@ -7054,7 +7054,6 @@ export default function WormholeGame() {
       <GlobalSystemControls
         menuOpen={menuOpen}
         onToggleMenu={toggleMenu}
-        onOpenSettings={openSettings}
         fullscreen={fullscreen.active}
         fullscreenSupported={fullscreen.supported}
         onToggleFullscreen={() => { void fullscreen.toggle(); }}
@@ -7069,6 +7068,7 @@ export default function WormholeGame() {
           running={launched && gameActive}
           onLaunch={launchFromMenu}
           go={go}
+          openSettings={openSettings}
           back={back}
           close={resumeOrClose}
         />
@@ -7085,6 +7085,7 @@ export default function WormholeGame() {
           onEndRunAndChangeShip={() => endRun("ships")}
           onEndRunAndChangeMode={() => endRun("modes")}
           go={go}
+          openSettings={openSettings}
           back={back}
           close={resumeOrClose}
         />
@@ -7100,6 +7101,7 @@ export default function WormholeGame() {
           onRiftRun={() => go("rift-run")}
           onLaunch={launchFromMenu}
           go={go}
+          openSettings={openSettings}
           back={back}
           close={resumeOrClose}
         />
@@ -7112,6 +7114,7 @@ export default function WormholeGame() {
           onLaunch={launchRiftRun}
           renderShip={renderShip}
           go={go}
+          openSettings={openSettings}
           back={back}
           close={resumeOrClose}
         />
@@ -7124,6 +7127,7 @@ export default function WormholeGame() {
           onLaunch={launchFromMenu}
           renderShip={renderShip}
           go={go}
+          openSettings={openSettings}
           back={back}
           close={resumeOrClose}
         />
@@ -7157,6 +7161,7 @@ export default function WormholeGame() {
           initials={settings.playerInitials}
           onInitials={(next) => setSetting("playerInitials", normalizeInitials(next))}
           go={go}
+          openSettings={openSettings}
           back={back}
           close={resumeOrClose}
         />
@@ -7167,6 +7172,7 @@ export default function WormholeGame() {
           viewMode={viewMode}
           onCodex={() => setCodexOpen(true)}
           go={go}
+          openSettings={openSettings}
           back={back}
           close={resumeOrClose}
         />
@@ -7189,7 +7195,7 @@ export default function WormholeGame() {
       ) : null}
 
       {/* Above the screens: a dialog opened from one of them. */}
-      {codexOpen ? <WeaponCodex onClose={() => setCodexOpen(false)} reducedMotion={reducedMotion} /> : null}
+      {codexOpen ? <WeaponCodex onClose={() => setCodexOpen(false)} onOpenSettings={openSettings} reducedMotion={reducedMotion} /> : null}
     </main>
   );
 }

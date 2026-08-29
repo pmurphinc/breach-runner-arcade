@@ -76,6 +76,16 @@ test("existing settings remain unique and retain their handlers", () => {
   assert.equal(menu.split('id="menu-player-initials"').length - 1, 1);
 });
 
+test("Arcade identity follows the tabs and precedes Controls without changing initials behavior", () => {
+  const settingsScreen = menu.slice(menu.indexOf("export function SettingsScreen"), menu.indexOf("export function InfoScreen"));
+  const tabs = settingsScreen.indexOf('className="settings-tabs"');
+  const identity = settingsScreen.indexOf('title="Arcade identity"');
+  const controls = settingsScreen.indexOf('title="Controls"');
+  assert.ok(tabs < identity && identity < controls);
+  assert.match(settingsScreen, /id="menu-player-initials"[\s\S]*maxLength=\{3\}[\s\S]*onChange=\{\(event\) => onInitials\(event\.target\.value\)\}/);
+  assert.match(game, /onInitials=\{\(next\) => setSetting\("playerInitials", normalizeInitials\(next\)\)\}/);
+});
+
 test("five tabs wrap on narrow settings panels without horizontal scrolling", () => {
   assert.match(styles, /\.settings-tabs \{[\s\S]*grid-template-columns: repeat\(5/);
   assert.match(styles, /@container menu \(max-width: 480px\)[\s\S]*\.settings-tabs \{ grid-template-columns: repeat\(3/);

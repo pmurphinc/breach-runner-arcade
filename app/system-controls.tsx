@@ -105,7 +105,6 @@ export type GlobalSystemControlsProps = {
   /** True while a menu is open, so the button can offer the way back. */
   menuOpen: boolean;
   onToggleMenu: () => void;
-  onOpenSettings: () => void;
   fullscreen: boolean;
   fullscreenSupported: boolean;
   onToggleFullscreen: () => void;
@@ -116,7 +115,6 @@ export type GlobalSystemControlsProps = {
 export default function GlobalSystemControls({
   menuOpen,
   onToggleMenu,
-  onOpenSettings,
   fullscreen,
   fullscreenSupported,
   onToggleFullscreen,
@@ -124,10 +122,6 @@ export default function GlobalSystemControls({
 }: GlobalSystemControlsProps) {
   return (
     <div className="system-controls" data-dimmed={dimmed ? "true" : "false"}>
-      <button type="button" className="system-button system-settings" onClick={onOpenSettings} aria-label="Open settings">
-        <span className="system-glyph" aria-hidden="true">⚙</span>
-        <span className="system-text">Settings</span>
-      </button>
       <button
         type="button"
         className="system-button system-menu"
