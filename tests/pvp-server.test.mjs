@@ -314,26 +314,15 @@ test("hull is seeded from the chosen ship when the match activates", () => {
   assert.equal(a.last("state").you.hull, SHIP_HULL.wing);
 });
 
-test("Kestrel regeneration is applied by multiplayer health authority", () => {
-  const { server, a, b } = readiedMatch(1000, "kestrel", "wing");
+test("stored PUPs do not regenerate Kestrel hull", () => {
+  const { server, a } = readiedMatch(1000, "kestrel", "wing");
   server.reportDamage(a.player, { seq: 1, source: "impact", amount: 20 }, 6000);
-  server.reportDamage(b.player, { seq: 1, source: "impact", amount: 20 }, 6000);
-  const shieldBefore = a.player.combat.shieldCharge;
-
   for (let seq = 1; seq <= 5; seq += 1) {
     server.updateInventory(a.player, { seq, action: "collect", weapon: "mines" }, 6000);
-    server.updateInventory(b.player, { seq, action: "collect", weapon: "mines" }, 6000);
   }
-  server.sweep(7000);
-
-  assert.equal(a.player.combat.hull, 101.25, "server accrues 1.25 hull for five stored PUPs");
-  assert.equal(b.player.combat.hull, SHIP_HULL.wing - 20, "other ships do not inherit the passive");
-  assert.equal(a.player.combat.shieldCharge, shieldBefore, "passive never touches shield state");
-
-  server.updateInventory(a.player, { seq: 6, action: "launch", weapon: "mines" }, 7000);
   server.sweep(8000);
-  assert.equal(a.player.combat.hull, 102.25, "new inventory count takes effect immediately");
-  assert.equal(a.player.pupInventory.length, 4, "healing does not consume server inventory state");
+  assert.equal(a.player.combat.hull, 100, "one or several stored PUPs never heal hull");
+  assert.equal(a.player.pupInventory.length, 5, "inventory remains normal progression state");
 });
 
 test("multiplayer inventory is a bounded server ledger, not a client-provided count", () => {

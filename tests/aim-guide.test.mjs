@@ -30,7 +30,7 @@ test("off has no segment while Short and Long use fixed world-space lengths", ()
 
 test("guide consumes the cannon heading and renders in the local world pass", () => {
   assert.match(game, /aimGuideSegment\(aimGuideRef\.current, player\.x, player\.y, player\.angle \* DEG\)/);
-  assert.match(game, /const angle = player\.angle \* DEG \+ offset;[\s\S]*game\.bullets\.push/);
+  assert.match(game, /const aimAngle = player\.angle \* DEG;[\s\S]*shipForwardVelocity\(round\.angle,[\s\S]*game\.bullets\.push/);
   assert.match(game, /ctx\.translate\(camX \+ shakeX, camY \+ shakeY\);\s*ctx\.scale\(camScale, camScale\);[\s\S]*aimGuideSegment/);
   assert.match(game, /ctx\.setLineDash\(\[2, 7\]\)/);
 });

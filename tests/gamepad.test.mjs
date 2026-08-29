@@ -58,7 +58,7 @@ test("rumble selection reuses the unchanged gameplay controller selection", () =
 test("right-stick heading drives facing and cannon projectile direction", () => {
   assert.match(game, /controllerAimHeading = headingDegrees\(controller\.aimX, controller\.aimY\)/);
   assert.match(game, /firingHeading = controllerAimHeading \?\? aimHeading\.current/);
-  assert.match(game, /player\.angle \* DEG \+ offset/);
+  assert.match(game, /const aimAngle = player\.angle \* DEG/);
   for (const [x, y, expectedX, expectedY] of [[1, 0, 1, 0], [0, 1, 0, 1], [-1, 0, -1, 0], [0, -1, 0, -1]]) {
     const radians = headingDegrees(x, y) * Math.PI / 180;
     assert.ok(Math.abs(Math.cos(radians) - expectedX) < 1e-10);

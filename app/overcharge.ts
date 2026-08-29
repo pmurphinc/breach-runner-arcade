@@ -402,12 +402,12 @@ export function scrambledDamage(damage: number, scrambled: boolean) {
  * for the entire flight of the volley — a penalty nothing in the game told the
  * player about. Special rounds now sit outside the budget entirely.
  */
-export function countsTowardShotBudget(bullet: { enemy: boolean; special?: boolean }) {
-  return !bullet.enemy && !bullet.special;
+export function countsTowardShotBudget(bullet: { enemy: boolean; special?: boolean; supplemental?: boolean }) {
+  return !bullet.enemy && !bullet.special && !bullet.supplemental;
 }
 
 /** Rounds from `bullets` that the cannon's budget actually has to pay for. */
-export function cannonShotBudgetUsed(bullets: readonly { enemy: boolean; special?: boolean }[]) {
+export function cannonShotBudgetUsed(bullets: readonly { enemy: boolean; special?: boolean; supplemental?: boolean }[]) {
   let used = 0;
   for (const bullet of bullets) if (countsTowardShotBudget(bullet)) used += 1;
   return used;

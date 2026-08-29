@@ -28,7 +28,6 @@ import {
   rollWindow,
 } from "./protocol.mjs";
 import { applyDamage, createCombatState, snapshot } from "./rules.mjs";
-import { pupRegenHull } from "../app/pup-regen.js";
 import { PUP_INVENTORY_CAPACITY } from "../app/pup-inventory.js";
 
 /** Hull by ship, mirroring app/game-data.ts. Asserted by the protocol test. */
@@ -81,7 +80,6 @@ export function createPlayer(send, { now = Date.now(), random = Math.random } = 
     lastInventorySeq: -1,
     pupInventory: [],
     launchedPups: [],
-    lastRegenAt: now,
     lastTransmitSeq: -1,
     lastEnemyHitSeq: -1,
     lastWorldActionSeq: -1,
@@ -372,7 +370,6 @@ export class MatchServer {
       player.lastInventorySeq = -1;
       player.pupInventory = [];
       player.launchedPups = [];
-      player.lastRegenAt = now;
       player.lastTransmitSeq = -1;
       player.lastEnemyHitSeq = -1;
       player.lastWorldActionSeq = -1;
@@ -409,7 +406,6 @@ export class MatchServer {
     player.window.damageTotal += amount;
     player.lastDamageSeq = seq;
 
-    this.applyPassiveRegen(player, now);
     const hullBefore = player.combat.hull;
     const outcome = applyDamage(player.combat, source, amount, now);
     const finalDamage = Math.min(hullBefore, outcome.toHull);
@@ -423,15 +419,6 @@ export class MatchServer {
     return { ok: true, ...outcome };
   }
 
-  applyPassiveRegen(player, now = Date.now()) {
-    if (!player.combat) return false;
-    const elapsedSeconds = Math.max(0, now - player.lastRegenAt) / 1000;
-    player.lastRegenAt = now;
-    const before = player.combat.hull;
-    player.combat.hull = pupRegenHull(player.ship, before, player.combat.maxHull, player.pupInventory.length, elapsedSeconds);
-    return player.combat.hull !== before;
-  }
-
   updateInventory(player, { seq, action, weapon }, now = Date.now()) {
     const room = player.room;
     if (!room || room.phase !== PHASES.ACTIVE || !player.combat) return { ok: false, code: ERRORS.NOT_IN_MATCH };
@@ -439,7 +426,6 @@ export class MatchServer {
     if (!Number.isInteger(seq) || !["collect", "launch", "remove"].includes(action) || !SENDABLE_WEAPONS.includes(weapon)) {
       return { ok: false, code: ERRORS.BAD_MESSAGE };
     }
-    this.applyPassiveRegen(player, now);
     player.lastInventorySeq = seq;
     // The arena still reports the concrete collision event (as it reports
     // incoming damage), but it never supplies the resulting count. This
@@ -672,11 +658,6 @@ export class MatchServer {
    */
   sweep(now = Date.now()) {
     for (const room of [...this.rooms.values()]) {
-      if (room.phase === PHASES.ACTIVE) {
-        let healed = false;
-        for (const player of room.players) healed = this.applyPassiveRegen(player, now) || healed;
-        if (healed) this.broadcastState(room, now);
-      }
       if (room.phase === PHASES.COUNTDOWN && now >= room.countdownEndsAt) {
         this.activate(room, now);
         continue;
