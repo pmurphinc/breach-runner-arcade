@@ -8,6 +8,19 @@ export type GamepadActions = {
 
 export const GAMEPAD_DEAD_ZONE = 0.2;
 
+export type GamepadRumble = {
+  duration: number;
+  weakMagnitude: number;
+  strongMagnitude: number;
+};
+
+/** Tunable combat effects shared by every supported controller actuator. */
+export const COMBAT_RUMBLE = {
+  gun: { duration: 42, weakMagnitude: 0.18, strongMagnitude: 0.08 },
+  hull: { duration: 90, weakMagnitude: 0.55, strongMagnitude: 0.7 },
+  heavyHull: { duration: 130, weakMagnitude: 0.75, strongMagnitude: 1 },
+} as const satisfies Record<string, GamepadRumble>;
+
 /** Canonical standard-gamepad map shared by input handling and Settings. */
 export const GAMEPAD_BINDINGS = {
   axes: {
@@ -54,8 +67,36 @@ export function readStandardGamepad(pad: Gamepad): GamepadActions {
 
 export const EMPTY_GAMEPAD: GamepadActions = { moveX: 0, moveY: 0, aimX: 0, aimY: 0, fireMain: false, firePup: false, special: false, previousPup: false, nextPup: false, pause: false, confirm: false, cancel: false, menuX: 0, menuY: 0 };
 
+/** The same first standard pad used by gameplay input is the only rumble target. */
+export function activeGameplayGamepad(pads: readonly (Gamepad | null)[]): Gamepad | null {
+  return pads.find((candidate) => candidate?.connected && candidate.mapping === "standard") ?? null;
+}
+
+type RumbleCapableGamepad = Gamepad & {
+  vibrationActuator?: { playEffect?: (type: "dual-rumble", effect: GamepadRumble) => Promise<unknown> };
+  hapticActuators?: ArrayLike<{ pulse?: (value: number, duration: number) => Promise<unknown> }>;
+};
+
+/** Feature-detected Gamepad API rumble, with the older pulse actuator as fallback. */
+export function rumbleGameplayGamepad(pads: readonly (Gamepad | null)[], effect: GamepadRumble): void {
+  const pad = activeGameplayGamepad(pads) as RumbleCapableGamepad | null;
+  if (!pad) return;
+  try {
+    const result = pad.vibrationActuator?.playEffect?.("dual-rumble", effect);
+    if (result) {
+      void result.catch(() => {});
+      return;
+    }
+    const legacy = pad.hapticActuators?.[0];
+    const fallback = legacy?.pulse?.(Math.max(effect.weakMagnitude, effect.strongMagnitude), effect.duration);
+    if (fallback) void fallback.catch(() => {});
+  } catch {
+    // Disconnects and partially implemented browser actuators are non-fatal.
+  }
+}
+
 /** Hot-plug boundary: absence/disconnect yields controller-neutral state only. */
 export function controllerStateForPads(pads: readonly (Gamepad | null)[]): GamepadActions {
-  const pad = pads.find((candidate) => candidate?.connected && candidate.mapping === "standard");
+  const pad = activeGameplayGamepad(pads);
   return pad ? readStandardGamepad(pad) : EMPTY_GAMEPAD;
 }
