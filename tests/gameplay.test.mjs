@@ -87,6 +87,67 @@ async function release(page, code = "ArrowUp") {
   await page.keyboard.up(code);
 }
 
+test("gameplay suppresses context menus without consuming mouse controls", { skip }, async () => {
+  const { chromium } = playwright;
+  const browser = await chromium.launch({ executablePath: CHROME });
+  try {
+    const { context, page } = await openGame(browser, "easy");
+
+    const cancellation = await page.evaluate(() => {
+      const dispatch = (target) => target.dispatchEvent(new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        button: 2,
+      }));
+      return {
+        canvasAllowed: dispatch(document.querySelector(".canvas-wrap > canvas")),
+        hudAllowed: dispatch(document.querySelector(".status-dock")),
+        outsideAllowed: dispatch(document.querySelector(".topbar")),
+      };
+    });
+    assert.deepEqual(cancellation, {
+      canvasAllowed: false,
+      hudAllowed: false,
+      outsideAllowed: true,
+    });
+
+    // A real secondary pointer event must still reach the existing PUP input.
+    // The contextmenu event is a separate browser event and cannot swallow it.
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("breach-runner:test-stock", {
+      detail: ["mine"],
+    })));
+    await page.waitForFunction(() => document.querySelector(".bin-count")?.textContent?.startsWith("1/"));
+    const canvas = page.locator(".canvas-wrap > canvas");
+    const box = await canvas.boundingBox();
+    assert.ok(box, "the arena should be visible");
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down({ button: "right" });
+    await page.waitForFunction(() => document.querySelector(".bin-count")?.textContent?.startsWith("0/"));
+    await page.mouse.up({ button: "right" });
+
+    // Left click retains its ordinary UI behavior outside the protected play
+    // column, including while the still-mounted game is paused.
+    await page.locator(".system-menu").click();
+    await page.waitForSelector('.menu-screen[data-route="pause"]');
+    assert.equal(await page.evaluate(() => document.querySelector(".topbar")
+      .dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }))), true);
+    assert.equal(await page.evaluate(() => document.querySelector(".status-dock")
+      .dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }))), false);
+
+    // React owns no imperative document listener: once the protected element
+    // is detached, it cannot leave a stale blocker behind.
+    assert.equal(await page.evaluate(() => {
+      const play = document.querySelector(".play-column");
+      play.remove();
+      return play.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }));
+    }), true);
+
+    await context.close();
+  } finally {
+    await browser.close();
+  }
+});
+
 /**
  * Poll until `predicate` sees what it is waiting for, or give up.
  *
