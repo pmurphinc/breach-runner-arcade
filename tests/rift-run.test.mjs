@@ -15,7 +15,7 @@ import { RIFT_EVOLUTIONS, activeEvolution, eligibleEvolutions } from "../app/rif
 import { eligibleUpgradeChoices, rollUpgradeChoices } from "../app/rift-run/upgrade-pool.ts";
 import { applyUpgrade, mountUnlockedWeapon } from "../app/rift-run/upgrade-apply.ts";
 import { RIFT_REWARD_CATEGORIES, RIFT_UPGRADES, rewardCategoryLabel, upgradeStack } from "../app/rift-run/upgrades.ts";
-import { claimHullGunWeapon, pendingHullGunReward } from "../app/rift-run/hull-gun-reward.ts";
+import { claimHullGunWeapon } from "../app/rift-run/hull-gun-reward.ts";
 import { HARDPOINT_BREACH_MILESTONES, hardpointIndexForBreach, hardpointUnlockForBreach } from "../app/rift-run/hardpoint-milestones.ts";
 import { riftRunHandling, riftRunHullDamage } from "../app/rift-run/live-modifiers.ts";
 import { applyIntent, intentFromKeys } from "../app/movement.ts";
@@ -65,7 +65,7 @@ test("Kestrel and Warden reuse their canonical classes, hardpoints, and specials
   });
 });
 
-test("Kestrel and Warden create fresh runs, earn the first Hull Gun, and replay", () => {
+test("Kestrel and Warden follow their class milestones and replay from locked sockets", () => {
   for (const shipId of ["kestrel", "warden"]) {
     const fresh = createRiftRun(shipId, `${shipId}-fresh`);
     assert.equal(fresh.selectedShip, shipId);
@@ -77,11 +77,26 @@ test("Kestrel and Warden create fresh runs, earn the first Hull Gun, and replay"
     assert.equal(first.state.hardpoints.filter(({ status }) => status === "available").length, 1);
     assert.equal(activeHardpointCount(first.state), 0);
 
-    const replay = replayForCompletedRun("pve", "difficult", { ...first.state, status: "completed" });
+    let progressed = claimHullGunWeapon(first.state, 0, "pulse-cannon");
+    progressed.riftBreaches = 2;
+    progressed = breachRiftRun(progressed, { integrity: 0, maximumIntegrity: 100, reformRemainingMs: 0, breached: false }).state;
+    if (shipId === "warden") {
+      assert.deepEqual(progressed.pendingHullGunReward, { hardpointIndex: 1, breach: 3 });
+      progressed = claimHullGunWeapon(progressed, 1, "pulse-cannon");
+      assert.equal(activeHardpointCount(progressed), 2);
+      assert.notEqual(progressed.hardpoints[0].weapon.instanceId, progressed.hardpoints[1].weapon.instanceId);
+    } else {
+      assert.equal(progressed.pendingHullGunReward, null);
+      assert.equal(activeHardpointCount(progressed), 1);
+    }
+
+    const replay = replayForCompletedRun("pve", "difficult", { ...progressed, status: "completed" });
     assert.deepEqual(replay, { kind: "rift-run", shipId });
     const restarted = createRunAgainRiftRun(replay, `${shipId}-again`);
     assert.equal(restarted.selectedShip, shipId);
     assert.equal(activeHardpointCount(restarted), 0);
+    assert.equal(restarted.pendingHullGunReward, null);
+    assert.equal(restarted.riftBreaches, 0);
     assert.ok(restarted.hardpoints.every(({ status }) => status === "locked"));
   }
 });
