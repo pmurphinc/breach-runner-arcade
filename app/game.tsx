@@ -5091,7 +5091,6 @@ export default function WormholeGame() {
       ctx.arc(0, 0, 55, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
-      drawRiftEnergyRing(ctx, game.portalX, game.portalY, riftRunRef.current, time);
       // Charge ring: the same number the HUD shows, read straight off the portal.
       ctx.save();
       ctx.translate(game.portalX, game.portalY);
@@ -5593,6 +5592,10 @@ export default function WormholeGame() {
       }
 
       if (player.health > 0) {
+        // Rift Energy belongs to the pilot, not the Rift. Keep the arc in
+        // world space and unrotated, then paint the hull and its shield/damage
+        // feedback over it so those higher-priority effects remain legible.
+        drawRiftEnergyRing(ctx, player.x, player.y, riftRunRef.current, time);
         ctx.save();
         // A player hull must never inherit transparent or destructive canvas
         // state from an earlier arena effect. Form Shift can be triggered

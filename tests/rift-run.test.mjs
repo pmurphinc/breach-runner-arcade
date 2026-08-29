@@ -176,13 +176,22 @@ test("Rift Energy progress normalizes the current threshold and becomes full whe
   const run = createRiftRun("wing", "ring");
   const required = riftEnergyRequiredForLevel(run.level);
   assert.deepEqual(riftEnergyProgress({ ...run, riftEnergy: required / 2 }), { current: required / 2, required, fraction: .5, ready: false });
+  assert.equal(riftEnergyProgress({ ...run, riftEnergy: -100 }).fraction, 0);
+  assert.equal(riftEnergyProgress({ ...run, riftEnergy: required * 2 }).fraction, 1);
   assert.deepEqual(riftEnergyProgress({ ...run, riftEnergy: 1, pendingLevels: 2 }), { current: 1, required, fraction: 1, ready: true });
+
+  const earned = awardRiftEnergy(run, required + 5);
+  assert.equal(riftEnergyProgress(earned).fraction, 1, "a queued choice keeps the ring ready");
+  const resolved = applyUpgrade(earned, eligibleUpgradeChoices(earned).find(choice => choice.upgradeId === "impact-plating"));
+  assert.equal(resolved.pendingLevels, 0);
+  assert.equal(riftEnergyProgress(resolved).fraction, 5 / riftEnergyRequiredForLevel(resolved.level), "the ring reveals banked progress after selection");
 });
 
 test("Rift Energy ring integration is Rift Run-only", async () => {
   const source = await import("node:fs/promises").then(({ readFile }) => readFile(new URL("../app/game.tsx", import.meta.url), "utf8"));
   const ring = await import("node:fs/promises").then(({ readFile }) => readFile(new URL("../app/rift-run/energy-ring.ts", import.meta.url), "utf8"));
-  assert.match(source, /drawRiftEnergyRing\(ctx, game\.portalX, game\.portalY, riftRunRef\.current, time\)/);
+  assert.match(source, /drawRiftEnergyRing\(ctx, player\.x, player\.y, riftRunRef\.current, time\)/);
+  assert.doesNotMatch(source, /drawRiftEnergyRing\(ctx, game\.portalX, game\.portalY/);
   assert.match(ring, /if \(!state \|\| state\.status !== "active"\) return/);
 });
 
