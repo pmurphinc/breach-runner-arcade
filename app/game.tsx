@@ -101,6 +101,7 @@ import { createRunAgainRiftRun, replayForCompletedRun, type RunReplay } from "./
 import { processHardpointFire } from "./rift-run/weapon-fire";
 import { admitsProjectile, applyScorched, detonateMissile, evolutionRadialHit, penetrate, projectileFromShot, SCORCHED_DAMAGE, steerMissile, targetsInFlameCone, tickScorched, type EntityId, type RiftProjectile, type ScorchedState } from "./rift-run/weapon-projectiles";
 import { awardRiftEnergy, enemyKillEnergy, riftDamaged, riftEnergyRequiredForLevel } from "./rift-run/progression";
+import { hasEnemyAttackAuthority, hostileShotVelocity, nearestPilot } from "./coop-enemy-targeting.js";
 import { applyRiftRunHullWeaponDamage, RIFT_RUN_BASE_INTEGRITY } from "./rift-run/rift-damage";
 import { breachRiftRun, tickRiftReform } from "./rift-run/breach";
 import { rollUpgradeChoices } from "./rift-run/upgrade-pool";
@@ -3697,11 +3698,32 @@ export default function WormholeGame() {
       return integrityDamage;
     };
 
-    const spawnEnemyBullet = (game: Game, enemy: Enemy, speed = 5, damage = 10) => {
-      const dx = game.player.x - enemy.x;
-      const dy = game.player.y - enemy.y;
-      const d = Math.max(1, Math.hypot(dx, dy));
-      game.bullets.push({ x: enemy.x, y: enemy.y, vx: (dx / d) * speed, vy: (dy / d) * speed, damage, life: 170, enemy: true, color: "#ff596f" });
+    const enemyTarget = (game: Game, enemy: Enemy) => {
+      const network = netRef.current?.state;
+      const localId = network?.you?.id ?? "local";
+      const pilots = [{
+        id: localId, x: game.player.x, y: game.player.y,
+        living: game.player.health > 0, connected: true,
+      }];
+      // The arena host consumes the teammate transform already delivered by
+      // the ordinary co-op position stream. No targeting channel or guest
+      // simulation is introduced here.
+      if (game.mode === "coop" && network?.you?.id === network?.hostId && network?.teammate) {
+        pilots.push({
+          id: network.teammate.id,
+          x: network.teammate.x,
+          y: network.teammate.y,
+          living: (network.opponentCombat?.hull ?? 0) > 0,
+          connected: network.opponent?.connected === true
+            && network.teammate.roundId === network.roundId,
+        });
+      }
+      return nearestPilot(enemy, pilots);
+    };
+
+    const spawnEnemyBullet = (game: Game, enemy: Enemy, target: NonNullable<ReturnType<typeof nearestPilot>>, speed = 5, damage = 10) => {
+      const velocity = hostileShotVelocity(enemy, target, speed);
+      game.bullets.push({ x: enemy.x, y: enemy.y, ...velocity, damage, life: 170, enemy: true, color: "#ff596f" });
     };
 
     /**
@@ -4005,13 +4027,18 @@ export default function WormholeGame() {
 
     const updateEnemy = (game: Game, enemy: Enemy) => {
       const player = game.player;
+      const target = enemyTarget(game, enemy);
+      if (!target) return;
+      const network = netRef.current?.state;
+      const localTarget = target.id === (network?.you?.id ?? "local");
+      const attackAuthority = hasEnemyAttackAuthority(game.mode, network?.you?.id, network?.hostId);
       enemy.age += 1;
       // A scrambled hostile flies its approach backwards and its weapon timer
       // stops, so the pulse buys real space rather than only looking dramatic.
       const scrambled = (enemy.scrambled ?? 0) > 0;
       if (scrambled) enemy.scrambled = (enemy.scrambled ?? 0) - 1;
       else enemy.cooldown -= 1;
-      const tracking = hostileTrackingVector(enemy.x, enemy.y, player.x, player.y, scrambled);
+      const tracking = hostileTrackingVector(enemy.x, enemy.y, target.x, target.y, scrambled);
       const dx = tracking.dx;
       const dy = tracking.dy;
       const d = Math.max(1, Math.hypot(dx, dy));
@@ -4030,7 +4057,7 @@ export default function WormholeGame() {
         enemy.vy += (dy / d) * 0.2;
         const speed = Math.hypot(enemy.vx, enemy.vy);
         if (speed > 5) { enemy.vx = (enemy.vx / speed) * 5; enemy.vy = (enemy.vy / speed) * 5; }
-        if (!scrambled && enemy.age % 150 === 0) {
+        if (attackAuthority && !scrambled && enemy.age % 150 === 0) {
           for (let i = 0; i < 3; i += 1) game.enemies.push(makeEnemy("heatseeker", enemy.x, enemy.y, i, 3));
         }
       } else if (enemy.kind === "inflator") {
@@ -4048,14 +4075,14 @@ export default function WormholeGame() {
           enemy.vx += Math.cos(enemy.phase) * 0.03;
           enemy.vy += Math.sin(enemy.phase) * 0.03;
         }
-        if (!scrambled && enemy.cooldown <= 0) {
-          spawnEnemyBullet(game, enemy, enemy.kind === "artillery" ? 7 : 5, enemy.kind === "artillery" ? 16 : 10);
+        if (attackAuthority && !scrambled && enemy.cooldown <= 0) {
+          spawnEnemyBullet(game, enemy, target, enemy.kind === "artillery" ? 7 : 5, enemy.kind === "artillery" ? 16 : 10);
           enemy.cooldown = enemy.kind === "gunship" ? 28 : 45;
         }
       } else if (enemy.kind === "minelayer") {
         enemy.vx = Math.cos(enemy.age * 0.04) * 3.5;
         enemy.vy = Math.sin(enemy.age * 0.021) * 3.5;
-        if (!scrambled && enemy.age % 95 === 0) game.enemies.push(makeEnemy("mines", enemy.x, enemy.y, 0, 1));
+        if (attackAuthority && !scrambled && enemy.age % 95 === 0) game.enemies.push(makeEnemy("mines", enemy.x, enemy.y, 0, 1));
       } else if (enemy.kind === "scarab") {
         const pickup = game.pickups[0];
         if (pickup) {
@@ -4071,14 +4098,14 @@ export default function WormholeGame() {
         if (enemy.y >= game.worldHeight - 12) { enemy.y = game.worldHeight - 12; enemy.vx = 4; enemy.vy = 0; }
         if (enemy.x >= game.worldWidth - 12) { enemy.x = game.worldWidth - 12; enemy.vx = 0; enemy.vy = -4; }
         if (enemy.y <= 12) { enemy.y = 12; enemy.vx = -4; enemy.vy = 0; }
-        if (!scrambled && enemy.age % 35 === 0) spawnEnemyBullet(game, enemy, 6, 10);
+        if (attackAuthority && !scrambled && enemy.age % 35 === 0) spawnEnemyBullet(game, enemy, target, 6, 10);
       } else if (enemy.kind === "ghost") {
         if (enemy.age % 130 === 0) { enemy.vx = range(-2.5, 2.5); enemy.vy = range(-2.5, 2.5); }
       } else if (enemy.kind === "emp") {
         enemy.blastRadius = (enemy.blastRadius ?? 0) + (!scrambled && enemy.age > 65 ? 8 : 0);
-        enemy.x = player.x;
-        enemy.y = player.y;
-        if ((enemy.blastRadius ?? 0) > 0 && (enemy.blastRadius ?? 0) >= d) {
+        enemy.x = target.x;
+        enemy.y = target.y;
+        if (localTarget && (enemy.blastRadius ?? 0) > 0 && (enemy.blastRadius ?? 0) >= d) {
           const newlyScrambled = player.emp <= 0;
           player.emp = 150;
           if (newlyScrambled) {
@@ -4122,7 +4149,7 @@ export default function WormholeGame() {
         if ((enemy.countdown ?? 0) <= 0) {
           const previousRadius = enemy.blastRadius ?? 10;
           enemy.blastRadius = previousRadius + 30;
-          if (d <= (enemy.blastRadius ?? 0) && d > previousRadius && player.shield <= 0) damagePlayer(game, Math.max(5, 40 * (1 - (enemy.blastRadius ?? 0) / 1000)), "nuke_blast");
+          if (localTarget && d <= (enemy.blastRadius ?? 0) && d > previousRadius && player.shield <= 0) damagePlayer(game, Math.max(5, 40 * (1 - (enemy.blastRadius ?? 0) / 1000)), "nuke_blast");
           if ((enemy.blastRadius ?? 0) > 1000) enemy.hp = 0;
         }
       }
@@ -4138,7 +4165,7 @@ export default function WormholeGame() {
       enemy.y = cap(enemy.y, 4, game.worldHeight - 4);
 
       const collisionRadius = enemy.kind === "nuke" && (enemy.countdown ?? 0) <= 0 ? 0 : enemy.radius;
-      if (collisionRadius > 0 && d < collisionRadius + 12) {
+      if (localTarget && collisionRadius > 0 && d < collisionRadius + 12) {
         damageCollision(game, enemy.kind === "mines" ? 20 : enemy.kind === "inflator" ? 18 : enemy.kind === "heatseeker" ? 10 : 8, `${enemy.kind}_collision`);
         if (enemy.kind !== "ufo" && enemy.kind !== "ghost" && enemy.kind !== "wallcrawler" && enemy.kind !== "gunship") enemy.hp = 0;
         enemy.vx *= -1;
