@@ -72,6 +72,23 @@ test('Menu and Fullscreen are one global layer above every screen', () => {
   assert.match(css, /\.system-controls\s*\{[^}]*var\(--safe-top\)[^}]*var\(--safe-right\)/s);
 });
 
+test('the alpha build marker is a passive shell watermark with subordinate layering', () => {
+  assert.equal((game.match(/<BuildWatermark\s*\/>/g) ?? []).length, 1);
+  assert.match(systemControls, /className="build-watermark"/);
+  assert.match(systemControls, />\s*ALPHA BUILD\s*</);
+  assert.match(css, /\.build-watermark\s*\{[^}]*position:\s*fixed[^}]*z-index:\s*var\(--z-watermark\)[^}]*pointer-events:\s*none/s);
+
+  const layer = (name) => Number(css.match(new RegExp(`--z-${name}:\\s*(\\d+)`))?.[1]);
+  assert.ok(layer('screen') < layer('watermark'), 'watermark remains visible over menu screens');
+  assert.ok(layer('watermark') < layer('overlay'), 'overlays remain visually dominant');
+  assert.ok(layer('watermark') < layer('dialog'), 'end-game dialogs remain visually dominant');
+  assert.ok(layer('watermark') < layer('system'), 'Menu and Fullscreen controls remain dominant');
+
+  // The watermark is an addition to the shell, never a replacement control.
+  assert.match(systemControls, /className="system-button system-menu"/);
+  assert.match(systemControls, /className="system-button system-fullscreen"/);
+});
+
 test('settings are consolidated into Controls, Audio, Video, HUD and Game Info tabs', () => {
   const settingsScreen = menu.slice(menu.indexOf('export function SettingsScreen'), menu.indexOf('export function InfoScreen'));
   for (const group of ['Controls', 'Audio', 'Video', 'HUD', 'Game Info']) {

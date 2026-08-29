@@ -99,6 +99,7 @@
   --z-hud: 10;
   --z-hud-float: 20;
   --z-screen: 100;
+  --z-watermark: 110;
   --z-overlay: 200;
   --z-dialog: 300;
   --z-modal: 350;
@@ -1944,6 +1945,22 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
    this — that is enforced here by --z-system sitting at the top of the scale
    rather than by each screen remembering to behave.
    ========================================================================== */
+
+/* A shell-level build marker: above ordinary screens so it persists through
+   menus, but beneath overlays, dialogs, and the interactive system layer. */
+.build-watermark {
+  position: fixed;
+  z-index: var(--z-watermark);
+  top: calc(max(var(--space-2), var(--safe-top)) + var(--touch-target) + var(--space-1));
+  right: max(var(--space-2), var(--safe-right));
+  color: var(--cyan);
+  font: 800 clamp(9px, 1.1vw, 11px)/1 var(--mono);
+  letter-spacing: .16em;
+  opacity: .42;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+}
 
 .system-controls {
   position: fixed;
