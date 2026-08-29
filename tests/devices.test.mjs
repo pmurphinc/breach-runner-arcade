@@ -272,6 +272,34 @@ for (const device of DEVICES) {
           assert.ok(fit.horizontal <= 0, `${name}: menu panel scrolls horizontally`);
           assert.ok(fit.pageScroll <= 0, `${name}: the page itself scrolls`);
         }
+        if (name === "ships") {
+          const fleet = await page.evaluate(() => {
+            const epsilon = 1;
+            const names = [...document.querySelectorAll(".ship-card b")].map((label) => {
+              const card = label.closest(".ship-card");
+              const outer = card.getBoundingClientRect();
+              const inner = label.getBoundingClientRect();
+              return {
+                name: label.textContent?.trim(),
+                contained:
+                  inner.left >= outer.left - epsilon && inner.right <= outer.right + epsilon &&
+                  inner.top >= outer.top - epsilon && inner.bottom <= outer.bottom + epsilon,
+                clipped: label.scrollWidth > label.clientWidth || label.scrollHeight > label.clientHeight,
+              };
+            });
+            const confirm = document.querySelector(".menu-footer .play-button")?.getBoundingClientRect();
+            return {
+              names,
+              horizontal: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+              confirmVisible: !!confirm && confirm.top >= -epsilon && confirm.bottom <= innerHeight + epsilon,
+            };
+          });
+          assert.ok(fleet.names.length > 0, "ships: fleet choices are present");
+          assert.deepEqual(fleet.names.filter((ship) => !ship.contained || ship.clipped), [],
+            `ships: names must remain fully inside their cards (${JSON.stringify(fleet.names)})`);
+          assert.ok(fleet.horizontal <= 0, "ships: fleet must not create horizontal scrolling");
+          assert.ok(fleet.confirmVisible, "ships: Confirm must remain pinned in the viewport");
+        }
         if (name !== "home") {
           await closeMenuDestination(page);
           await page.waitForTimeout(200);

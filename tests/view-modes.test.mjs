@@ -371,14 +371,18 @@ test('the menu adapts by available space, not by device', () => {
   // the same component composes correctly at any viewport and inside a drawer.
   assert.match(css, /@container menu \(min-width: 720px\)/);
   assert.match(css, /container-type:\s*inline-size/);
-  // Navigation and modes reflow intrinsically. The fleet deliberately uses
-  // five columns (two rows for all ten ships), with compact container-query
-  // variants, so selecting a ship never requires vertical scrolling.
+  // Navigation, modes, and the fleet reflow intrinsically. Ship cards retain
+  // a readable minimum instead of being squeezed into a fixed column count.
   assert.match(css, /\.menu-nav\s*\{[^}]*repeat\(auto-fit, minmax\(200px, 1fr\)\)/s);
   assert.match(css, /\.mode-grid\s*\{[^}]*repeat\(auto-fit, minmax\(230px, 1fr\)\)/s);
-  assert.match(css, /\.ship-grid\s*\{[^}]*repeat\(5, minmax\(0, 1fr\)\)/s);
-  assert.match(css, /data-route="ships"\] \.menu-content\s*\{[^}]*overflow:\s*hidden/s);
-  assert.match(css, /@container menu \(max-width: 680px\)[\s\S]*?\.ship-grid\s*\{[^}]*repeat\(5, minmax\(0, 1fr\)\)/s);
+  assert.match(css, /\.ship-grid\s*\{[^}]*repeat\(auto-fit, minmax\(min\(128px, 100%\), 1fr\)\)/s);
+  assert.match(css, /data-route="ships"\] \.menu-content\s*\{[^}]*overflow-x:\s*hidden[^}]*overflow-y:\s*auto/s);
+  assert.match(css, /@container menu \(max-width: 390px\)[\s\S]*?\.ship-grid\s*\{[^}]*repeat\(2, minmax\(0, 1fr\)\)/s);
+  // Future long names remain contained by their card and can wrap rather than
+  // painting into the adjacent grid cell.
+  assert.match(css, /\.ship-card\s*\{[^}]*min-width:\s*0[^}]*max-width:\s*100%[^}]*overflow:\s*hidden/s);
+  assert.match(css, /\.ship-card > \*\s*\{[^}]*min-width:\s*0[^}]*max-width:\s*100%/s);
+  assert.match(css, /\.ship-card b\s*\{[^}]*overflow-wrap:\s*anywhere/s);
   // Short viewports scroll the content region, never the page, and never by
   // hiding the primary action.
   assert.match(css, /\.menu-panel\s*\{[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\) auto/s);
