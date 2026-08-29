@@ -218,6 +218,7 @@ import {
   victorySuctionState,
   victoryVisualState,
 } from "./victory-sequence";
+import { drawRiftLabel } from "./rift-label-fx";
 import {
   SURVIVAL_HOSTILE_CAP,
   SURVIVAL_PALETTES,
@@ -6474,7 +6475,15 @@ export default function WormholeGame() {
         ctx.font = mono(700, 11.5);
         ctx.textAlign = "center";
         ctx.fillStyle = "rgba(244,226,255,.9)";
-        ctx.fillText("RIVAL RIFT", cap(portalX, 60, W - 60), cap(portalY + 82 * camera.camScale * (W / VIEW_WIDTH), 12, H - 12));
+        drawRiftLabel(
+          ctx,
+          cap(portalX, 60, W - 60),
+          cap(portalY + 82 * camera.camScale * (W / VIEW_WIDTH), 12, H - 12),
+          portalX,
+          portalY,
+          game.victorySequence > 0 ? victoryVisualState(game.victorySequence, TICK_MS) : null,
+          reducedMotionRef.current,
+        );
       }
 
       // Player-hit feedback: a brief red rim, never a full-screen wash. The rim
