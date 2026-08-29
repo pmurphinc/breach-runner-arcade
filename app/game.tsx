@@ -130,7 +130,6 @@ import {
 } from "./layout-budget";
 import { cannonPlaybackRate, playCombatHaptics } from "./combat-feedback";
 import { PUP_INVENTORY_CAPACITY, consumeLoadedPup, pupInventoryLayout } from "./pup-inventory";
-import { pupRegenHull } from "./pup-regen.js";
 import { salvageLinkHitsPup } from "./salvage-link";
 import { inventoryPayloadIconLayout, inventoryPupVisual } from "./pup-inventory-visual";
 import { pupPickupSoundProfile, type PupPickupSoundProfile } from "./pup-audio";
@@ -182,12 +181,7 @@ import {
   type SurvivalEntry,
 } from "./survival-board";
 import { formatRunTime, normalizeInitials, settleScore } from "./run-scoring";
-import {
-  AUTO_GUN_PROJECTILE_SPEED,
-  autoGunDelayTicks,
-  effectiveAutoGunTuning,
-  selectAutoGunTarget,
-} from "./auto-gun";
+import { suppressionBarrageRounds } from "./suppression-barrage";
 import {
   VIPER_GUIDANCE_SECONDS,
   hostileTrackingVector,
@@ -359,8 +353,8 @@ type Bullet = {
   turnRadians?: number;
   /** Set only on Kestrel cannon rounds fired while SALVAGE LINK is active. */
   salvageLinked?: boolean;
-  /** Warden passive rounds bypass the cannon budget, pickups and the Rift. */
-  autoGun?: boolean;
+  /** Extra barrage rounds share the center round's one logical shot budget. */
+  supplemental?: boolean;
 };
 
 /**
@@ -496,10 +490,8 @@ type Player = {
   flagshipField: number;
   /** Ticks remaining in Kestrel's SALVAGE LINK collection window. */
   salvageLink: number;
-  /** Ticks remaining in Warden's SENTRY OVERDRIVE tuning window. */
-  sentryOverdrive: number;
-  autoGunCooldown: number;
-  autoGunAngle: number;
+  /** Ticks remaining in Warden's SUPPRESSION BARRAGE window. */
+  suppressionBarrage: number;
   flashMode: "tank" | "squid";
 };
 
@@ -727,9 +719,7 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
       viperGuidance: 0,
       flagshipField: 0,
       salvageLink: 0,
-      sentryOverdrive: 0,
-      autoGunCooldown: 0,
-      autoGunAngle: -90,
+      suppressionBarrage: 0,
       flashMode: "tank",
     },
     portalAngle: 0,
@@ -3961,8 +3951,8 @@ export default function WormholeGame() {
         player.salvageLink = ticksForSeconds(spec.activeSeconds ?? 0);
         game.notice = `SALVAGE LINK // ${spec.activeSeconds ?? 0}S`;
       } else if (ship === "warden") {
-        player.sentryOverdrive = ticksForSeconds(spec.activeSeconds ?? 0);
-        game.notice = `SENTRY OVERDRIVE // ${spec.activeSeconds ?? 0}S`;
+        player.suppressionBarrage = ticksForSeconds(spec.activeSeconds ?? 0);
+        game.notice = `SUPPRESSION BARRAGE // ${spec.activeSeconds ?? 0}S`;
       }
 
       player.specialCooldown = ticksForSeconds(spec.cooldownSeconds);
@@ -3970,7 +3960,7 @@ export default function WormholeGame() {
       if (!overcharge) {
         burst(game, player.x, player.y, "#68f2ff", 26, 8);
         if (ship === "kestrel") playCue("salvage-link-active", 0.22);
-        else if (ship === "warden") playCue("sentry-overdrive", 0.2);
+        else if (ship === "warden") play("fire", 0.2, 0.72);
         else play("magic", 0.22);
       }
     };
@@ -4422,20 +4412,11 @@ export default function WormholeGame() {
 
       game.cycles += 1;
       game.elapsedTicks += 1;
-      if (game.mode === "pve") {
-        const beforeRegen = player.health;
-        player.health = pupRegenHull(game.ship.id, player.health, player.maxHealth, game.stock.length, TICK_MS / 1000);
-        // The existing particle renderer is enough for a faint repair pulse.
-        if (player.health > beforeRegen && game.cycles % 24 === 0) {
-          game.particles.push({ x: player.x + range(-12, 12), y: player.y + range(-12, 12), vx: 0, vy: -0.25, color: "#6dffd6", size: 1.5, life: 18, maxLife: 18 });
-        }
-      }
       // PvpClient owns the single 33ms (~30Hz) position cadence.
       if (game.mode === "coop") {
         netRef.current?.reportPosition(player.x, player.y, player.angle);
       }
       game.shotCycle -= 1;
-      player.autoGunCooldown = Math.max(0, player.autoGunCooldown - 1);
       game.botTimer -= 1;
       game.noticeLife = Math.max(0, game.noticeLife - 1);
       game.portalPulse = Math.max(0, game.portalPulse - 0.012);
@@ -4449,7 +4430,7 @@ export default function WormholeGame() {
       player.overchargeFlash = Math.max(0, player.overchargeFlash - 1);
       player.viperGuidance = Math.max(0, player.viperGuidance - 1);
       player.salvageLink = Math.max(0, player.salvageLink - 1);
-      player.sentryOverdrive = Math.max(0, player.sentryOverdrive - 1);
+      player.suppressionBarrage = Math.max(0, player.suppressionBarrage - 1);
       player.emp = Math.max(0, player.emp - 1);
       player.ricochetTicks = Math.max(0, player.ricochetTicks - 1);
       // Wormhole motion is a rule, not a constant: EASY locks it dead centre
@@ -4657,50 +4638,23 @@ export default function WormholeGame() {
       }
       if (fire && game.shotCycle <= 0 && game.playerShots < SHOT_LEVELS[player.gun].maxShots) {
         const shot = SHOT_LEVELS[player.gun];
-        const offsets = shot.shots === 2 ? [-0.05, 0.05] : [0];
-        offsets.forEach((offset) => {
-          const angle = player.angle * DEG + offset;
-          const muzzle = shipMuzzleWorldPoint(game.ship.id, player, angle, 1.15), velocity = shipForwardVelocity(angle, 10, { x: player.vx, y: player.vy });
-          game.bullets.push({ x: muzzle.x, y: muzzle.y, vx: velocity.x, vy: velocity.y, damage: shot.damage * (activeRiftRun?.shipModifiers.cannonDamage ?? 1), life: 110, enemy: false, color: shot.color, bouncesLeft: player.ricochetTicks > 0 ? RICOCHET_BOUNCES : 0, salvageLinked: game.ship.id === "kestrel" && player.salvageLink > 0 });
-          game.playerShots += 1;
+        const aimAngle = player.angle * DEG;
+        const cannonDamage = shot.damage * (activeRiftRun?.shipModifiers.cannonDamage ?? 1);
+        const rounds = game.ship.id === "warden" && player.suppressionBarrage > 0
+          ? suppressionBarrageRounds(aimAngle, cannonDamage)
+          : (shot.shots === 2 ? [-0.05, 0.05] : [0]).map((offset) => ({ angle: aimAngle + offset, damage: cannonDamage, supplemental: false }));
+        const muzzle = shipMuzzleWorldPoint(game.ship.id, player, aimAngle, 1.15);
+        rounds.forEach((round) => {
+          const velocity = shipForwardVelocity(round.angle, 10, { x: player.vx, y: player.vy });
+          game.bullets.push({ x: muzzle.x, y: muzzle.y, vx: velocity.x, vy: velocity.y, damage: round.damage, life: 110, enemy: false, color: shot.color, bouncesLeft: player.ricochetTicks > 0 ? RICOCHET_BOUNCES : 0, salvageLinked: game.ship.id === "kestrel" && player.salvageLink > 0, supplemental: round.supplemental });
+          if (!round.supplemental) game.playerShots += 1;
         });
         game.shotCycle = Math.max(1, Math.round(shot.delay / (activeRiftRun?.shipModifiers.cannonFireRate ?? 1)));
         play("fire", 0.12, cannonPlaybackRate(player.gun));
         vibrateCombat("gun");
       }
 
-      // Activation precedes acquisition so the new tuning applies on this
-      // simulation tick without resetting the existing turret cooldown.
       activateSpecial(game, controller.special);
-
-      // The Warden reacquires from live authoritative entities every fixed
-      // simulation tick. This neither reads nor mutates cannon input/state.
-      if (game.ship.id === "warden") {
-        const autoGun = effectiveAutoGunTuning(player.sentryOverdrive > 0);
-        const target = selectAutoGunTarget(player, game.enemies.map((enemy) => ({
-          id: enemyIdentity(game, enemy), x: enemy.x, y: enemy.y, hp: enemy.hp,
-          kind: enemy.kind, hostile: true,
-        })), autoGun.range);
-        if (target) {
-          const angle = Math.atan2(target.y - player.y, target.x - player.x);
-          player.autoGunAngle = angle / DEG;
-          if (player.autoGunCooldown <= 0) {
-            game.bullets.push({
-              x: player.x + Math.cos(angle) * 15,
-              y: player.y + Math.sin(angle) * 15,
-              vx: Math.cos(angle) * AUTO_GUN_PROJECTILE_SPEED,
-              vy: Math.sin(angle) * AUTO_GUN_PROJECTILE_SPEED,
-              damage: autoGun.damage,
-              life: autoGun.projectileTicks,
-              enemy: false,
-              color: "#ffd166",
-              autoGun: true,
-            });
-            player.autoGunCooldown = autoGunDelayTicks(TICK_MS, autoGun.fireRate);
-            burst(game, player.x + Math.cos(angle) * 16, player.y + Math.sin(angle) * 16, "#ffd166", player.sentryOverdrive > 0 ? 6 : 3, player.sentryOverdrive > 0 ? 3.5 : 2);
-          }
-        }
-      }
 
       if (launch && game.stock.length > 0 && !keys.current.__launchLatch) {
         keys.current.__launchLatch = true;
@@ -4855,7 +4809,7 @@ export default function WormholeGame() {
         }
         // Additional cannon/PUP contact only: combat checks below are intact
         // for every round that did not actually touch a loose collectible.
-        if (bullet.life > 0 && bullet.salvageLinked && !bullet.autoGun) {
+        if (bullet.life > 0 && bullet.salvageLinked) {
           const pickup = game.pickups.find((item) => item.life > 0 && salvageLinkHitsPup(game.ship.id, bullet, item));
           if (pickup) {
             const collected = resolvePlayerPickup(game, pickup, "salvage-link");
@@ -4869,7 +4823,7 @@ export default function WormholeGame() {
           }
         }
         if (bullet.life <= 0) return;
-        if (!bullet.autoGun && dist(bullet, { x: game.portalX, y: game.portalY }) < 43) {
+        if (dist(bullet, { x: game.portalX, y: game.portalY }) < 43) {
           bullet.life = 0;
           chargeRiftPup(game, bullet.damage);
           // This is where cannon damage is actually applied to the rift — the
@@ -4886,7 +4840,7 @@ export default function WormholeGame() {
           if (dist(bullet, enemy) < enemy.radius + 4) {
             bullet.life = 0;
             const coopGuest = game.mode === "coop" && netRef.current?.state.you?.id !== netRef.current?.state.hostId;
-            if (coopGuest) netRef.current?.reportEnemyHit(enemyIdentity(game, enemy), bullet.damage, bullet.autoGun ? "projectile" : bullet.special ? "overcharge" : "cannon");
+            if (coopGuest) netRef.current?.reportEnemyHit(enemyIdentity(game, enemy), bullet.damage, bullet.special ? "overcharge" : "cannon");
             else damageEnemy(game, enemy, bullet.damage);
             burst(game, bullet.x, bullet.y, POWER_COLORS[enemy.kind], 4, 2.5);
             cannonImpactFeedback(game, bullet);
@@ -5092,7 +5046,7 @@ export default function WormholeGame() {
       let liveShots = 0;
       compact(game.bullets, (item) => {
         const alive = item.life > 0 && item.x > -30 && item.x < game.worldWidth + 30 && item.y > -30 && item.y < game.worldHeight + 30;
-        if (alive && !item.autoGun && countsTowardShotBudget(item)) liveShots += 1;
+        if (alive && countsTowardShotBudget(item)) liveShots += 1;
         return alive;
       });
       game.playerShots = liveShots;
@@ -5719,21 +5673,7 @@ export default function WormholeGame() {
         }
         ctx.restore();
 
-        if (game.ship.id === "warden") {
-          // Independent barrel: world-space rotation is intentionally outside
-          // the hull transform, so it cannot alter the ship/cannon heading.
-          ctx.save();
-          ctx.translate(player.x, player.y);
-          ctx.rotate(player.autoGunAngle * DEG);
-          const overdriven = player.sentryOverdrive > 0;
-          ctx.strokeStyle = overdriven ? "#fff3b0" : "#ffd166";
-          ctx.fillStyle = "#152331";
-          ctx.lineWidth = overdriven ? 3 : 2;
-          if (overdriven && profile.shadows) { ctx.shadowColor = "#ffd166"; ctx.shadowBlur = 14; }
-          ctx.beginPath(); ctx.arc(0, 0, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-          ctx.beginPath(); ctx.moveTo(3, 0); ctx.lineTo(17, 0); ctx.stroke();
-          ctx.restore();
-          if (overdriven) {
+        if (game.ship.id === "warden" && player.suppressionBarrage > 0) {
             const total = ticksForSeconds(SHIP_SPECIALS.warden.activeSeconds ?? 0);
             ctx.save();
             ctx.translate(player.x, player.y);
@@ -5741,14 +5681,13 @@ export default function WormholeGame() {
             ctx.globalAlpha = 0.2 + Math.sin(time * 0.025) * 0.1;
             ctx.setLineDash([2, 6]);
             ctx.beginPath(); ctx.arc(0, 0, 25 + Math.sin(time * 0.018) * 2, 0, Math.PI * 2); ctx.stroke();
-            if (player.sentryOverdrive > total - 12) {
-              const pulse = (total - player.sentryOverdrive) / 12;
+            if (player.suppressionBarrage > total - 12) {
+              const pulse = (total - player.suppressionBarrage) / 12;
               ctx.globalAlpha = (1 - pulse) * 0.7;
               ctx.setLineDash([]);
               ctx.beginPath(); ctx.arc(0, 0, 24 + pulse * 30, 0, Math.PI * 2); ctx.stroke();
             }
             ctx.restore();
-          }
         }
 
         if (player.emp > 0) {

@@ -60,7 +60,7 @@ test("Kestrel and Warden reuse their canonical classes, hardpoints, and specials
     id: "kestrel", name: "Kestrel", shipClass: "light", maximumHardpoints: 1, abilityName: "SALVAGE LINK",
   });
   assert.deepEqual(riftRunShip("warden"), {
-    id: "warden", name: "Warden", shipClass: "medium", maximumHardpoints: 2, abilityName: "SENTRY OVERDRIVE",
+    id: "warden", name: "Warden", shipClass: "medium", maximumHardpoints: 2, abilityName: "SUPPRESSION BARRAGE",
   });
 });
 
