@@ -6665,7 +6665,14 @@ export default function WormholeGame() {
           </div>
         </aside>
 
-        <section className="play-column">
+        <section
+          className="play-column"
+          // The whole live play surface owns the secondary mouse button, not
+          // just the canvas. Keeping this on the gameplay column covers its
+          // HUD and controls while leaving menus and the rest of the page with
+          // the browser's normal context menu.
+          onContextMenu={(event) => event.preventDefault()}
+        >
           <div className="match-bar" data-round-id={net?.roundId ?? 0}>
             <div className="score"><span>SCORE</span><b>{hud.score.toLocaleString().padStart(6, "0")}</b></div>
             <div className="match-hull"><span>HULL</span><div className="meter hull"><i style={{ width: `${healthPct}%` }} /></div><b>{hud.health}</b></div>
@@ -6697,7 +6704,6 @@ export default function WormholeGame() {
                 onPointerDown={handleArenaPointerDown}
                 onPointerUp={handleArenaPointerUp}
                 onPointerCancel={handleArenaPointerUp}
-                onContextMenu={(event) => event.preventDefault()}
                 role="img"
                 aria-label={`Breach Runner combat arena. Hull ${hud.health} of ${hud.maxHealth}. Rift charge ${hud.portalCharge} percent. Rival integrity ${hud.rivalHealth} percent. ${hud.enrageActive ? "Rift enraged. " : ""}${queued ? `Next power-up ${WEAPONS[queued].name}.` : "Power-up bin empty."}`}
               />
