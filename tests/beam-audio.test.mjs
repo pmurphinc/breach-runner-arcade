@@ -5,6 +5,7 @@ import {
   HOSTILE_BEAM_AUDIO,
   PHANTOM_BEAM_AUDIO,
 } from "../app/beam-audio.ts";
+import { unlockGameAudio } from "../app/game-audio.ts";
 
 class Param {
   value = 0;
@@ -28,10 +29,12 @@ class Oscillator extends Node {
 
 class AudioContextStub {
   currentTime = 4;
+  state = "suspended";
   destination = new Node();
   oscillators = [];
   gains = [];
-  resume() { return Promise.resolve(); }
+  resumes = 0;
+  resume() { this.resumes += 1; this.state = "running"; return Promise.resolve(); }
   createOscillator() {
     const node = new Oscillator();
     this.oscillators.push(node);
@@ -51,6 +54,23 @@ class AudioContextStub {
   }
 }
 
+test("shared AudioContext is explicitly unlocked once and reused by beam audio", () => {
+  const ref = { current: null };
+  const context = new AudioContextStub();
+  let creations = 0;
+  const create = () => { creations += 1; return context; };
+  assert.equal(unlockGameAudio(ref, create), context);
+  assert.equal(context.resumes, 1);
+  assert.equal(unlockGameAudio(ref, create), context);
+  assert.equal(creations, 1);
+  assert.equal(context.resumes, 1);
+
+  const audio = new BeamAudioManager(() => ref.current);
+  audio.sync(true, 0);
+  assert.equal(audio.activeVoiceCount(), 1);
+  assert.equal(context.resumes, 1, "RAF voice creation must reuse, not unlock, the context");
+});
+
 test("Phantom starts once, stays allocated across frames, and stops at beam end", () => {
   const context = new AudioContextStub();
   const audio = new BeamAudioManager(() => context);
@@ -63,6 +83,17 @@ test("Phantom starts once, stays allocated across frames, and stops at beam end"
   audio.sync(false, 0);
   assert.equal(audio.activeVoiceCount(), 0);
   assert.ok(context.oscillators.every((node) => node.stopped));
+});
+
+test("four seconds of Lance RAF synchronization retains one continuous voice", () => {
+  const context = new AudioContextStub();
+  const audio = new BeamAudioManager(() => context);
+  const frames = Math.round(4 * 60);
+  for (let frame = 0; frame < frames; frame += 1) audio.sync(true, 0);
+  assert.equal(audio.activeVoiceCount(), 1);
+  assert.equal(context.oscillators.length, 4, "two hum oscillators, one LFO, and one ignition only");
+  audio.sync(false, 0);
+  assert.equal(audio.activeVoiceCount(), 0);
 });
 
 test("cleanup/death/reset stops voices and repeated activation does not leak live nodes", () => {

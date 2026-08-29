@@ -28,6 +28,8 @@ import {
 } from "./game-data";
 import { DIRECTIONAL, drawPowerProjectile, drawWeaponGlyph } from "./weapon-art";
 import { drawShipModel, preloadShipModels, SHIP_MODEL_ASSETS, shipForwardVelocity, shipMuzzleWorldPoint, shipThrusterWorldPoints } from "./ship-models";
+import { unlockGameAudio } from "./game-audio";
+import { playerBeamMuzzle } from "./player-beam";
 import {
   DIFFICULTIES,
   RULESET_IDS,
@@ -2196,18 +2198,30 @@ export default function WormholeGame() {
 
   const getBeamAudio = useCallback(() => {
     if (!beamAudio.current) {
-      beamAudio.current = new BeamAudioManager(() => {
-        if (typeof window === "undefined") return null;
-        const AudioContextClass = window.AudioContext
-          ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-        if (!AudioContextClass) return null;
-        const context = cueAudio.current ?? new AudioContextClass();
-        cueAudio.current = context;
-        return context;
-      });
+      beamAudio.current = new BeamAudioManager(() => cueAudio.current);
     }
     return beamAudio.current;
   }, []);
+
+  const ensureAudioContext = useCallback(() => {
+    if (!soundRef.current || typeof window === "undefined") return null;
+    const AudioContextClass = window.AudioContext
+      ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    return unlockGameAudio(cueAudio, () => AudioContextClass ? new AudioContextClass() : null);
+  }, []);
+
+  // Unlock while the browser still grants transient user activation. This
+  // covers Q, touch SPEC, and the interaction that starts controller play;
+  // RAF/gamepad polling only consumes the already-unlocked shared context.
+  useEffect(() => {
+    const unlock = () => { ensureAudioContext(); };
+    window.addEventListener("keydown", unlock);
+    window.addEventListener("pointerdown", unlock);
+    return () => {
+      window.removeEventListener("keydown", unlock);
+      window.removeEventListener("pointerdown", unlock);
+    };
+  }, [ensureAudioContext]);
 
   useEffect(() => {
     const pool = audioPool.current;
@@ -2247,13 +2261,8 @@ export default function WormholeGame() {
    * power-up a stable, recognizable two-note signature.
    */
   const playCue = useCallback((cue: string | PupPickupSoundProfile, volume = 0.16) => {
-    if (!soundRef.current || typeof window === "undefined") return;
-    const AudioContextClass = window.AudioContext
-      ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioContextClass) return;
-    const context = cueAudio.current ?? new AudioContextClass();
-    cueAudio.current = context;
-    void context.resume().catch(() => undefined);
+    const context = ensureAudioContext();
+    if (!context) return;
 
     const cueName = typeof cue === "string" ? cue : cue.id;
     const hash = [...cueName].reduce((value, character) => ((value * 33) ^ character.charCodeAt(0)) >>> 0, 5381);
@@ -2313,7 +2322,7 @@ export default function WormholeGame() {
       oscillator.start(noteStart);
       oscillator.stop(noteEnd + 0.02);
     });
-  }, []);
+  }, [ensureAudioContext]);
 
   /** Local-only collection cue; mute, volume, and audio unlock stay in playCue. */
   const playPupPickupSound = useCallback((pupClass: PupClass) => {
@@ -2326,13 +2335,9 @@ export default function WormholeGame() {
    * singularity collapse, then faded out just before the blast cue begins.
    */
   const playVictorySuction = useCallback((frequencyHz: number, remainingSeconds: number, volume = 0.085) => {
-    if (!soundRef.current || victorySuctionAudio.current || typeof window === "undefined") return;
-    const AudioContextClass = window.AudioContext
-      ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioContextClass) return;
-    const context = cueAudio.current ?? new AudioContextClass();
-    cueAudio.current = context;
-    void context.resume().catch(() => undefined);
+    if (victorySuctionAudio.current) return;
+    const context = ensureAudioContext();
+    if (!context) return;
 
     const start = context.currentTime + 0.01;
     const duration = Math.max(0.08, remainingSeconds - 0.06);
@@ -2370,7 +2375,7 @@ export default function WormholeGame() {
       return oscillator;
     });
     victorySuctionAudio.current = { context, master, oscillators };
-  }, []);
+  }, [ensureAudioContext]);
 
   useEffect(() => {
     const beams = getBeamAudio();
@@ -4012,12 +4017,13 @@ export default function WormholeGame() {
       }
 
       const angle = player.angle * DEG;
+      const muzzle = playerBeamMuzzle(game.ship.id, player);
       const coopGuest = game.mode === "coop"
         && netRef.current?.state.you?.id !== netRef.current?.state.hostId;
 
       for (const enemy of game.enemies) {
         if (enemy.hp <= 0 || !beamDestroysHostile(enemy.kind, beam)) continue;
-        if (!pointTouchesBeam(player.x, player.y, angle, enemy.x, enemy.y, beam.width + enemy.radius, beam.length)) continue;
+        if (!pointTouchesBeam(muzzle.x, muzzle.y, angle, enemy.x, enemy.y, beam.width + enemy.radius, beam.length)) continue;
         // Enough damage to guarantee the kill, delivered through the ordinary
         // damage path so the death runs: explosion, drop, score, co-op hooks.
         const lethal = Math.max(1, enemy.hp);
@@ -4029,7 +4035,7 @@ export default function WormholeGame() {
       if (beam.clearsHostileFire) {
         for (const bullet of game.bullets) {
           if (!bullet.enemy || bullet.life <= 0) continue;
-          if (!pointTouchesBeam(player.x, player.y, angle, bullet.x, bullet.y, beam.width + 4, beam.length)) continue;
+          if (!pointTouchesBeam(muzzle.x, muzzle.y, angle, bullet.x, bullet.y, beam.width + 4, beam.length)) continue;
           bullet.life = 0;
           burst(game, bullet.x, bullet.y, "#b58bff", 3, 3);
         }
@@ -5607,9 +5613,10 @@ export default function WormholeGame() {
       // as a lance rather than washing out the arena.
       if (player.health > 0 && player.beam && player.beamTicks > 0) {
         const beam = player.beam;
+        const muzzle = playerBeamMuzzle(game.ship.id, player);
         const flicker = quiet ? 1 : 0.88 + Math.sin(time * 0.05) * 0.12;
         ctx.save();
-        ctx.translate(player.x, player.y);
+        ctx.translate(muzzle.x, muzzle.y);
         ctx.rotate(player.angle * DEG);
         if (profile.shadows) { ctx.shadowColor = "#b58bff"; ctx.shadowBlur = 16; }
         ctx.lineCap = "round";

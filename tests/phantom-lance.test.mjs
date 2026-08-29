@@ -15,6 +15,7 @@ import { readFile } from "node:fs/promises";
 import { ENEMY_STATS, SENDABLE_POWERUPS, SHIPS, SHIP_SPECIALS } from "../app/game-data.ts";
 import { TICK_MS } from "../app/difficulty.ts";
 import { BEAM_LENGTH, pointTouchesBeam } from "../app/beam-motion.ts";
+import { playerBeamMuzzle } from "../app/player-beam.ts";
 import {
   BEAM_IMMUNE,
   PHANTOM_BEAM_SECONDS,
@@ -82,7 +83,10 @@ test("the beam fires along the ship's aim and tracks it for the duration", () =>
   // Re-derived from the hull and the current facing every tick, which is what
   // makes it follow the aim rather than being fixed where it was fired.
   assert.match(beamTick, /const angle = player\.angle \* DEG/);
-  assert.match(beamTick, /pointTouchesBeam\(player\.x, player\.y, angle,/);
+  assert.match(beamTick, /const muzzle = playerBeamMuzzle\(game\.ship\.id, player\)/);
+  assert.match(beamTick, /pointTouchesBeam\(muzzle\.x, muzzle\.y, angle, enemy\.x, enemy\.y,/);
+  assert.match(beamTick, /pointTouchesBeam\(muzzle\.x, muzzle\.y, angle, bullet\.x, bullet\.y,/);
+  assert.doesNotMatch(beamTick, /pointTouchesBeam\(player\.x, player\.y/);
   assert.doesNotMatch(beamTick, /beam\.x|beam\.y|fx\.x/);
 
   // Straight ahead is hit; behind and off to the side are not.
@@ -93,6 +97,20 @@ test("the beam fires along the ship's aim and tracks it for the duration", () =>
   assert.equal(hit(beam.length + 40, 0, 0), false, "and it has a finite reach");
   // Turning the ship turns the beam.
   assert.equal(hit(0, 300, Math.PI / 2), true);
+});
+
+test("visual and damage beams share Phantom's canonical muzzle origin", () => {
+  const player = { x: 125, y: 240, angle: 0 };
+  const muzzle = playerBeamMuzzle("squid", player);
+  assert.notDeepEqual(muzzle, { x: player.x, y: player.y });
+  assert.ok(muzzle.x > player.x, "zero-degree Phantom muzzle is forward of its center");
+
+  const render = gameCode.slice(gameCode.indexOf("if (player.health > 0 && player.beam && player.beamTicks > 0)"), gameCode.indexOf("if (player.health > 0) {", gameCode.indexOf("if (player.health > 0 && player.beam && player.beamTicks > 0)")));
+  assert.match(render, /const muzzle = playerBeamMuzzle\(game\.ship\.id, player\)/);
+  assert.match(render, /ctx\.translate\(muzzle\.x, muzzle\.y\)/);
+  assert.doesNotMatch(render, /ctx\.translate\(player\.x, player\.y\)/);
+  assert.match(render, /ctx\.rotate\(player\.angle \* DEG\)/);
+  assert.match(render, /ctx\.lineTo\(beam\.length, 0\)/);
 });
 
 test("the beam is readable without covering the arena", () => {
