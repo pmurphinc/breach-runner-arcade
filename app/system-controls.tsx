@@ -112,6 +112,15 @@ export type GlobalSystemControlsProps = {
   dimmed: boolean;
 };
 
+/** A passive build marker that shares the global shell without joining its controls. */
+export function BuildWatermark() {
+  return (
+    <div className="build-watermark" aria-hidden="true">
+      ALPHA BUILD
+    </div>
+  );
+}
+
 export default function GlobalSystemControls({
   menuOpen,
   onToggleMenu,

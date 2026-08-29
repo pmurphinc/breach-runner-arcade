@@ -68,7 +68,7 @@ import {
 import { aimGuideSegment } from "./aim-guide";
 import { followCameraFrame } from "./camera-framing";
 import { MAX_OFFSCREEN_PUP_INDICATORS, OFFSCREEN_INDICATOR_INSET, OFFSCREEN_MARKER_EXTENT, OFFSCREEN_MARKER_RADIUS, intersectBounds, isTargetOffscreen, markerBlockFor, nearestOffscreenTargets, offscreenIndicatorFor, type BlockedRegion, type CameraBounds, type OffscreenIndicator } from "./offscreen-indicators";
-import GlobalSystemControls, { useFullscreen } from "./system-controls";
+import GlobalSystemControls, { BuildWatermark, useFullscreen } from "./system-controls";
 import { MenuScreen } from "./ui-system";
 import {
   activeRoute,
@@ -7046,6 +7046,8 @@ export default function WormholeGame() {
           </div>
         </aside>
       </section>
+
+      <BuildWatermark />
 
       {/*
         The global system layer. Rendered last and pinned to --z-system so it
