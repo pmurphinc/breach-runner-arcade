@@ -149,6 +149,8 @@ export class PvpClient {
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private attempts = 0;
   private closedByUs = false;
+  /** Retained so an automatic reconnect repeats the same preferred identity. */
+  private preferredName: string | undefined;
   /** Server timestamps minus ours, so countdowns agree across machines. */
   private clockOffset = 0;
   private seenIncoming = new Set<string>();
@@ -212,6 +214,7 @@ export class PvpClient {
 
   connect(preferredName?: string) {
     if (typeof window === "undefined") return;
+    if (preferredName !== undefined) this.preferredName = preferredName;
     if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
       return;
     }
@@ -230,7 +233,7 @@ export class PvpClient {
     socket.onopen = () => {
       this.attempts = 0;
       this.update({ connected: true, reconnecting: false });
-      this.send({ type: "hello", name: preferredName, resume: this.resume ?? undefined });
+      this.send({ type: "hello", name: this.preferredName, resume: this.resume ?? undefined });
     };
 
     socket.onmessage = (event) => {

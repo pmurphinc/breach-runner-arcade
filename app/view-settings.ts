@@ -73,11 +73,22 @@ const isLevel = (value: unknown): value is SoundLevel => value === "low" || valu
 const isZoom = (value: unknown): value is ZoomLevel => value === "wide" || value === "standard" || value === "close" || value === "closer";
 const isCombatHaptics = (value: unknown): value is CombatHaptics => value === "off" || value === "gun" || value === "hull" || value === "both";
 const isAimGuide = (value: unknown): value is AimGuide => value === "off" || value === "short" || value === "long";
-const normalizePlayerInitials = (value: unknown) => {
+export const normalizePlayerInitials = (value: unknown) => {
   if (typeof value !== "string") return "";
   const normalized = value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 3);
   return normalized.length === 3 ? normalized : "";
 };
+
+/**
+ * The optional name sent when opening a multiplayer connection.
+ *
+ * Keep this derived from the persisted Arcade Identity value so every network
+ * mode uses the same validation rules and an empty/invalid identity leaves the
+ * server free to retain its generated guest name.
+ */
+export function resolveMultiplayerName(value: unknown): string | undefined {
+  return normalizePlayerInitials(value) || undefined;
+}
 
 export function migrateSettings(value: unknown): DeviceSettings {
   if (!value || typeof value !== "object") return DEFAULT_SETTINGS;
