@@ -59,6 +59,9 @@ export type LeaderboardEntry = {
   achievedAt: string;
 };
 
+/** Scored PvE difficulties accepted by the public arcade leaderboard API. */
+export type LeaderboardDifficulty = Exclude<ArcadeDifficulty, "practice" | "survival">;
+
 const LOCAL_BEST_KEY = "wormhole-arcade:best";
 const LOCAL_RUNS_KEY = "wormhole-arcade:runs";
 
@@ -260,16 +263,30 @@ async function murphFetch(path: string, init?: RequestInit) {
   });
 }
 
-export async function fetchLeaderboard(limit = 10): Promise<LeaderboardEntry[] | null> {
+export async function fetchLeaderboard(
+  limit = 10,
+  difficulty?: LeaderboardDifficulty,
+  signal?: AbortSignal
+): Promise<LeaderboardEntry[] | null> {
   try {
-    const response = await murphFetch(`/api/arcade/leaderboard?limit=${limit}`, {
+    // The difficulty is part of the API query, not a filter over a limited
+    // mixed response. The score service therefore orders, ranks and limits
+    // within the requested difficulty.
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (difficulty) query.set("difficulty", difficulty);
+    const response = await murphFetch(`/api/arcade/leaderboard?${query}`, {
       cache: "no-store",
+      signal,
     });
     if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) {
       return null;
     }
     const body = (await response.json()) as { entries?: LeaderboardEntry[] };
-    return body.entries ?? [];
+    const entries = body.entries ?? [];
+    // Do not present an apparently filtered board if an older score service
+    // ignores the new query parameter and returns its mixed leaderboard.
+    if (difficulty && entries.some((entry) => entry.difficulty !== difficulty)) return null;
+    return entries;
   } catch {
     return null;
   }

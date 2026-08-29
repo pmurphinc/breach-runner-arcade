@@ -168,6 +168,7 @@ import {
   saveScoreToMurph,
   saveSurvivalScoreToMurph,
   type LeaderboardEntry,
+  type LeaderboardDifficulty,
   type LocalBest,
   type RunResult,
   type SurvivalLeaderboardEntry,
@@ -1329,9 +1330,21 @@ function ArcadeBoard() {
   const [loading, setLoading] = useState(true);
   const [boardLimit, setBoardLimit] = useState(10);
   const [reloadKey, setReloadKey] = useState(0);
+  const [difficulty, setDifficulty] = useState<LeaderboardDifficulty | null>(null);
+
+  const filters: readonly { value: LeaderboardDifficulty | null; label: string }[] = [
+    { value: null, label: "ALL" },
+    { value: "easy", label: "STABLE" },
+    { value: "difficult", label: "VOLATILE" },
+    { value: "hard", label: "CRITICAL" },
+  ];
+
+  const difficultyLabel = (value: LeaderboardDifficulty) =>
+    value === "easy" ? "STABLE" : value === "difficult" ? "VOLATILE" : "CRITICAL";
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
     const localBest = loadLocalBest();
     queueMicrotask(() => {
       if (cancelled) return;
@@ -1340,17 +1353,38 @@ function ArcadeBoard() {
       setFailed(false);
       setLoading(true);
     });
-    void fetchLeaderboard(boardLimit).then((rows) => {
+    void fetchLeaderboard(boardLimit, difficulty ?? undefined, controller.signal).then((rows) => {
       if (cancelled) return;
       setLoading(false);
       if (rows) setEntries(rows);
       else setFailed(true);
     });
-    return () => { cancelled = true; };
-  }, [boardLimit, reloadKey]);
+    return () => { cancelled = true; controller.abort(); };
+  }, [boardLimit, difficulty, reloadKey]);
+
+  const selectDifficulty = (value: LeaderboardDifficulty | null) => {
+    setEntries(null);
+    setFailed(false);
+    setDifficulty(value);
+    setBoardLimit(10);
+  };
 
   return (
     <>
+      <div className="board-filter board-difficulty-filter" role="radiogroup" aria-label="Filter Global Board by difficulty">
+        {filters.map((filter) => (
+          <button
+            key={filter.label}
+            type="button"
+            role="radio"
+            aria-checked={difficulty === filter.value}
+            className={difficulty === filter.value ? "active" : ""}
+            onClick={() => selectDifficulty(filter.value)}
+          >
+            {filter.label}
+          </button>
+        ))}
+      </div>
       {failed ? <p className="board-note">The global board could not be reached. Your device score is safe.</p> : null}
       {loading && entries === null ? <p className="board-note">Loading the board…</p> : null}
       {!loading && entries !== null && entries.length === 0 ? <p className="board-note">No scores yet. Win a non-Practice PvE run to claim the first spot.</p> : null}
@@ -1360,7 +1394,9 @@ function ArcadeBoard() {
             <li key={entry.id}>
               <span className="board-rank">{entry.rank}</span>
               <span className="board-name">{entry.initials}</span>
-              <span className="board-runs">{entry.ship} · {entry.difficulty.toUpperCase()}</span>
+              <span className="board-runs">
+                {entry.ship}{difficulty === null ? ` · ${difficultyLabel(entry.difficulty)}` : ""}
+              </span>
               <b>{entry.score.toLocaleString()}</b>
             </li>
           ))}
