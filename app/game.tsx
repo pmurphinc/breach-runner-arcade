@@ -27,6 +27,7 @@ import {
   type WeaponMeta,
 } from "./game-data";
 import { DIRECTIONAL, drawPowerProjectile, drawWeaponGlyph } from "./weapon-art";
+import { mineVisualState } from "./mine-visual";
 import { drawShipModel, preloadShipModels, SHIP_MODEL_ASSETS, shipForwardVelocity, shipMuzzleWorldPoint, shipThrusterWorldPoints } from "./ship-models";
 import {
   DIFFICULTIES,
@@ -5182,6 +5183,7 @@ export default function WormholeGame() {
       }
       drawWeaponGlyph(ctx, enemy.kind, enemy.radius, time, {
         detail,
+        phase: enemy.kind === "mines" ? enemy.phase : undefined,
         charge: enemy.kind === "nuke" ? cap((enemy.countdown ?? 0) / 600, 0, 1) : undefined,
       });
       ctx.restore();
@@ -5189,12 +5191,13 @@ export default function WormholeGame() {
       ctx.save();
       ctx.translate(enemy.x, enemy.y);
       if (enemy.kind === "mines" && enemy.armed) {
-        // Armed mines flash so the hazard is unmistakable before contact.
-        ctx.globalAlpha = 0.35 + Math.abs(Math.sin(time * 0.006)) * 0.5;
-        ctx.strokeStyle = color;
+        // One cheap halo reinforces the center lamp without particles or allocations.
+        const mineVisual = mineVisualState(time, enemy.phase, true);
+        ctx.globalAlpha = 0.16 + mineVisual.blink * 0.34;
+        ctx.strokeStyle = "#ff6845";
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.arc(0, 0, enemy.radius + 5, 0, Math.PI * 2);
+        ctx.arc(0, 0, enemy.radius + 3 + mineVisual.blink * 2, 0, Math.PI * 2);
         ctx.stroke();
         ctx.globalAlpha = 1;
       }

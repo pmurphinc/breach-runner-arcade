@@ -11,6 +11,7 @@
  * a 30px arena hostile.
  */
 import { WEAPONS, type PickupId, type ShipId } from "./game-data.ts";
+import { mineVisualState } from "./mine-visual.js";
 
 export type GlyphContext = {
   /** Nominal radius in the current canvas space. */
@@ -131,30 +132,52 @@ const turret: GlyphFn = (ctx, { r, t, detail }) => {
   ctx.restore();
 };
 
-const mines: GlyphFn = (ctx, { r, t, detail }) => {
+const mines: GlyphFn = (ctx, { r, t, detail, phase }) => {
   const s = r / 15;
+  const animated = phase !== undefined;
+  const visual = mineVisualState(t, phase ?? 0, animated);
   ctx.save();
-  ctx.rotate(t * 0.0009);
+  ctx.rotate(animated ? visual.rotation : 0);
   const spikes = CANONICAL_GLYPH_GEOMETRY.mineSpikes;
   for (let i = 0; i < spikes; i += 1) {
     const a = (i / spikes) * Math.PI * 2;
+    // Capped detonator horns create a naval-mine outline without extending
+    // beyond the existing collision radius.
     ctx.beginPath();
-    ctx.moveTo(Math.cos(a) * 6.4 * s, Math.sin(a) * 6.4 * s);
-    ctx.lineTo(Math.cos(a) * 14 * s, Math.sin(a) * 14 * s);
-    ctx.stroke();
-    if (detail >= 0.35) {
-      ctx.beginPath();
-      ctx.arc(Math.cos(a) * 14 * s, Math.sin(a) * 14 * s, 1.1 * s, 0, Math.PI * 2);
-      ctx.fill();
-    }
+    ctx.moveTo(Math.cos(a - 0.09) * 7.7 * s, Math.sin(a - 0.09) * 7.7 * s);
+    ctx.lineTo(Math.cos(a - 0.035) * 13.2 * s, Math.sin(a - 0.035) * 13.2 * s);
+    ctx.lineTo(Math.cos(a + 0.035) * 13.2 * s, Math.sin(a + 0.035) * 13.2 * s);
+    ctx.lineTo(Math.cos(a + 0.09) * 7.7 * s, Math.sin(a + 0.09) * 7.7 * s);
+    ctx.closePath();
+    fillStroke(ctx);
   }
-  // Segmented body: two hemispheres split by an equator band.
+  // Dark spherical body with a metal rim remains legible over the bright arena.
+  const previousFill = ctx.fillStyle;
+  ctx.fillStyle = "#17222b";
   ctx.beginPath();
-  ctx.arc(0, 0, 6.6 * s, 0, Math.PI * 2);
+  ctx.arc(0, 0, 8.2 * s, 0, Math.PI * 2);
   fillStroke(ctx);
+  ctx.fillStyle = previousFill;
+  if (detail >= 0.35) {
+    ctx.globalAlpha = 0.5;
+    ctx.beginPath();
+    ctx.arc(-1.8 * s, -2 * s, 4.6 * s, Math.PI * 1.05, Math.PI * 1.72);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+  // Red-orange is hazard language, deliberately separate from pickup colour.
+  ctx.save();
+  ctx.globalAlpha = animated ? visual.blink : 0.42;
+  ctx.fillStyle = "#ff5a36";
+  ctx.shadowColor = "#ff3b22";
+  ctx.shadowBlur = detail >= 0.35 ? 5 * s : 0;
   ctx.beginPath();
-  ctx.moveTo(-6.6 * s, 0);
-  ctx.lineTo(6.6 * s, 0);
+  ctx.arc(0, 0, 3 * s, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+  ctx.beginPath();
+  ctx.moveTo(-8.2 * s, 0);
+  ctx.lineTo(8.2 * s, 0);
   ctx.stroke();
   ctx.restore();
 };
