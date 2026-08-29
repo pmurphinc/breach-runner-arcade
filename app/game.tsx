@@ -2,6 +2,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from "react";
 import { canvasBackingSize, damageVignette } from "./canvas-sizing";
+import { copyText } from "./clipboard";
 import {
   CATEGORY_LABELS,
   CODEX_PICKUPS,
@@ -1639,9 +1640,14 @@ function MultiplayerLobby({
   onClose: () => void;
 }) {
   const [code, setCode] = useState("");
+  const [codeCopied, setCodeCopied] = useState(false);
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => { closeRef.current?.focus(); }, []);
+  useEffect(() => () => {
+    if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+  }, []);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -1657,6 +1663,12 @@ function MultiplayerLobby({
   const cycleShip = (direction: number) => {
     const index = SHIPS.findIndex((ship) => ship.id === ownShip.id);
     onShip(SHIPS[(index + direction + SHIPS.length) % SHIPS.length].id);
+  };
+  const copyPrivateCode = async (privateCode: string) => {
+    if (!await copyText(privateCode)) return;
+    setCodeCopied(true);
+    if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    copiedTimerRef.current = setTimeout(() => setCodeCopied(false), 1800);
   };
   const finalCause = WEAPONS[result?.cause as PowerId]?.short?.toUpperCase()
     ?? defeatCauseLabel(result?.cause ?? "unknown");
@@ -1764,9 +1776,15 @@ function MultiplayerLobby({
           </p>
 
           {status.kind === "waiting" ? (
-            <p className="lobby-code" aria-label={`Invite code ${status.code.split("").join(" ")}`}>
-              {status.code}
-            </p>
+            <button
+              type="button"
+              className="lobby-code"
+              aria-label={`Copy private match code ${status.code}`}
+              onClick={() => void copyPrivateCode(status.code)}
+            >
+              <span>{status.code}</span>
+              <small aria-live="polite">{codeCopied ? "CODE COPIED" : "TAP TO COPY"}</small>
+            </button>
           ) : null}
 
           {net?.name ? (
@@ -1794,12 +1812,12 @@ function MultiplayerLobby({
                 id="lobby-code-input"
                 value={code}
                 disabled={offline || busy}
-                onChange={(event) => setCode(event.target.value.toUpperCase().slice(0, 6))}
-                placeholder="ABC123"
+                onChange={(event) => setCode(event.target.value.toUpperCase().slice(0, 4))}
+                placeholder="AB7K"
                 autoComplete="off"
                 spellCheck={false}
                 inputMode="text"
-                maxLength={6}
+                maxLength={4}
               />
               <button type="submit" disabled={offline || busy || code.trim().length === 0}>JOIN</button>
             </div>

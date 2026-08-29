@@ -537,7 +537,9 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 .lobby-body { min-height: 0; display: grid; gap: 12px; padding: 14px; overflow: auto; }
 .lobby-status { margin: 0; color: var(--cyan); font: 800 var(--fs-micro)/1.4 var(--mono); letter-spacing: .08em; }
 .lobby-status.warn { color: var(--amber); }
-.lobby-code { margin: 0; padding: 10px; text-align: center; color: #eafcff; border: 1px dashed var(--line-strong); border-radius: 3px; font: 900 var(--fs-xl)/1 var(--mono); letter-spacing: .3em; }
+.lobby-code { display: grid; gap: 5px; width: 100%; margin: 0; padding: 10px; text-align: center; color: #eafcff; border: 1px dashed var(--line-strong); border-radius: 3px; background: transparent; cursor: pointer; font: 900 var(--fs-xl)/1 var(--mono); letter-spacing: .3em; }
+.lobby-code:hover, .lobby-code:focus-visible { border-style: solid; border-color: var(--cyan); outline: none; }
+.lobby-code small { color: var(--cyan); font: 800 var(--fs-nano)/1.2 var(--mono); letter-spacing: .12em; }
 .lobby-callsign { margin: 0; color: var(--muted); font: 700 var(--fs-micro)/1.4 var(--mono); letter-spacing: .06em; }
 .lobby-callsign b { color: var(--cyan); }
 .lobby-actions { display: grid; gap: 7px; }

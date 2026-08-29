@@ -130,7 +130,7 @@ export const SWEEP_INTERVAL_MS = 15_000;
 
 /** Invite codes: unambiguous alphabet, no O/0 or I/1 confusion. */
 export const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-export const CODE_LENGTH = 6;
+export const CODE_LENGTH = 4;
 
 export const ERRORS = {
   BAD_MESSAGE: "bad_message",
