@@ -21,6 +21,8 @@ import { settingsStore, type AimGuide, type CombatHaptics, type SoundLevel, type
 import { GAMEPAD_BINDINGS } from "./gamepad";
 import { RIFT_RUN_DESCRIPTION, RIFT_RUN_TAGLINE, RIFT_RUN_TITLE, RIFT_SHIP_CLASSES } from "./rift-run/data";
 import { RIFT_RUN_SHIPS, riftRunShip } from "./rift-run/ships";
+import type { PilotProgression } from "./pilot-progression";
+import { isDifficultyUnlocked, PROGRESSION_DIFFICULTIES } from "./pilot-progression";
 
 /** One line each. A mode a player cannot summarise is a mode they will not pick. */
 export const MODE_INFO: Record<GameMode, { label: string; blurb: string }> = {
@@ -120,6 +122,19 @@ export type MenuCallbacks = {
   close: () => void;
 };
 
+function SelectedShipPreview({ ship, renderShip, onChange }: {
+  ship: ShipId;
+  renderShip: (id: ShipId, size: number) => React.ReactNode;
+  onChange: () => void;
+}) {
+  const profile = SHIP_PROFILES[ship];
+  return <section className="selected-ship-preview" aria-label={`Selected ship: ${profile.name}`}>
+    <div className="selected-ship-preview-art" aria-hidden="true">{renderShip(ship, 104)}</div>
+    <div><span>Selected ship</span><b>{profile.name}</b><small>{profile.role}</small></div>
+    <button type="button" className="menu-link-button" onClick={onChange}>Change Ship</button>
+  </section>;
+}
+
 /**
  * Keep the persistent setting reflected on the document root so the gameplay
  * control layer can mirror the existing right-stick action targets with CSS
@@ -162,15 +177,16 @@ export function HomeScreen({
   go,
   openSettings,
   close,
+  renderShip,
 }: MenuCallbacks & {
   mode: GameMode;
   difficulty: DifficultyId;
   ship: ShipId;
   running: boolean;
   onLaunch: () => void;
+  renderShip: (id: ShipId, size: number) => React.ReactNode;
 }) {
   useMirroredTouchActionsSetting();
-  const profile = SHIP_PROFILES[ship];
   const network = mode !== "pve";
   // A challenge runs solo, so it rides on the PvE mode and replaces the labels
   // rather than adding a fourth mode nothing else in the shell knows about.
@@ -210,6 +226,7 @@ export function HomeScreen({
             Launch a run
           </h3>
 
+          <SelectedShipPreview ship={ship} renderShip={renderShip} onChange={() => go("ships")} />
           <div className="play-summary">
             <SummaryRow
               label="Mode"
@@ -225,12 +242,6 @@ export function HomeScreen({
                 onAction={() => go("modes")}
               />
             )}
-            <SummaryRow
-              label="Ship"
-              value={profile.name}
-              detail={profile.role}
-              onAction={() => go("ships")}
-            />
           </div>
         </section>
 
@@ -250,6 +261,9 @@ export function HomeScreen({
 /* ----------------------------------------------------------------- modes -- */
 
 export function ModesScreen({
+  ship,
+  renderShip,
+  progression,
   mode,
   difficulty,
   onMode,
@@ -257,6 +271,7 @@ export function ModesScreen({
   onSurvival,
   onRiftRun,
   onLaunch,
+  go,
   back,
   openSettings,
 }: MenuCallbacks & {
@@ -269,6 +284,9 @@ export function ModesScreen({
   /** Opens the mode's own loadout instead of selecting a difficulty. */
   onRiftRun: () => void;
   onLaunch: () => void;
+  ship: ShipId;
+  renderShip: (id: ShipId, size: number) => React.ReactNode;
+  progression: PilotProgression;
 }) {
   const survival = difficulty === "survival";
   return (
@@ -283,6 +301,7 @@ export function ModesScreen({
         </button>
       }
     >
+      <SelectedShipPreview ship={ship} renderShip={renderShip} onChange={() => go("ships")} />
       <MenuSection title="Arcade">
         <div className="mode-grid" role="radiogroup" aria-label="Arcade mode">
           {MODE_ORDER.map((id) => {
@@ -310,6 +329,34 @@ export function ModesScreen({
           })}
         </div>
       </MenuSection>
+
+      {mode === "pvp" || survival ? null : (
+        <MenuSection title="PvE Difficulty" hint="Complete each tier to unlock the next.">
+          <div className="difficulty-progression" role="radiogroup" aria-label="PvE difficulty">
+            {PROGRESSION_DIFFICULTIES.map((id) => {
+              const unlocked = isDifficultyUnlocked(id, progression);
+              const completed = progression.completedDifficulties.includes(id);
+              const prerequisite = id === "difficult" ? "STABLE" : "VOLATILE";
+              return <button key={id} type="button" role="radio" aria-checked={difficulty === id}
+                disabled={!unlocked} aria-disabled={!unlocked}
+                className={`difficulty-card ${difficulty === id ? "active" : ""} ${unlocked ? "unlocked" : "locked"}`}
+                onClick={() => unlocked && onDifficulty(id)}>
+                <span className="option-check" aria-hidden="true">{difficulty === id ? "✓" : !unlocked ? "🔒" : ""}</span>
+                <b>{difficultyLabel(id)}</b>
+                <small>{unlocked ? difficultyBlurb(id) : `Complete ${prerequisite} to unlock`}</small>
+                <em>{completed ? "Completed" : unlocked ? "Available" : `Complete ${prerequisite} to unlock`}</em>
+              </button>;
+            })}
+          </div>
+          <div className="simulation-option">
+            <button type="button" role="radio" aria-checked={difficulty === "practice"}
+              className={`difficulty-card ${difficulty === "practice" ? "active" : ""}`} onClick={() => onDifficulty("practice")}>
+              <span className="option-check" aria-hidden="true">{difficulty === "practice" ? "✓" : ""}</span>
+              <b>Simulation</b><small>Practice / unscored</small><em>Training</em>
+            </button>
+          </div>
+        </MenuSection>
+      )}
 
       <MenuSection title="Challenges" hint="Solo runs with their own rules.">
         <div className="mode-grid" role="radiogroup" aria-label="Challenge">
@@ -340,22 +387,6 @@ export function ModesScreen({
         </div>
       </MenuSection>
 
-      {mode === "pvp" || survival ? null : (
-        <MenuSection title="Difficulty">
-          <OptionRow
-            label="Difficulty"
-            hideLabel
-            columns="stack"
-            value={difficulty}
-            options={DIFFICULTY_ORDER.map((id) => ({
-              id,
-              label: difficultyLabel(id),
-              hint: difficultyBlurb(id),
-            }))}
-            onChange={onDifficulty}
-          />
-        </MenuSection>
-      )}
     </MenuScreen>
   );
 }
@@ -451,7 +482,7 @@ export function ShipsScreen({
       wide
       footer={
         <button type="button" className="play-button" onClick={onLaunch}>
-          Play as {profile.name}
+          Confirm {profile.name}
         </button>
       }
     >

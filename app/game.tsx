@@ -113,6 +113,7 @@ import { applyUpgrade, mountUnlockedWeapon } from "./rift-run/upgrade-apply";
 import { claimHullGunUpgrade, claimHullGunWeapon, hullGunUpgradeChoices, pendingHullGunReward } from "./rift-run/hull-gun-reward";
 import { drawRiftEnergyRing } from "./rift-run/energy-ring";
 import { rewardCategoryLabel } from "./rift-run/upgrades";
+import { isDifficultyUnlocked, pilotProgressionStore, safeDifficulty } from "./pilot-progression";
 import { PvpClient, countdownLabel, type PvpSnapshot } from "./pvp-client";
 import {
   DEFAULT_PRESET,
@@ -1511,7 +1512,7 @@ const modePreference = createPreference<GameMode>(
 const difficultyPreference = createPreference<DifficultyId>(
   "wormhole-arcade:difficulty",
   RULESET_IDS,
-  "difficult"
+  "easy"
 );
 
 
@@ -1970,6 +1971,15 @@ export default function WormholeGame() {
     difficultyPreference.get,
     difficultyPreference.getServer
   );
+  const progression = useSyncExternalStore(
+    pilotProgressionStore.subscribe,
+    pilotProgressionStore.getSnapshot,
+    pilotProgressionStore.getServerSnapshot,
+  );
+  useEffect(() => {
+    const safe = safeDifficulty(difficulty, progression);
+    if (safe !== difficulty) difficultyPreference.set(safe);
+  }, [difficulty, progression]);
   /** True once a run has been launched, so the shell knows the arena is live. */
   const [launched, setLaunched] = useState(false);
   const [net, setNet] = useState<PvpSnapshot | null>(null);
@@ -2454,9 +2464,10 @@ export default function WormholeGame() {
     // Picking an arcade mode leaves the challenge. Survival has no co-op or
     // PvP balance behind it, and leaving the preference set would make the
     // Modes screen show a ticked challenge next to a ticked arcade mode.
-    if (difficultyPreference.get() === "survival") difficultyPreference.set("difficult");
+    if (difficultyPreference.get() === "survival") difficultyPreference.set("easy");
   }, []);
   const chooseDifficulty = useCallback((next: DifficultyId) => {
+    if (!isDifficultyUnlocked(next, pilotProgressionStore.getSnapshot())) return;
     difficultyPreference.set(next);
   }, []);
   /** Rift Survival is a solo challenge, so choosing it also returns to PvE. */
@@ -2473,6 +2484,8 @@ export default function WormholeGame() {
     }
     if (recordedResult.current === hud.result) return;
     recordedResult.current = hud.result;
+
+    pilotProgressionStore.record({ mode: hud.mode, difficulty: hud.difficulty, outcome: hud.result });
 
     const settlement = settleScore(hud.score, hud.elapsedSeconds, hud.result);
     const practice = hud.difficulty === "practice";
@@ -2601,7 +2614,9 @@ export default function WormholeGame() {
     stopVictorySuction();
     const confirmedShip = mode === "coop" ? netRef.current?.state.you?.ship : null;
     const launchShip = riftShip && riftRunShip(riftShip) ? riftShip : (confirmedShip ?? shipId) as ShipId;
-    const game = createGame(selectedShip(launchShip), mode, difficulty);
+    const launchDifficulty = safeDifficulty(difficulty, pilotProgressionStore.getSnapshot());
+    if (launchDifficulty !== difficulty) difficultyPreference.set(launchDifficulty);
+    const game = createGame(selectedShip(launchShip), mode, launchDifficulty);
     if (riftShip && riftRunShip(riftShip)) {
       const seed = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${riftShip}`;
       const run = createRunAgainRiftRun({ kind: "rift-run", shipId: riftShip }, seed);
@@ -2639,7 +2654,7 @@ export default function WormholeGame() {
 
   const launchRiftRun = useCallback(() => {
     modePreference.set("pve");
-    difficultyPreference.set("difficult");
+    difficultyPreference.set("easy");
     start(riftShipId);
   }, [riftShipId, start]);
 
@@ -2778,6 +2793,9 @@ export default function WormholeGame() {
     if (mode === "pve") { start(); return; }
     setMenu(resetRoute("lobby"));
   }, [mode, start]);
+
+  const beginPlayFlow = useCallback(() => setMenu(resetRoute("ships")), []);
+  const confirmShip = useCallback(() => setMenu(resetRoute("modes")), []);
 
   /** Back out of the menu: resume the run if there is one, else stay home. */
   const resumeOrClose = useCallback(() => {
@@ -7192,7 +7210,8 @@ export default function WormholeGame() {
           difficulty={difficulty}
           ship={shipId}
           running={launched && gameActive}
-          onLaunch={launchFromMenu}
+          onLaunch={beginPlayFlow}
+          renderShip={renderShip}
           go={go}
           openSettings={openSettings}
           back={back}
@@ -7221,6 +7240,9 @@ export default function WormholeGame() {
         <ModesScreen
           mode={mode}
           difficulty={difficulty}
+          ship={shipId}
+          renderShip={renderShip}
+          progression={progression}
           onMode={chooseMode}
           onDifficulty={chooseDifficulty}
           onSurvival={chooseSurvival}
@@ -7250,7 +7272,7 @@ export default function WormholeGame() {
         <ShipsScreen
           ship={shipId}
           onSelect={(id) => { setShipId(id); netRef.current?.chooseShip(id); }}
-          onLaunch={launchFromMenu}
+          onLaunch={confirmShip}
           renderShip={renderShip}
           go={go}
           openSettings={openSettings}
