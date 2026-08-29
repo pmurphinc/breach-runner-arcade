@@ -456,3 +456,12 @@ test("Inferno/Scorched and breach runtime are integrated and reset with fresh ga
   assert.match(source, /if \(!liveScorched\.has\(id\)\) game\.riftScorched\.delete\(id\)/);
   assert.match(source, /tickRiftReform\(/);
 });
+
+test("Rift Run payload destruction breaches instead of starting PvE victory", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) => readFile(new URL("../app/game.tsx", import.meta.url), "utf8"));
+  const riftRunBranch = source.indexOf("else if (game.rivalHealth <= 0 && riftRunRef.current)");
+  const standardVictory = source.indexOf("game.victorySequence = ticksForSeconds(VICTORY_TOTAL_SECONDS)", riftRunBranch);
+  assert.ok(riftRunBranch >= 0, "Rift Run must intercept zero integrity in the payload path");
+  assert.ok(standardVictory > riftRunBranch, "standard PvE victory must remain after the Rift Run continuation branch");
+  assert.match(source.slice(riftRunBranch, standardVictory), /breachRiftRun\(run/);
+});
