@@ -7,13 +7,14 @@ import { RIFT_WEAPONS, createWeaponInstance } from "../app/rift-run/weapons.ts";
 import { createWeaponRuntime } from "../app/rift-run/weapon-runtime.ts";
 import { processHardpointFire, logicalMountOffset } from "../app/rift-run/weapon-fire.ts";
 import { admitsProjectile, applyScorched, detonateMissile, evolutionRadialHit, projectileFromShot, penetrate, SCORCHED_DURATION_TICKS, SCORCHED_TICK_CADENCE, selectMissileTarget, steerMissile, targetsInExplosion, targetsInFlameCone, tickScorched } from "../app/rift-run/weapon-projectiles.ts";
-import { awardRiftEnergy, enemyKillEnergy, riftDamaged, riftEnergyRequiredForLevel } from "../app/rift-run/progression.ts";
+import { awardRiftEnergy, enemyKillEnergy, riftDamaged, riftEnergyProgress, riftEnergyRequiredForLevel } from "../app/rift-run/progression.ts";
 import { applyRiftRunHullWeaponDamage, RIFT_RUN_BASE_INTEGRITY, RIFT_RUN_BREACH_REWARDS, RIFT_RUN_REFORM_DELAY_MS, RIFT_RUN_RIFT_DAMAGE_SCALE, riftIntegrityForBreach } from "../app/rift-run/rift-damage.ts";
 import { breachRiftRun, tickRiftReform } from "../app/rift-run/breach.ts";
 import { RIFT_EVOLUTIONS, activeEvolution, eligibleEvolutions } from "../app/rift-run/evolutions.ts";
 import { eligibleUpgradeChoices, rollUpgradeChoices } from "../app/rift-run/upgrade-pool.ts";
 import { applyUpgrade, mountUnlockedWeapon } from "../app/rift-run/upgrade-apply.ts";
-import { RIFT_UPGRADES, upgradeStack } from "../app/rift-run/upgrades.ts";
+import { RIFT_REWARD_CATEGORIES, RIFT_UPGRADES, rewardCategoryLabel, upgradeStack } from "../app/rift-run/upgrades.ts";
+import { claimHullGunUpgrade, claimHullGunWeapon, hullGunUpgradeChoices, pendingHullGunReward } from "../app/rift-run/hull-gun-reward.ts";
 import { riftRunHandling, riftRunHullDamage } from "../app/rift-run/live-modifiers.ts";
 import { applyIntent, intentFromKeys } from "../app/movement.ts";
 import { createRunAgainRiftRun, replayForCompletedRun } from "../app/run-replay.ts";
@@ -169,6 +170,26 @@ test("combat energy rewards and an increasing curve safely queue multiple levels
   assert.ok(riftEnergyRequiredForLevel(4) > riftEnergyRequiredForLevel(2));
   const start=createRiftRun("wing", "energy"), damaged=riftDamaged(start,10,"socket-1"); assert.ok(damaged.riftEnergy>0);
   const advanced=awardRiftEnergy(start,1000); assert.ok(advanced.level>3); assert.equal(advanced.pendingLevels,advanced.level-1);
+});
+
+test("Rift Energy progress normalizes the current threshold and becomes full when ready", () => {
+  const run = createRiftRun("wing", "ring");
+  const required = riftEnergyRequiredForLevel(run.level);
+  assert.deepEqual(riftEnergyProgress({ ...run, riftEnergy: required / 2 }), { current: required / 2, required, fraction: .5, ready: false });
+  assert.deepEqual(riftEnergyProgress({ ...run, riftEnergy: 1, pendingLevels: 2 }), { current: 1, required, fraction: 1, ready: true });
+});
+
+test("Rift Energy ring integration is Rift Run-only", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) => readFile(new URL("../app/game.tsx", import.meta.url), "utf8"));
+  const ring = await import("node:fs/promises").then(({ readFile }) => readFile(new URL("../app/rift-run/energy-ring.ts", import.meta.url), "utf8"));
+  assert.match(source, /drawRiftEnergyRing\(ctx, game\.portalX, game\.portalY, riftRunRef\.current, time\)/);
+  assert.match(ring, /if \(!state \|\| state\.status !== "active"\) return/);
+});
+
+test("HULL GUN extends the reward categories without changing the original three", () => {
+  assert.deepEqual(RIFT_REWARD_CATEGORIES, ["offensive", "defensive", "mobility", "hull-gun"]);
+  assert.equal(rewardCategoryLabel("hull-gun"), "HULL GUN");
+  assert.ok(RIFT_UPGRADES.filter(definition => definition.effect === "damage" || definition.effect === "fireRate").some(definition => definition.category === "hull-gun"));
 });
 
 function riftRunHullHit(game, run, weaponDamage, instanceId = "weapon-1") {
@@ -336,6 +357,46 @@ test("Phase 3B breach rewards once, blocks reform damage, and reforms stronger",
   assert.equal(reformed.maximumIntegrity, reformed.integrity);
 });
 
+test("first breach grants one locked hardpoint Hull Gun selection exactly once", () => {
+  const run = createRiftRun("tank", "first-hull-gun");
+  const runtime = { integrity: 0, maximumIntegrity: 100, reformRemainingMs: 0, breached: false };
+  const first = breachRiftRun(run, runtime);
+  assert.equal(first.state.riftBreaches, 1);
+  assert.equal(first.state.firstBreachHullGunReward, "select-weapon");
+  assert.equal(first.state.hardpoints.filter(point => point.status === "available").length, 1);
+  assert.equal(pendingHullGunReward(first.state), true);
+
+  const duplicate = breachRiftRun(first.state, first.runtime);
+  assert.equal(duplicate.state.firstBreachHullGunReward, "select-weapon");
+  assert.equal(duplicate.state.hardpoints.filter(point => point.status === "available").length, 1);
+  const mounted = claimHullGunWeapon(first.state, 0, "railgun");
+  assert.equal(mounted.firstBreachHullGunReward, "claimed");
+  assert.equal(mounted.hardpoints[0].weapon.weaponId, "railgun");
+  assert.equal(mounted.hardpoints[0].weapon.level, 1);
+  assert.deepEqual(mounted.hardpoints[0].weapon.modifiers, createWeaponInstance("railgun", "comparison").modifiers);
+
+  const reformed = tickRiftReform(first.runtime, RIFT_RUN_REFORM_DELAY_MS, RIFT_RUN_BASE_INTEGRITY, 1);
+  const second = breachRiftRun(mounted, { ...reformed, integrity: 0 });
+  assert.equal(second.state.riftBreaches, 2);
+  assert.equal(second.state.firstBreachHullGunReward, "claimed");
+  assert.equal(second.state.hardpoints.filter(point => point.status === "available").length, 0);
+});
+
+test("first breach with no locked socket offers three meaningful Hull Gun upgrades", () => {
+  const armedLight = createArmedRun("wing", "fallback-hull-gun", "minigun");
+  const breached = breachRiftRun(armedLight, { integrity: 0, maximumIntegrity: 100, reformRemainingMs: 0, breached: false }).state;
+  assert.equal(breached.firstBreachHullGunReward, "upgrade-weapon");
+  assert.equal(breached.hardpoints.some(point => point.status === "available"), false);
+  const choices = hullGunUpgradeChoices(breached);
+  assert.equal(choices.length, 3);
+  assert.ok(choices.every(choice => choice.targetInstanceId === breached.hardpoints[0].weapon.instanceId));
+  const pendingLevels = breached.pendingLevels;
+  const upgraded = claimHullGunUpgrade(breached, choices[0]);
+  assert.equal(upgraded.firstBreachHullGunReward, "claimed");
+  assert.equal(upgraded.pendingLevels, pendingLevels, "milestone reward does not consume generic level-up currency");
+  assert.equal(upgraded.upgradeHistory.at(-1).targetInstanceId, breached.hardpoints[0].weapon.instanceId);
+});
+
 test("breach energy can queue a level-up and live integration pauses it", async () => {
   const run = createRiftRun("tank", "breach-level");
   run.riftEnergy = riftEnergyRequiredForLevel(run.level) - 1;
@@ -343,7 +404,7 @@ test("breach energy can queue a level-up and live integration pauses it", async 
   assert.ok(breached.state.pendingLevels > 0);
   const source = await import("node:fs/promises").then(({ readFile }) => readFile(new URL("../app/game.tsx", import.meta.url), "utf8"));
   assert.match(source, /breachRiftRun\(run,/);
-  assert.match(source, /breached\.state\.pendingLevels > 0 \|\| breached\.state\.hardpoints\.some/);
+  assert.match(source, /breached\.state\.pendingLevels > 0 \|\| pendingHullGunReward\(breached\.state\) \|\| breached\.state\.hardpoints\.some/);
   assert.match(source, /if \(!game\.running \|\| game\.paused \|\| game\.result\) return;/);
   assert.match(source, /else if \(game\.rivalHealth <= 0\)/, "standard PvE retains its normal zero-integrity victory branch");
 });

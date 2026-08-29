@@ -10,8 +10,12 @@ export function breachRiftRun(state: RiftRunState, runtime: RiftBreachRuntime, d
   const firstBreach = state.riftBreaches === 0;
   const riftBreaches = state.riftBreaches + 1;
   const hardpoints = structuredClone(state.hardpoints);
-  if (firstBreach && hardpoints[0]?.status === "locked") hardpoints[0] = { index: 0, status: "available" };
-  const rewarded = awardRiftEnergy({ ...state, hardpoints, riftBreaches, score: state.score + RIFT_RUN_BREACH_REWARDS.score }, RIFT_RUN_BREACH_REWARDS.energy);
+  const locked = firstBreach ? hardpoints.find(point => point.status === "locked") : undefined;
+  if (locked) hardpoints[locked.index] = { index: locked.index, status: "available" };
+  const firstBreachHullGunReward = firstBreach && state.firstBreachHullGunReward === "unearned"
+    ? locked ? "select-weapon" : "upgrade-weapon"
+    : state.firstBreachHullGunReward;
+  const rewarded = awardRiftEnergy({ ...state, hardpoints, firstBreachHullGunReward, riftBreaches, score: state.score + RIFT_RUN_BREACH_REWARDS.score }, RIFT_RUN_BREACH_REWARDS.energy);
   return { state: rewarded, runtime: { ...runtime, integrity: 0, reformRemainingMs: delayMs, breached: true } };
 }
 
