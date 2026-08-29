@@ -112,7 +112,7 @@ export type GlobalSystemControlsProps = {
   dimmed: boolean;
 };
 
-/** A passive build marker that shares the global shell without joining its controls. */
+/** A passive build marker displayed beside the product logo. */
 export function BuildWatermark() {
   return (
     <div className="build-watermark" aria-hidden="true">

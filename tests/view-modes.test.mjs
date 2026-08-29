@@ -72,19 +72,20 @@ test('Menu and Fullscreen are one global layer above every screen', () => {
   assert.match(css, /\.system-controls\s*\{[^}]*var\(--safe-top\)[^}]*var\(--safe-right\)/s);
 });
 
-test('the alpha build marker is a passive shell watermark with subordinate layering', () => {
+test('the alpha build marker is passive and belongs to the logo lockup', () => {
   assert.equal((game.match(/<BuildWatermark\s*\/>/g) ?? []).length, 1);
+  const brandRow = game.slice(game.indexOf('className="brand-row"'), game.indexOf('className="brand-home"'));
+  assert.match(brandRow, /className="brand-logo"/);
+  assert.match(brandRow, /<BuildWatermark\s*\/>/);
+  assert.doesNotMatch(game.slice(game.indexOf('</header>')), /<BuildWatermark\s*\/>/);
   assert.match(systemControls, /className="build-watermark"/);
+  assert.match(systemControls, /aria-hidden="true"/);
   assert.match(systemControls, />\s*ALPHA BUILD\s*</);
-  assert.match(css, /\.build-watermark\s*\{[^}]*position:\s*fixed[^}]*z-index:\s*var\(--z-watermark\)[^}]*pointer-events:\s*none/s);
+  assert.match(css, /\.brand-row\s*\{[^}]*display:\s*flex[^}]*align-items:\s*center/s);
+  assert.match(css, /\.build-watermark\s*\{[^}]*pointer-events:\s*none[^}]*user-select:\s*none/s);
+  assert.doesNotMatch(css, /\.build-watermark\s*\{[^}]*(?:position:\s*fixed|right:)/s);
 
-  const layer = (name) => Number(css.match(new RegExp(`--z-${name}:\\s*(\\d+)`))?.[1]);
-  assert.ok(layer('screen') < layer('watermark'), 'watermark remains visible over menu screens');
-  assert.ok(layer('watermark') < layer('overlay'), 'overlays remain visually dominant');
-  assert.ok(layer('watermark') < layer('dialog'), 'end-game dialogs remain visually dominant');
-  assert.ok(layer('watermark') < layer('system'), 'Menu and Fullscreen controls remain dominant');
-
-  // The watermark is an addition to the shell, never a replacement control.
+  // The branding adjustment never replaces or modifies either global control.
   assert.match(systemControls, /className="system-button system-menu"/);
   assert.match(systemControls, /className="system-button system-fullscreen"/);
 });

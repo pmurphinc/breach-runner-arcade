@@ -21,7 +21,7 @@ test("one shared gameplay surface owns context-menu protection for every mode", 
 
 test("context-menu protection is scoped away from menus and editable fields", () => {
   const playColumn = game.indexOf('className="play-column"');
-  const endOfCockpit = game.indexOf("\n      </section>\n\n      <BuildWatermark", playColumn);
+  const endOfCockpit = game.indexOf("\n      </section>", playColumn);
   const menuScreens = game.indexOf('{route === "settings"');
 
   assert.ok(endOfCockpit > playColumn, "the gameplay surface should have a bounded element");
