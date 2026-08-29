@@ -1,12 +1,15 @@
 import type { RiftRunState, RiftWeaponId, RiftWeaponInstance } from "./types.ts";
 
-export type UpgradeCategory = "weapon" | "ship" | "hardpoint" | "rift-tech";
+export const RIFT_REWARD_CATEGORIES = ["offensive", "defensive", "mobility", "hull-gun"] as const;
+export type RewardCategory = typeof RIFT_REWARD_CATEGORIES[number];
+export const rewardCategoryLabel = (category: RewardCategory): string => category === "hull-gun" ? "HULL GUN" : category.toUpperCase();
+export type UpgradeCategory = "weapon" | "ship" | "hardpoint" | "rift-tech" | "hull-gun";
 export type GameplayCategory = "offensive" | "defensive" | "mobility";
 export type UpgradeEffect = "fireRate" | "damage" | "projectileCount" | "penetration" | "explosionRadius" | "projectileSpeed" | "range" | "coneWidth" | "hull" | "shield" | "movement" | "damageReduction" | "handling" | "cannonDamage" | "cannonFireRate" | "hardpoint";
 export type UpgradeDefinition = { id: string; name: string; description: string; category: UpgradeCategory; gameplayCategory: GameplayCategory; tier: 1; maxStacks: number; repeatable?: boolean; effect: UpgradeEffect; amount: number; weapons?: readonly RiftWeaponId[]; excludes?: readonly RiftWeaponId[] };
 export type UpgradeChoice = { key: string; upgradeId: string; gameplayCategory: GameplayCategory; evolutionId?: import("./types").RiftEvolutionId; targetInstanceId?: string; hardpointIndex?: number; title: string; target: string; description: string; kind?: "upgrade" | "evolution" };
 
-const weapon = (id: string, name: string, description: string, effect: UpgradeEffect, amount: number, weapons?: readonly RiftWeaponId[], maxStacks=4): UpgradeDefinition => ({ id, name, description, category: "weapon", gameplayCategory: "offensive", tier: 1, maxStacks, effect, amount, weapons });
+const weapon = (id: string, name: string, description: string, effect: UpgradeEffect, amount: number, weapons?: readonly RiftWeaponId[], maxStacks=4): UpgradeDefinition => ({ id, name, description, category: "hull-gun", gameplayCategory: "offensive", tier: 1, maxStacks, effect, amount, weapons });
 export const RIFT_UPGRADES: readonly UpgradeDefinition[] = [
   { id: "cannon-amplifier", name: "CANNON AMPLIFIER", description: "+15% base cannon damage", category: "rift-tech", gameplayCategory: "offensive", tier: 1, maxStacks: 10, effect: "cannonDamage", amount: .15 },
   { id: "cannon-cycler", name: "CANNON CYCLER", description: "+12% base cannon fire rate", category: "rift-tech", gameplayCategory: "offensive", tier: 1, maxStacks: 10, effect: "cannonFireRate", amount: .12 },
