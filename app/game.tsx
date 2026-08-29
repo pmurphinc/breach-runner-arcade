@@ -4847,6 +4847,28 @@ export default function WormholeGame() {
               // Survival has no win condition, so a collapsed rift is a reward
               // rather than an ending: the arena clears and the rift reforms.
               breachRift(game);
+            } else if (game.rivalHealth <= 0 && riftRunRef.current) {
+              const run = riftRunRef.current;
+              if (game.riftReformTicks <= 0) {
+                const breached = breachRiftRun(run, {
+                  integrity: game.rivalHealth,
+                  maximumIntegrity: game.rivalMaxHealth,
+                  reformRemainingMs: 0,
+                  breached: false,
+                });
+                const scoreDelta = breached.state.score - run.score;
+                riftRunRef.current = breached.state;
+                setRiftRun(breached.state);
+                game.score += scoreDelta;
+                game.rivalHealth = breached.runtime.integrity;
+                game.rivalMaxHealth = breached.runtime.maximumIntegrity;
+                game.riftReformTicks = Math.ceil(breached.runtime.reformRemainingMs / TICK_MS);
+                game.notice = `RIFT BREACHED // DEPTH ${breached.state.riftBreaches}`;
+                game.noticeLife = game.riftReformTicks;
+                if (breached.state.pendingLevels > 0 || breached.state.hardpoints.some(point => point.status === "available")) game.paused = true;
+                burst(game, game.portalX, game.portalY, "#ffffff", 40, 10);
+                playCue("wormhole-explosion", .18);
+              }
             } else if (game.rivalHealth <= 0) {
               game.rivalHealth = 0;
               game.victorySequence = ticksForSeconds(VICTORY_TOTAL_SECONDS);
