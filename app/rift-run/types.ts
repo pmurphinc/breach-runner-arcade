@@ -2,7 +2,7 @@ import type { ShipId } from "../game-data.ts";
 
 export type RiftShipClass = "light" | "medium" | "heavy";
 export type RiftRunStatus = "setup" | "active" | "completed" | "abandoned";
-export type FirstBreachHullGunReward = "unearned" | "select-weapon" | "upgrade-weapon" | "claimed";
+export type PendingHullGunReward = { hardpointIndex: number; breach: number };
 export type RiftWeaponId = "pulse-cannon" | "minigun" | "railgun" | "missile-pod" | "flamethrower";
 export type RiftEvolutionId = "nova-cannon" | "hellstorm" | "seismic-rail" | "mirv-battery" | "inferno-projector";
 
@@ -44,7 +44,7 @@ export type RiftRunState = {
   pendingLevels: number;
   rollIndex: number;
   riftBreaches: number;
-  firstBreachHullGunReward: FirstBreachHullGunReward;
+  pendingHullGunReward: PendingHullGunReward | null;
   evolutionHistory: RiftEvolutionHistory[];
   upgradeHistory: RiftUpgradeHistory[];
   shipModifiers: { hull: number; shield: number; movement: number; damageReduction: number; handling: number; cannonDamage: number; cannonFireRate: number };

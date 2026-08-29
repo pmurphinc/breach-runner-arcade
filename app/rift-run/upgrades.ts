@@ -3,9 +3,9 @@ import type { RiftRunState, RiftWeaponId, RiftWeaponInstance } from "./types.ts"
 export const RIFT_REWARD_CATEGORIES = ["offensive", "defensive", "mobility", "hull-gun"] as const;
 export type RewardCategory = typeof RIFT_REWARD_CATEGORIES[number];
 export const rewardCategoryLabel = (category: RewardCategory): string => category === "hull-gun" ? "HULL GUN" : category.toUpperCase();
-export type UpgradeCategory = "weapon" | "ship" | "hardpoint" | "rift-tech" | "hull-gun";
+export type UpgradeCategory = "weapon" | "ship" | "rift-tech" | "hull-gun";
 export type GameplayCategory = "offensive" | "defensive" | "mobility";
-export type UpgradeEffect = "fireRate" | "damage" | "projectileCount" | "penetration" | "explosionRadius" | "projectileSpeed" | "range" | "coneWidth" | "hull" | "shield" | "movement" | "damageReduction" | "handling" | "cannonDamage" | "cannonFireRate" | "hardpoint";
+export type UpgradeEffect = "fireRate" | "damage" | "projectileCount" | "penetration" | "explosionRadius" | "projectileSpeed" | "range" | "coneWidth" | "hull" | "shield" | "movement" | "damageReduction" | "handling" | "cannonDamage" | "cannonFireRate";
 export type UpgradeDefinition = { id: string; name: string; description: string; category: UpgradeCategory; gameplayCategory: GameplayCategory; tier: 1; maxStacks: number; repeatable?: boolean; effect: UpgradeEffect; amount: number; weapons?: readonly RiftWeaponId[]; excludes?: readonly RiftWeaponId[] };
 export type UpgradeChoice = { key: string; upgradeId: string; gameplayCategory: GameplayCategory; evolutionId?: import("./types").RiftEvolutionId; targetInstanceId?: string; hardpointIndex?: number; title: string; target: string; description: string; kind?: "upgrade" | "evolution" };
 
@@ -30,7 +30,6 @@ export const RIFT_UPGRADES: readonly UpgradeDefinition[] = [
   { id: "thruster-tuning", name: "THRUSTER TUNING", description: "+7% acceleration and speed", category: "ship", gameplayCategory: "mobility", tier: 1, maxStacks: 10, effect: "movement", amount: .07 },
   { id: "vector-nozzles", name: "VECTOR NOZZLES", description: "+8% acceleration response", category: "ship", gameplayCategory: "mobility", tier: 1, maxStacks: 10, effect: "handling", amount: .08 },
   { id: "flight-mastery", name: "FLIGHT MASTERY", description: "+3% acceleration and speed", category: "ship", gameplayCategory: "mobility", tier: 1, maxStacks: Number.POSITIVE_INFINITY, repeatable: true, effect: "movement", amount: .03 },
-  { id: "hardpoint-online", name: "HARDPOINT ONLINE", description: "Activate the next weapon socket", category: "hardpoint", gameplayCategory: "offensive", tier: 1, maxStacks: 2, effect: "hardpoint", amount: 1 },
 ] as const;
 export const RIFT_UPGRADE_BY_ID = Object.fromEntries(RIFT_UPGRADES.map(x => [x.id, x])) as Record<string, UpgradeDefinition>;
 

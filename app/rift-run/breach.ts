@@ -1,21 +1,19 @@
 import { awardRiftEnergy } from "./progression.ts";
 import { RIFT_RUN_BREACH_REWARDS, RIFT_RUN_REFORM_DELAY_MS, riftIntegrityForBreach } from "./rift-damage.ts";
 import type { RiftRunState } from "./types.ts";
+import { hardpointUnlockForBreach } from "./hardpoint-milestones.ts";
 
 export type RiftBreachRuntime = { integrity: number; maximumIntegrity: number; reformRemainingMs: number; breached: boolean };
 
 /** Starts exactly one breach and pays its serialized rewards exactly once. */
 export function breachRiftRun(state: RiftRunState, runtime: RiftBreachRuntime, delayMs = RIFT_RUN_REFORM_DELAY_MS): { state: RiftRunState; runtime: RiftBreachRuntime } {
   if (runtime.breached || runtime.integrity > 0) return { state, runtime };
-  const firstBreach = state.riftBreaches === 0;
   const riftBreaches = state.riftBreaches + 1;
-  const hardpoints = structuredClone(state.hardpoints);
-  const locked = firstBreach ? hardpoints.find(point => point.status === "locked") : undefined;
-  if (locked) hardpoints[locked.index] = { index: locked.index, status: "available" };
-  const firstBreachHullGunReward = firstBreach && state.firstBreachHullGunReward === "unearned"
-    ? locked ? "select-weapon" : "upgrade-weapon"
-    : state.firstBreachHullGunReward;
-  const rewarded = awardRiftEnergy({ ...state, hardpoints, firstBreachHullGunReward, riftBreaches, score: state.score + RIFT_RUN_BREACH_REWARDS.score }, RIFT_RUN_BREACH_REWARDS.energy);
+  const unlocked = hardpointUnlockForBreach(state.hardpoints, riftBreaches, state.maximumHardpoints);
+  const pendingHullGunReward = unlocked.hardpointIndex === null
+    ? state.pendingHullGunReward
+    : { hardpointIndex: unlocked.hardpointIndex, breach: riftBreaches };
+  const rewarded = awardRiftEnergy({ ...state, hardpoints: unlocked.hardpoints, pendingHullGunReward, riftBreaches, score: state.score + RIFT_RUN_BREACH_REWARDS.score }, RIFT_RUN_BREACH_REWARDS.energy);
   return { state: rewarded, runtime: { ...runtime, integrity: 0, reformRemainingMs: delayMs, breached: true } };
 }
 

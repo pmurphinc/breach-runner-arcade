@@ -21,7 +21,7 @@ export function createRiftRun(shipId: ShipId, seed: string): RiftRunState {
     pendingLevels: 0,
     rollIndex: 0,
     riftBreaches: 0,
-    firstBreachHullGunReward: "unearned",
+    pendingHullGunReward: null,
     evolutionHistory: [],
     upgradeHistory: [],
     shipModifiers: { hull: 0, shield: 0, movement: 1, damageReduction: 0, handling: 1, cannonDamage: 1, cannonFireRate: 1 },

@@ -113,8 +113,8 @@ import { applyRiftRunHullWeaponDamage, RIFT_RUN_BASE_INTEGRITY } from "./rift-ru
 import { breachRiftRun, tickRiftReform } from "./rift-run/breach";
 import { rollUpgradeChoices } from "./rift-run/upgrade-pool";
 import { riftRunHandling, riftRunHullDamage } from "./rift-run/live-modifiers";
-import { applyUpgrade, mountUnlockedWeapon } from "./rift-run/upgrade-apply";
-import { claimHullGunUpgrade, claimHullGunWeapon, hullGunUpgradeChoices, pendingHullGunReward } from "./rift-run/hull-gun-reward";
+import { applyUpgrade } from "./rift-run/upgrade-apply";
+import { claimHullGunWeapon, pendingHullGunReward } from "./rift-run/hull-gun-reward";
 import { drawRiftEnergyRing } from "./rift-run/energy-ring";
 import { rewardCategoryLabel } from "./rift-run/upgrades";
 import { isDifficultyUnlocked, pilotProgressionStore, safeDifficulty } from "./pilot-progression";
@@ -1945,10 +1945,11 @@ export default function WormholeGame() {
   const [riftRun, setRiftRun] = useState<RiftRunState | null>(null);
   const riftRunRef = useRef<RiftRunState | null>(null);
   const riftWeaponRuntime = useRef<WeaponRuntime>({});
-  const upgradeRoll = useMemo(() => riftRun && riftRun.pendingLevels > 0 ? rollUpgradeChoices(riftRun) : null, [riftRun]);
-  const pendingHardpoint = riftRun?.hardpoints.find(point => point.status === "available");
   const hullGunRewardPending = Boolean(riftRun && pendingHullGunReward(riftRun));
-  const hullGunFallbackChoices = useMemo(() => riftRun ? hullGunUpgradeChoices(riftRun) : [], [riftRun]);
+  const upgradeRoll = useMemo(() => riftRun && !riftRun.pendingHullGunReward && riftRun.pendingLevels > 0 ? rollUpgradeChoices(riftRun) : null, [riftRun]);
+  const pendingHardpoint = riftRun?.pendingHullGunReward
+    ? riftRun.hardpoints[riftRun.pendingHullGunReward.hardpointIndex]
+    : undefined;
   const commitRiftRun = useCallback((next: RiftRunState) => { riftRunRef.current=next; setRiftRun(next); }, []);
   const chooseUpgrade = useCallback((choice: NonNullable<typeof upgradeRoll>["choices"][number]) => {
     const current=riftRunRef.current; if (!current || !upgradeRoll) return;
@@ -1958,22 +1959,16 @@ export default function WormholeGame() {
     const shieldGain=next.shipModifiers.shield-current.shipModifiers.shield;
     if (hullGain>0) { player.maxHealth+=hullGain; player.health=Math.min(player.maxHealth,player.health+hullGain); }
     if (shieldGain>0) player.shield+=shieldGain;
-    if (!next.pendingLevels && !next.hardpoints.some(p=>p.status==="available")) gameRef.current.paused=false;
+    if (!next.pendingLevels && !pendingHullGunReward(next)) gameRef.current.paused=false;
   }, [commitRiftRun, upgradeRoll]);
   const chooseHardpointWeapon = useCallback((weaponId: RiftWeaponId) => {
-    const current=riftRunRef.current, point=current?.hardpoints.find(p=>p.status==="available"); if (!current || !point) return;
-    const next=current.firstBreachHullGunReward === "select-weapon"
-      ? claimHullGunWeapon(current,point.index,weaponId)
-      : mountUnlockedWeapon(current,point.index,weaponId);
+    const current=riftRunRef.current;
+    const hardpointIndex=current?.pendingHullGunReward?.hardpointIndex;
+    if (!current || hardpointIndex === undefined) return;
+    const next=claimHullGunWeapon(current,hardpointIndex,weaponId);
     commitRiftRun(next); riftWeaponRuntime.current=createWeaponRuntime(next);
-    if (!next.pendingLevels) gameRef.current.paused=false;
+    if (!next.pendingLevels && !pendingHullGunReward(next)) gameRef.current.paused=false;
   }, [commitRiftRun]);
-  const chooseHullGunUpgrade = useCallback((choice: (typeof hullGunFallbackChoices)[number]) => {
-    const current=riftRunRef.current; if (!current) return;
-    const next=claimHullGunUpgrade(current,choice); commitRiftRun(next);
-    riftWeaponRuntime.current=createWeaponRuntime(next);
-    if (!next.pendingLevels && !next.hardpoints.some(point=>point.status==="available")) gameRef.current.paused=false;
-  }, [commitRiftRun, hullGunFallbackChoices]);
   const menuOpen = menuIsOpen(menu);
   const go = useCallback((next: MenuRoute) => setMenu((stack) => pushRoute(stack, next)), []);
   const back = useCallback(() => setMenu((stack) => popRoute(stack)), []);
@@ -3786,7 +3781,7 @@ export default function WormholeGame() {
         game.riftReformTicks = Math.ceil(breached.runtime.reformRemainingMs / TICK_MS);
         game.notice = `RIFT BREACHED // DEPTH ${breached.state.riftBreaches}`;
         game.noticeLife = game.riftReformTicks;
-        if (breached.state.pendingLevels > 0 || pendingHullGunReward(breached.state) || breached.state.hardpoints.some(point => point.status === "available")) game.paused = true;
+        if (breached.state.pendingLevels > 0 || pendingHullGunReward(breached.state)) game.paused = true;
         burst(game, game.portalX, game.portalY, "#ffffff", 40, 10);
         playCue("wormhole-explosion", .18);
       }
@@ -4925,7 +4920,7 @@ export default function WormholeGame() {
                 game.riftReformTicks = Math.ceil(breached.runtime.reformRemainingMs / TICK_MS);
                 game.notice = `RIFT BREACHED // DEPTH ${breached.state.riftBreaches}`;
                 game.noticeLife = game.riftReformTicks;
-                if (breached.state.pendingLevels > 0 || pendingHullGunReward(breached.state) || breached.state.hardpoints.some(point => point.status === "available")) game.paused = true;
+                if (breached.state.pendingLevels > 0 || pendingHullGunReward(breached.state)) game.paused = true;
                 burst(game, game.portalX, game.portalY, "#ffffff", 40, 10);
                 playCue("wormhole-explosion", .18);
               }
@@ -6854,19 +6849,10 @@ export default function WormholeGame() {
               <i className="reticle bl" aria-hidden="true" /><i className="reticle br" aria-hidden="true" />
               {hullGunRewardPending && pendingHardpoint ? (
                 <div className="rift-upgrade-layer"><section className="rift-upgrade-dialog" data-controller-surface role="dialog" aria-modal="true" aria-label="Select weapon">
-                  <header><p>{rewardCategoryLabel("hull-gun")} · HARDPOINT {pendingHardpoint.index+1} ONLINE</p><h2>SELECT HULL GUN</h2></header>
+                  <header><p>HARDPOINT UNLOCKED · HARDPOINT {pendingHardpoint.index+1}</p><h2>SELECT HULL GUN</h2></header>
                   <div className="rift-weapon-options">{RIFT_WEAPONS.map(weapon=><button type="button" key={weapon.id} onClick={()=>chooseHardpointWeapon(weapon.id)}><small>{rewardCategoryLabel("hull-gun")}</small><b>{weapon.name}</b><span>{weapon.role}</span></button>)}</div>
                 </section></div>
-              ) : hullGunRewardPending && hullGunFallbackChoices.length ? (
-                <div className="rift-upgrade-layer"><section className="rift-upgrade-dialog" data-controller-surface role="dialog" aria-modal="true" aria-label="Hull gun reward">
-                  <header><p>FIRST RIFT BREACH · {rewardCategoryLabel("hull-gun")}</p><h2>UPGRADE HULL GUN</h2></header>
-                  <div className="rift-upgrade-options">{hullGunFallbackChoices.map(choice=><button type="button" key={choice.key} onClick={()=>chooseHullGunUpgrade(choice)}><small>{rewardCategoryLabel("hull-gun")}</small><b>{choice.title}</b><em>{choice.target}</em><span>{choice.description}</span></button>)}</div>
-                </section></div>
-              ) : pendingHardpoint ? (
-                <div className="rift-upgrade-layer"><section className="rift-upgrade-dialog" data-controller-surface role="dialog" aria-modal="true" aria-label="Select weapon">
-                  <header><p>{rewardCategoryLabel("hull-gun")} · HARDPOINT {pendingHardpoint.index+1} ONLINE</p><h2>SELECT HULL GUN</h2></header>
-                  <div className="rift-weapon-options">{RIFT_WEAPONS.map(weapon=><button type="button" key={weapon.id} onClick={()=>chooseHardpointWeapon(weapon.id)}><small>{rewardCategoryLabel("hull-gun")}</small><b>{weapon.name}</b><span>{weapon.role}</span></button>)}</div>
-                </section></div>
+
               ) : upgradeRoll ? (
                 <div className="rift-upgrade-layer"><section className="rift-upgrade-dialog" data-controller-surface role="dialog" aria-modal="true" aria-label="Upgrade available">
                   <header><p>UPGRADE AVAILABLE</p><h2>CHOOSE ONE</h2></header>
