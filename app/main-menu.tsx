@@ -30,7 +30,7 @@ import { drawWeaponGlyph } from "./weapon-art";
 export const MODE_INFO: Record<GameMode, { label: string; blurb: string }> = {
   pve: { label: "Solo PvE", blurb: "One pilot against the rift. Scores count on the global board." },
   coop: { label: "PvE Co-op", blurb: "Two pilots, one objective. Tougher rift, shared win." },
-  pvp: { label: "PvP 1v1", blurb: "Real-time duel under Easy rules. No sign-in needed." },
+  pvp: { label: "PvP 1v1", blurb: "Real-time duel under Stable rules. No sign-in needed." },
 };
 
 export const MODE_ORDER: GameMode[] = ["pve", "coop", "pvp"];
@@ -324,8 +324,8 @@ export function PveModesScreen({ ship, onMode, onSurvival, onRiftRun, go, back, 
   return <MenuScreen route="pve-modes" onOpenSettings={openSettings} title="Select PvE Mode" onBack={back}>
     <SelectedShipPreview ship={ship} onChange={() => go("ships")} />
     <div className="mode-grid pve-mode-grid">
-      <button type="button" className="mode-card" data-mode="pve" onClick={() => onMode("pve")}><b>Solo PvE</b><small>One pilot against the rift</small></button>
-      <button type="button" className="mode-card" data-mode="coop" onClick={() => onMode("coop")}><b>PvE Co-op</b><small>Two pilots, shared objective</small></button>
+      <button type="button" className="mode-card" data-mode="pve" onClick={() => onMode("pve")}><b>{MODE_INFO.pve.label}</b><small>One pilot against the rift</small></button>
+      <button type="button" className="mode-card" data-mode="coop" onClick={() => onMode("coop")}><b>{MODE_INFO.coop.label}</b><small>Two pilots, shared objective</small></button>
       <button type="button" className="mode-card" data-mode="survival" onClick={onSurvival}><b>Rift Survival</b><small>Endless escalating challenge</small></button>
       <button type="button" className="mode-card" data-mode="rift-run" onClick={onRiftRun}><b>{RIFT_RUN_TITLE}</b><small>{RIFT_RUN_TAGLINE}</small></button>
     </div>
@@ -344,7 +344,7 @@ export function DifficultyScreen({ ship, mode, difficulty, progression, onDiffic
       <div className="difficulty-progression" role="radiogroup" aria-label="PvE difficulty">
         {PROGRESSION_DIFFICULTIES.map((id) => { const unlocked=isDifficultyUnlocked(id, progression); const prerequisite=id === "difficult" ? "STABLE" : "VOLATILE"; return <button key={id} type="button" role="radio" aria-checked={difficulty===id} disabled={!unlocked} aria-disabled={!unlocked} className={`difficulty-card ${difficulty===id ? "active" : ""} ${unlocked ? "unlocked" : "locked"}`} onClick={() => onDifficulty(id)}><span className="option-check" aria-hidden="true">{difficulty===id ? "✓" : !unlocked ? "🔒" : ""}</span><b>{difficultyLabel(id)}</b><small>{unlocked ? difficultyBlurb(id) : `Complete ${prerequisite} to unlock`}</small><em>{progression.completedDifficulties.includes(id) ? "Completed" : unlocked ? "Available" : `Complete ${prerequisite} to unlock`}</em></button>; })}
       </div>
-      <div className="simulation-option"><button type="button" role="radio" aria-checked={difficulty==="practice"} className={`difficulty-card ${difficulty==="practice" ? "active" : ""}`} onClick={() => onDifficulty("practice")}><span className="option-check">{difficulty==="practice" ? "✓" : ""}</span><b>Simulation</b><small>Practice / unscored</small><em>Training</em></button></div>
+      <div className="simulation-option"><button type="button" role="radio" aria-checked={difficulty==="practice"} className={`difficulty-card ${difficulty==="practice" ? "active" : ""}`} onClick={() => onDifficulty("practice")}><span className="option-check">{difficulty==="practice" ? "✓" : ""}</span><b>{difficultyLabel("practice")}</b><small>Practice / unscored</small><em>Training</em></button></div>
     </MenuSection>
   </MenuScreen>;
 }

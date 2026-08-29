@@ -153,8 +153,8 @@ test("two guests play a PvP match end to end", { skip, timeout: 240_000 }, async
       (await alpha.locator(".difficulty-badge").innerText()).replace(/\s+/g, " "),
       // Same guarantee, current vocabulary: the badge says RIFT rather than
       // WORMHOLE and reports contact as SAFE rather than OFF.
-      /PVP · EASY RIFT LOCKED SHIELD FULL CONTACT SAFE/,
-      "PvP runs Easy rules with a centred rift and no contact hazard"
+      /PVP · STABLE RIFT LOCKED SHIELD FULL CONTACT SAFE/,
+      "PvP runs internally easy / player-facing Stable rules with a centred rift and no contact hazard"
     );
 
     // The PvE rival objective must not appear as a second victory condition.

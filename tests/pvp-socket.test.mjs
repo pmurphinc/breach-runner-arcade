@@ -219,7 +219,7 @@ test("a private code pairs exactly the two players who share it", async () => {
 
     host.send({ type: "create" });
     const waiting = await host.waitFor("lobby", (m) => m.state === "waiting");
-    assert.match(waiting.code, /^[A-Z2-9]{6}$/);
+    assert.match(waiting.code, /^[A-Z2-9]{4}$/);
 
     stranger.send({ type: "join", code: "ZZZZ" });
     const rejected = await stranger.waitFor("error");
