@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { RULESET_IDS } from "../app/difficulty.ts";
-import { RIFT_RUN_SHIPS } from "../app/rift-run/ships.ts";
+import { RIFT_RUN_SHIPS, RIFT_RUN_SHIP_IDS, riftRunShip } from "../app/rift-run/ships.ts";
 import { activeHardpointCount, createRiftRun } from "../app/rift-run/state.ts";
 import { RIFT_WEAPONS, createWeaponInstance } from "../app/rift-run/weapons.ts";
 import { createWeaponRuntime } from "../app/rift-run/weapon-runtime.ts";
@@ -47,12 +47,48 @@ test("normal PvE Run Again remains normal PvE", () => {
   assert.deepEqual(replayForCompletedRun("pve", "difficult", null), { kind: "pve" });
 });
 
-test("Rift Run exposes exactly its canonical eight-ship fleet", () => {
-  assert.equal(RIFT_RUN_SHIPS.length, 8);
+test("Rift Run exposes exactly its canonical ten-ship fleet", () => {
+  assert.equal(RIFT_RUN_SHIPS.length, 10);
   assert.deepEqual(RIFT_RUN_SHIPS.map(({ name }) => name), [
-    "Ironclad", "Starling", "Phantom", "Needle", "Rampart", "Switchback", "Talon", "Leviathan",
+    "Ironclad", "Starling", "Phantom", "Needle", "Rampart", "Switchback", "Talon", "Leviathan", "Kestrel", "Warden",
   ]);
-  assert.ok(!RIFT_RUN_SHIPS.some(({ id }) => id === "kestrel" || id === "warden"));
+  assert.deepEqual(RIFT_RUN_SHIP_IDS, ["tank", "wing", "squid", "rabbit", "turtle", "flash", "hunter", "flagship", "kestrel", "warden"]);
+});
+
+test("Kestrel and Warden reuse their canonical classes, hardpoints, and specials", () => {
+  assert.deepEqual(riftRunShip("kestrel"), {
+    id: "kestrel", name: "Kestrel", shipClass: "light", maximumHardpoints: 1, abilityName: "SALVAGE LINK",
+  });
+  assert.deepEqual(riftRunShip("warden"), {
+    id: "warden", name: "Warden", shipClass: "medium", maximumHardpoints: 2, abilityName: "SENTRY OVERDRIVE",
+  });
+});
+
+test("Kestrel and Warden create fresh runs, earn the first Hull Gun, and replay", () => {
+  for (const shipId of ["kestrel", "warden"]) {
+    const fresh = createRiftRun(shipId, `${shipId}-fresh`);
+    assert.equal(fresh.selectedShip, shipId);
+    assert.equal(activeHardpointCount(fresh), 0);
+    assert.ok(fresh.hardpoints.every(({ status }) => status === "locked"));
+
+    const first = breachRiftRun(fresh, { integrity: 0, maximumIntegrity: 100, reformRemainingMs: 0, breached: false });
+    assert.equal(first.state.firstBreachHullGunReward, "select-weapon");
+    assert.equal(first.state.hardpoints.filter(({ status }) => status === "available").length, 1);
+    assert.equal(activeHardpointCount(first.state), 0);
+
+    const replay = replayForCompletedRun("pve", "difficult", { ...first.state, status: "completed" });
+    assert.deepEqual(replay, { kind: "rift-run", shipId });
+    const restarted = createRunAgainRiftRun(replay, `${shipId}-again`);
+    assert.equal(restarted.selectedShip, shipId);
+    assert.equal(activeHardpointCount(restarted), 0);
+    assert.ok(restarted.hardpoints.every(({ status }) => status === "locked"));
+  }
+});
+
+test("Rift Run setup renders every canonical fleet entry with the shared ship renderer", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) => readFile(new URL("../app/main-menu.tsx", import.meta.url), "utf8"));
+  assert.match(source, /RIFT_RUN_SHIPS\.map\(\(candidate\) =>/);
+  assert.match(source, /renderShip\(candidate\.id, 44\)/);
 });
 
 test("Rift Run classes constrain physical hardpoints", () => {
