@@ -27,7 +27,6 @@ import {
   type WeaponMeta,
 } from "./game-data";
 import { DIRECTIONAL, drawPowerProjectile, drawWeaponGlyph } from "./weapon-art";
-import { mineVisualState } from "./mine-visual";
 import { drawShipModel, preloadShipModels, SHIP_MODEL_ASSETS, shipForwardVelocity, shipMuzzleWorldPoint, shipThrusterWorldPoints } from "./ship-models";
 import {
   DIFFICULTIES,
@@ -5213,17 +5212,6 @@ export default function WormholeGame() {
 
       ctx.save();
       ctx.translate(enemy.x, enemy.y);
-      if (enemy.kind === "mines" && enemy.armed) {
-        // One cheap halo reinforces the center lamp without particles or allocations.
-        const mineVisual = mineVisualState(time, enemy.phase, true);
-        ctx.globalAlpha = 0.16 + mineVisual.blink * 0.34;
-        ctx.strokeStyle = "#ff6845";
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.arc(0, 0, enemy.radius + 3 + mineVisual.blink * 2, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.globalAlpha = 1;
-      }
       if (enemy.kind === "nuke") {
         ctx.fillStyle = "#fff0b8";
         ctx.font = "800 15px ui-monospace, monospace";
