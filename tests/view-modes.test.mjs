@@ -261,13 +261,16 @@ test('victory suction audio rises during pull and stops before the blast', () =>
   assert.match(sequence, /!suction\.active[\s\S]*stopVictorySuction/);
 });
 
-test('canvas renderer starts after first-launch view selection', () => {
+test('canvas renderer follows the resolved view without a first-launch gate', () => {
   const renderer = game.slice(
     game.indexOf('const canvas = canvasRef.current'),
     game.indexOf('const currentShip = selectedShip')
   );
-  assert.match(renderer, /\[play, playCue, playVictorySuction, stopVictorySuction, sync, viewMode\]/,
-    'the render effect must rerun after the chooser mounts the canvas');
+  assert.match(renderer, /\[[^\]]*\bviewMode\b[^\]]*\]/,
+    'the render effect must follow the automatically resolved or saved view mode');
+  assert.match(game, /No first-launch gate/);
+  assert.match(game, /`viewMode` always resolves/);
+  assert.doesNotMatch(game, /ViewChooser|firstLaunch|setViewModeChosen/);
 });
 
 
@@ -368,10 +371,14 @@ test('the menu adapts by available space, not by device', () => {
   // the same component composes correctly at any viewport and inside a drawer.
   assert.match(css, /@container menu \(min-width: 720px\)/);
   assert.match(css, /container-type:\s*inline-size/);
-  // Reflow comes from intrinsic grids rather than a pile of breakpoints.
+  // Navigation and modes reflow intrinsically. The fleet deliberately uses
+  // five columns (two rows for all ten ships), with compact container-query
+  // variants, so selecting a ship never requires vertical scrolling.
   assert.match(css, /\.menu-nav\s*\{[^}]*repeat\(auto-fit, minmax\(200px, 1fr\)\)/s);
   assert.match(css, /\.mode-grid\s*\{[^}]*repeat\(auto-fit, minmax\(230px, 1fr\)\)/s);
-  assert.match(css, /\.ship-grid\s*\{[^}]*repeat\(auto-fit, minmax\(128px, 1fr\)\)/s);
+  assert.match(css, /\.ship-grid\s*\{[^}]*repeat\(5, minmax\(0, 1fr\)\)/s);
+  assert.match(css, /data-route="ships"\] \.menu-content\s*\{[^}]*overflow:\s*hidden/s);
+  assert.match(css, /@container menu \(max-width: 680px\)[\s\S]*?\.ship-grid\s*\{[^}]*repeat\(5, minmax\(0, 1fr\)\)/s);
   // Short viewports scroll the content region, never the page, and never by
   // hiding the primary action.
   assert.match(css, /\.menu-panel\s*\{[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\) auto/s);
@@ -387,9 +394,13 @@ test('difficulty and mode copy is derived from the rules, not retyped', () => {
   assert.match(menu, /export function difficultyBlurb/);
   assert.match(menu, /DIFFICULTIES\[id\]/);
   assert.match(menu, /rules\.unlimitedHull/);
-  // One label per mode, defined once and reused by every screen.
+  // Player-facing labels are defined once and reused by every screen.
   assert.match(menu, /export const MODE_INFO/);
   assert.equal((menu.match(/Solo PvE/g) ?? []).length, 1);
+  assert.equal((menu.match(/PvE Co-op/g) ?? []).length, 1);
+  assert.match(menu, /\{MODE_INFO\.pve\.label\}/);
+  assert.match(menu, /\{MODE_INFO\.coop\.label\}/);
+  assert.match(menu, /<b>\{difficultyLabel\("practice"\)\}<\/b>/);
 });
 
 

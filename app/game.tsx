@@ -1591,7 +1591,7 @@ function DifficultyBadge({
           : `${charge}%`;
 
   const gameMode = (live ? hud.mode : pendingMode) === "pvp" ? "PVP" : "PVE";
-  const difficulty = gameMode === "PVP" ? "EASY" : activeRules.shortName.replace(/ MODE$/i, "");
+  const difficulty = gameMode === "PVP" ? "STABLE" : activeRules.shortName.replace(/ MODE$/i, "");
   // Survival's Rift Level is the run's difficulty, its clock and its score all
   // at once, so it earns a slot of its own on the badge.
   const riftLevel = live ? hud.riftLevel : activeRules.id === "survival" ? 1 : 0;

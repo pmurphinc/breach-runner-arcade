@@ -47,7 +47,9 @@ test("Settings defines five semantic tabs with a single active panel", () => {
   assert.match(menu, /role="tab"[\s\S]*aria-selected=\{activeTab === tab\.id\}/);
   assert.match(menu, /role="tabpanel"/);
   assert.match(menu, /const \[activeTab, setActiveTab\] = useState<SettingsTab>\("controls"\)/);
-  assert.match(menu, /\{activeTab === "controls" \? <MenuSection/);
+  // Controls now begins with Arcade Identity before the controls themselves.
+  // Both sections share the one active panel and are unmounted with it.
+  assert.match(menu, /\{activeTab === "controls" \? <>[\s\S]*<MenuSection title="Arcade identity"[\s\S]*<MenuSection title="Controls">[\s\S]*<\/> : null\}/);
   assert.doesNotMatch(menu, /hidden=\{activeTab/);
 });
 
