@@ -101,6 +101,7 @@ import { createWeaponRuntime, tickWeaponRuntime, type WeaponRuntime } from "./ri
 import { createRunAgainRiftRun, replayForCompletedRun, type RunReplay } from "./run-replay";
 import { processHardpointFire } from "./rift-run/weapon-fire";
 import { admitsProjectile, applyScorched, detonateMissile, evolutionRadialHit, penetrate, projectileFromShot, SCORCHED_DAMAGE, steerMissile, targetsInFlameCone, tickScorched, type EntityId, type RiftProjectile, type ScorchedState } from "./rift-run/weapon-projectiles";
+import { clearInactiveFlameFx, flameDisplayTransform, refreshFlameFx, type RiftFlameFx } from "./rift-run/flame-fx";
 import { awardRiftEnergy, enemyKillEnergy, riftDamaged, riftEnergyRequiredForLevel } from "./rift-run/progression";
 import { hasEnemyAttackAuthority, hostileShotVelocity, nearestPilot } from "./coop-enemy-targeting.js";
 import { applyRiftRunHullWeaponDamage, RIFT_RUN_BASE_INTEGRITY } from "./rift-run/rift-damage";
@@ -352,8 +353,6 @@ type Bullet = {
   /** Warden passive rounds bypass the cannon budget, pickups and the Rift. */
   autoGun?: boolean;
 };
-
-type RiftFlameFx = { origin: { x: number; y: number }; angle: number; range: number; coneDegrees: number; life: number };
 
 /**
  * One overcharged power-up detonation, anchored where it went off.
@@ -4519,6 +4518,9 @@ export default function WormholeGame() {
 
       const activeRiftRun = riftRunRef.current;
       if (activeRiftRun) {
+        clearInactiveFlameFx(game.riftFlames, new Set(activeRiftRun.hardpoints.flatMap((point) =>
+          point.status === "occupied" && point.weapon.weaponId === "flamethrower" ? [point.weapon.instanceId] : []
+        )), Boolean(fire));
         if (game.riftReformTicks > 0) {
           const reformed = tickRiftReform({
             integrity: game.rivalHealth,
@@ -4538,7 +4540,7 @@ export default function WormholeGame() {
         const mountedShots = processHardpointFire(activeRiftRun.hardpoints, riftWeaponRuntime.current, Boolean(fire), shipMuzzleWorldPoint(game.ship.id, player, player.angle * DEG, 1.15), player.angle * DEG);
         for (const mounted of mountedShots) {
           if (mounted.kind === "flame") {
-            game.riftFlames.push({ origin: mounted.origin, angle: mounted.angle, range: mounted.range, coneDegrees: mounted.coneDegrees, life: 6 });
+            refreshFlameFx(game.riftFlames, mounted, activeRiftRun.hardpoints.length, player.angle * DEG);
             const targets = game.enemies.filter((enemy) => enemy.hp > 0 && enemy.kind !== "ghost").map((enemy) => ({ id: enemyIdentity(game, enemy), x: enemy.x, y: enemy.y }));
             const hit = new Set(targetsInFlameCone(mounted.origin, mounted.angle, mounted.range, mounted.coneDegrees, targets));
             for (const enemy of game.enemies) {
@@ -5535,7 +5537,8 @@ export default function WormholeGame() {
         ctx.restore();
       }
       for (const flame of game.riftFlames) {
-        ctx.save(); ctx.translate(flame.origin.x, flame.origin.y); ctx.rotate(flame.angle);
+        const display = flameDisplayTransform(flame, shipMuzzleWorldPoint(game.ship.id, player, player.angle * DEG, 1.15), player.angle * DEG);
+        ctx.save(); ctx.translate(display.origin.x, display.origin.y); ctx.rotate(display.angle);
         const width = flame.range * Math.tan(flame.coneDegrees * Math.PI / 360);
         const gradient = ctx.createLinearGradient(0,0,flame.range,0); gradient.addColorStop(0,"rgba(255,245,135,.78)"); gradient.addColorStop(.45,"rgba(255,126,42,.48)"); gradient.addColorStop(1,"rgba(255,56,25,0)");
         ctx.fillStyle=gradient; ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(flame.range,-width); ctx.lineTo(flame.range,width); ctx.closePath(); ctx.fill(); ctx.restore();

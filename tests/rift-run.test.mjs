@@ -7,6 +7,7 @@ import { RIFT_WEAPONS, createWeaponInstance } from "../app/rift-run/weapons.ts";
 import { createWeaponRuntime } from "../app/rift-run/weapon-runtime.ts";
 import { processHardpointFire, logicalMountOffset } from "../app/rift-run/weapon-fire.ts";
 import { admitsProjectile, applyScorched, detonateMissile, evolutionRadialHit, projectileFromShot, penetrate, SCORCHED_DURATION_TICKS, SCORCHED_TICK_CADENCE, selectMissileTarget, steerMissile, targetsInExplosion, targetsInFlameCone, tickScorched } from "../app/rift-run/weapon-projectiles.ts";
+import { clearInactiveFlameFx, flameDisplayTransform, refreshFlameFx } from "../app/rift-run/flame-fx.ts";
 import { awardRiftEnergy, enemyKillEnergy, riftDamaged, riftEnergyProgress, riftEnergyRequiredForLevel } from "../app/rift-run/progression.ts";
 import { applyRiftRunHullWeaponDamage, RIFT_RUN_BASE_INTEGRITY, RIFT_RUN_BREACH_REWARDS, RIFT_RUN_REFORM_DELAY_MS, RIFT_RUN_RIFT_DAMAGE_SCALE, riftIntegrityForBreach } from "../app/rift-run/rift-damage.ts";
 import { breachRiftRun, tickRiftReform } from "../app/rift-run/breach.ts";
@@ -152,6 +153,26 @@ test("flame cone is multi-target, directional, and hardpoint cadence is bounded"
   const run = createArmedRun("wing", "flame", "flamethrower"), runtime = createWeaponRuntime(run);
   assert.equal(processHardpointFire(run.hardpoints, runtime, true, { x: 0, y: 0 }, 0).length, 1);
   for (let i=0;i<4;i++) { runtime[run.hardpoints[0].weapon.instanceId].cooldown--; assert.equal(processHardpointFire(run.hardpoints, runtime, true, { x: 0, y: 0 }, 0).length, 0); }
+});
+
+test("flame presentation stays bounded and follows its mounted hardpoint and heading", () => {
+  const flames = [];
+  const shot = { instanceId: "flame-1", hardpointIndex: 1, range: 125, coneDegrees: 58, angle: 0.25 };
+  refreshFlameFx(flames, shot, 2, 0.2);
+  refreshFlameFx(flames, { ...shot, angle: 0.35 }, 2, 0.3);
+  assert.equal(flames.length, 1);
+  assert.deepEqual(flameDisplayTransform(flames[0], { x: 100, y: 50 }, Math.PI / 2).origin, { x: 92, y: 59 });
+  assert.ok(Math.abs(flameDisplayTransform(flames[0], { x: 100, y: 50 }, 1).angle - 1.05) < 1e-12);
+});
+
+test("stopping fire and weapon replacement clear flame presentation records", () => {
+  const flames = [];
+  refreshFlameFx(flames, { instanceId: "old", hardpointIndex: 0, range: 125, coneDegrees: 58, angle: 0 }, 1, 0);
+  clearInactiveFlameFx(flames, new Set(), true);
+  assert.equal(flames.length, 0);
+  refreshFlameFx(flames, { instanceId: "current", hardpointIndex: 0, range: 125, coneDegrees: 58, angle: 0 }, 1, 0);
+  clearInactiveFlameFx(flames, new Set(["current"]), false);
+  assert.equal(flames.length, 0);
 });
 
 test("missiles, explosions and flame geometry are deterministic", () => {

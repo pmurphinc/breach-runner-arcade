@@ -1,4 +1,4 @@
-/** Visual-only smoothing for a remote co-op pilot. Game authority stays elsewhere. */
+/** Visual-only smoothing shared by remote co-op and PvP pilots. Game authority stays elsewhere. */
 export const INTERPOLATION_DELAY_MS = 50;
 export const MAX_EXTRAPOLATION_MS = 90;
 // Corrections beyond this are respawns/reconnects, not motion to animate.
@@ -36,7 +36,7 @@ export class RemoteMotion {
     this.dropped = 0;
   }
 
-  push(snapshot: MotionSnapshot) {
+  push(snapshot: MotionSnapshot, snap = false) {
     const latest = this.snapshots.at(-1);
     if (latest && snapshot.seq <= latest.seq) {
       this.dropped += 1;
@@ -44,7 +44,7 @@ export class RemoteMotion {
     }
 
     const predicted = this.sample(snapshot.receivedAt);
-    if (predicted && Math.hypot(snapshot.x - predicted.x, snapshot.y - predicted.y) > LARGE_CORRECTION_DISTANCE) {
+    if (snap || (predicted && Math.hypot(snapshot.x - predicted.x, snapshot.y - predicted.y) > LARGE_CORRECTION_DISTANCE)) {
       this.snapshots = [snapshot];
       this.lastRendered = { x: snapshot.x, y: snapshot.y, angle: snapshot.angle };
     } else {
