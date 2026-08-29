@@ -495,9 +495,6 @@ export function ShipsScreen({
               Special · {profile.special.cooldownSeconds}s cooldown
             </span>
             <b>{profile.special.name}</b>
-            {profile.special.derivedFrom ? (
-              <em className="ship-special-source">{profile.special.derivedFrom}</em>
-            ) : null}
             <p>{profile.special.description}</p>
           </div>
         </section>
