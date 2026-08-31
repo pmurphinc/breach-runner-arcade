@@ -1,7 +1,7 @@
 ---
 title: Classic Mode & PvP Fidelity — Plan
 project: Breach Runner (Project Rift)
-status: Draft for review
+status: Approved — gating decisions made
 created: 2026-08-31
 branch: claude/breach-runner-classic-wormhole-2mls24
 tags: [breach-runner, planning, classic-mode, pvp, wormhole]
@@ -243,8 +243,8 @@ Classic variant rather than a rewrite.
 
 ## 5. Workstream B — PvP fidelity
 
-**B1. Shared-arena PvP (D1–D4).** The foundational decision, and the one that needs your call before
-anything else in B is worth building. Three options:
+**B1. Shared-arena PvP (D1–D4).** **DECIDED: B1b — host-authoritative shared arena.** The options as
+weighed:
 
 - **B1a — Full shared arena, server-authoritative.** Both pilots, all portals, all hostiles in one
   simulation the server owns; clients render and send input. Correct, matches the original, and is a
@@ -253,8 +253,15 @@ anything else in B is worth building. Three options:
 - **B1b — Shared arena, host-authoritative.** One client simulates and relays, exactly as co-op already
   does — `rooms.mjs` documents the host-relay pattern for enemy snapshots, and `RemoteMotion` already
   interpolates a remote ship. Reuses working machinery, gives a real duel, and costs the host a latency
-  advantage. **Recommended.** It is how the original worked in practice, and the co-op path proves the
+  advantage. **← Chosen.** It is how the original worked in practice, and the co-op path proves the
   pattern in this codebase.
+
+  *Implementation notes for B1b:* the host runs the authoritative loop and relays world snapshots on the
+  co-op channel; the guest sends input and renders. `rules.mjs` stays authoritative over hull, shield and
+  results — the host reports damage events through the existing `damage` message rather than asserting
+  hull directly, so the server's anti-cheat window still applies. Host selection reuses co-op's
+  "first player is arena host". A host disconnect must migrate or forfeit rather than strand the match;
+  the existing 20 s reconnection grace is the hook.
 - **B1c — Keep mirrored arenas, deepen the simulation.** Sent power-ups spawn real hostiles in the
   victim's arena instead of flat damage. Cheapest, fixes D5, and leaves D1–D4 permanently unfixed. Pilots
   still never see each other. **Not recommended** as an endpoint, but it is a legitimate stepping stone
@@ -289,8 +296,8 @@ Ordered for delivery. Each phase leaves the game shippable.
 | | Item |
 | --- | --- |
 | P0.1 | Get the four vault notes into a readable place (§9). Merge the Rift Run pair, surface conflicts. |
-| P0.2 | Decide **B1a / B1b / B1c** (§7, Q1). Everything in Workstream B past B2 is gated on this. |
-| P0.3 | Decide the **player-facing mode name** (§7, Q2 and §8). Blocks A1. |
+| ~~P0.2~~ | ~~Decide B1a/B1b/B1c~~ — ✅ **B1b, host-authoritative shared arena.** P4 unblocked. |
+| ~~P0.3~~ | ~~Decide the player-facing mode name~~ — ✅ **"Classic Wormhole"**, internal id `classic`. A1 unblocked. |
 
 ### P1 — Highest value per unit of work, no topology change
 | | Item | Refs |
@@ -324,10 +331,11 @@ Ordered for delivery. Each phase leaves the game shippable.
 ### P4 — Shared-arena PvP
 | | Item | Refs |
 | --- | --- | --- |
-| P4.1 | Shared arena per the P0.2 decision | B1 |
+| P4.1 | Host-authoritative shared arena: host runs the loop, guest sends input and renders | B1b |
 | P4.2 | Ship-vs-ship cannon fire | B5, D4 |
 | P4.3 | Both portals live in a PvP arena | B4 |
 | P4.4 | Elimination win, portal death, kill tracking | B6, D6, D11 |
+| P4.5 | Host migration or clean forfeit on host disconnect | B1b |
 
 ### P5 — Beyond the original's floor
 | | Item | Refs |
@@ -338,13 +346,22 @@ Ordered for delivery. Each phase leaves the game shippable.
 
 ## 7. Decisions needed from you
 
-**Q1 — PvP topology.** B1a, B1b or B1c? *Recommendation: B1b (host-authoritative shared arena),* reusing
-the co-op relay. It is the only option that delivers a real duel at a cost this codebase can absorb.
+**Q1 — PvP topology. ✅ DECIDED: B1b, host-authoritative shared arena.** Reuses the co-op relay pattern.
+P4 is planned against this.
 
-**Q2 — Mode name.** "Classic Wormhole" reintroduces the legacy name into player-facing branding, which is
-exactly what COMMERCIALIZATION.md Phase 1 removed. *Recommendation: keep the internal id `classic`, and
-name it something that is yours* — "Classic Rift", "Origin Protocol", "Rift Classic". Same mode, no
-inherited brand.
+**Q2 — Mode name. ✅ DECIDED: "Classic Wormhole",** internal id `classic`.
+
+The trade-off was raised and the call is made; recording it here so the reasoning is on file for the
+pre-submission review. The name is legacy branding that `COMMERCIALIZATION.md` Phase 1 otherwise removed,
+so it is the one piece of inherited identity in the mode. That makes the rest of §8 load-bearing: with the
+name retained, everything else about Classic Wormhole — ship names, power-up names, art, audio, HUD
+layout, colour scheme — must stay on this project's own identity, so the mode reads as *Breach Runner's
+classic mode*, not as a reproduction of another product. Two concrete follow-ups:
+
+- Add "trademark clearance on the mode name" to the pre-submission checklist in `COMMERCIALIZATION.md`,
+  alongside the existing store-name check. Mechanics carry no trademark exposure; a mode name can.
+- Keep the id `classic` everywhere in code, saves and payloads, so the player-facing string is a single
+  label in `MODE_INFO` that can be changed at any point before submission without a migration.
 
 **Q3 — Classic ship stats.** Ship §1.6's numbers as a Classic-only table (recommended), or leave Classic
 on the current balance? The former makes Classic feel authentic; the latter keeps one balance surface.
@@ -374,7 +391,9 @@ a 12-missile salvo, four shot levels, ⅓/⅔ drop weighting: all reimplementabl
 - **Trade dress.** Do not reproduce the original's screen layout, lobby, or visual identity even where the
   mechanics match.
 
-**Trademark.** The mechanics are the mode; the name is the risk. See Q2.
+**Trademark.** The mechanics are the mode; the name is the risk. The mode ships as **"Classic Wormhole"**
+(Q2), so the name goes on the pre-submission trademark check rather than being designed around. Everything
+else in the mode stays on Breach Runner's own identity.
 
 **Action:** add a Classic-mode section to `ASSET_PROVENANCE.md` when P3 starts, recording that the mode's
 rules were independently implemented from observed behaviour, with no source material carried over.
@@ -418,4 +437,5 @@ Where the notes disagree about current Rift Run behaviour, these are what the co
 The engine already agrees with the original on tick rate, bloom threshold, shot levels and spawn counts —
 the fidelity gap is **not** in the numbers, it is that PvP is two separate arenas trading abstract damage
 instead of one arena where two pilots shoot each other and each other's portals. Fix the payloads first
-(P1), refactor arena and portals into plural (P2), ship Classic (P3), then share the arena (P4).
+(P1), refactor arena and portals into plural (P2), ship Classic Wormhole (P3), then move PvP onto one
+host-authoritative shared arena (P4).
