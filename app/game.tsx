@@ -247,7 +247,16 @@ import {
 } from "./beam-motion";
 import { BeamAudioManager } from "./beam-audio";
 import { type ArenaSize, DEFAULT_ARENA } from "./arena";
-import { PORTAL_THRESHOLD, chargePortal } from "./portals";
+import {
+  PORTAL_THRESHOLD,
+  type Portal,
+  advancePortal,
+  chargePortal,
+  createPortal,
+  isPortalWarpedIn,
+  portalBreadcrumbs,
+  stepPortalWarpIn,
+} from "./portals";
 import { rollClassicDrop } from "./classic-drops";
 import { shipForMode } from "./classic-ships";
 
@@ -559,6 +568,18 @@ type Game = {
   kills: number;
   /** Set by the self-destruct key; spent by the loop on the next tick. */
   selfDestruct: boolean;
+  /**
+   * Every portal in the arena.
+   *
+   * Portal zero is the rift this pilot engages, and the flat portalX / portalY /
+   * portalCharge fields are its projection — around sixty call sites mean
+   * exactly "the rift I am shooting", and they keep working unchanged. Anything
+   * that genuinely cares about there being more than one reads this list.
+   *
+   * Solo modes carry a single portal, so the list changes nothing for them
+   * today. It is what a second pilot's portal slots into.
+   */
+  portals: Portal[];
   portalAngle: number;
   portalCharge: number;
   portalX: number;
@@ -787,6 +808,14 @@ function createGame(
     portalPulse: 0,
     elapsedTicks: 0,
     portalThreshold: PORTAL_THRESHOLD,
+    portals: [
+      // Already arrived: the existing modes have never shown a warp-in, and
+      // starting one here would open every run with the rift sliding outward.
+      (() => {
+        const portal = createPortal(0, "rift", arena, 0);
+        return { ...portal, warpRadius: portal.orbitRadius, x: wormhole.x, y: wormhole.y };
+      })(),
+    ],
     survival: isSurvival(rules) ? createSurvivalState() : null,
     // Rift Run arms this in `start`, where the run itself is created.
     riftEscalation: null,
@@ -4757,9 +4786,29 @@ export default function WormholeGame() {
       // Wormhole motion is a rule, not a constant: EASY locks it dead centre
       // while DIFFICULT and HARD MODE keep the original orbit.
       game.portalAngle = advanceWormholeAngle(game.rules, game.portalAngle);
-      const wormhole = wormholePosition(game.rules, { width: game.worldWidth, height: game.worldHeight }, game.portalAngle);
+      const arenaSize = { width: game.worldWidth, height: game.worldHeight };
+      const wormhole = wormholePosition(game.rules, arenaSize, game.portalAngle);
       game.portalX = wormhole.x;
       game.portalY = wormhole.y;
+      if (game.portals.length > 0) {
+        // Portal zero stays driven by the ruleset rather than by the portal
+        // model, because the ruleset is what knows about a locked rift — the
+        // model always orbits. Syncing rather than replacing keeps every
+        // existing mode byte-identical.
+        const primary = game.portals[0];
+        primary.angle = game.portalAngle;
+        primary.charge = game.portalCharge;
+        primary.threshold = game.portalThreshold;
+        primary.x = wormhole.x;
+        primary.y = wormhole.y;
+        // Any additional portal is the model's to move: it warps in, then orbits.
+        for (let i = 1; i < game.portals.length; i += 1) {
+          const portal = game.portals[i];
+          game.portals[i] = isPortalWarpedIn(portal)
+            ? advancePortal(portal, arenaSize)
+            : stepPortalWarpIn(portal, arenaSize);
+        }
+      }
 
       // Survival re-derives `game.rules` on every Rift Level, so its clock has
       // to run before anything that reads them this tick.
@@ -5149,9 +5198,27 @@ export default function WormholeGame() {
           }
         }
         if (bullet.life <= 0) return;
-        if (dist(bullet, { x: game.portalX, y: game.portalY }) < 43) {
+        // Every portal in the arena is shootable, by anyone. With one portal
+        // this is exactly the old behaviour; with several it is the rule that
+        // makes the mode work — a pilot can farm power-ups off a rival's
+        // portal as readily as their own.
+        const struck = game.portals.find((portal) => Math.hypot(bullet.x - portal.x, bullet.y - portal.y) < 43);
+        if (struck) {
           bullet.life = 0;
-          chargeRiftPup(game, bullet.damage);
+          if (struck.id === 0) chargeRiftPup(game, bullet.damage);
+          else {
+            // A rival's portal banks its own damage and sheds at its own
+            // threshold. It is not this pilot's rift, so it does not feed the
+            // rift-damage score.
+            const banked = chargePortal(struck, bullet.damage);
+            struck.charge = banked.portal.charge;
+            if (banked.bloomed) {
+              const type = dropForGame(game);
+              game.pickups.push({ x: struck.x + range(-28, 28), y: struck.y + range(-28, 28), vx: range(-1.2, 1.2), vy: range(-1.2, 1.2), type, life: PUP_LIFE_TICKS, phase: range(0, 6) });
+              pushSpawn(game, "friendly", type, struck.x, struck.y, 1);
+              playCue(`spawn:${type}`, 0.17);
+            }
+          }
           // This is where cannon damage is actually applied to the rift — the
           // coach line calls it damage and the charge meter measures it — so
           // it is where Survival pays for it. Awarding at the muzzle instead
@@ -5864,6 +5931,25 @@ export default function WormholeGame() {
       }
 
       drawPortal(game, time, detail);
+      // Breadcrumbs toward every portal that is not the pilot's own. A
+      // scrolling camera in a large arena leaves rival portals off-screen with
+      // nothing to point at them; a trail of dots from the centre outward says
+      // which way to fly. Portal zero is the one already on screen, so it is
+      // skipped rather than drawn over.
+      if (game.portals.length > 1) {
+        const arenaSize = { width: game.worldWidth, height: game.worldHeight };
+        ctx.save();
+        ctx.globalAlpha = 0.5;
+        ctx.fillStyle = "#8dffd0";
+        for (let i = 1; i < game.portals.length; i += 1) {
+          for (const dot of portalBreadcrumbs(game.portals[i], arenaSize)) {
+            ctx.beginPath();
+            ctx.arc(dot.x, dot.y, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+        ctx.restore();
+      }
       for (const spawn of game.spawns) drawSpawnFx(spawn, time, detail);
       for (const label of game.pickupLabels) drawPickupLabel(label);
 

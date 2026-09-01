@@ -3,11 +3,13 @@
  *
  * Classic Wormhole gives every pilot a portal: all of them visible, all of them
  * shootable by anyone, each banking its own damage. This is that model, and it
- * is tested here rather than through the game loop because the loop still owns
- * exactly one rift — the read sites migrate alongside the mode that needs them.
+ * The model is exercised directly; the last cases check how the loop consumes
+ * it — portal zero projected onto the flat fields the rest of the game reads,
+ * and multiplicity only where it genuinely matters.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import { ARENA_SIZES, DEFAULT_ARENA, squareArena } from "../app/arena.ts";
 import {
@@ -164,4 +166,41 @@ test("a portal mid warp-in trails only as far as it has travelled", () => {
   for (const dot of portalBreadcrumbs(portal, arena)) {
     assert.ok(Math.hypot(dot.x - centre.x, dot.y - centre.y) <= portal.warpRadius);
   }
+});
+
+test("the game carries a portal list, projected onto the flat fields", () => {
+  const game = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
+  assert.match(game, /portals: Portal\[\];/);
+  // Portal zero stays driven by the ruleset, not the model: the ruleset is what
+  // knows about a locked rift, and the model always orbits. Syncing rather than
+  // replacing is what keeps the existing modes byte-identical.
+  assert.match(game, /const primary = game\.portals\[0\];/);
+  assert.match(game, /primary\.angle = game\.portalAngle;/);
+  assert.match(game, /primary\.x = wormhole\.x;/);
+  // Anything past portal zero belongs to the model.
+  assert.match(game, /for \(let i = 1; i < game\.portals\.length; i \+= 1\)/);
+  assert.match(game, /isPortalWarpedIn\(portal\)\s*\n\s*\? advancePortal\(portal, arenaSize\)\s*\n\s*: stepPortalWarpIn\(portal, arenaSize\)/);
+});
+
+test("a run opens with its portal already arrived", () => {
+  const game = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
+  // Starting mid warp-in would open every existing mode with the rift sliding
+  // outward, which none of them have ever done.
+  assert.match(game, /warpRadius: portal\.orbitRadius/);
+});
+
+test("every portal is shootable, not just the pilot's own", () => {
+  const game = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
+  assert.match(game, /const struck = game\.portals\.find\(\(portal\) => Math\.hypot\(bullet\.x - portal\.x, bullet\.y - portal\.y\) < 43\)/);
+  // The pilot's own rift keeps the scoring path; a rival's banks its own charge
+  // and sheds at its own threshold without feeding rift-damage score.
+  assert.match(game, /if \(struck\.id === 0\) chargeRiftPup\(game, bullet\.damage\)/);
+  assert.match(game, /const banked = chargePortal\(struck, bullet\.damage\)/);
+  assert.doesNotMatch(game, /dist\(bullet, \{ x: game\.portalX, y: game\.portalY \}\) < 43/);
+});
+
+test("breadcrumbs are drawn for rival portals only", () => {
+  const game = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
+  assert.match(game, /if \(game\.portals\.length > 1\)/, "one portal needs no trail to itself");
+  assert.match(game, /for \(let i = 1; i < game\.portals\.length; i \+= 1\) \{\s*\n\s*for \(const dot of portalBreadcrumbs/);
 });

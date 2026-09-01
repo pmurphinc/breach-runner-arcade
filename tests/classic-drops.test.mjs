@@ -145,10 +145,15 @@ test("every drop is a real pickup id", () => {
 test("only Classic uses the Classic table", () => {
   const game = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
   assert.match(game, /if \(game\.mode !== "classic"\) return randomPower\(\)/);
-  // Both places a portal or a kill sheds a pickup go through one decision, so
-  // the two tables cannot drift apart at different call sites.
-  assert.doesNotMatch(game, /type: randomPower\(\)/);
-  assert.equal((game.match(/dropForGame\(game\)/g) ?? []).length, 2);
+  // Every place a portal or a kill sheds a pickup goes through one decision, so
+  // the two tables cannot drift apart at different call sites. Asserted as
+  // "nothing calls randomPower directly" rather than as a count, so adding a
+  // shed site does not fail this — only bypassing the decision does.
+  // The trailing semicolon keeps the function's own declaration out of the count.
+  const callers = [...game.matchAll(/randomPower\(\);/g)];
+  assert.equal(callers.length, 1, "randomPower is reached only through dropForGame");
+  assert.match(game, /if \(game\.mode !== "classic"\) return randomPower\(\)/);
+  assert.ok((game.match(/dropForGame\(game\)/g) ?? []).length >= 2);
 });
 
 test("the drop clock is simulation time, not wall time", () => {
