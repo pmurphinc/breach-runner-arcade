@@ -21,6 +21,12 @@ import { settingsStore, type AimGuide, type CombatHaptics, type SoundLevel, type
 import { GAMEPAD_BINDINGS } from "./gamepad";
 import { RIFT_RUN_DESCRIPTION, RIFT_RUN_TAGLINE, RIFT_RUN_TITLE, RIFT_SHIP_CLASSES } from "./rift-run/data";
 import { RIFT_RUN_SHIPS, riftRunShip } from "./rift-run/ships";
+import {
+  TOUCH_PROFILE_HINTS,
+  TOUCH_PROFILE_IDS,
+  TOUCH_PROFILE_LABELS,
+  type TouchProfileId,
+} from "./touch-profiles";
 import type { PilotProgression } from "./pilot-progression";
 import { isDifficultyUnlocked, PROGRESSION_DIFFICULTIES } from "./pilot-progression";
 import { drawShipModel } from "./ship-models";
@@ -546,6 +552,9 @@ export function SettingsScreen({
   onAimGuide,
   compactHud,
   onCompactHud,
+  touchProfile,
+  onTouchProfile,
+  onEditTouchLayout,
   cameraLock,
   onCameraLock,
   zoom,
@@ -574,6 +583,9 @@ export function SettingsScreen({
   onAimGuide: (next: AimGuide) => void;
   compactHud: boolean;
   onCompactHud: (next: boolean) => void;
+  touchProfile: TouchProfileId;
+  onTouchProfile: (next: TouchProfileId) => void;
+  onEditTouchLayout: () => void;
   cameraLock: boolean;
   onCameraLock: (next: boolean) => void;
   zoom: ZoomLevel;
@@ -659,6 +671,25 @@ export function SettingsScreen({
           ]}
           onChange={(next) => onViewMode(next === "auto" ? null : (next as ViewMode))}
         />
+        <OptionRow
+          label="Touch profile"
+          value={touchProfile}
+          disabled={viewMode === "pc"}
+          options={TOUCH_PROFILE_IDS.map((id) => ({
+            id,
+            label: TOUCH_PROFILE_LABELS[id],
+            hint: TOUCH_PROFILE_HINTS[id],
+          }))}
+          onChange={onTouchProfile}
+        />
+        {touchProfile === "custom" ? (
+          <div className="simulation-option">
+            <button type="button" className="difficulty-card" onClick={onEditTouchLayout}>
+              <b>Edit Custom layout</b>
+              <small>Drag each control to place and size it</small>
+            </button>
+          </div>
+        ) : null}
         <Toggle
           label="Thumbsticks"
           value={thumbsticks}

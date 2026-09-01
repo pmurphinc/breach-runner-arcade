@@ -138,6 +138,8 @@ import {
 } from "./layout-budget";
 import { cannonPlaybackRate, playCombatHaptics } from "./combat-feedback";
 import { PUP_INVENTORY_CAPACITY, consumeLoadedPup, pupInventoryLayout } from "./pup-inventory";
+import { TouchLayoutEditor } from "./touch-layout-editor";
+import { customTouchLayoutVariables, touchElementEdge } from "./touch-profiles";
 import { salvageLinkHitsPup } from "./salvage-link";
 import { inventoryPayloadIconLayout, inventoryPupVisual } from "./pup-inventory-visual";
 import { pupPickupSoundProfile, type PupPickupSoundProfile } from "./pup-audio";
@@ -2051,6 +2053,7 @@ export default function WormholeGame() {
   const [aimStickPosition, setAimStickPosition] = useState<StickPosition>({ active: false, x: 0, y: 0 });
   const [inspect, setInspect] = useState<{ id: PickupId; pinned: boolean } | null>(null);
   const [codexOpen, setCodexOpen] = useState(false);
+  const [touchEditorOpen, setTouchEditorOpen] = useState(false);
   const mode = useSyncExternalStore(
     modePreference.subscribe,
     modePreference.get,
@@ -6907,11 +6910,19 @@ export default function WormholeGame() {
       data-panels={layout.panels}
       data-touch-controls={layout.showTouchControls ? "on" : "off"}
       data-touch-height={settings.touchControlHeight}
+      data-touch-profile={settings.touchProfile}
+      /* The anchored edge rides on the shell rather than in the variables so the
+         stylesheet can switch between left: and right: — a custom property
+         cannot select a property name. */
+      data-touch-move-edge={touchElementEdge("move", settings.customTouchLayout.handed)}
+      data-touch-aim-edge={touchElementEdge("aim", settings.customTouchLayout.handed)}
       style={{
         // Every size the interface uses comes from the one measurement, so
         // CSS never has to guess and cannot disagree with the shell.
         "--arena-size": `${layout.arena}px`,
         "--stick": `${layout.stick}px`,
+        // Only meaningful under the Custom profile; M-Sticks ignores them.
+        ...customTouchLayoutVariables(settings.customTouchLayout),
         "--touch-base-stick": `${layout.stick}px`,
         "--touch-control-scale": layout.form === "phone"
           ? Math.max(.72, Math.min(layout.orientation === "portrait" ? 1 : .9, layout.usableWidth / (layout.orientation === "portrait" ? 390 : 844)))
@@ -7634,6 +7645,9 @@ export default function WormholeGame() {
           onAimGuide={(next) => setSetting("aimGuide", next)}
           compactHud={settings.compactHud}
           onCompactHud={(next) => setSetting("compactHud", next)}
+          touchProfile={settings.touchProfile}
+          onTouchProfile={(next) => setSetting("touchProfile", next)}
+          onEditTouchLayout={() => setTouchEditorOpen(true)}
           cameraLock={cameraLocked}
           onCameraLock={(next) => setSetting("cameraLock", next)}
           zoom={settings.zoom}
@@ -7675,6 +7689,18 @@ export default function WormholeGame() {
       ) : null}
 
       {/* Above the screens: a dialog opened from one of them. */}
+      {/* Above the menu: the layout is adjusted over the live arena, and Save
+          is the only thing that commits — Close discards the working copy. */}
+      {touchEditorOpen ? (
+        <TouchLayoutEditor
+          layout={settings.customTouchLayout}
+          onClose={() => setTouchEditorOpen(false)}
+          onSave={(next) => {
+            setSetting("customTouchLayout", next);
+            setTouchEditorOpen(false);
+          }}
+        />
+      ) : null}
       {codexOpen ? <WeaponCodex onClose={() => setCodexOpen(false)} onOpenSettings={openSettings} reducedMotion={reducedMotion} /> : null}
     </main>
   );

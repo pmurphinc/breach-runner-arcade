@@ -5,3 +5,136 @@
 html[data-mirror-touch-actions="on"] .touch-capable[data-touch-controls="on"] .touch-utility-mirrored {
   display: block !important;
 }
+
+/* --------------------------------------------------------- Custom profile --
+   When the Custom profile is active the responsive data-sticks rules stop
+   placing the sticks and the layout comes from the numbers the player set.
+   Each element anchors to its own edge, which is what makes the handedness
+   swap a single flag rather than an arithmetic pass over every coordinate.
+
+   M-Sticks is untouched by everything in this block. */
+[data-touch-profile="custom"][data-immersive="true"] .touch-flight,
+[data-touch-profile="custom"][data-immersive="true"] .touch-action {
+  position: absolute;
+  right: auto;
+  bottom: auto;
+  transform: none;
+}
+
+[data-touch-profile="custom"][data-immersive="true"] .touch-flight {
+  width: var(--touch-move-size);
+  top: calc(50% + var(--touch-move-y));
+  margin-top: calc(var(--touch-move-size) / -2);
+}
+[data-touch-profile="custom"][data-immersive="true"][data-touch-move-edge="left"] .touch-flight { left: var(--touch-move-x); }
+[data-touch-profile="custom"][data-immersive="true"][data-touch-move-edge="right"] .touch-flight { left: auto; right: var(--touch-move-x); }
+
+[data-touch-profile="custom"][data-immersive="true"] .touch-action {
+  width: var(--touch-aim-size);
+  top: calc(50% + var(--touch-aim-y));
+  margin-top: calc(var(--touch-aim-size) / -2);
+}
+[data-touch-profile="custom"][data-immersive="true"][data-touch-aim-edge="left"] .touch-action { left: var(--touch-aim-x); }
+[data-touch-profile="custom"][data-immersive="true"][data-touch-aim-edge="right"] .touch-action { left: auto; right: var(--touch-aim-x); }
+
+[data-touch-profile="custom"][data-immersive="true"] .touch-flight .virtual-stick { width: var(--touch-move-size); }
+[data-touch-profile="custom"][data-immersive="true"] .touch-action .virtual-stick { width: var(--touch-aim-size); }
+
+/* ------------------------------------------------------------- the editor -- */
+.touch-editor {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-system);
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 12px max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  color: var(--ink);
+  background: rgba(2, 8, 13, .92);
+  overscroll-behavior: contain;
+}
+.touch-editor-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.touch-editor-head b { display: block; color: var(--lime); font: 800 var(--fs-small)/1.3 var(--mono); }
+.touch-editor-head small { display: block; margin-top: 3px; color: var(--muted); font: 500 var(--fs-nano)/1.4 var(--mono); }
+.touch-editor-head-actions { display: flex; flex: 0 0 auto; gap: 8px; }
+.touch-editor button {
+  min-height: var(--touch-target);
+  padding: 0 12px;
+  color: var(--ink);
+  background: var(--panel-bg);
+  border: var(--border-2);
+  border-radius: var(--radius-2);
+  cursor: pointer;
+  font: 800 var(--fs-micro)/1 var(--mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.touch-editor button.primary { color: #041018; background: var(--lime); border-color: var(--lime); }
+.touch-editor button.active { border-color: var(--cyan); background: rgba(16, 48, 66, .95); }
+
+.touch-editor-tabs { display: grid; grid-auto-flow: column; gap: 6px; }
+.touch-editor-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 8px; }
+.touch-editor-field { display: grid; gap: 3px; }
+.touch-editor-field span { color: var(--muted); font: 700 var(--fs-nano)/1 var(--mono); text-transform: uppercase; }
+/* The valid range sits in the label, so the limits are always visible. */
+.touch-editor-field em { color: var(--cyan); font-style: normal; }
+.touch-editor-field input {
+  min-height: var(--touch-target);
+  padding: 0 10px;
+  color: var(--ink);
+  background: rgba(1, 5, 9, .9);
+  border: var(--border-2);
+  border-radius: var(--radius-2);
+  font: 800 var(--fs-small)/1 var(--mono);
+}
+
+/* The preview sits over the live arena, so the player adjusts the real
+   arrangement rather than an abstract diagram. */
+.touch-editor-stage { position: relative; min-height: 0; border: 1px dashed rgba(100, 234, 255, .35); border-radius: var(--radius-2); }
+.touch-editor-ghost {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  border: 2px solid rgba(160, 210, 235, .5);
+  border-radius: 999px;
+  background: rgba(10, 30, 44, .55);
+  touch-action: none;
+  cursor: grab;
+}
+.touch-editor-ghost.button { border-radius: 999px; }
+.touch-editor-ghost.active { border-color: var(--lime); background: rgba(28, 62, 40, .6); cursor: grabbing; }
+.touch-editor-ghost-name { color: var(--ink); font: 800 var(--fs-nano)/1 var(--mono); letter-spacing: .08em; }
+.touch-editor-deadzone { position: absolute; border: 1px solid rgba(255, 255, 255, .5); border-radius: 999px; }
+.touch-editor-handle {
+  position: absolute;
+  top: 50%;
+  right: -9px;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--lime);
+  border-radius: 999px;
+  background: rgba(2, 8, 13, .95);
+  transform: translateY(-50%);
+  touch-action: none;
+  cursor: ew-resize;
+}
+
+.touch-editor-transfer { display: grid; gap: 8px; }
+.touch-editor-transfer label { display: grid; gap: 4px; }
+.touch-editor-transfer span { color: var(--muted); font: 700 var(--fs-nano)/1 var(--mono); text-transform: uppercase; }
+.touch-editor-transfer textarea {
+  padding: 8px;
+  color: var(--ink);
+  background: rgba(1, 5, 9, .9);
+  border: var(--border-2);
+  border-radius: var(--radius-2);
+  font: 500 var(--fs-nano)/1.4 var(--mono);
+  resize: vertical;
+}
+.touch-editor-transfer-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.touch-editor-foot { display: grid; grid-auto-flow: column; gap: 6px; }
+
+@media (forced-colors: active) {
+  .touch-editor-ghost { border-color: CanvasText; forced-color-adjust: none; }
+  .touch-editor-handle { border-color: Highlight; }
+}
