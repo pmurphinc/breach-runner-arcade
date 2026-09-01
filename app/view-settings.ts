@@ -1,3 +1,11 @@
+import {
+  type CustomTouchLayout,
+  type TouchProfileId,
+  defaultCustomTouchLayout,
+  isTouchProfileId,
+  normalizeCustomTouchLayout,
+} from "./touch-profiles.ts";
+
 export type ViewMode = "touch" | "pc" | "hybrid";
 export type TouchControlSize = "small" | "medium" | "large";
 export type TouchControlHeight = "low" | "middle" | "high";
@@ -31,6 +39,16 @@ export type DeviceSettings = {
   /** Optional world-space reference drawn along the local cannon heading. */
   aimGuide: AimGuide;
   thumbsticks: boolean;
+  /**
+   * Which named touch layout is in force.
+   *
+   * "m-sticks" is the responsive twin-stick layout the game has always had, and
+   * remains the default; touchControlSize and touchControlHeight only apply to
+   * it. "custom" ignores both and reads geometry from customTouchLayout.
+   */
+  touchProfile: TouchProfileId;
+  /** Per-element geometry for the Custom profile. Ignored by M-Sticks. */
+  customTouchLayout: CustomTouchLayout;
   touchControlSize: TouchControlSize;
   /** Shared vertical placement for the mirrored touch-stick pair. */
   touchControlHeight: TouchControlHeight;
@@ -63,6 +81,8 @@ export const DEFAULT_SETTINGS: DeviceSettings = {
   cannonHitSound: true,
   aimGuide: "off",
   thumbsticks: true,
+  touchProfile: "m-sticks",
+  customTouchLayout: defaultCustomTouchLayout(),
   touchControlSize: "medium",
   touchControlHeight: "middle",
   mirrorTouchActions: false,
@@ -114,6 +134,10 @@ export function migrateSettings(value: unknown): DeviceSettings {
     cannonHitSound: typeof candidate.cannonHitSound === "boolean" ? candidate.cannonHitSound : true,
     aimGuide: isAimGuide(candidate.aimGuide) ? candidate.aimGuide : "off",
     thumbsticks: typeof candidate.thumbsticks === "boolean" ? candidate.thumbsticks : true,
+    // An unknown profile id falls back to M-Sticks rather than leaving the
+    // player with controls the shipped stylesheet cannot place.
+    touchProfile: isTouchProfileId(candidate.touchProfile) ? candidate.touchProfile : "m-sticks",
+    customTouchLayout: normalizeCustomTouchLayout(candidate.customTouchLayout),
     touchControlSize: isSize(candidate.touchControlSize) ? candidate.touchControlSize : "medium",
     touchControlHeight: isHeight(candidate.touchControlHeight) ? candidate.touchControlHeight : "middle",
     mirrorTouchActions: typeof candidate.mirrorTouchActions === "boolean" ? candidate.mirrorTouchActions : false,
