@@ -247,6 +247,7 @@ import {
 } from "./beam-motion";
 import { BeamAudioManager } from "./beam-audio";
 import { type ArenaSize, DEFAULT_ARENA } from "./arena";
+import { PORTAL_THRESHOLD, chargePortal } from "./portals";
 
 /**
  * Presentation-space dimensions for the letterboxed canvas.
@@ -258,7 +259,7 @@ import { type ArenaSize, DEFAULT_ARENA } from "./arena";
 const VIEW_WIDTH = 1048;
 const VIEW_HEIGHT = 655;
 /** Cannon damage the rift absorbs per power-up, before any escalation. */
-const PORTAL_THRESHOLD = 150;
+
 /**
  * Drawn-body radii the off-screen markers reason about, in world units. They
  * match the rift glow and the ally ring so a target still half outside the
@@ -3839,9 +3840,15 @@ export default function WormholeGame() {
 
     /** Shared nominal-damage path for cannon and additive Rift Run hull guns. */
     const chargeRiftPup = (game: Game, nominalDamage: number) => {
-      game.portalCharge += nominalDamage;
-      if (game.portalCharge <= game.portalThreshold) return;
-      game.portalCharge = 0;
+      // Banked through the portal model: it owns the threshold rule, including
+      // resetting to zero rather than carrying the remainder, so one enormous
+      // hit sheds one power-up instead of a shower of them.
+      const banked = chargePortal(
+        { charge: game.portalCharge, threshold: game.portalThreshold } as Parameters<typeof chargePortal>[0],
+        nominalDamage
+      );
+      game.portalCharge = banked.portal.charge;
+      if (!banked.bloomed) return;
       const type = randomPower();
       game.pickups.push({ x: game.portalX + range(-28, 28), y: game.portalY + range(-28, 28), vx: range(-1.2, 1.2), vy: range(-1.2, 1.2), type, life: 900, phase: range(0, 6) });
       game.notice = `${WEAPONS[type].short} READY TO COLLECT`;
