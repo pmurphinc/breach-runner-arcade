@@ -248,6 +248,7 @@ import {
 import { BeamAudioManager } from "./beam-audio";
 import { type ArenaSize, DEFAULT_ARENA } from "./arena";
 import { PORTAL_THRESHOLD, chargePortal } from "./portals";
+import { rollClassicDrop } from "./classic-drops";
 
 /**
  * Presentation-space dimensions for the letterboxed canvas.
@@ -914,6 +915,25 @@ function spawnParticles(game: Game, x: number, y: number, color: string, count: 
     const life = range(18, 55);
     game.particles.push({ x, y, vx: Math.cos(angle) * force, vy: Math.sin(angle) * force, color, size: range(1, 3.4), life, maxLife: life });
   }
+}
+
+/**
+ * What a portal sheds, for the mode this run is in.
+ *
+ * Classic draws from the reference table — mostly ordnance, self-buffs that stop
+ * appearing once maxed, and substitutions that arrive as the match ages. Every
+ * other mode keeps Breach Runner's own even-handed roll.
+ */
+function dropForGame(game: Game): PickupId {
+  if (game.mode !== "classic") return randomPower();
+  return rollClassicDrop({
+    gunMaxed: game.player.gun >= 3,
+    thrustMaxed: game.player.thrust >= 3,
+    retrosMaxed: game.player.retros >= RETRO_MAX_LEVEL,
+    // The tick is the clock: TICK_MS per cycle, so the drop gates measure the
+    // simulation's own elapsed time rather than wall time a pause would skew.
+    elapsedMs: game.cycles * TICK_MS,
+  });
 }
 
 function randomPower(): PickupId {
@@ -3805,7 +3825,7 @@ export default function WormholeGame() {
       burst(game, enemy.x, enemy.y, POWER_COLORS[enemy.kind], 18, 8);
       play("explosion", 0.16);
       if (enemy.kind !== "ghost" && enemy.kind !== "beam" && enemy.kind !== "emp" && enemy.kind !== "mines" && (guaranteedDrop || Math.random() < 0.48)) {
-        game.pickups.push({ x: enemy.x, y: enemy.y, vx: range(-0.7, 0.7), vy: range(-0.7, 0.7), type: randomPower(), life: 900, phase: range(0, 6) });
+        game.pickups.push({ x: enemy.x, y: enemy.y, vx: range(-0.7, 0.7), vy: range(-0.7, 0.7), type: dropForGame(game), life: 900, phase: range(0, 6) });
       }
     };
 
@@ -3849,7 +3869,7 @@ export default function WormholeGame() {
       );
       game.portalCharge = banked.portal.charge;
       if (!banked.bloomed) return;
-      const type = randomPower();
+      const type = dropForGame(game);
       game.pickups.push({ x: game.portalX + range(-28, 28), y: game.portalY + range(-28, 28), vx: range(-1.2, 1.2), vy: range(-1.2, 1.2), type, life: 900, phase: range(0, 6) });
       game.notice = `${WEAPONS[type].short} READY TO COLLECT`;
       game.noticeLife = 100;
