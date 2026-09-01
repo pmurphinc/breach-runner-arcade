@@ -387,7 +387,12 @@ test("pvp always resolves to easy rules regardless of the stored difficulty", ()
   for (const id of ["easy", "difficult", "hard"]) {
     assert.equal(rulesFor("pvp", id), PVP_RULES);
   }
-  assert.equal(PVP_RULES.wormhole.kind, "locked");
+  // PvP's rift orbits: a locked rift is a stationary target, and both pilots
+  // are shooting the same kind of objective.
+  assert.equal(PVP_RULES.wormhole.kind, "orbit");
+  assert.equal(PVP_RULES.wormhole.degreesPerTick, 0.5);
+  assert.notEqual(PVP_RULES, DIFFICULTIES.easy, "PvP must not be an alias that retuning Easy can move");
+  assert.equal(PVP_RULES.collisionShield, DIFFICULTIES.easy.collisionShield, "everything else still tracks Easy");
   assert.equal(PVP_RULES.collisionShield.enabled, true);
   assert.equal(PVP_RULES.contactHazard.enabled, false);
   assert.equal(PVP_RULES.rivalIntegrity, 100);

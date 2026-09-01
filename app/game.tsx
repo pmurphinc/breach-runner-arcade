@@ -55,6 +55,7 @@ import {
   type DifficultyId,
   type DifficultyRules,
   type GameMode,
+  isOfflineMode,
 } from "./difficulty";
 import {
   capabilityStore,
@@ -138,6 +139,8 @@ import {
 } from "./layout-budget";
 import { cannonPlaybackRate, playCombatHaptics } from "./combat-feedback";
 import { PUP_INVENTORY_CAPACITY, consumeLoadedPup, pupInventoryLayout } from "./pup-inventory";
+import { TouchLayoutEditor } from "./touch-layout-editor";
+import { customTouchLayoutVariables, touchElementEdge } from "./touch-profiles";
 import { salvageLinkHitsPup } from "./salvage-link";
 import { inventoryPayloadIconLayout, inventoryPupVisual } from "./pup-inventory-visual";
 import { pupPickupSoundProfile, type PupPickupSoundProfile } from "./pup-audio";
@@ -244,13 +247,31 @@ import {
   type BeamDirection,
 } from "./beam-motion";
 import { BeamAudioManager } from "./beam-audio";
+import { type ArenaSize, DEFAULT_ARENA } from "./arena";
+import {
+  PORTAL_THRESHOLD,
+  type Portal,
+  advancePortal,
+  chargePortal,
+  createPortal,
+  isPortalWarpedIn,
+  portalBreadcrumbs,
+  stepPortalWarpIn,
+} from "./portals";
+import { rollClassicDrop } from "./classic-drops";
+import { shipForMode } from "./classic-ships";
 
+/**
+ * Presentation-space dimensions for the letterboxed canvas.
+ *
+ * Distinct from the arena: VIEW_* is what the renderer draws into and what the
+ * camera scales the world onto, so a square arena needs no change here. Arena
+ * size itself lives in ./arena.
+ */
 const VIEW_WIDTH = 1048;
 const VIEW_HEIGHT = 655;
-const WORLD_WIDTH = 1504;
-const WORLD_HEIGHT = 940;
 /** Cannon damage the rift absorbs per power-up, before any escalation. */
-const PORTAL_THRESHOLD = 150;
+
 /**
  * Drawn-body radii the off-screen markers reason about, in world units. They
  * match the rift glow and the ally ring so a target still half outside the
@@ -386,6 +407,15 @@ type Particle = { x: number; y: number; vx: number; vy: number; color: string; s
 type StickPosition = { active: boolean; x: number; y: number };
 type StickKind = "move" | "aim";
 type SpawnKind = "hostile" | "friendly" | "transmit";
+/**
+ * A power-up's name, painted in the world where the pilot picked it up.
+ *
+ * Deliberately world-space and deliberately not a HUD plate: the pilot's eyes
+ * are on the ship, not the notice line, so the name belongs where the pickup
+ * was. It also replaces the old shared-coach-line announcement rather than
+ * joining it, because one event gets one notification.
+ */
+type PickupLabel = { id: number; x: number; y: number; text: string; color: string; age: number; life: number };
 /** Short, non-blocking portal animation announcing what just came through. */
 type SpawnFx = { id: number; x: number; y: number; type: PickupId; kind: SpawnKind; age: number; life: number; count: number };
 
@@ -529,6 +559,28 @@ type Game = {
   shieldBreak: number;
   /** Ticks left on the SHIELD RESTORED confirmation. */
   shieldRestored: number;
+  /**
+   * Hostiles destroyed this run.
+   *
+   * Classic's scoreboard is kills, not points: the original ranks pilots by
+   * what they shot down. Tracked in every mode because it costs nothing and
+   * the HUD only shows it where it means something.
+   */
+  kills: number;
+  /** Set by the self-destruct key; spent by the loop on the next tick. */
+  selfDestruct: boolean;
+  /**
+   * Every portal in the arena.
+   *
+   * Portal zero is the rift this pilot engages, and the flat portalX / portalY /
+   * portalCharge fields are its projection — around sixty call sites mean
+   * exactly "the rift I am shooting", and they keep working unchanged. Anything
+   * that genuinely cares about there being more than one reads this list.
+   *
+   * Solo modes carry a single portal, so the list changes nothing for them
+   * today. It is what a second pilot's portal slots into.
+   */
+  portals: Portal[];
   portalAngle: number;
   portalCharge: number;
   portalX: number;
@@ -585,6 +637,7 @@ type Game = {
   blasts: OverchargeBlastFx[];
   particles: Particle[];
   spawns: SpawnFx[];
+  pickupLabels: PickupLabel[];
   stock: PowerId[];
   score: number;
   rivalHealth: number;
@@ -629,6 +682,8 @@ type Hud = {
   coach: string;
   /** Live spawn plates, oldest first. Rendered under the PUP inventory. */
   spawnNotices: SpawnNotice[];
+  /** Hostiles downed. Classic ranks by this rather than by score. */
+  kills: number;
   /** Rules badge: what the pilot is flying under right now. */
   mode: GameMode;
   difficulty: DifficultyId;
@@ -688,14 +743,21 @@ function coachLine(game: Game) {
   return `SHOOT THE RIFT // ${Math.ceil(remaining)} MORE DAMAGE GENERATES A POWER-UP`;
 }
 
-function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: DifficultyId = "difficult"): Game {
+function createGame(
+  ship: ShipSpec,
+  mode: GameMode = "pve",
+  difficulty: DifficultyId = "difficult",
+  arena: ArenaSize = DEFAULT_ARENA
+): Game {
   const rules = rulesFor(mode, difficulty);
-  const arena = { width: WORLD_WIDTH, height: WORLD_HEIGHT };
+  // Classic flies the reference handling. Resolved here rather than at every
+  // read site, so the rest of the loop simply uses game.ship as it always has.
+  ship = shipForMode(ship, mode);
   const spawn = pilotSpawn(rules, arena);
   const wormhole = wormholePosition(rules, arena, 0);
   return {
-    worldWidth: WORLD_WIDTH,
-    worldHeight: WORLD_HEIGHT,
+    worldWidth: arena.width,
+    worldHeight: arena.height,
     ship,
     rules,
     mode,
@@ -721,7 +783,10 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
       invuln: 0,
       gun: ship.gun,
       thrust: ship.thrust,
-      retros: ship.thrust > 0 ? 1 : 0,
+      // Classic earns its retros. The reference ships them as a power-up, so
+      // starting with reverse thrust both skips a reward and makes the upgrade
+      // strip claim RETROS from the first tick. Every other mode is unchanged.
+      retros: mode === "classic" ? 0 : ship.thrust > 0 ? 1 : 0,
       specialCooldown: 0,
       emp: 0,
       beamTicks: 0,
@@ -738,6 +803,8 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
       suppressionBarrage: 0,
       flashMode: "tank",
     },
+    kills: 0,
+    selfDestruct: false,
     portalAngle: 0,
     portalCharge: 0,
     portalX: wormhole.x,
@@ -745,6 +812,23 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
     portalPulse: 0,
     elapsedTicks: 0,
     portalThreshold: PORTAL_THRESHOLD,
+    portals: (() => {
+      // Already arrived: the existing modes have never shown a warp-in, and
+      // starting one here would open every run with the rift sliding outward.
+      const arrived = (portal: Portal, x: number, y: number) => ({ ...portal, warpRadius: portal.orbitRadius, x, y });
+      // Portal zero is the rift this pilot engages. In PvE and Classic solo it
+      // is the only one; in PvP the pilot also owns a portal of their own.
+      const list = [arrived(createPortal(0, "rift", arena, 0), wormhole.x, wormhole.y)];
+      if (mode === "pvp") {
+        // Share the ruleset's ring so both portals orbit the same circle, and
+        // sit opposite so they are never stacked on each other.
+        const ring = rules.wormhole.kind === "orbit" ? rules.wormhole.radius : createPortal(1, "you", arena, 180).orbitRadius;
+        const own = { ...createPortal(1, "you", arena, 180), orbitRadius: ring };
+        const centre = { x: arena.width / 2, y: arena.height / 2 };
+        list.push(arrived(own, centre.x - ring, centre.y));
+      }
+      return list;
+    })(),
     survival: isSurvival(rules) ? createSurvivalState() : null,
     // Rift Run arms this in `start`, where the run itself is created.
     riftEscalation: null,
@@ -767,6 +851,7 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
     blasts: [],
     particles: [],
     spawns: [],
+    pickupLabels: [],
     stock: [],
     score: 0,
     rivalHealth: rules.rivalIntegrity * (mode === "coop" ? 2 : 1),
@@ -793,6 +878,7 @@ function hudFrom(game: Game): Hud {
     thrust: game.player.thrust,
     retros: game.player.retros,
     score: game.score,
+    kills: game.kills,
     elapsedSeconds: Math.floor(game.elapsedTicks * TICK_MS / 1000),
     rivalHealth: Math.max(0, Math.round((game.rivalHealth / game.rivalMaxHealth) * 100)),
     rivalCurrentHealth: Math.max(0, Math.round(game.rivalHealth)),
@@ -892,12 +978,65 @@ function spawnParticles(game: Game, x: number, y: number, color: string, count: 
   }
 }
 
+/**
+ * What a portal sheds, for the mode this run is in.
+ *
+ * Classic draws from the reference table — mostly ordnance, self-buffs that stop
+ * appearing once maxed, and substitutions that arrive as the match ages. Every
+ * other mode keeps Breach Runner's own even-handed roll.
+ */
+function dropForGame(game: Game): PickupId {
+  if (game.mode !== "classic") return randomPower();
+  return rollClassicDrop({
+    gunMaxed: game.player.gun >= 3,
+    thrustMaxed: game.player.thrust >= 3,
+    retrosMaxed: game.player.retros >= RETRO_MAX_LEVEL,
+    // The tick is the clock: TICK_MS per cycle, so the drop gates measure the
+    // simulation's own elapsed time rather than wall time a pause would skew.
+    elapsedMs: game.cycles * TICK_MS,
+  });
+}
+
 function randomPower(): PickupId {
   if (Math.random() < 1 / 3) {
     const defensive: PickupId[] = ["gun", "thrust", "retros", "shield", "clear", "health", "ricochet"];
     return defensive[Math.floor(Math.random() * defensive.length)];
   }
   return SENDABLE_POWERUPS[Math.floor(Math.random() * SENDABLE_POWERUPS.length)];
+}
+
+/**
+ * How long a loose power-up is untouchable after it spawns, in ticks.
+ *
+ * Without a grace window the burst that drops a PUP would frequently shoot it
+ * back out of existence in the same breath, which reads as the drop never
+ * happening. Ends well before the pilot can realistically fly over it.
+ */
+const PUP_SHOOT_GRACE_TICKS = 20;
+
+/** Ticks a loose power-up survives in the arena before it expires. */
+const PUP_LIFE_TICKS = 900;
+
+/** A loose power-up can be shot once its spawn grace has elapsed. */
+function pupIsShootable(pickup: Pickup) {
+  return pickup.life > 0 && pickup.life <= PUP_LIFE_TICKS - PUP_SHOOT_GRACE_TICKS;
+}
+
+/** World units a bloom grows per point of health. */
+const BLOOM_RADIUS_PER_HP = 0.35;
+
+/**
+ * A bloom's drawn size, derived from its health.
+ *
+ * Size and health used to advance independently, so cannon fire drained a
+ * bloom's hit points while the body on screen kept inflating — the pilot got no
+ * feedback that shooting it was doing anything. Tying the two together makes
+ * damage visible. The floor is the size it spawned at: fire holds a bloom back
+ * and eventually kills it, but never shrinks it below what came out of the rift.
+ */
+function bloomRadiusForHp(hp: number) {
+  const base = ENEMY_STATS.inflator;
+  return base.radius + Math.max(0, hp - base.hp) * BLOOM_RADIUS_PER_HP;
 }
 
 function makeEnemy(kind: PowerId, x: number, y: number, index: number, count: number): Enemy {
@@ -963,18 +1102,12 @@ const WeaponIcon = memo(function WeaponIcon({ id, size = 26, dim = false, invent
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, size, size);
     if (inventoryFrame) {
+      // No triangle here. The slot's own coloured border and tinted fill carry
+      // Payload class identity at full slot size, so framing the glyph as well
+      // only shrank it — see INVENTORY_GLYPH_SCALE.
       const visual = inventoryPupVisual(id);
       const layout = inventoryPayloadIconLayout({ width: size, height: size });
       ctx.translate(layout.centerX, layout.centerY);
-      ctx.save();
-      ctx.strokeStyle = visual.color;
-      ctx.fillStyle = `${visual.color}24`;
-      ctx.lineWidth = layout.strokeWidth;
-      ctx.lineJoin = "round";
-      drawPupFrame(ctx, visual.pupClass, layout.frameRadius, layout.rotation);
-      ctx.fill();
-      ctx.stroke();
-      ctx.restore();
       drawWeaponGlyph(ctx, visual.glyphId, layout.glyphRadius, 0, { detail: 1, alpha: dim ? 0.5 : 1 });
     } else {
       ctx.translate(size / 2, size / 2);
@@ -1549,7 +1682,7 @@ const shipPreference = createPreference<ShipId>(
 
 const modePreference = createPreference<GameMode>(
   "wormhole-arcade:mode",
-  ["pve", "coop", "pvp"],
+  ["pve", "coop", "pvp", "classic"],
   "pve"
 );
 /**
@@ -1608,7 +1741,8 @@ function DifficultyBadge({
           ? "FULL"
           : `${charge}%`;
 
-  const gameMode = (live ? hud.mode : pendingMode) === "pvp" ? "PVP" : "PVE";
+  const activeMode = live ? hud.mode : pendingMode;
+  const gameMode = activeMode === "pvp" ? "PVP" : activeMode === "classic" ? "CLASSIC" : "PVE";
   const difficulty = gameMode === "PVP" ? "STABLE" : activeRules.shortName.replace(/ MODE$/i, "");
   // Survival's Rift Level is the run's difficulty, its clock and its score all
   // at once, so it earns a slot of its own on the badge.
@@ -1620,7 +1754,20 @@ function DifficultyBadge({
     : charge === null
       ? "NO COLLISION SHIELD"
       : `SHIELD ${shield}`;
-  const status = `${gameMode} · ${difficulty}${riftLevel > 0 ? ` | RIFT LEVEL ${riftLevel} · ${riftStage}` : ""} | RIFT ${wormhole} | ${shieldText} | CONTACT ${contact}${live && hud.enrageActive ? " | ENRAGED" : ""}`;
+  // Classic keeps its own rail. Difficulty tiers, the collision shield and the
+  // contact hazard are all systems the mode does not have, so reporting them
+  // would describe things the pilot cannot use. Kills and the permanent
+  // upgrades banked so far are what the original's own readout showed.
+  const upgrades = live
+    ? [
+        hud.gun > 0 ? `GUN ×${hud.gun}` : null,
+        hud.thrust > 0 ? `THRUST ×${hud.thrust}` : null,
+        hud.retros > 0 ? "RETROS" : null,
+      ].filter(Boolean).join(" · ")
+    : "";
+  const status = activeMode === "classic"
+    ? `CLASSIC | KILLS ${live ? hud.kills : 0} | RIFT ${wormhole}${upgrades ? ` | ${upgrades}` : ""}`
+    : `${gameMode} · ${difficulty}${riftLevel > 0 ? ` | RIFT LEVEL ${riftLevel} · ${riftStage}` : ""} | RIFT ${wormhole} | ${shieldText} | CONTACT ${contact}${live && hud.enrageActive ? " | ENRAGED" : ""}`;
   const context = live && hud.enrageActive
     ? "ENRAGED"
     : recharge > 0
@@ -1654,13 +1801,28 @@ function DifficultyBadge({
     <div className={`difficulty-badge ${contactActive ? "hazard" : ""}`} role="status" aria-live="polite" aria-label={`Score ${hud.score}. Active rules: ${status}`}>
       <span className="rule-score">SCORE {hud.score.toLocaleString().padStart(6, "0")}</span>
       <span className="rule-time">TIME {formatRunTime(hud.elapsedSeconds)}</span>
-      <span className="rule-mode">{gameMode} · {difficulty}</span>
-      {riftLevel > 0 ? <span className="rule-rift-level">LEVEL {riftLevel} · {riftStage}</span> : null}
-      <span className="rule-rift">RIFT {wormhole}</span>
-      <span className={`rule-shield ${charge !== null && charge <= 0 ? "warn" : ""}`}>{shieldText}</span>
-      <span className={`rule-contact ${hazardArmed ? "warn" : ""}`}>CONTACT {contact}</span>
-      {live && hud.enrageActive ? <span className="rule-enraged warn">ENRAGED</span> : null}
-      <span className="rule-context">{context}</span>
+      {/* Classic gets its own visible rail, not just its own accessible label.
+          The shield and contact readouts describe systems the mode does not
+          have, and a difficulty tier it does not use; kills and banked
+          upgrades belong there instead. */}
+      {activeMode === "classic" ? (
+        <>
+          <span className="rule-mode">CLASSIC</span>
+          <span className="rule-rift-level">KILLS {live ? hud.kills : 0}</span>
+          <span className="rule-rift">RIFT {wormhole}</span>
+          {upgrades ? <span className="rule-context">{upgrades}</span> : null}
+        </>
+      ) : (
+        <>
+          <span className="rule-mode">{gameMode} · {difficulty}</span>
+          {riftLevel > 0 ? <span className="rule-rift-level">LEVEL {riftLevel} · {riftStage}</span> : null}
+          <span className="rule-rift">RIFT {wormhole}</span>
+        <span className={`rule-shield ${charge !== null && charge <= 0 ? "warn" : ""}`}>{shieldText}</span>
+        <span className={`rule-contact ${hazardArmed ? "warn" : ""}`}>CONTACT {contact}</span>
+          {live && hud.enrageActive ? <span className="rule-enraged warn">ENRAGED</span> : null}
+          <span className="rule-context">{context}</span>
+        </>
+      )}
     </div>
   );
 }
@@ -2012,6 +2174,7 @@ export default function WormholeGame() {
   const [aimStickPosition, setAimStickPosition] = useState<StickPosition>({ active: false, x: 0, y: 0 });
   const [inspect, setInspect] = useState<{ id: PickupId; pinned: boolean } | null>(null);
   const [codexOpen, setCodexOpen] = useState(false);
+  const [touchEditorOpen, setTouchEditorOpen] = useState(false);
   const mode = useSyncExternalStore(
     modePreference.subscribe,
     modePreference.get,
@@ -2093,6 +2256,18 @@ export default function WormholeGame() {
   useEffect(() => { combatHapticsRef.current = settings.combatHaptics; }, [settings.combatHaptics]);
   useEffect(() => { cannonHitSoundRef.current = settings.cannonHitSound; }, [settings.cannonHitSound]);
   useEffect(() => { aimGuideRef.current = settings.aimGuide; }, [settings.aimGuide]);
+
+  /**
+   * Publish the mirrored-actions preference to the document.
+   *
+   * Owned here rather than by a menu screen because the shell is the only
+   * component guaranteed to be mounted. The left-hand touch buttons default to
+   * display:none and are revealed solely by this attribute, so a screen-owned
+   * effect left them hidden for anyone who launched straight into a run.
+   */
+  useEffect(() => {
+    document.documentElement.dataset.mirrorTouchActions = settings.mirrorTouchActions ? "on" : "off";
+  }, [settings.mirrorTouchActions]);
   useEffect(() => { cameraRef.current = cameraLocked; }, [cameraLocked]);
   useEffect(() => { zoomRef.current = settings.zoom; }, [settings.zoom]);
   useEffect(() => { qualityRef.current = quality; }, [quality]);
@@ -2186,8 +2361,26 @@ export default function WormholeGame() {
         : healthBottom;
       const playfieldTop = Math.ceil(hudBottom) + 2;
       const availableHeight = Math.max(1, wrapRect.height - playfieldTop);
-      const canvasWidth = Math.max(1, Math.floor(Math.min(wrapRect.width, availableHeight * WORLD_WIDTH / WORLD_HEIGHT)));
-      const canvasHeight = Math.max(1, Math.floor(canvasWidth * WORLD_HEIGHT / WORLD_WIDTH));
+      // The canvas takes the running arena's shape. Reading the module default
+      // here would letterbox a square world into 16:10 and waste a third of it.
+      const arenaWidth = Math.max(1, gameRef.current.worldWidth);
+      const arenaHeight = Math.max(1, gameRef.current.worldHeight);
+      // The CSS baseline aspect follows the arena too. Left hardcoded it would
+      // letterbox a square world back into 16:10 behind the measured size.
+      wrap.style.setProperty("--arena-aspect", `${arenaWidth} / ${arenaHeight}`);
+      const canvasWidth = Math.max(1, Math.floor(Math.min(wrapRect.width, availableHeight * arenaWidth / arenaHeight)));
+      const canvasHeight = Math.max(1, Math.floor(canvasWidth * arenaHeight / arenaWidth));
+      // Menu and Fullscreen are position:fixed and sit above everything on the
+      // z-index scale, so the full-width rules rail ran underneath them and its
+      // right-hand entries were unreadable. Reserve exactly the overlap rather
+      // than a guess: the labels change width ("Fullscreen" / "Exit Fullscreen"),
+      // and the controls are viewport-fixed while the rail is wrap-relative.
+      const systemControls = document.querySelector<HTMLElement>(".system-controls");
+      const systemRect = systemControls?.getBoundingClientRect();
+      const systemOverlap = systemRect && systemRect.width > 0
+        ? Math.max(0, wrapRect.right - systemRect.left)
+        : 0;
+      wrap.style.setProperty("--system-controls-width", `${Math.ceil(systemOverlap)}px`);
       wrap.style.setProperty("--rules-bottom", `${Math.max(0, bottomOf(".difficulty-badge"))}px`);
       wrap.style.setProperty("--health-bottom", `${Math.max(0, healthBottom)}px`);
       wrap.style.setProperty("--arena-playfield-top", `${playfieldTop}px`);
@@ -2203,6 +2396,10 @@ export default function WormholeGame() {
       const element = wrap.querySelector(selector);
       if (element) observer.observe(element);
     }
+    // Fixed, so outside the wrap — but its width changes when the Fullscreen
+    // label does, and the rail has to re-inset when it happens.
+    const systemControlsEl = document.querySelector(".system-controls");
+    if (systemControlsEl) observer.observe(systemControlsEl);
     return () => observer.disconnect();
   }, [immersive, layout.arena, layout.form, layout.orientation, layout.preset, layout.sticks, mode, net?.phase, viewProfile.modernHud]);
 
@@ -2516,9 +2713,10 @@ export default function WormholeGame() {
     setSaveState({ status: "error", message: result.message });
   }, []);
 
-  // Network modes share the proven WebSocket lobby. Solo PvE never opens a socket.
+  // Network modes share the proven WebSocket lobby. Offline modes never open a
+  // socket — solo Classic included, which otherwise dials one it cannot use.
   useEffect(() => {
-    if (mode === "pve") {
+    if (isOfflineMode(mode)) {
       netRef.current?.disconnect();
       netRef.current = null;
       return;
@@ -2757,7 +2955,7 @@ export default function WormholeGame() {
   const serverHull = net?.yourCombat?.hull ?? null;
   useEffect(() => {
     const game = gameRef.current;
-    if (game.mode === "pve" || serverHull === null) return;
+    if (isOfflineMode(game.mode) || serverHull === null) return;
     game.player.health = serverHull;
   }, [serverHull]);
 
@@ -2774,7 +2972,7 @@ export default function WormholeGame() {
   useEffect(() => {
     if (!netResult) return;
     const game = gameRef.current;
-    if (game.mode === "pve") return;
+    if (isOfflineMode(game.mode)) return;
     // Multiplayer results leave the arena immediately. The persistent room
     // is the sole post-round surface and therefore owns touch/controller input.
     game.running = false;
@@ -2874,7 +3072,7 @@ export default function WormholeGame() {
    * nothing left to confirm.
    */
   const launchFromMenu = useCallback(() => {
-    if (mode === "pve") { start(); return; }
+    if (isOfflineMode(mode)) { start(); return; }
     setMenu(resetRoute("lobby"));
   }, [mode, start]);
 
@@ -3071,7 +3269,7 @@ export default function WormholeGame() {
   useEffect(() => {
     // Every key the game claims, so none of them scrolls the page. Movement
     // comes from the shared list, so WASD and the arrows stay in step.
-    const gameKeys = [...MOVEMENT_CODES, "Space", "KeyE", "KeyQ", "KeyP"] as string[];
+    const gameKeys = [...MOVEMENT_CODES, "Space", "KeyE", "KeyQ", "KeyP", "KeyK"] as string[];
     const down = (event: KeyboardEvent) => {
       const code = event.code;
       const target = event.target as HTMLElement | null;
@@ -3102,6 +3300,19 @@ export default function WormholeGame() {
       if (gameKeys.includes(code)) event.preventDefault();
       if (code === "Enter" && (!gameRef.current.running || gameRef.current.result)) start();
       if (code === "KeyP" && !event.repeat) { toggleMenu(); return; }
+      // Self-destruct. The reference binds this to Q, which is already the ship
+      // special here and not worth breaking muscle memory over, so Classic takes
+      // K. Classic only: no other mode has a way to be stuck that scuttling
+      // would solve, and an instant-death key is not something to leave lying
+      // around in a scored run.
+      if (code === "KeyK" && !event.repeat) {
+        const live = gameRef.current;
+        // A flag, not a hull write: the key handler is outside the simulation,
+        // and hull is the loop's to spend. This also means a scuttle lands on a
+        // tick boundary like every other source of damage.
+        if (live.mode === "classic" && live.running && !live.result) live.selfDestruct = true;
+        return;
+      }
       keys.current[code] = true;
     };
     const up = (event: KeyboardEvent) => { pendingRelease.current.push(event.code); };
@@ -3425,6 +3636,20 @@ export default function WormholeGame() {
       }
     };
 
+    /** Name a collected power-up where the pilot picked it up, then fade it. */
+    const pushPickupLabel = (game: Game, type: PickupId, x: number, y: number) => {
+      nextSpawnId += 1;
+      game.pickupLabels.push({
+        id: nextSpawnId,
+        x,
+        y,
+        text: WEAPONS[type].short,
+        color: POWER_COLORS[type],
+        age: 0,
+        life: ticksForSeconds(1.6),
+      });
+    };
+
     const pushSpawn = (game: Game, kind: SpawnKind, type: PickupId, x: number, y: number, count: number) => {
       nextSpawnId += 1;
       game.spawns.push({ id: nextSpawnId, x, y, type, kind, age: 0, life: kind === "hostile" ? 145 : 115, count });
@@ -3549,12 +3774,20 @@ export default function WormholeGame() {
 
     const addIncoming = (game: Game, power: PowerId, sizeBonus = 0) => {
       const count = ENEMY_COUNTS[power] * (game.mode === "coop" ? 2 : 1) + Math.max(0, sizeBonus);
-      for (let i = 0; i < count; i += 1) game.enemies.push(makeEnemy(power, game.portalX, game.portalY, i, count));
+      // A payload the opponent sent arrives through *this* pilot's portal, not
+      // through the one they are attacking. Spawning it at the rival rift put
+      // the wave on top of the thing the pilot was already shooting at, which
+      // is the opposite of how attacking through a wormhole is supposed to read.
+      const own = game.portals.find((portal) => portal.ownerId === "you");
+      const originX = own ? own.x : game.portalX;
+      const originY = own ? own.y : game.portalY;
+      for (let i = 0; i < count; i += 1) game.enemies.push(makeEnemy(power, originX, originY, i, count));
       game.incoming = power;
       game.notice = `INCOMING // ${WEAPONS[power].short}`;
       game.noticeLife = 140;
-      pushSpawn(game, "hostile", power, game.portalX, game.portalY, count);
-      burst(game, game.portalX, game.portalY, POWER_COLORS[power], 26, 9);
+      // The arrival flare belongs at the same mouth the wave came out of.
+      pushSpawn(game, "hostile", power, originX, originY, count);
+      burst(game, originX, originY, POWER_COLORS[power], 26, 9);
       playCue(`spawn:${power}`, 0.15);
     };
 
@@ -3694,6 +3927,7 @@ export default function WormholeGame() {
 
     const destroyEnemy = (game: Game, enemy: Enemy, guaranteedDrop = false) => {
       enemy.hp = 0;
+      game.kills += 1;
       game.score += enemy.kind === "nuke" ? 600 : enemy.kind === "gunship" ? 300 : 100;
       const run=riftRunRef.current;
       if (run) {
@@ -3704,7 +3938,7 @@ export default function WormholeGame() {
       burst(game, enemy.x, enemy.y, POWER_COLORS[enemy.kind], 18, 8);
       play("explosion", 0.16);
       if (enemy.kind !== "ghost" && enemy.kind !== "beam" && enemy.kind !== "emp" && enemy.kind !== "mines" && (guaranteedDrop || Math.random() < 0.48)) {
-        game.pickups.push({ x: enemy.x, y: enemy.y, vx: range(-0.7, 0.7), vy: range(-0.7, 0.7), type: randomPower(), life: 900, phase: range(0, 6) });
+        game.pickups.push({ x: enemy.x, y: enemy.y, vx: range(-0.7, 0.7), vy: range(-0.7, 0.7), type: dropForGame(game), life: 900, phase: range(0, 6) });
       }
     };
 
@@ -3739,10 +3973,16 @@ export default function WormholeGame() {
 
     /** Shared nominal-damage path for cannon and additive Rift Run hull guns. */
     const chargeRiftPup = (game: Game, nominalDamage: number) => {
-      game.portalCharge += nominalDamage;
-      if (game.portalCharge <= game.portalThreshold) return;
-      game.portalCharge = 0;
-      const type = randomPower();
+      // Banked through the portal model: it owns the threshold rule, including
+      // resetting to zero rather than carrying the remainder, so one enormous
+      // hit sheds one power-up instead of a shower of them.
+      const banked = chargePortal(
+        { charge: game.portalCharge, threshold: game.portalThreshold } as Parameters<typeof chargePortal>[0],
+        nominalDamage
+      );
+      game.portalCharge = banked.portal.charge;
+      if (!banked.bloomed) return;
+      const type = dropForGame(game);
       game.pickups.push({ x: game.portalX + range(-28, 28), y: game.portalY + range(-28, 28), vx: range(-1.2, 1.2), vy: range(-1.2, 1.2), type, life: 900, phase: range(0, 6) });
       game.notice = `${WEAPONS[type].short} READY TO COLLECT`;
       game.noticeLife = 100;
@@ -4119,6 +4359,15 @@ export default function WormholeGame() {
         const coopGuest = game.mode === "coop" && netRef.current?.state.you?.id !== netRef.current?.state.hostId;
         if (coopGuest) netRef.current?.reportWorldAction("clear");
         else game.enemies.forEach((enemy) => destroyEnemy(game, enemy));
+        // The screen clear takes loose power-ups with it. They are arena bodies
+        // like anything else, and sparing them would make the clear read as
+        // selective. Enemies are host-owned in co-op; loose PUPs are local, so
+        // this runs on both sides.
+        for (const loose of game.pickups) {
+          if (loose === pickup || loose.life <= 0) continue;
+          loose.life = 0;
+          burst(game, loose.x, loose.y, POWER_COLORS[loose.type], 8, 3.5);
+        }
       }
       else if (type === "health") player.health = Math.min(player.maxHealth, player.health + 30);
       else if (type === "ricochet") player.ricochetTicks = ticksForSeconds(RICOCHET_DURATION_SECONDS);
@@ -4130,8 +4379,10 @@ export default function WormholeGame() {
         if (game.mode !== "pve") netRef.current?.reportInventory("collect", type);
         if (wasBelowCapacity) playCue("inventory-full", 0.2);
       }
-      game.notice = `${WEAPONS[type].short} COLLECTED`;
-      game.noticeLife = 100;
+      // The name lands where the pickup was rather than on the coach strip.
+      // That line is shared with ship specials and rift guidance, so a pickup
+      // used to overwrite whatever the pilot was actually being told.
+      pushPickupLabel(game, type, pickup.x, pickup.y);
       burst(game, pickup.x, pickup.y, POWER_COLORS[type], 16, 5);
       playPupPickupSound(WEAPONS[type].pupClass);
       return true;
@@ -4282,7 +4533,11 @@ export default function WormholeGame() {
           for (let i = 0; i < 3; i += 1) game.enemies.push(makeEnemy("heatseeker", enemy.x, enemy.y, i, 3));
         }
       } else if (enemy.kind === "inflator") {
-        if (enemy.age % 2 === 0) { enemy.radius += 0.35; enemy.hp += 1; }
+        if (enemy.age % 2 === 0) enemy.hp += 1;
+        // Size follows health, so a shot bloom visibly deflates. maxHp tracks
+        // the peak so the health bar still reads as a fraction of full.
+        enemy.maxHp = Math.max(enemy.maxHp, enemy.hp);
+        enemy.radius = bloomRadiusForHp(enemy.hp);
         enemy.vx += (dx / d) * 0.025;
         enemy.vy += (dy / d) * 0.025;
       } else if (enemy.kind === "mines") {
@@ -4479,6 +4734,7 @@ export default function WormholeGame() {
           player.beam = null;
           player.beamTicks = 0;
           game.spawns.length = 0;
+          game.pickupLabels.length = 0;
           game.particles = game.particles.filter((item) => {
             const keep = pullObject(item, 5 + visual.phaseProgress * 5);
             item.life -= 1;
@@ -4535,6 +4791,12 @@ export default function WormholeGame() {
         return;
       }
 
+      if (game.selfDestruct) {
+        game.selfDestruct = false;
+        game.notice = "SCUTTLED";
+        game.noticeLife = 120;
+        damagePlayer(game, game.player.health, "self_destruct");
+      }
       game.cycles += 1;
       game.elapsedTicks += 1;
       // PvpClient owns the single 33ms (~30Hz) position cadence.
@@ -4561,9 +4823,29 @@ export default function WormholeGame() {
       // Wormhole motion is a rule, not a constant: EASY locks it dead centre
       // while DIFFICULT and HARD MODE keep the original orbit.
       game.portalAngle = advanceWormholeAngle(game.rules, game.portalAngle);
-      const wormhole = wormholePosition(game.rules, { width: game.worldWidth, height: game.worldHeight }, game.portalAngle);
+      const arenaSize = { width: game.worldWidth, height: game.worldHeight };
+      const wormhole = wormholePosition(game.rules, arenaSize, game.portalAngle);
       game.portalX = wormhole.x;
       game.portalY = wormhole.y;
+      if (game.portals.length > 0) {
+        // Portal zero stays driven by the ruleset rather than by the portal
+        // model, because the ruleset is what knows about a locked rift — the
+        // model always orbits. Syncing rather than replacing keeps every
+        // existing mode byte-identical.
+        const primary = game.portals[0];
+        primary.angle = game.portalAngle;
+        primary.charge = game.portalCharge;
+        primary.threshold = game.portalThreshold;
+        primary.x = wormhole.x;
+        primary.y = wormhole.y;
+        // Any additional portal is the model's to move: it warps in, then orbits.
+        for (let i = 1; i < game.portals.length; i += 1) {
+          const portal = game.portals[i];
+          game.portals[i] = isPortalWarpedIn(portal)
+            ? advancePortal(portal, arenaSize)
+            : stepPortalWarpIn(portal, arenaSize);
+        }
+      }
 
       // Survival re-derives `game.rules` on every Rift Level, so its clock has
       // to run before anything that reads them this tick.
@@ -4712,8 +4994,8 @@ export default function WormholeGame() {
       if (playerSpeed > maxSpeed) { player.vx = (player.vx / playerSpeed) * maxSpeed; player.vy = (player.vy / playerSpeed) * maxSpeed; }
       player.x += player.vx;
       player.y += player.vy;
-      if (player.x < 12 || player.x > game.worldWidth - 12) { player.x = cap(player.x, 12, game.worldWidth - 12); player.vx *= -0.55; damageCollision(game, 2, "wall"); }
-      if (player.y < 12 || player.y > game.worldHeight - 12) { player.y = cap(player.y, 12, game.worldHeight - 12); player.vy *= -0.55; damageCollision(game, 2, "wall"); }
+      if (player.x < 12 || player.x > game.worldWidth - 12) { player.x = cap(player.x, 12, game.worldWidth - 12); player.vx *= game.rules.wall.bounce; if (game.rules.wall.damage > 0) damageCollision(game, game.rules.wall.damage, "wall"); }
+      if (player.y < 12 || player.y > game.worldHeight - 12) { player.y = cap(player.y, 12, game.worldHeight - 12); player.vy *= game.rules.wall.bounce; if (game.rules.wall.damage > 0) damageCollision(game, game.rules.wall.damage, "wall"); }
 
       const activeRiftRun = riftRunRef.current;
       if (activeRiftRun) {
@@ -4953,9 +5235,27 @@ export default function WormholeGame() {
           }
         }
         if (bullet.life <= 0) return;
-        if (dist(bullet, { x: game.portalX, y: game.portalY }) < 43) {
+        // Every portal in the arena is shootable, by anyone. With one portal
+        // this is exactly the old behaviour; with several it is the rule that
+        // makes the mode work — a pilot can farm power-ups off a rival's
+        // portal as readily as their own.
+        const struck = game.portals.find((portal) => Math.hypot(bullet.x - portal.x, bullet.y - portal.y) < 43);
+        if (struck) {
           bullet.life = 0;
-          chargeRiftPup(game, bullet.damage);
+          if (struck.id === 0) chargeRiftPup(game, bullet.damage);
+          else {
+            // A rival's portal banks its own damage and sheds at its own
+            // threshold. It is not this pilot's rift, so it does not feed the
+            // rift-damage score.
+            const banked = chargePortal(struck, bullet.damage);
+            struck.charge = banked.portal.charge;
+            if (banked.bloomed) {
+              const type = dropForGame(game);
+              game.pickups.push({ x: struck.x + range(-28, 28), y: struck.y + range(-28, 28), vx: range(-1.2, 1.2), vy: range(-1.2, 1.2), type, life: PUP_LIFE_TICKS, phase: range(0, 6) });
+              pushSpawn(game, "friendly", type, struck.x, struck.y, 1);
+              playCue(`spawn:${type}`, 0.17);
+            }
+          }
           // This is where cannon damage is actually applied to the rift — the
           // coach line calls it damage and the charge meter measures it — so
           // it is where Survival pays for it. Awarding at the muzzle instead
@@ -4964,6 +5264,33 @@ export default function WormholeGame() {
           game.portalPulse = Math.max(game.portalPulse, 0.4);
           burst(game, bullet.x, bullet.y, "#ff5ac8", 4, 2.5);
           cannonImpactFeedback(game, bullet);
+        }
+        // Hostile rounds are bodies, not effects: one player round trades
+        // itself for one of theirs. Both die, so a wall of incoming fire can be
+        // answered instead of only dodged.
+        for (const hostile of game.bullets) {
+          if (!hostile.enemy || hostile.life <= 0 || bullet.life <= 0) continue;
+          if (dist(bullet, hostile) < 11) {
+            hostile.life = 0;
+            bullet.life = 0;
+            burst(game, hostile.x, hostile.y, "#ff9db0", 5, 2.5);
+            cannonImpactFeedback(game, bullet);
+          }
+        }
+        // A loose power-up can be shot once its spawn grace is up. Salvage-linked
+        // rounds are exempt: Kestrel's special collects PUPs by shooting them, so
+        // letting those same rounds destroy one would cancel the ship's identity.
+        if (bullet.life > 0 && !bullet.salvageLinked) {
+          for (const loose of game.pickups) {
+            if (!pupIsShootable(loose)) continue;
+            if (dist(bullet, loose) < PUP_RADIUS + 4) {
+              loose.life = 0;
+              bullet.life = 0;
+              burst(game, loose.x, loose.y, POWER_COLORS[loose.type], 12, 4);
+              cannonImpactFeedback(game, bullet);
+              break;
+            }
+          }
         }
         for (const enemy of game.enemies) {
           if (enemy.hp <= 0 || bullet.life <= 0 || enemy.kind === "ghost") continue;
@@ -5153,6 +5480,7 @@ export default function WormholeGame() {
         particle.life -= 1;
       });
       game.spawns.forEach((spawn) => { spawn.age += 1; });
+      game.pickupLabels.forEach((label) => { label.age += 1; });
 
       // In-place compaction: no new arrays are allocated every tick.
       let liveShots = 0;
@@ -5170,6 +5498,7 @@ export default function WormholeGame() {
       compact(game.blasts, (item) => item.age < item.life);
       compact(game.particles, (item) => item.life > 0);
       compact(game.spawns, (item) => item.age < item.life);
+      compact(game.pickupLabels, (item) => item.age < item.life);
       if (game.incoming && game.noticeLife <= 0) game.incoming = null;
 
       if (pendingRelease.current.length > 0) {
@@ -5191,14 +5520,51 @@ export default function WormholeGame() {
     }));
     // Sparse, non-colliding world landmarks. They move with the camera to make
     // flight readable, but stay faint enough to remain behind combat.
+    // Scattered across whatever arena this run is actually using, so a square
+    // world is not left with an empty right-hand third.
+    const rockField = gameRef.current;
     const backgroundRocks = Array.from({ length: 11 }, (_, i) => ({
-      x: 90 + (i * 317.3) % (WORLD_WIDTH - 180),
-      y: 80 + (i * 191.7) % (WORLD_HEIGHT - 160),
+      x: 90 + (i * 317.3) % Math.max(1, rockField.worldWidth - 180),
+      y: 80 + (i * 191.7) % Math.max(1, rockField.worldHeight - 160),
       radius: 34 + (i % 4) * 18,
       sides: 7 + (i % 3),
       rotation: (i * 0.73) % (Math.PI * 2),
       drift: 0.00001 * (i % 2 === 0 ? 1 : -1),
     }));
+
+    /**
+     * A portal this pilot owns rather than attacks.
+     *
+     * Drawn as its own mouth rather than by reusing drawPortal, which carries
+     * rift state — charge meter, enrage tint, contact hazard ring, victory
+     * collapse — that means nothing here. A shootable body has to be visible,
+     * and it has to be visibly *not* the thing you are trying to destroy.
+     */
+    const drawOwnPortal = (portal: Portal, time: number) => {
+      const pulse = 0.6 + Math.sin(time * 0.004) * 0.15;
+      ctx.save();
+      ctx.translate(portal.x, portal.y);
+      ctx.globalCompositeOperation = "lighter";
+      ctx.strokeStyle = "#8dffd0";
+      for (let ring = 0; ring < 3; ring += 1) {
+        ctx.globalAlpha = (0.5 - ring * 0.12) * pulse;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, 30 + ring * 15, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      // Banked charge, so shooting your own portal for power-ups reads as
+      // progress rather than as hitting a decoration.
+      const banked = cap(portal.charge / Math.max(1, portal.threshold), 0, 1);
+      if (banked > 0) {
+        ctx.globalAlpha = 0.85;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(0, 0, 22, -Math.PI / 2, -Math.PI / 2 + banked * Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    };
 
     const drawPortal = (game: Game, time: number, detail: number) => {
       const charge = cap(game.portalCharge / game.portalThreshold, 0, 1);
@@ -5360,6 +5726,36 @@ export default function WormholeGame() {
     };
 
     /** World-space portion of the wormhole spawn sequence. */
+    /**
+     * The collected power-up's name, rising and fading where it was picked up.
+     *
+     * Drawn in world space so it stays pinned to the spot as the camera moves,
+     * and drawn last so nothing paints over it. Held fully opaque for the first
+     * third of its life, then faded, so it is readable rather than a flicker.
+     */
+    const drawPickupLabel = (label: PickupLabel) => {
+      const p = cap(label.age / label.life, 0, 1);
+      const alpha = p < 0.34 ? 1 : 1 - (p - 0.34) / 0.66;
+      if (alpha <= 0) return;
+      ctx.save();
+      ctx.translate(label.x, label.y - 22 - p * 16);
+      ctx.globalAlpha = alpha;
+      ctx.font = "700 13px ui-monospace, SFMono-Regular, Menlo, monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const width = ctx.measureText(label.text).width + 14;
+      ctx.fillStyle = "rgba(2, 9, 15, .82)";
+      ctx.strokeStyle = label.color;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(-width / 2, -9, width, 18, 3);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = label.color;
+      ctx.fillText(label.text, 0, 1);
+      ctx.restore();
+    };
+
     const drawSpawnFx = (spawn: SpawnFx, time: number, detail: number) => {
       const p = cap(spawn.age / spawn.life, 0, 1);
       const color = POWER_COLORS[spawn.type];
@@ -5407,7 +5803,10 @@ export default function WormholeGame() {
         }
         // Directional launch burst, thrown away from the arena centre.
         if (hostile && detail >= 0.35 && p < 0.5) {
-          const away = Math.atan2(spawn.y - WORLD_HEIGHT / 2, spawn.x - WORLD_WIDTH / 2) + Math.PI;
+          // The renderer has no game in scope, so read the live arena from the
+          // ref the rest of the draw pass already uses.
+          const arena = gameRef.current;
+          const away = Math.atan2(spawn.y - arena.worldHeight / 2, spawn.x - arena.worldWidth / 2) + Math.PI;
           ctx.rotate(away);
           ctx.globalAlpha = (1 - p * 2) * 0.55;
           ctx.fillStyle = color;
@@ -5603,7 +6002,28 @@ export default function WormholeGame() {
       }
 
       drawPortal(game, time, detail);
+      // Breadcrumbs toward every portal that is not the pilot's own. A
+      // scrolling camera in a large arena leaves rival portals off-screen with
+      // nothing to point at them; a trail of dots from the centre outward says
+      // which way to fly. Portal zero is the one already on screen, so it is
+      // skipped rather than drawn over.
+      if (game.portals.length > 1) {
+        for (let i = 1; i < game.portals.length; i += 1) drawOwnPortal(game.portals[i], time);
+        const arenaSize = { width: game.worldWidth, height: game.worldHeight };
+        ctx.save();
+        ctx.globalAlpha = 0.5;
+        ctx.fillStyle = "#8dffd0";
+        for (let i = 1; i < game.portals.length; i += 1) {
+          for (const dot of portalBreadcrumbs(game.portals[i], arenaSize)) {
+            ctx.beginPath();
+            ctx.arc(dot.x, dot.y, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+        ctx.restore();
+      }
       for (const spawn of game.spawns) drawSpawnFx(spawn, time, detail);
+      for (const label of game.pickupLabels) drawPickupLabel(label);
 
       // Friendly pickups sit in a class-colored, class-shaped cradle around
       // their established glyph, whose individual visual identity stays intact.
@@ -6751,11 +7171,19 @@ export default function WormholeGame() {
       data-panels={layout.panels}
       data-touch-controls={layout.showTouchControls ? "on" : "off"}
       data-touch-height={settings.touchControlHeight}
+      data-touch-profile={settings.touchProfile}
+      /* The anchored edge rides on the shell rather than in the variables so the
+         stylesheet can switch between left: and right: — a custom property
+         cannot select a property name. */
+      data-touch-move-edge={touchElementEdge("move", settings.customTouchLayout.handed)}
+      data-touch-aim-edge={touchElementEdge("aim", settings.customTouchLayout.handed)}
       style={{
         // Every size the interface uses comes from the one measurement, so
         // CSS never has to guess and cannot disagree with the shell.
         "--arena-size": `${layout.arena}px`,
         "--stick": `${layout.stick}px`,
+        // Only meaningful under the Custom profile; M-Sticks ignores them.
+        ...customTouchLayoutVariables(settings.customTouchLayout),
         "--touch-base-stick": `${layout.stick}px`,
         "--touch-control-scale": layout.form === "phone"
           ? Math.max(.72, Math.min(layout.orientation === "portrait" ? 1 : .9, layout.usableWidth / (layout.orientation === "portrait" ? 390 : 844)))
@@ -6879,10 +7307,56 @@ export default function WormholeGame() {
                 role="img"
                 aria-label={`Breach Runner combat arena. Hull ${hud.health} of ${hud.maxHealth}. Rift charge ${hud.portalCharge} percent. Rival integrity ${hud.rivalHealth} percent. ${hud.enrageActive ? "Rift enraged. " : ""}${queued ? `Next power-up ${WEAPONS[queued].name}.` : "Power-up bin empty."}`}
               />
-              {viewProfile.modernHud ? <div className="health-rails" aria-label={`Pilot hull ${hud.health} of ${hud.maxHealth}. Shield ${hud.shield ? `${hud.shield} percent${hud.shield < 100 ? ", recharging" : ", ready"}` : "disabled"}. ${mode === "pvp" ? `Opponent hull ${net?.opponentCombat ? Math.round(net.opponentCombat.hull) : "unavailable"}` : `Rival integrity ${hud.rivalCurrentHealth} of ${hud.rivalMaxHealth}`}.`}>
+              {viewProfile.modernHud && !settings.compactHud ? <div className="health-rails" aria-label={`Pilot hull ${hud.health} of ${hud.maxHealth}. Shield ${hud.shield ? `${hud.shield} percent${hud.shield < 100 ? ", recharging" : ", ready"}` : "disabled"}. ${mode === "pvp" ? `Opponent hull ${net?.opponentCombat ? Math.round(net.opponentCombat.hull) : "unavailable"}` : `Rival integrity ${hud.rivalCurrentHealth} of ${hud.rivalMaxHealth}`}.`}>
                 <div className="health-rail pilot-rail"><span>HULL {hud.health}/{hud.maxHealth}</span><i className="rail-fill hull-fill" style={{ width: `${healthPct}%` }} /><i className="rail-fill shield-fill" style={{ width: `${hud.shield}%` }} /><small>{hud.shield ? `SHIELD ${hud.shield}% ${hud.shield < 100 ? "RECHARGING" : "READY"}` : "SHIELD DISABLED"}</small></div>
                 <div className={`health-rail rival-rail ${hud.enrageActive ? "enraged" : ""}`}><span>{mode === "pvp" ? "OPPONENT" : "RIVAL"} {mode === "pvp" ? (net?.opponentCombat ? Math.round(net.opponentCombat.hull) : "—") : `${hud.rivalCurrentHealth}/${hud.rivalMaxHealth}`}</span><i className="rail-fill rival-fill" style={{ width: `${mode === "pvp" ? opponentHullPct : hud.rivalHealth}%` }} /></div>
               </div> : null}
+              {/*
+                Compact HUD: slim gauges flanking the ship instead of the wide
+                rails above the arena. Anchored to the centre of the canvas
+                because the follow camera keeps the ship there, and offset far
+                enough that nothing overlaps the hull model.
+
+                Rendered for every mode — it is a display preference, not a mode
+                feature — and the payload frame always draws STOCK_LIMIT slots,
+                so the geometry never reflows when the mode or the player's
+                unlocked capacity changes.
+              */}
+              {settings.compactHud ? (() => {
+                const compact = pupInventoryLayout(hud.stock, STOCK_LIMIT);
+                const slots = [...compact.stored, compact.loaded];
+                return (
+                  <div className="compact-hud" style={{ "--compact-slots": STOCK_LIMIT } as React.CSSProperties}>
+                    <div
+                      className="compact-gauges"
+                      role="img"
+                      aria-label={`Hull ${hud.health} of ${hud.maxHealth}. Shield ${hud.shield ? `${hud.shield} percent` : "disabled"}.`}
+                    >
+                      <span className="compact-gauge compact-hull"><i style={{ height: `${healthPct}%` }} /></span>
+                      <span className="compact-gauge compact-shield"><i style={{ height: `${hud.shield}%` }} /></span>
+                    </div>
+                    <ol className="compact-pups" aria-label={`${hud.stock.length} of ${STOCK_LIMIT} power-ups stored`}>
+                      {slots.map((itemId, index) => {
+                        const item = itemId as PickupId | null;
+                        const meta = item ? WEAPONS[item] : null;
+                        const visual = item ? inventoryPupVisual(item) : null;
+                        // The loaded payload is last so it sits nearest the ship.
+                        const isLoaded = index === slots.length - 1;
+                        return (
+                          <li
+                            key={index}
+                            className={`compact-pup ${meta ? "occupied" : "empty"} ${isLoaded ? "loaded" : ""}`}
+                            style={{ "--pup": visual?.color ?? "var(--muted)" } as React.CSSProperties}
+                            aria-label={meta ? `${meta.name}${isLoaded ? ", fires next" : ""}` : "Empty slot"}
+                          >
+                            {meta ? <WeaponIcon id={meta.id} size={18} inventoryFrame /> : <span aria-hidden="true" />}
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  </div>
+                );
+              })() : null}
               {/*
                 Compact touch inventory, mounted in the arena rather than in the
                 control dock. The dock is a fixed bar pinned to the bottom edge in
@@ -6894,6 +7368,11 @@ export default function WormholeGame() {
               <div
                 className="touch-powerup-hud"
                 role="status"
+                data-compact={settings.compactHud ? "on" : "off"}
+                /* The slot grid sizes itself from the shared ceiling rather than
+                   assuming a fixed count, so retuning PUP_INVENTORY_CAPACITY
+                   cannot leave the HUD laying out columns that no longer exist. */
+                style={{ "--pup-stored-slots": STOCK_LIMIT - 1 } as React.CSSProperties}
                 aria-label={queued
                   ? `${hud.stock.length} of ${STOCK_LIMIT} power-ups stored. ${WEAPONS[queued].name} fires next.`
                   : `0 of ${STOCK_LIMIT} power-ups stored.`}
@@ -7350,7 +7829,7 @@ export default function WormholeGame() {
           // The live run's own mode, not the stored preference: the pause
           // screen must describe the simulation actually running.
           mode={hud.mode}
-          pausable={hud.mode === "pve"}
+          pausable={isOfflineMode(hud.mode)}
           onRestart={start}
           onQuit={quitRun}
           onEndRunAndChangeShip={() => endRun("ships")}
@@ -7371,7 +7850,11 @@ export default function WormholeGame() {
       ) : null}
 
       {route === "pve-modes" ? (
-        <PveModesScreen ship={shipId} onMode={(next) => { chooseMode(next); setMenu(["ships", "modes", "pve-modes", "difficulty"]); }} onSurvival={() => { chooseSurvival(); start(undefined, "pve", "survival"); }} onRiftRun={() => go("rift-run")} go={go} openSettings={openSettings} back={back} close={resumeOrClose} />
+        <PveModesScreen ship={shipId} onMode={(next) => {
+          chooseMode(next);
+          if (next === "classic") start(undefined, "classic");
+          else setMenu(["ships", "modes", "pve-modes", "difficulty"]);
+        }} onSurvival={() => { chooseSurvival(); start(undefined, "pve", "survival"); }} onRiftRun={() => go("rift-run")} go={go} openSettings={openSettings} back={back} close={resumeOrClose} />
       ) : null}
 
       {route === "difficulty" ? (
@@ -7425,6 +7908,11 @@ export default function WormholeGame() {
           onCannonHitSound={(next) => setSetting("cannonHitSound", next)}
           aimGuide={settings.aimGuide}
           onAimGuide={(next) => setSetting("aimGuide", next)}
+          compactHud={settings.compactHud}
+          onCompactHud={(next) => setSetting("compactHud", next)}
+          touchProfile={settings.touchProfile}
+          onTouchProfile={(next) => setSetting("touchProfile", next)}
+          onEditTouchLayout={() => setTouchEditorOpen(true)}
           cameraLock={cameraLocked}
           onCameraLock={(next) => setSetting("cameraLock", next)}
           zoom={settings.zoom}
@@ -7466,6 +7954,18 @@ export default function WormholeGame() {
       ) : null}
 
       {/* Above the screens: a dialog opened from one of them. */}
+      {/* Above the menu: the layout is adjusted over the live arena, and Save
+          is the only thing that commits — Close discards the working copy. */}
+      {touchEditorOpen ? (
+        <TouchLayoutEditor
+          layout={settings.customTouchLayout}
+          onClose={() => setTouchEditorOpen(false)}
+          onSave={(next) => {
+            setSetting("customTouchLayout", next);
+            setTouchEditorOpen(false);
+          }}
+        />
+      ) : null}
       {codexOpen ? <WeaponCodex onClose={() => setCodexOpen(false)} onOpenSettings={openSettings} reducedMotion={reducedMotion} /> : null}
     </main>
   );

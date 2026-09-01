@@ -24,7 +24,16 @@ export function secondsForTicks(ticks: number) {
   return Math.max(0, Math.round((ticks * TICK_MS) / 100) / 10);
 }
 
-export type GameMode = "pve" | "coop" | "pvp";
+/**
+ * Every mode a run can be flown in.
+ *
+ * "classic" is a peer of the others rather than a difficulty: it pins its own
+ * physics and drop table instead of scaling an existing ruleset, so there is
+ * nothing for a difficulty selector to choose. The id is deliberately stable in
+ * code, saves and network payloads — the player-facing name is one label in
+ * MODE_INFO and can change at any point without a migration.
+ */
+export type GameMode = "pve" | "coop" | "pvp" | "classic";
 /**
  * Every ruleset a run can be flown under.
  *
@@ -102,6 +111,18 @@ export type WormholeEnrageRules =
       minePulseCount: number;
     };
 
+export type WallRules = {
+  /**
+   * Velocity retained after a wall hit, as a negative multiplier.
+   *
+   * Breach Runner's own modes use -0.55. Classic uses -0.5, the reference
+   * client's rebound coefficient, which is a slightly livelier wall.
+   */
+  bounce: number;
+  /** Hull damage per wall scrape. Classic charges nothing for touching a wall. */
+  damage: number;
+};
+
 export type DifficultyRules = {
   id: DifficultyId;
   /** Player-facing name, exactly as shown in the selector and HUD. */
@@ -115,6 +136,7 @@ export type DifficultyRules = {
   contactHazard: ContactHazardRules;
   /** Practice ignores every source of pilot hull damage. */
   unlimitedHull: boolean;
+  wall: WallRules;
   /** Starting rival integrity for this difficulty. Standard integrity is 100. */
   rivalIntegrity: number;
   wormholeEnrage: WormholeEnrageRules;
@@ -136,6 +158,14 @@ const ORBIT: WormholeMotion = { kind: "orbit", radius: 210, degreesPerTick: 0.5 
  *    needs a fourth — comfortably satisfying "at least three".
  * Reaching the cap takes eight ticks, i.e. four seconds of unbroken overlap.
  */
+/**
+ * Wall behaviour for every mode that is not Classic.
+ *
+ * -0.55 and a 2-point scrape is what Breach Runner has always done: walls are a
+ * mild deterrent rather than a hazard. Classic overrides both.
+ */
+const STANDARD_WALL: WallRules = { bounce: -0.55, damage: 2 };
+
 const HARD_CONTACT: ContactHazardRules = {
   enabled: true,
   radius: 46,
@@ -156,6 +186,7 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyRules> = {
     collisionShield: { enabled: false },
     contactHazard: { enabled: false },
     unlimitedHull: true,
+    wall: STANDARD_WALL,
     rivalIntegrity: 100,
     wormholeEnrage: { enabled: false },
   },
@@ -173,6 +204,7 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyRules> = {
     },
     contactHazard: { enabled: false },
     unlimitedHull: false,
+    wall: STANDARD_WALL,
     rivalIntegrity: 100,
     wormholeEnrage: { enabled: false },
   },
@@ -186,6 +218,7 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyRules> = {
     collisionShield: { enabled: false },
     contactHazard: { enabled: false },
     unlimitedHull: false,
+    wall: STANDARD_WALL,
     rivalIntegrity: 200,
     wormholeEnrage: {
       enabled: true,
@@ -214,6 +247,7 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyRules> = {
     collisionShield: { enabled: false },
     contactHazard: HARD_CONTACT,
     unlimitedHull: false,
+    wall: STANDARD_WALL,
     rivalIntegrity: 350,
     wormholeEnrage: {
       enabled: true,
@@ -255,6 +289,7 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyRules> = {
     },
     contactHazard: { enabled: false },
     unlimitedHull: false,
+    wall: STANDARD_WALL,
     rivalIntegrity: 150,
     wormholeEnrage: { enabled: false },
   },
@@ -316,20 +351,79 @@ export const DIFFICULTY_ORDER: DifficultyId[] = ["practice", "easy", "difficult"
 export const RULESET_IDS: DifficultyId[] = [...DIFFICULTY_ORDER, "survival"];
 
 /**
- * PvP always runs Easy rules: centred wormhole, collision shield, no contact
- * hazard. Kept as its own export so the intent is explicit at every call site
- * rather than PvP quietly reading a PvE difficulty.
+ * PvP runs Easy's safety rules — collision shield on, no contact hazard, no
+ * enrage — but its rift orbits rather than sitting locked in the centre.
+ *
+ * The lock made the rift a stationary target, which is the one thing PvP cannot
+ * afford: both pilots are shooting the same kind of objective, so a fixed point
+ * reduces the duel to who can hold an angle longest. An orbiting rift is also
+ * what the original does, at the same 0.5 degrees per tick every other moving
+ * ruleset already uses.
+ *
+ * Kept as its own object rather than an alias of DIFFICULTIES.easy so this
+ * divergence is deliberate and cannot be undone by retuning Easy.
  */
-export const PVP_RULES: DifficultyRules = DIFFICULTIES.easy;
+export const PVP_RULES: DifficultyRules = {
+  ...DIFFICULTIES.easy,
+  wormhole: ORBIT,
+};
+
+/**
+ * Classic Wormhole's ruleset.
+ *
+ * Pins its own numbers rather than scaling one of the difficulties, and that is
+ * the whole point of the mode: it is not tuned like the modern ones. The rift
+ * orbits, walls rebound at the reference coefficient and cost nothing to touch,
+ * and none of the modern safety systems are present — no collision shield, no
+ * contact hazard, no enrage. A pilot who flies into a wall in Classic loses
+ * speed, not hull.
+ *
+ * Deliberately NOT built by spreading DIFFICULTIES.easy: Classic must not drift
+ * when Easy is retuned, and every field here is a decision rather than an
+ * inheritance.
+ */
+export const CLASSIC_RULES: DifficultyRules = {
+  id: "easy",
+  displayName: "Classic Wormhole",
+  shortName: "CLASSIC",
+  blurb:
+    "The original loop. Every portal orbits, sheds power-ups when shot, and throws whatever you launch into it straight back at its owner.",
+  wormhole: { kind: "orbit", radius: 240, degreesPerTick: 0.5 },
+  collisionShield: { enabled: false },
+  contactHazard: { enabled: false },
+  unlimitedHull: false,
+  wall: { bounce: -0.5, damage: 0 },
+  rivalIntegrity: 100,
+  wormholeEnrage: { enabled: false },
+};
 
 export function rulesFor(mode: GameMode, difficulty: DifficultyId): DifficultyRules {
   if (mode === "pvp") return PVP_RULES;
+  // Classic pins its own rules, so the difficulty selector has nothing to say
+  // about it — a Classic run flown from any difficulty is the same run.
+  if (mode === "classic") return CLASSIC_RULES;
   // Survival is a solo challenge and has no co-op balance behind it. A
   // survival preference carried into a co-op match falls back to the standard
   // co-op difficulty rather than escalating a shared arena that was never
   // tuned for it.
   if (mode === "coop" && difficulty === "survival") return DIFFICULTIES.difficult;
   return DIFFICULTIES[difficulty];
+}
+
+/**
+ * Modes that never open a socket.
+ *
+ * The distinction the game actually cares about at its network seams is solo
+ * versus networked, and until Classic gained a mode of its own "pve" was a
+ * complete spelling of solo. It is not any more: solo Classic has no opponent,
+ * no lobby and no server-owned hull, and treating it as networked made it dial
+ * a WebSocket, skip the hull guard and refuse to pause.
+ *
+ * When versus Classic lands it stops being offline, and this is the one place
+ * that has to change.
+ */
+export function isOfflineMode(mode: GameMode): boolean {
+  return mode === "pve" || mode === "classic";
 }
 
 /** True when this ruleset is the endless Rift Survival challenge. */

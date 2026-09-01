@@ -1,5 +1,17 @@
-/** Shared gameplay/network ceiling for available payload PUPs. */
-export const PUP_INVENTORY_CAPACITY = 10;
+/**
+ * Shared gameplay/network ceiling for available payload PUPs.
+ *
+ * One ceiling for every mode. Five matches the original Wormhole client, which is the number
+ * Classic Wormhole has to hit for fidelity, and it suits the rest of the game too — a five-deep
+ * stock keeps payload timing a live decision instead of letting a pilot hoard ten and dump them.
+ *
+ * Capacity counts the loaded payload: 5 is one loaded plus four stored (see `pupInventoryLayout`).
+ * The compact HUD draws exactly this many slots, so changing this number changes that frame.
+ *
+ * Rift Run is the one mode that does not start here — it opens with a single slot and earns its
+ * way up to this cap.
+ */
+export const PUP_INVENTORY_CAPACITY = 5;
 
 /** Build the LIFO stock's left-to-right HUD presentation. */
 /** @template T

@@ -278,7 +278,10 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 .canvas-wrap { position: relative; width: 100%; background: #02050a; box-shadow: 0 18px 48px rgba(0, 0, 0, .38); }
 .canvas-wrap:focus { outline: none; }
 .canvas-wrap:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
-.canvas-wrap > canvas { display: block; width: 100%; height: auto; aspect-ratio: 1504/940; touch-action: none; }
+/* The fallback is Breach Runner's own 16:10 board; --arena-aspect is measured
+   from whatever arena is actually running, so a square Classic board is not
+   letterboxed back into landscape. */
+.canvas-wrap > canvas { display: block; width: 100%; height: auto; aspect-ratio: var(--arena-aspect, 1504/940); touch-action: none; }
 @media (hover: hover) and (pointer: fine) {
   .canvas-wrap > canvas { cursor: crosshair; }
 }
@@ -1218,7 +1221,9 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
 
 /* The arena rules read as a single HUD rail. It wraps only once on narrow
    phones, and its measured height continues to budget the canvas HUD below. */
-.difficulty-badge { top: 8px; left: 8px; right: 8px; width: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 0; padding: 7px 9px; }
+/* The right inset clears the fixed Menu/Fullscreen controls, which are measured
+   because their labels change width. Falls back to a plain 8px gutter. */
+.difficulty-badge { top: 8px; left: 8px; right: calc(8px + var(--system-controls-width, 0px)); width: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 0; padding: 7px 9px; }
 .difficulty-badge span { display: inline-flex; align-items: center; justify-content: flex-start; color: #eafcff; white-space: nowrap; }
 .difficulty-badge span + span::before { content: "|"; margin: 0 8px; color: var(--muted); }
 .difficulty-badge .rule-mode { color: var(--cyan); font-weight: 900; }

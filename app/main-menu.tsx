@@ -21,6 +21,12 @@ import { settingsStore, type AimGuide, type CombatHaptics, type SoundLevel, type
 import { GAMEPAD_BINDINGS } from "./gamepad";
 import { RIFT_RUN_DESCRIPTION, RIFT_RUN_TAGLINE, RIFT_RUN_TITLE, RIFT_SHIP_CLASSES } from "./rift-run/data";
 import { RIFT_RUN_SHIPS, riftRunShip } from "./rift-run/ships";
+import {
+  TOUCH_PROFILE_HINTS,
+  TOUCH_PROFILE_IDS,
+  TOUCH_PROFILE_LABELS,
+  type TouchProfileId,
+} from "./touch-profiles";
 import type { PilotProgression } from "./pilot-progression";
 import { isDifficultyUnlocked, PROGRESSION_DIFFICULTIES } from "./pilot-progression";
 import { drawShipModel } from "./ship-models";
@@ -31,9 +37,13 @@ export const MODE_INFO: Record<GameMode, { label: string; blurb: string }> = {
   pve: { label: "Solo PvE", blurb: "One pilot against the rift. Scores count on the global board." },
   coop: { label: "PvE Co-op", blurb: "Two pilots, one objective. Tougher rift, shared win." },
   pvp: { label: "PvP 1v1", blurb: "Real-time duel under Stable rules. No sign-in needed." },
+  classic: {
+    label: "Classic Wormhole",
+    blurb: "The original loop. Orbiting portals, real payloads, no safety nets.",
+  },
 };
 
-export const MODE_ORDER: GameMode[] = ["pve", "coop", "pvp"];
+export const MODE_ORDER: GameMode[] = ["pve", "coop", "pvp", "classic"];
 
 /**
  * Challenges.
@@ -181,16 +191,24 @@ function SelectedShipPreview({ ship, onChange }: {
  * control layer can mirror the existing right-stick action targets with CSS
  * without creating a second input implementation.
  */
+/**
+ * The mirrored-actions preference.
+ *
+ * Value and setter only. This deliberately does NOT write
+ * html[data-mirror-touch-actions] — that used to live here, which meant the
+ * attribute only existed once a screen calling this hook had mounted. The app
+ * opens on Ships, not Home, so a pilot who had the setting on launched into a
+ * run with the left-hand buttons still hidden by their default display:none,
+ * and only opening Settings (or toggling the option off and on) applied it.
+ * The game shell owns that attribute now, because the game shell is always
+ * mounted.
+ */
 function useMirroredTouchActionsSetting() {
   const deviceSettings = useSyncExternalStore(
     settingsStore.subscribe,
     settingsStore.getSnapshot,
     settingsStore.getServerSnapshot,
   );
-
-  useEffect(() => {
-    document.documentElement.dataset.mirrorTouchActions = deviceSettings.mirrorTouchActions ? "on" : "off";
-  }, [deviceSettings.mirrorTouchActions]);
 
   return [
     deviceSettings.mirrorTouchActions,
@@ -227,7 +245,6 @@ export function HomeScreen({
   onLaunch: () => void;
   renderShip: (id: ShipId, size: number) => React.ReactNode;
 }) {
-  useMirroredTouchActionsSetting();
   const network = mode !== "pve";
   // A challenge runs solo, so it rides on the PvE mode and replaces the labels
   // rather than adding a fourth mode nothing else in the shell knows about.
@@ -319,7 +336,7 @@ export function PvpModesScreen({ ship, onSelect, go, back, openSettings }: MenuC
 }
 
 export function PveModesScreen({ ship, onMode, onSurvival, onRiftRun, go, back, openSettings }: MenuCallbacks & {
-  ship: ShipId; onMode: (mode: "pve" | "coop") => void; onSurvival: () => void; onRiftRun: () => void;
+  ship: ShipId; onMode: (mode: "pve" | "coop" | "classic") => void; onSurvival: () => void; onRiftRun: () => void;
 }) {
   return <MenuScreen route="pve-modes" onOpenSettings={openSettings} title="Select PvE Mode" onBack={back}>
     <SelectedShipPreview ship={ship} onChange={() => go("ships")} />
@@ -328,6 +345,9 @@ export function PveModesScreen({ ship, onMode, onSurvival, onRiftRun, go, back, 
       <button type="button" className="mode-card" data-mode="coop" onClick={() => onMode("coop")}><b>{MODE_INFO.coop.label}</b><small>Two pilots, shared objective</small></button>
       <button type="button" className="mode-card" data-mode="survival" onClick={onSurvival}><b>Rift Survival</b><small>Endless escalating challenge</small></button>
       <button type="button" className="mode-card" data-mode="rift-run" onClick={onRiftRun}><b>{RIFT_RUN_TITLE}</b><small>{RIFT_RUN_TAGLINE}</small></button>
+      {/* Solo Classic first: the mode is playable, and testable, without a
+          second pilot. The versus version needs the shared arena. */}
+      <button type="button" className="mode-card" data-mode="classic" onClick={() => onMode("classic")}><b>{MODE_INFO.classic.label}</b><small>{MODE_INFO.classic.blurb}</small></button>
     </div>
   </MenuScreen>;
 }
@@ -537,6 +557,11 @@ export function SettingsScreen({
   onCannonHitSound,
   aimGuide,
   onAimGuide,
+  compactHud,
+  onCompactHud,
+  touchProfile,
+  onTouchProfile,
+  onEditTouchLayout,
   cameraLock,
   onCameraLock,
   zoom,
@@ -563,6 +588,11 @@ export function SettingsScreen({
   onCannonHitSound: (next: boolean) => void;
   aimGuide: AimGuide;
   onAimGuide: (next: AimGuide) => void;
+  compactHud: boolean;
+  onCompactHud: (next: boolean) => void;
+  touchProfile: TouchProfileId;
+  onTouchProfile: (next: TouchProfileId) => void;
+  onEditTouchLayout: () => void;
   cameraLock: boolean;
   onCameraLock: (next: boolean) => void;
   zoom: ZoomLevel;
@@ -648,6 +678,25 @@ export function SettingsScreen({
           ]}
           onChange={(next) => onViewMode(next === "auto" ? null : (next as ViewMode))}
         />
+        <OptionRow
+          label="Touch profile"
+          value={touchProfile}
+          disabled={viewMode === "pc"}
+          options={TOUCH_PROFILE_IDS.map((id) => ({
+            id,
+            label: TOUCH_PROFILE_LABELS[id],
+            hint: TOUCH_PROFILE_HINTS[id],
+          }))}
+          onChange={onTouchProfile}
+        />
+        {touchProfile === "custom" ? (
+          <div className="simulation-option">
+            <button type="button" className="difficulty-card" onClick={onEditTouchLayout}>
+              <b>Edit Custom layout</b>
+              <small>Drag each control to place and size it</small>
+            </button>
+          </div>
+        ) : null}
         <Toggle
           label="Thumbsticks"
           value={thumbsticks}
@@ -777,6 +826,12 @@ export function SettingsScreen({
             { id: "long", label: "Long" },
           ]}
           onChange={onAimGuide}
+        />
+        <Toggle
+          label="Compact HUD"
+          value={compactHud}
+          onChange={onCompactHud}
+          hint="Slim hull and shield gauges beside your ship, with the payload frame on the right"
         />
       </MenuSection> : null}
 

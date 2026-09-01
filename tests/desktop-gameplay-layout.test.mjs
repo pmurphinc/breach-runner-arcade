@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { DEFAULT_ARENA } from "../app/arena.ts";
 
 const globals = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
 const desktopGameplay = readFileSync(new URL("../app/desktop-gameplay.css", import.meta.url), "utf8");
@@ -75,7 +76,7 @@ test("no desktop cap re-crops the arena into a centred column", () => {
 
 test("the PC canvas takes the viewport's aspect, and the world is never stretched", () => {
   // The base rule pins the presentation to the world's own proportions.
-  assert.match(globals, /\.canvas-wrap > canvas\s*\{[^}]*aspect-ratio:\s*1504\/940/s);
+  assert.match(globals, /\.canvas-wrap > canvas\s*\{[^}]*aspect-ratio:\s*var\(--arena-aspect, 1504\/940\)/s);
 
   const canvas = desktopGameplay.match(pcRule("\\.canvas-wrap > canvas"));
   assert.ok(canvas, "PC needs its own canvas sizing rule");
@@ -89,8 +90,8 @@ test("the PC canvas takes the viewport's aspect, and the world is never stretche
   assert.match(game, /renderViewHeight = backing\.logicalHeight/);
 
   // The simulation is untouched by any of this.
-  assert.match(game, /const WORLD_WIDTH = 1504;/);
-  assert.match(game, /const WORLD_HEIGHT = 940;/);
+  assert.deepEqual(DEFAULT_ARENA, { width: 1504, height: 940 });
+
 });
 
 test("Full Arena still fits the whole world instead of cropping it", () => {
@@ -105,11 +106,13 @@ test("Full Arena still fits the whole world instead of cropping it", () => {
 test("the PC HUD floats over the arena and keeps its controls usable", () => {
   assert.match(globals, /\.modern-hud \.match-bar\s*\{[^}]*grid-template-columns:\s*auto/s);
   assert.match(globals, /\.modern-hud \.status-dock\s*\{\s*display:\s*none !important/s);
-  assert.match(game, /viewProfile\.modernHud \? <div className="health-rails"/);
+  assert.match(game, /viewProfile\.modernHud && !settings\.compactHud \? <div className="health-rails"/);
   assert.match(game, /className="touch-powerup-hud"/);
 
   // The rules rail is the arena's own top lane in the modern HUD.
-  assert.match(globals, /\.difficulty-badge\s*\{[^}]*top:\s*8px;\s*left:\s*8px;\s*right:\s*8px/s);
+  // Still the arena's own top lane, but its right edge now clears the fixed
+  // Menu/Fullscreen controls instead of running underneath them.
+  assert.match(globals, /\.difficulty-badge\s*\{[^}]*top:\s*8px;\s*left:\s*8px;\s*right:\s*calc\(8px \+ var\(--system-controls-width, 0px\)\)/s);
 
   // Menus and the global controls stay above everything, and the end-of-run
   // card stays above the floating HUD.

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
+import { DEFAULT_ARENA } from '../app/arena.ts';
 
 const game = await readFile(new URL('../app/game.tsx', import.meta.url), 'utf8');
 const menu = await readFile(new URL('../app/main-menu.tsx', import.meta.url), 'utf8');
@@ -187,7 +188,7 @@ test('view profiles separate input capabilities from the canonical modern HUD', 
   assert.doesNotMatch(settings, /pcHud|canvasQueue|fullInventory|compactPowerups|verticalRails/);
   assert.match(game, /const touchCapable = viewProfile\.touch/);
   assert.match(game, /const immersive = viewProfile\.modernHud/);
-  assert.match(game, /viewProfile\.modernHud \? <div className="health-rails"/);
+  assert.match(game, /viewProfile\.modernHud && !settings\.compactHud \? <div className="health-rails"/);
   assert.match(game, /className=\{`app-shell modern-hud/);
   assert.match(game, /\{touchCapable \? <div className="touch-controls"/);
   assert.match(game, /data-view-mode=\{viewMode\}/);
@@ -245,7 +246,8 @@ test('landscape camera safe inset comes only from permanent HUD geometry', () =>
 test('phone HUD cards and inventory use constrained responsive grids', () => {
   assert.match(arenaHudCss, /grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/);
   assert.match(arenaHudCss, /\.health-rail \{[^}]*min-width:\s*0[^}]*overflow:\s*hidden/s);
-  assert.match(arenaHudCss, /grid-template-columns:\s*repeat\(9, minmax\(0, 1fr\)\)/);
+  // Slot count comes from the shared payload ceiling, not a literal.
+  assert.match(arenaHudCss, /grid-template-columns:\s*repeat\(var\(--pup-stored-slots, 4\), minmax\(0, 1fr\)\)/);
   assert.match(arenaHudCss, /grid-template-columns:\s*minmax\(0, 1fr\) clamp\(128px, 33vw, 146px\)/);
 });
 
@@ -411,10 +413,10 @@ test('difficulty and mode copy is derived from the rules, not retyped', () => {
 test('arena world and viewport use the shared 1504 by 940 ratio', () => {
   assert.match(game, /const VIEW_WIDTH = 1048/);
   assert.match(game, /const VIEW_HEIGHT = 655/);
-  assert.match(game, /const WORLD_WIDTH = 1504/);
-  assert.match(game, /const WORLD_HEIGHT = 940/);
+  // Arena size moved to app/arena.ts; the ratio it defines is unchanged.
+  assert.deepEqual(DEFAULT_ARENA, { width: 1504, height: 940 });
   assert.match(game, /width=\{VIEW_WIDTH\}[\s\S]*height=\{VIEW_HEIGHT\}/);
-  assert.match(css, /aspect-ratio:\s*1504\/940/);
+  assert.match(css, /aspect-ratio:\s*var\(--arena-aspect, 1504\/940\)/);
   assert.doesNotMatch(game, /worldSize:/);
 });
 
@@ -444,7 +446,9 @@ test('the pause menu cannot mutate a run the player can resume into', () => {
 
   // Pause describes the live run, not the preference.
   assert.match(gameCode, /mode=\{hud\.mode\}/);
-  assert.match(gameCode, /pausable=\{hud\.mode === "pve"\}/);
+  // Pausing is a property of being offline, not of being PvE — solo Classic
+  // has no opponent to keep running either.
+  assert.match(gameCode, /pausable=\{isOfflineMode\(hud\.mode\)\}/);
 });
 
 test('Restart Run is solo-only, because the server owns a live match', () => {
