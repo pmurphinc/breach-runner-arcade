@@ -249,6 +249,7 @@ import { BeamAudioManager } from "./beam-audio";
 import { type ArenaSize, DEFAULT_ARENA } from "./arena";
 import { PORTAL_THRESHOLD, chargePortal } from "./portals";
 import { rollClassicDrop } from "./classic-drops";
+import { shipForMode } from "./classic-ships";
 
 /**
  * Presentation-space dimensions for the letterboxed canvas.
@@ -715,6 +716,9 @@ function createGame(
   arena: ArenaSize = DEFAULT_ARENA
 ): Game {
   const rules = rulesFor(mode, difficulty);
+  // Classic flies the reference handling. Resolved here rather than at every
+  // read site, so the rest of the loop simply uses game.ship as it always has.
+  ship = shipForMode(ship, mode);
   const spawn = pilotSpawn(rules, arena);
   const wormhole = wormholePosition(rules, arena, 0);
   return {
