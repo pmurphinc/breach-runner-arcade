@@ -386,6 +386,15 @@ type Particle = { x: number; y: number; vx: number; vy: number; color: string; s
 type StickPosition = { active: boolean; x: number; y: number };
 type StickKind = "move" | "aim";
 type SpawnKind = "hostile" | "friendly" | "transmit";
+/**
+ * A power-up's name, painted in the world where the pilot picked it up.
+ *
+ * Deliberately world-space and deliberately not a HUD plate: the pilot's eyes
+ * are on the ship, not the notice line, so the name belongs where the pickup
+ * was. It also replaces the old shared-coach-line announcement rather than
+ * joining it, because one event gets one notification.
+ */
+type PickupLabel = { id: number; x: number; y: number; text: string; color: string; age: number; life: number };
 /** Short, non-blocking portal animation announcing what just came through. */
 type SpawnFx = { id: number; x: number; y: number; type: PickupId; kind: SpawnKind; age: number; life: number; count: number };
 
@@ -585,6 +594,7 @@ type Game = {
   blasts: OverchargeBlastFx[];
   particles: Particle[];
   spawns: SpawnFx[];
+  pickupLabels: PickupLabel[];
   stock: PowerId[];
   score: number;
   rivalHealth: number;
@@ -767,6 +777,7 @@ function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: Difficul
     blasts: [],
     particles: [],
     spawns: [],
+    pickupLabels: [],
     stock: [],
     score: 0,
     rivalHealth: rules.rivalIntegrity * (mode === "coop" ? 2 : 1),
@@ -898,6 +909,40 @@ function randomPower(): PickupId {
     return defensive[Math.floor(Math.random() * defensive.length)];
   }
   return SENDABLE_POWERUPS[Math.floor(Math.random() * SENDABLE_POWERUPS.length)];
+}
+
+/**
+ * How long a loose power-up is untouchable after it spawns, in ticks.
+ *
+ * Without a grace window the burst that drops a PUP would frequently shoot it
+ * back out of existence in the same breath, which reads as the drop never
+ * happening. Ends well before the pilot can realistically fly over it.
+ */
+const PUP_SHOOT_GRACE_TICKS = 20;
+
+/** Ticks a loose power-up survives in the arena before it expires. */
+const PUP_LIFE_TICKS = 900;
+
+/** A loose power-up can be shot once its spawn grace has elapsed. */
+function pupIsShootable(pickup: Pickup) {
+  return pickup.life > 0 && pickup.life <= PUP_LIFE_TICKS - PUP_SHOOT_GRACE_TICKS;
+}
+
+/** World units a bloom grows per point of health. */
+const BLOOM_RADIUS_PER_HP = 0.35;
+
+/**
+ * A bloom's drawn size, derived from its health.
+ *
+ * Size and health used to advance independently, so cannon fire drained a
+ * bloom's hit points while the body on screen kept inflating — the pilot got no
+ * feedback that shooting it was doing anything. Tying the two together makes
+ * damage visible. The floor is the size it spawned at: fire holds a bloom back
+ * and eventually kills it, but never shrinks it below what came out of the rift.
+ */
+function bloomRadiusForHp(hp: number) {
+  const base = ENEMY_STATS.inflator;
+  return base.radius + Math.max(0, hp - base.hp) * BLOOM_RADIUS_PER_HP;
 }
 
 function makeEnemy(kind: PowerId, x: number, y: number, index: number, count: number): Enemy {
@@ -3419,6 +3464,20 @@ export default function WormholeGame() {
       }
     };
 
+    /** Name a collected power-up where the pilot picked it up, then fade it. */
+    const pushPickupLabel = (game: Game, type: PickupId, x: number, y: number) => {
+      nextSpawnId += 1;
+      game.pickupLabels.push({
+        id: nextSpawnId,
+        x,
+        y,
+        text: WEAPONS[type].short,
+        color: POWER_COLORS[type],
+        age: 0,
+        life: ticksForSeconds(1.6),
+      });
+    };
+
     const pushSpawn = (game: Game, kind: SpawnKind, type: PickupId, x: number, y: number, count: number) => {
       nextSpawnId += 1;
       game.spawns.push({ id: nextSpawnId, x, y, type, kind, age: 0, life: kind === "hostile" ? 145 : 115, count });
@@ -4113,6 +4172,15 @@ export default function WormholeGame() {
         const coopGuest = game.mode === "coop" && netRef.current?.state.you?.id !== netRef.current?.state.hostId;
         if (coopGuest) netRef.current?.reportWorldAction("clear");
         else game.enemies.forEach((enemy) => destroyEnemy(game, enemy));
+        // The screen clear takes loose power-ups with it. They are arena bodies
+        // like anything else, and sparing them would make the clear read as
+        // selective. Enemies are host-owned in co-op; loose PUPs are local, so
+        // this runs on both sides.
+        for (const loose of game.pickups) {
+          if (loose === pickup || loose.life <= 0) continue;
+          loose.life = 0;
+          burst(game, loose.x, loose.y, POWER_COLORS[loose.type], 8, 3.5);
+        }
       }
       else if (type === "health") player.health = Math.min(player.maxHealth, player.health + 30);
       else if (type === "ricochet") player.ricochetTicks = ticksForSeconds(RICOCHET_DURATION_SECONDS);
@@ -4124,8 +4192,10 @@ export default function WormholeGame() {
         if (game.mode !== "pve") netRef.current?.reportInventory("collect", type);
         if (wasBelowCapacity) playCue("inventory-full", 0.2);
       }
-      game.notice = `${WEAPONS[type].short} COLLECTED`;
-      game.noticeLife = 100;
+      // The name lands where the pickup was rather than on the coach strip.
+      // That line is shared with ship specials and rift guidance, so a pickup
+      // used to overwrite whatever the pilot was actually being told.
+      pushPickupLabel(game, type, pickup.x, pickup.y);
       burst(game, pickup.x, pickup.y, POWER_COLORS[type], 16, 5);
       playPupPickupSound(WEAPONS[type].pupClass);
       return true;
@@ -4276,7 +4346,11 @@ export default function WormholeGame() {
           for (let i = 0; i < 3; i += 1) game.enemies.push(makeEnemy("heatseeker", enemy.x, enemy.y, i, 3));
         }
       } else if (enemy.kind === "inflator") {
-        if (enemy.age % 2 === 0) { enemy.radius += 0.35; enemy.hp += 1; }
+        if (enemy.age % 2 === 0) enemy.hp += 1;
+        // Size follows health, so a shot bloom visibly deflates. maxHp tracks
+        // the peak so the health bar still reads as a fraction of full.
+        enemy.maxHp = Math.max(enemy.maxHp, enemy.hp);
+        enemy.radius = bloomRadiusForHp(enemy.hp);
         enemy.vx += (dx / d) * 0.025;
         enemy.vy += (dy / d) * 0.025;
       } else if (enemy.kind === "mines") {
@@ -4473,6 +4547,7 @@ export default function WormholeGame() {
           player.beam = null;
           player.beamTicks = 0;
           game.spawns.length = 0;
+          game.pickupLabels.length = 0;
           game.particles = game.particles.filter((item) => {
             const keep = pullObject(item, 5 + visual.phaseProgress * 5);
             item.life -= 1;
@@ -4959,6 +5034,33 @@ export default function WormholeGame() {
           burst(game, bullet.x, bullet.y, "#ff5ac8", 4, 2.5);
           cannonImpactFeedback(game, bullet);
         }
+        // Hostile rounds are bodies, not effects: one player round trades
+        // itself for one of theirs. Both die, so a wall of incoming fire can be
+        // answered instead of only dodged.
+        for (const hostile of game.bullets) {
+          if (!hostile.enemy || hostile.life <= 0 || bullet.life <= 0) continue;
+          if (dist(bullet, hostile) < 11) {
+            hostile.life = 0;
+            bullet.life = 0;
+            burst(game, hostile.x, hostile.y, "#ff9db0", 5, 2.5);
+            cannonImpactFeedback(game, bullet);
+          }
+        }
+        // A loose power-up can be shot once its spawn grace is up. Salvage-linked
+        // rounds are exempt: Kestrel's special collects PUPs by shooting them, so
+        // letting those same rounds destroy one would cancel the ship's identity.
+        if (bullet.life > 0 && !bullet.salvageLinked) {
+          for (const loose of game.pickups) {
+            if (!pupIsShootable(loose)) continue;
+            if (dist(bullet, loose) < PUP_RADIUS + 4) {
+              loose.life = 0;
+              bullet.life = 0;
+              burst(game, loose.x, loose.y, POWER_COLORS[loose.type], 12, 4);
+              cannonImpactFeedback(game, bullet);
+              break;
+            }
+          }
+        }
         for (const enemy of game.enemies) {
           if (enemy.hp <= 0 || bullet.life <= 0 || enemy.kind === "ghost") continue;
           if (dist(bullet, enemy) < enemy.radius + 4) {
@@ -5147,6 +5249,7 @@ export default function WormholeGame() {
         particle.life -= 1;
       });
       game.spawns.forEach((spawn) => { spawn.age += 1; });
+      game.pickupLabels.forEach((label) => { label.age += 1; });
 
       // In-place compaction: no new arrays are allocated every tick.
       let liveShots = 0;
@@ -5164,6 +5267,7 @@ export default function WormholeGame() {
       compact(game.blasts, (item) => item.age < item.life);
       compact(game.particles, (item) => item.life > 0);
       compact(game.spawns, (item) => item.age < item.life);
+      compact(game.pickupLabels, (item) => item.age < item.life);
       if (game.incoming && game.noticeLife <= 0) game.incoming = null;
 
       if (pendingRelease.current.length > 0) {
@@ -5354,6 +5458,36 @@ export default function WormholeGame() {
     };
 
     /** World-space portion of the wormhole spawn sequence. */
+    /**
+     * The collected power-up's name, rising and fading where it was picked up.
+     *
+     * Drawn in world space so it stays pinned to the spot as the camera moves,
+     * and drawn last so nothing paints over it. Held fully opaque for the first
+     * third of its life, then faded, so it is readable rather than a flicker.
+     */
+    const drawPickupLabel = (label: PickupLabel) => {
+      const p = cap(label.age / label.life, 0, 1);
+      const alpha = p < 0.34 ? 1 : 1 - (p - 0.34) / 0.66;
+      if (alpha <= 0) return;
+      ctx.save();
+      ctx.translate(label.x, label.y - 22 - p * 16);
+      ctx.globalAlpha = alpha;
+      ctx.font = "700 13px ui-monospace, SFMono-Regular, Menlo, monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const width = ctx.measureText(label.text).width + 14;
+      ctx.fillStyle = "rgba(2, 9, 15, .82)";
+      ctx.strokeStyle = label.color;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(-width / 2, -9, width, 18, 3);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = label.color;
+      ctx.fillText(label.text, 0, 1);
+      ctx.restore();
+    };
+
     const drawSpawnFx = (spawn: SpawnFx, time: number, detail: number) => {
       const p = cap(spawn.age / spawn.life, 0, 1);
       const color = POWER_COLORS[spawn.type];
@@ -5598,6 +5732,7 @@ export default function WormholeGame() {
 
       drawPortal(game, time, detail);
       for (const spawn of game.spawns) drawSpawnFx(spawn, time, detail);
+      for (const label of game.pickupLabels) drawPickupLabel(label);
 
       // Friendly pickups sit in a class-colored, class-shaped cradle around
       // their established glyph, whose individual visual identity stays intact.

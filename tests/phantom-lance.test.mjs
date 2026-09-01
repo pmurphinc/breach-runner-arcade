@@ -250,5 +250,10 @@ test("Talon's reach against everything else is unchanged", () => {
   assert.equal(core.edgeDamage, 45);
   // And a bloom's own health is not quietly lowered for everyone else.
   assert.equal(ENEMY_STATS.inflator.hp, 30);
-  assert.match(gameCode, /enemy\.kind === "inflator"[\s\S]{0,80}enemy\.radius \+= 0\.35; enemy\.hp \+= 1/);
+  // A bloom still inflates on the same two-tick cadence. What changed is that
+  // its drawn size is now derived from health instead of advancing separately,
+  // so cannon fire visibly deflates it — see bloomRadiusForHp.
+  assert.match(gameCode, /enemy\.kind === "inflator"[\s\S]{0,120}enemy\.hp \+= 1/);
+  assert.match(gameCode, /enemy\.radius = bloomRadiusForHp\(enemy\.hp\)/);
+  assert.doesNotMatch(gameCode, /enemy\.radius \+= 0\.35/, "size must not advance independently of health again");
 });
