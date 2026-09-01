@@ -93,3 +93,26 @@ test("pickup labels are aged, expired, and cleared with the arena", () => {
   assert.match(game, /compact\(game\.pickupLabels, \(item\) => item\.age < item\.life\)/);
   assert.match(game, /game\.pickupLabels\.length = 0;/, "the singularity sweep must not leave labels behind");
 });
+
+test("PvP already delivers sent payloads as real hostiles", () => {
+  // Worth pinning: an earlier plan recorded PvP as trading flat integrity
+  // damage. It does not — the receiving client spawns the actual wave. Only the
+  // PvE branch, which has no opposing pilot to spawn anything at, uses a number.
+  const pvpStart = game.indexOf('if (game.mode === "pvp") {');
+  const pvp = game.slice(pvpStart, game.indexOf("} else if (", pvpStart));
+  assert.match(pvp, /for \(const attack of netRef\.current\?\.drainIncoming\(\) \?\? \[\]\)/);
+  assert.match(pvp, /addIncoming\(game, attack\.weapon as PowerId\)/);
+  assert.doesNotMatch(pvp, /rivalDamageFor/);
+  // rivalDamageFor survives for PvE and the codex readout, and nowhere else.
+  assert.equal((game.match(/rivalDamageFor\(/g) ?? []).length, 2);
+});
+
+test("hostile hulls match the reference values", () => {
+  assert.equal(ENEMY_STATS.turret.hp, 50);
+  assert.equal(ENEMY_STATS.minelayer.hp, 50);
+  assert.equal(ENEMY_STATS.gunship.hp, 50);
+  assert.equal(ENEMY_STATS.scarab.hp, 20);
+  // Radii are this project's own and were never part of the drift.
+  assert.equal(ENEMY_STATS.gunship.radius, 25);
+  assert.equal(ENEMY_STATS.scarab.radius, 15);
+});

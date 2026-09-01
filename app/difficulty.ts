@@ -316,11 +316,22 @@ export const DIFFICULTY_ORDER: DifficultyId[] = ["practice", "easy", "difficult"
 export const RULESET_IDS: DifficultyId[] = [...DIFFICULTY_ORDER, "survival"];
 
 /**
- * PvP always runs Easy rules: centred wormhole, collision shield, no contact
- * hazard. Kept as its own export so the intent is explicit at every call site
- * rather than PvP quietly reading a PvE difficulty.
+ * PvP runs Easy's safety rules — collision shield on, no contact hazard, no
+ * enrage — but its rift orbits rather than sitting locked in the centre.
+ *
+ * The lock made the rift a stationary target, which is the one thing PvP cannot
+ * afford: both pilots are shooting the same kind of objective, so a fixed point
+ * reduces the duel to who can hold an angle longest. An orbiting rift is also
+ * what the original does, at the same 0.5 degrees per tick every other moving
+ * ruleset already uses.
+ *
+ * Kept as its own object rather than an alias of DIFFICULTIES.easy so this
+ * divergence is deliberate and cannot be undone by retuning Easy.
  */
-export const PVP_RULES: DifficultyRules = DIFFICULTIES.easy;
+export const PVP_RULES: DifficultyRules = {
+  ...DIFFICULTIES.easy,
+  wormhole: ORBIT,
+};
 
 export function rulesFor(mode: GameMode, difficulty: DifficultyId): DifficultyRules {
   if (mode === "pvp") return PVP_RULES;

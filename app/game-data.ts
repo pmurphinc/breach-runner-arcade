@@ -294,15 +294,23 @@ export const CODEX_PICKUPS: readonly PickupId[] = [
 ];
 
 /** Hull and hit radius for each hostile. Internal ids are compatibility keys, not player-facing names. */
+/**
+ * Hostile hull and body size.
+ *
+ * Hull values match the reference client the power-up roster came from. Four had
+ * drifted — turret 45, minelayer 55, gunship 80, scarab 35 — which made sent
+ * payloads land with a different weight than the spawn counts were balanced
+ * against. Radii are this project's own and are deliberately not reverted.
+ */
 export const ENEMY_STATS: Record<PowerId, { hp: number; radius: number }> = {
   heatseeker: { hp: 1, radius: 6 },
-  turret: { hp: 45, radius: 13 },
+  turret: { hp: 50, radius: 13 },
   mines: { hp: 5, radius: 15 },
   ufo: { hp: 40, radius: 25 },
   inflator: { hp: 30, radius: 20 },
-  minelayer: { hp: 55, radius: 18 },
-  gunship: { hp: 80, radius: 25 },
-  scarab: { hp: 35, radius: 15 },
+  minelayer: { hp: 50, radius: 18 },
+  gunship: { hp: 50, radius: 25 },
+  scarab: { hp: 20, radius: 15 },
   nuke: { hp: 100, radius: 20 },
   wallcrawler: { hp: 150, radius: 20 },
   beam: { hp: 10, radius: 12 },
