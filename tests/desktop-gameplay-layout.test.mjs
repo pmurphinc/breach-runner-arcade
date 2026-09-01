@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { DEFAULT_ARENA } from "../app/arena.ts";
 
 const globals = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
 const desktopGameplay = readFileSync(new URL("../app/desktop-gameplay.css", import.meta.url), "utf8");
@@ -75,7 +76,7 @@ test("no desktop cap re-crops the arena into a centred column", () => {
 
 test("the PC canvas takes the viewport's aspect, and the world is never stretched", () => {
   // The base rule pins the presentation to the world's own proportions.
-  assert.match(globals, /\.canvas-wrap > canvas\s*\{[^}]*aspect-ratio:\s*1504\/940/s);
+  assert.match(globals, /\.canvas-wrap > canvas\s*\{[^}]*aspect-ratio:\s*var\(--arena-aspect, 1504\/940\)/s);
 
   const canvas = desktopGameplay.match(pcRule("\\.canvas-wrap > canvas"));
   assert.ok(canvas, "PC needs its own canvas sizing rule");
@@ -89,8 +90,8 @@ test("the PC canvas takes the viewport's aspect, and the world is never stretche
   assert.match(game, /renderViewHeight = backing\.logicalHeight/);
 
   // The simulation is untouched by any of this.
-  assert.match(game, /const WORLD_WIDTH = 1504;/);
-  assert.match(game, /const WORLD_HEIGHT = 940;/);
+  assert.deepEqual(DEFAULT_ARENA, { width: 1504, height: 940 });
+
 });
 
 test("Full Arena still fits the whole world instead of cropping it", () => {

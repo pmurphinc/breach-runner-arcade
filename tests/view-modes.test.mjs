@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
+import { DEFAULT_ARENA } from '../app/arena.ts';
 
 const game = await readFile(new URL('../app/game.tsx', import.meta.url), 'utf8');
 const menu = await readFile(new URL('../app/main-menu.tsx', import.meta.url), 'utf8');
@@ -412,10 +413,10 @@ test('difficulty and mode copy is derived from the rules, not retyped', () => {
 test('arena world and viewport use the shared 1504 by 940 ratio', () => {
   assert.match(game, /const VIEW_WIDTH = 1048/);
   assert.match(game, /const VIEW_HEIGHT = 655/);
-  assert.match(game, /const WORLD_WIDTH = 1504/);
-  assert.match(game, /const WORLD_HEIGHT = 940/);
+  // Arena size moved to app/arena.ts; the ratio it defines is unchanged.
+  assert.deepEqual(DEFAULT_ARENA, { width: 1504, height: 940 });
   assert.match(game, /width=\{VIEW_WIDTH\}[\s\S]*height=\{VIEW_HEIGHT\}/);
-  assert.match(css, /aspect-ratio:\s*1504\/940/);
+  assert.match(css, /aspect-ratio:\s*var\(--arena-aspect, 1504\/940\)/);
   assert.doesNotMatch(game, /worldSize:/);
 });
 

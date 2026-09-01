@@ -278,7 +278,10 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 .canvas-wrap { position: relative; width: 100%; background: #02050a; box-shadow: 0 18px 48px rgba(0, 0, 0, .38); }
 .canvas-wrap:focus { outline: none; }
 .canvas-wrap:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
-.canvas-wrap > canvas { display: block; width: 100%; height: auto; aspect-ratio: 1504/940; touch-action: none; }
+/* The fallback is Breach Runner's own 16:10 board; --arena-aspect is measured
+   from whatever arena is actually running, so a square Classic board is not
+   letterboxed back into landscape. */
+.canvas-wrap > canvas { display: block; width: 100%; height: auto; aspect-ratio: var(--arena-aspect, 1504/940); touch-action: none; }
 @media (hover: hover) and (pointer: fine) {
   .canvas-wrap > canvas { cursor: crosshair; }
 }

@@ -246,11 +246,17 @@ import {
   type BeamDirection,
 } from "./beam-motion";
 import { BeamAudioManager } from "./beam-audio";
+import { type ArenaSize, DEFAULT_ARENA } from "./arena";
 
+/**
+ * Presentation-space dimensions for the letterboxed canvas.
+ *
+ * Distinct from the arena: VIEW_* is what the renderer draws into and what the
+ * camera scales the world onto, so a square arena needs no change here. Arena
+ * size itself lives in ./arena.
+ */
 const VIEW_WIDTH = 1048;
 const VIEW_HEIGHT = 655;
-const WORLD_WIDTH = 1504;
-const WORLD_HEIGHT = 940;
 /** Cannon damage the rift absorbs per power-up, before any escalation. */
 const PORTAL_THRESHOLD = 150;
 /**
@@ -700,14 +706,18 @@ function coachLine(game: Game) {
   return `SHOOT THE RIFT // ${Math.ceil(remaining)} MORE DAMAGE GENERATES A POWER-UP`;
 }
 
-function createGame(ship: ShipSpec, mode: GameMode = "pve", difficulty: DifficultyId = "difficult"): Game {
+function createGame(
+  ship: ShipSpec,
+  mode: GameMode = "pve",
+  difficulty: DifficultyId = "difficult",
+  arena: ArenaSize = DEFAULT_ARENA
+): Game {
   const rules = rulesFor(mode, difficulty);
-  const arena = { width: WORLD_WIDTH, height: WORLD_HEIGHT };
   const spawn = pilotSpawn(rules, arena);
   const wormhole = wormholePosition(rules, arena, 0);
   return {
-    worldWidth: WORLD_WIDTH,
-    worldHeight: WORLD_HEIGHT,
+    worldWidth: arena.width,
+    worldHeight: arena.height,
     ship,
     rules,
     mode,
@@ -2240,8 +2250,15 @@ export default function WormholeGame() {
         : healthBottom;
       const playfieldTop = Math.ceil(hudBottom) + 2;
       const availableHeight = Math.max(1, wrapRect.height - playfieldTop);
-      const canvasWidth = Math.max(1, Math.floor(Math.min(wrapRect.width, availableHeight * WORLD_WIDTH / WORLD_HEIGHT)));
-      const canvasHeight = Math.max(1, Math.floor(canvasWidth * WORLD_HEIGHT / WORLD_WIDTH));
+      // The canvas takes the running arena's shape. Reading the module default
+      // here would letterbox a square world into 16:10 and waste a third of it.
+      const arenaWidth = Math.max(1, gameRef.current.worldWidth);
+      const arenaHeight = Math.max(1, gameRef.current.worldHeight);
+      // The CSS baseline aspect follows the arena too. Left hardcoded it would
+      // letterbox a square world back into 16:10 behind the measured size.
+      wrap.style.setProperty("--arena-aspect", `${arenaWidth} / ${arenaHeight}`);
+      const canvasWidth = Math.max(1, Math.floor(Math.min(wrapRect.width, availableHeight * arenaWidth / arenaHeight)));
+      const canvasHeight = Math.max(1, Math.floor(canvasWidth * arenaHeight / arenaWidth));
       // Menu and Fullscreen are position:fixed and sit above everything on the
       // z-index scale, so the full-width rules rail ran underneath them and its
       // right-hand entries were unreadable. Reserve exactly the overlap rather
@@ -5319,9 +5336,12 @@ export default function WormholeGame() {
     }));
     // Sparse, non-colliding world landmarks. They move with the camera to make
     // flight readable, but stay faint enough to remain behind combat.
+    // Scattered across whatever arena this run is actually using, so a square
+    // world is not left with an empty right-hand third.
+    const rockField = gameRef.current;
     const backgroundRocks = Array.from({ length: 11 }, (_, i) => ({
-      x: 90 + (i * 317.3) % (WORLD_WIDTH - 180),
-      y: 80 + (i * 191.7) % (WORLD_HEIGHT - 160),
+      x: 90 + (i * 317.3) % Math.max(1, rockField.worldWidth - 180),
+      y: 80 + (i * 191.7) % Math.max(1, rockField.worldHeight - 160),
       radius: 34 + (i % 4) * 18,
       sides: 7 + (i % 3),
       rotation: (i * 0.73) % (Math.PI * 2),
@@ -5565,7 +5585,7 @@ export default function WormholeGame() {
         }
         // Directional launch burst, thrown away from the arena centre.
         if (hostile && detail >= 0.35 && p < 0.5) {
-          const away = Math.atan2(spawn.y - WORLD_HEIGHT / 2, spawn.x - WORLD_WIDTH / 2) + Math.PI;
+          const away = Math.atan2(spawn.y - game.worldHeight / 2, spawn.x - game.worldWidth / 2) + Math.PI;
           ctx.rotate(away);
           ctx.globalAlpha = (1 - p * 2) * 0.55;
           ctx.fillStyle = color;
