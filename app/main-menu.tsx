@@ -537,6 +537,8 @@ export function SettingsScreen({
   onCannonHitSound,
   aimGuide,
   onAimGuide,
+  compactHud,
+  onCompactHud,
   cameraLock,
   onCameraLock,
   zoom,
@@ -563,6 +565,8 @@ export function SettingsScreen({
   onCannonHitSound: (next: boolean) => void;
   aimGuide: AimGuide;
   onAimGuide: (next: AimGuide) => void;
+  compactHud: boolean;
+  onCompactHud: (next: boolean) => void;
   cameraLock: boolean;
   onCameraLock: (next: boolean) => void;
   zoom: ZoomLevel;
@@ -777,6 +781,12 @@ export function SettingsScreen({
             { id: "long", label: "Long" },
           ]}
           onChange={onAimGuide}
+        />
+        <Toggle
+          label="Compact HUD"
+          value={compactHud}
+          onChange={onCompactHud}
+          hint="Slim hull and shield gauges beside your ship, with the payload frame on the right"
         />
       </MenuSection> : null}
 

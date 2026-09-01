@@ -16,7 +16,7 @@
 }
 .touch-powerup-slots {
   margin: 0; padding: 0; display: grid;
-  grid-template-columns: repeat(9, var(--pup-slot));
+  grid-template-columns: repeat(var(--pup-stored-slots, 4), var(--pup-slot));
   gap: clamp(1px, .35vw, 4px); align-items: center; list-style: none;
 }
 .touch-powerup-slot { min-width: 0; height: var(--pup-slot); }
@@ -258,7 +258,7 @@
 }
 .touch-capable[data-immersive="true"][data-form="phone"] .touch-powerup-slots {
   min-width: 0;
-  grid-template-columns: repeat(9, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--pup-stored-slots, 4), minmax(0, 1fr));
   gap: 1px;
 }
 .touch-capable[data-immersive="true"][data-form="phone"] .touch-powerup-slot {
@@ -468,3 +468,113 @@ html[data-mirror-touch-actions="on"] .touch-capable[data-immersive="true"][data-
   box-shadow: inset 0 0 24px rgb(255 209 102 / 18%), 0 0 18px rgb(255 90 200 / 20%);
 }
 .rift-evolution-card small { color: #ffd166; font-weight: 900; letter-spacing: .16em; }
+
+
+/* ---------------------------------------------------------------- compact HUD --
+   Slim gauges flanking the ship, replacing the wide rails above the arena.
+
+   Anchored to the centre of the canvas because the follow camera keeps the ship
+   there, then pushed out by --compact-offset so nothing touches the hull model.
+   Available in every mode: the payload frame always draws --compact-slots cells,
+   so the geometry is fixed and never reflows when the mode changes.
+*/
+.compact-hud {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-hud-float);
+  pointer-events: none;
+  --compact-offset: clamp(34px, 6vw, 62px);
+  --compact-cell: clamp(13px, 2.4vw, 18px);
+  --compact-gauge-h: clamp(46px, 10vh, 76px);
+}
+.compact-gauges,
+.compact-pups {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+}
+.compact-gauges {
+  display: flex;
+  gap: 3px;
+  transform: translate(calc(-100% - var(--compact-offset)), -50%);
+}
+.compact-gauge {
+  position: relative;
+  width: 6px;
+  height: var(--compact-gauge-h);
+  border: 1px solid rgba(255, 255, 255, .7);
+  background: rgba(1, 5, 9, .82);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, .6), 0 0 12px rgba(0, 0, 0, .8);
+}
+.compact-gauge > i {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  left: 1px;
+  max-height: calc(100% - 2px);
+}
+.compact-hull > i { background: linear-gradient(0deg, var(--red), var(--amber), var(--lime)); }
+.compact-shield > i { background: var(--cyan); box-shadow: 0 0 6px var(--cyan); }
+
+/* The white rectangular frame holding one square per payload slot. */
+.compact-pups {
+  margin: 0;
+  padding: 2px;
+  list-style: none;
+  display: grid;
+  grid-template-rows: repeat(var(--compact-slots, 5), var(--compact-cell));
+  gap: 2px;
+  transform: translate(var(--compact-offset), -50%);
+  border: 1px solid rgba(255, 255, 255, .8);
+  border-radius: 3px;
+  background: rgba(1, 5, 9, .72);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, .55);
+}
+.compact-pup {
+  width: var(--compact-cell);
+  height: var(--compact-cell);
+  display: grid;
+  place-items: center;
+  color: var(--pup);
+  border: 1px solid rgba(255, 255, 255, .22);
+  border-radius: 2px;
+}
+.compact-pup.occupied {
+  border-color: color-mix(in srgb, var(--pup) 70%, transparent);
+  background: color-mix(in srgb, var(--pup) 16%, rgba(2, 9, 15, .9));
+}
+/* The payload that fires next has to be readable at a glance. */
+.compact-pup.loaded {
+  border-color: rgba(255, 255, 255, .85);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pup) 60%, transparent);
+}
+.compact-pup.loaded.occupied {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pup) 60%, transparent),
+              0 0 8px color-mix(in srgb, var(--pup) 55%, transparent);
+}
+.compact-pup .weapon-icon {
+  position: static;
+  width: 100%;
+  height: 100%;
+  max-width: calc(var(--compact-cell) - 3px);
+  max-height: calc(var(--compact-cell) - 3px);
+  aspect-ratio: 1;
+  object-fit: contain;
+  transform: none;
+}
+
+/* Compact mode keeps the spawn notices but drops the wide inventory strip. */
+.touch-powerup-hud[data-compact="on"] > .touch-powerup-slots,
+.touch-powerup-hud[data-compact="on"] > .touch-powerup-loaded { display: none; }
+.touch-powerup-hud[data-compact="on"] {
+  height: auto;
+  padding: 0;
+  background: none;
+  border: 0;
+}
+
+@media (forced-colors: active) {
+  .compact-gauge { border-color: CanvasText; forced-color-adjust: none; }
+  .compact-hull > i, .compact-shield > i { background: Highlight; }
+  .compact-pups { border-color: CanvasText; }
+}

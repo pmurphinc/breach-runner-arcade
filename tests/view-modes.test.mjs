@@ -187,7 +187,7 @@ test('view profiles separate input capabilities from the canonical modern HUD', 
   assert.doesNotMatch(settings, /pcHud|canvasQueue|fullInventory|compactPowerups|verticalRails/);
   assert.match(game, /const touchCapable = viewProfile\.touch/);
   assert.match(game, /const immersive = viewProfile\.modernHud/);
-  assert.match(game, /viewProfile\.modernHud \? <div className="health-rails"/);
+  assert.match(game, /viewProfile\.modernHud && !settings\.compactHud \? <div className="health-rails"/);
   assert.match(game, /className=\{`app-shell modern-hud/);
   assert.match(game, /\{touchCapable \? <div className="touch-controls"/);
   assert.match(game, /data-view-mode=\{viewMode\}/);
@@ -245,7 +245,8 @@ test('landscape camera safe inset comes only from permanent HUD geometry', () =>
 test('phone HUD cards and inventory use constrained responsive grids', () => {
   assert.match(arenaHudCss, /grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/);
   assert.match(arenaHudCss, /\.health-rail \{[^}]*min-width:\s*0[^}]*overflow:\s*hidden/s);
-  assert.match(arenaHudCss, /grid-template-columns:\s*repeat\(9, minmax\(0, 1fr\)\)/);
+  // Slot count comes from the shared payload ceiling, not a literal.
+  assert.match(arenaHudCss, /grid-template-columns:\s*repeat\(var\(--pup-stored-slots, 4\), minmax\(0, 1fr\)\)/);
   assert.match(arenaHudCss, /grid-template-columns:\s*minmax\(0, 1fr\) clamp\(128px, 33vw, 146px\)/);
 });
 

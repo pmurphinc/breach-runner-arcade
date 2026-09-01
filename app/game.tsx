@@ -963,18 +963,12 @@ const WeaponIcon = memo(function WeaponIcon({ id, size = 26, dim = false, invent
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, size, size);
     if (inventoryFrame) {
+      // No triangle here. The slot's own coloured border and tinted fill carry
+      // Payload class identity at full slot size, so framing the glyph as well
+      // only shrank it — see INVENTORY_GLYPH_SCALE.
       const visual = inventoryPupVisual(id);
       const layout = inventoryPayloadIconLayout({ width: size, height: size });
       ctx.translate(layout.centerX, layout.centerY);
-      ctx.save();
-      ctx.strokeStyle = visual.color;
-      ctx.fillStyle = `${visual.color}24`;
-      ctx.lineWidth = layout.strokeWidth;
-      ctx.lineJoin = "round";
-      drawPupFrame(ctx, visual.pupClass, layout.frameRadius, layout.rotation);
-      ctx.fill();
-      ctx.stroke();
-      ctx.restore();
       drawWeaponGlyph(ctx, visual.glyphId, layout.glyphRadius, 0, { detail: 1, alpha: dim ? 0.5 : 1 });
     } else {
       ctx.translate(size / 2, size / 2);
@@ -6879,10 +6873,56 @@ export default function WormholeGame() {
                 role="img"
                 aria-label={`Breach Runner combat arena. Hull ${hud.health} of ${hud.maxHealth}. Rift charge ${hud.portalCharge} percent. Rival integrity ${hud.rivalHealth} percent. ${hud.enrageActive ? "Rift enraged. " : ""}${queued ? `Next power-up ${WEAPONS[queued].name}.` : "Power-up bin empty."}`}
               />
-              {viewProfile.modernHud ? <div className="health-rails" aria-label={`Pilot hull ${hud.health} of ${hud.maxHealth}. Shield ${hud.shield ? `${hud.shield} percent${hud.shield < 100 ? ", recharging" : ", ready"}` : "disabled"}. ${mode === "pvp" ? `Opponent hull ${net?.opponentCombat ? Math.round(net.opponentCombat.hull) : "unavailable"}` : `Rival integrity ${hud.rivalCurrentHealth} of ${hud.rivalMaxHealth}`}.`}>
+              {viewProfile.modernHud && !settings.compactHud ? <div className="health-rails" aria-label={`Pilot hull ${hud.health} of ${hud.maxHealth}. Shield ${hud.shield ? `${hud.shield} percent${hud.shield < 100 ? ", recharging" : ", ready"}` : "disabled"}. ${mode === "pvp" ? `Opponent hull ${net?.opponentCombat ? Math.round(net.opponentCombat.hull) : "unavailable"}` : `Rival integrity ${hud.rivalCurrentHealth} of ${hud.rivalMaxHealth}`}.`}>
                 <div className="health-rail pilot-rail"><span>HULL {hud.health}/{hud.maxHealth}</span><i className="rail-fill hull-fill" style={{ width: `${healthPct}%` }} /><i className="rail-fill shield-fill" style={{ width: `${hud.shield}%` }} /><small>{hud.shield ? `SHIELD ${hud.shield}% ${hud.shield < 100 ? "RECHARGING" : "READY"}` : "SHIELD DISABLED"}</small></div>
                 <div className={`health-rail rival-rail ${hud.enrageActive ? "enraged" : ""}`}><span>{mode === "pvp" ? "OPPONENT" : "RIVAL"} {mode === "pvp" ? (net?.opponentCombat ? Math.round(net.opponentCombat.hull) : "—") : `${hud.rivalCurrentHealth}/${hud.rivalMaxHealth}`}</span><i className="rail-fill rival-fill" style={{ width: `${mode === "pvp" ? opponentHullPct : hud.rivalHealth}%` }} /></div>
               </div> : null}
+              {/*
+                Compact HUD: slim gauges flanking the ship instead of the wide
+                rails above the arena. Anchored to the centre of the canvas
+                because the follow camera keeps the ship there, and offset far
+                enough that nothing overlaps the hull model.
+
+                Rendered for every mode — it is a display preference, not a mode
+                feature — and the payload frame always draws STOCK_LIMIT slots,
+                so the geometry never reflows when the mode or the player's
+                unlocked capacity changes.
+              */}
+              {settings.compactHud ? (() => {
+                const compact = pupInventoryLayout(hud.stock, STOCK_LIMIT);
+                const slots = [...compact.stored, compact.loaded];
+                return (
+                  <div className="compact-hud" style={{ "--compact-slots": STOCK_LIMIT } as React.CSSProperties}>
+                    <div
+                      className="compact-gauges"
+                      role="img"
+                      aria-label={`Hull ${hud.health} of ${hud.maxHealth}. Shield ${hud.shield ? `${hud.shield} percent` : "disabled"}.`}
+                    >
+                      <span className="compact-gauge compact-hull"><i style={{ height: `${healthPct}%` }} /></span>
+                      <span className="compact-gauge compact-shield"><i style={{ height: `${hud.shield}%` }} /></span>
+                    </div>
+                    <ol className="compact-pups" aria-label={`${hud.stock.length} of ${STOCK_LIMIT} power-ups stored`}>
+                      {slots.map((itemId, index) => {
+                        const item = itemId as PickupId | null;
+                        const meta = item ? WEAPONS[item] : null;
+                        const visual = item ? inventoryPupVisual(item) : null;
+                        // The loaded payload is last so it sits nearest the ship.
+                        const isLoaded = index === slots.length - 1;
+                        return (
+                          <li
+                            key={index}
+                            className={`compact-pup ${meta ? "occupied" : "empty"} ${isLoaded ? "loaded" : ""}`}
+                            style={{ "--pup": visual?.color ?? "var(--muted)" } as React.CSSProperties}
+                            aria-label={meta ? `${meta.name}${isLoaded ? ", fires next" : ""}` : "Empty slot"}
+                          >
+                            {meta ? <WeaponIcon id={meta.id} size={18} inventoryFrame /> : <span aria-hidden="true" />}
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  </div>
+                );
+              })() : null}
               {/*
                 Compact touch inventory, mounted in the arena rather than in the
                 control dock. The dock is a fixed bar pinned to the bottom edge in
@@ -6894,6 +6934,11 @@ export default function WormholeGame() {
               <div
                 className="touch-powerup-hud"
                 role="status"
+                data-compact={settings.compactHud ? "on" : "off"}
+                /* The slot grid sizes itself from the shared ceiling rather than
+                   assuming a fixed count, so retuning PUP_INVENTORY_CAPACITY
+                   cannot leave the HUD laying out columns that no longer exist. */
+                style={{ "--pup-stored-slots": STOCK_LIMIT - 1 } as React.CSSProperties}
                 aria-label={queued
                   ? `${hud.stock.length} of ${STOCK_LIMIT} power-ups stored. ${WEAPONS[queued].name} fires next.`
                   : `0 of ${STOCK_LIMIT} power-ups stored.`}
@@ -7425,6 +7470,8 @@ export default function WormholeGame() {
           onCannonHitSound={(next) => setSetting("cannonHitSound", next)}
           aimGuide={settings.aimGuide}
           onAimGuide={(next) => setSetting("aimGuide", next)}
+          compactHud={settings.compactHud}
+          onCompactHud={(next) => setSetting("compactHud", next)}
           cameraLock={cameraLocked}
           onCameraLock={(next) => setSetting("cameraLock", next)}
           zoom={settings.zoom}

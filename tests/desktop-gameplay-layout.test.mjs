@@ -105,7 +105,7 @@ test("Full Arena still fits the whole world instead of cropping it", () => {
 test("the PC HUD floats over the arena and keeps its controls usable", () => {
   assert.match(globals, /\.modern-hud \.match-bar\s*\{[^}]*grid-template-columns:\s*auto/s);
   assert.match(globals, /\.modern-hud \.status-dock\s*\{\s*display:\s*none !important/s);
-  assert.match(game, /viewProfile\.modernHud \? <div className="health-rails"/);
+  assert.match(game, /viewProfile\.modernHud && !settings\.compactHud \? <div className="health-rails"/);
   assert.match(game, /className="touch-powerup-hud"/);
 
   // The rules rail is the arena's own top lane in the modern HUD.

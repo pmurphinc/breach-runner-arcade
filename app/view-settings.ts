@@ -36,6 +36,15 @@ export type DeviceSettings = {
   touchControlHeight: TouchControlHeight;
   /** Duplicate PUP, SPEC, and Pause around the movement stick for either-hand access. */
   mirrorTouchActions: boolean;
+  /**
+   * Collapse hull, shield and the payload inventory into slim gauges flanking
+   * the ship, instead of the wide rails across the top of the arena.
+   *
+   * A display preference, not a mode feature: available in every mode. The
+   * payload frame always draws PUP_INVENTORY_CAPACITY slots, so it stays one
+   * fixed geometry everywhere rather than reflowing when the mode changes.
+   */
+  compactHud: boolean;
   /** Three-character arcade identity remembered on this device. */
   playerInitials: string;
 };
@@ -57,6 +66,7 @@ export const DEFAULT_SETTINGS: DeviceSettings = {
   touchControlSize: "medium",
   touchControlHeight: "middle",
   mirrorTouchActions: false,
+  compactHud: false,
   playerInitials: "",
 };
 
@@ -107,6 +117,7 @@ export function migrateSettings(value: unknown): DeviceSettings {
     touchControlSize: isSize(candidate.touchControlSize) ? candidate.touchControlSize : "medium",
     touchControlHeight: isHeight(candidate.touchControlHeight) ? candidate.touchControlHeight : "middle",
     mirrorTouchActions: typeof candidate.mirrorTouchActions === "boolean" ? candidate.mirrorTouchActions : false,
+    compactHud: typeof candidate.compactHud === "boolean" ? candidate.compactHud : false,
     playerInitials: normalizePlayerInitials(candidate.playerInitials),
   };
 }
