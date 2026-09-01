@@ -37,9 +37,13 @@ export const MODE_INFO: Record<GameMode, { label: string; blurb: string }> = {
   pve: { label: "Solo PvE", blurb: "One pilot against the rift. Scores count on the global board." },
   coop: { label: "PvE Co-op", blurb: "Two pilots, one objective. Tougher rift, shared win." },
   pvp: { label: "PvP 1v1", blurb: "Real-time duel under Stable rules. No sign-in needed." },
+  classic: {
+    label: "Classic Wormhole",
+    blurb: "The original loop. Orbiting portals, real payloads, no safety nets.",
+  },
 };
 
-export const MODE_ORDER: GameMode[] = ["pve", "coop", "pvp"];
+export const MODE_ORDER: GameMode[] = ["pve", "coop", "pvp", "classic"];
 
 /**
  * Challenges.
@@ -332,7 +336,7 @@ export function PvpModesScreen({ ship, onSelect, go, back, openSettings }: MenuC
 }
 
 export function PveModesScreen({ ship, onMode, onSurvival, onRiftRun, go, back, openSettings }: MenuCallbacks & {
-  ship: ShipId; onMode: (mode: "pve" | "coop") => void; onSurvival: () => void; onRiftRun: () => void;
+  ship: ShipId; onMode: (mode: "pve" | "coop" | "classic") => void; onSurvival: () => void; onRiftRun: () => void;
 }) {
   return <MenuScreen route="pve-modes" onOpenSettings={openSettings} title="Select PvE Mode" onBack={back}>
     <SelectedShipPreview ship={ship} onChange={() => go("ships")} />
@@ -341,6 +345,9 @@ export function PveModesScreen({ ship, onMode, onSurvival, onRiftRun, go, back, 
       <button type="button" className="mode-card" data-mode="coop" onClick={() => onMode("coop")}><b>{MODE_INFO.coop.label}</b><small>Two pilots, shared objective</small></button>
       <button type="button" className="mode-card" data-mode="survival" onClick={onSurvival}><b>Rift Survival</b><small>Endless escalating challenge</small></button>
       <button type="button" className="mode-card" data-mode="rift-run" onClick={onRiftRun}><b>{RIFT_RUN_TITLE}</b><small>{RIFT_RUN_TAGLINE}</small></button>
+      {/* Solo Classic first: the mode is playable, and testable, without a
+          second pilot. The versus version needs the shared arena. */}
+      <button type="button" className="mode-card" data-mode="classic" onClick={() => onMode("classic")}><b>{MODE_INFO.classic.label}</b><small>{MODE_INFO.classic.blurb}</small></button>
     </div>
   </MenuScreen>;
 }

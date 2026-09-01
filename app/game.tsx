@@ -1601,7 +1601,7 @@ const shipPreference = createPreference<ShipId>(
 
 const modePreference = createPreference<GameMode>(
   "wormhole-arcade:mode",
-  ["pve", "coop", "pvp"],
+  ["pve", "coop", "pvp", "classic"],
   "pve"
 );
 /**
@@ -4835,8 +4835,8 @@ export default function WormholeGame() {
       if (playerSpeed > maxSpeed) { player.vx = (player.vx / playerSpeed) * maxSpeed; player.vy = (player.vy / playerSpeed) * maxSpeed; }
       player.x += player.vx;
       player.y += player.vy;
-      if (player.x < 12 || player.x > game.worldWidth - 12) { player.x = cap(player.x, 12, game.worldWidth - 12); player.vx *= -0.55; damageCollision(game, 2, "wall"); }
-      if (player.y < 12 || player.y > game.worldHeight - 12) { player.y = cap(player.y, 12, game.worldHeight - 12); player.vy *= -0.55; damageCollision(game, 2, "wall"); }
+      if (player.x < 12 || player.x > game.worldWidth - 12) { player.x = cap(player.x, 12, game.worldWidth - 12); player.vx *= game.rules.wall.bounce; if (game.rules.wall.damage > 0) damageCollision(game, game.rules.wall.damage, "wall"); }
+      if (player.y < 12 || player.y > game.worldHeight - 12) { player.y = cap(player.y, 12, game.worldHeight - 12); player.vy *= game.rules.wall.bounce; if (game.rules.wall.damage > 0) damageCollision(game, game.rules.wall.damage, "wall"); }
 
       const activeRiftRun = riftRunRef.current;
       if (activeRiftRun) {
@@ -5592,7 +5592,10 @@ export default function WormholeGame() {
         }
         // Directional launch burst, thrown away from the arena centre.
         if (hostile && detail >= 0.35 && p < 0.5) {
-          const away = Math.atan2(spawn.y - game.worldHeight / 2, spawn.x - game.worldWidth / 2) + Math.PI;
+          // The renderer has no game in scope, so read the live arena from the
+          // ref the rest of the draw pass already uses.
+          const arena = gameRef.current;
+          const away = Math.atan2(spawn.y - arena.worldHeight / 2, spawn.x - arena.worldWidth / 2) + Math.PI;
           ctx.rotate(away);
           ctx.globalAlpha = (1 - p * 2) * 0.55;
           ctx.fillStyle = color;
@@ -7616,7 +7619,11 @@ export default function WormholeGame() {
       ) : null}
 
       {route === "pve-modes" ? (
-        <PveModesScreen ship={shipId} onMode={(next) => { chooseMode(next); setMenu(["ships", "modes", "pve-modes", "difficulty"]); }} onSurvival={() => { chooseSurvival(); start(undefined, "pve", "survival"); }} onRiftRun={() => go("rift-run")} go={go} openSettings={openSettings} back={back} close={resumeOrClose} />
+        <PveModesScreen ship={shipId} onMode={(next) => {
+          chooseMode(next);
+          if (next === "classic") start(undefined, "classic");
+          else setMenu(["ships", "modes", "pve-modes", "difficulty"]);
+        }} onSurvival={() => { chooseSurvival(); start(undefined, "pve", "survival"); }} onRiftRun={() => go("rift-run")} go={go} openSettings={openSettings} back={back} close={resumeOrClose} />
       ) : null}
 
       {route === "difficulty" ? (
