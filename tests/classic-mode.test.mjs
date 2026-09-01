@@ -75,3 +75,33 @@ test("solo Classic launches straight, skipping the difficulty screen", () => {
   assert.match(menu, /data-mode="classic"/);
   assert.match(menu, /onMode: \(mode: "pve" \| "coop" \| "classic"\) => void/);
 });
+
+test("kills are counted where hostiles actually die", () => {
+  // Classic ranks by kills, not points. Counted in every mode because it costs
+  // nothing; only the Classic rail displays it.
+  assert.match(game, /const destroyEnemy = \(game: Game, enemy: Enemy, guaranteedDrop = false\) => \{\s*\n\s*enemy\.hp = 0;\s*\n\s*game\.kills \+= 1;/);
+  assert.match(game, /kills: game\.kills,/);
+  assert.match(game, /kills: 0,/, "a fresh run starts at zero");
+});
+
+test("the Classic rail reports kills and banked upgrades, not difficulty tiers", () => {
+  // Difficulty tiers, the collision shield and the contact hazard are systems
+  // Classic does not have; showing them would describe things the pilot cannot
+  // use.
+  assert.match(game, /activeMode === "classic"\s*\n\s*\? `CLASSIC \| KILLS/);
+  assert.match(game, /GUN ×\$\{hud\.gun\}/);
+  assert.match(game, /THRUST ×\$\{hud\.thrust\}/);
+  assert.match(game, /hud\.retros > 0 \? "RETROS" : null/);
+  // The other modes keep the rail they had.
+  assert.match(game, /\| RIFT LEVEL \$\{riftLevel\}/);
+});
+
+test("self-destruct is Classic-only and lands on a tick", () => {
+  assert.match(game, /"KeyK"/);
+  assert.match(game, /live\.mode === "classic" && live\.running && !live\.result\) live\.selfDestruct = true/);
+  // A flag rather than a hull write: the key handler is outside the simulation,
+  // and an instant-death key has no business in a scored run.
+  assert.match(game, /if \(game\.selfDestruct\) \{\s*\n\s*game\.selfDestruct = false;/);
+  assert.match(game, /damagePlayer\(game, game\.player\.health, "self_destruct"\)/);
+  assert.match(game, /selfDestruct: false,/);
+});

@@ -549,6 +549,16 @@ type Game = {
   shieldBreak: number;
   /** Ticks left on the SHIELD RESTORED confirmation. */
   shieldRestored: number;
+  /**
+   * Hostiles destroyed this run.
+   *
+   * Classic's scoreboard is kills, not points: the original ranks pilots by
+   * what they shot down. Tracked in every mode because it costs nothing and
+   * the HUD only shows it where it means something.
+   */
+  kills: number;
+  /** Set by the self-destruct key; spent by the loop on the next tick. */
+  selfDestruct: boolean;
   portalAngle: number;
   portalCharge: number;
   portalX: number;
@@ -650,6 +660,8 @@ type Hud = {
   coach: string;
   /** Live spawn plates, oldest first. Rendered under the PUP inventory. */
   spawnNotices: SpawnNotice[];
+  /** Hostiles downed. Classic ranks by this rather than by score. */
+  kills: number;
   /** Rules badge: what the pilot is flying under right now. */
   mode: GameMode;
   difficulty: DifficultyId;
@@ -766,6 +778,8 @@ function createGame(
       suppressionBarrage: 0,
       flashMode: "tank",
     },
+    kills: 0,
+    selfDestruct: false,
     portalAngle: 0,
     portalCharge: 0,
     portalX: wormhole.x,
@@ -822,6 +836,7 @@ function hudFrom(game: Game): Hud {
     thrust: game.player.thrust,
     retros: game.player.retros,
     score: game.score,
+    kills: game.kills,
     elapsedSeconds: Math.floor(game.elapsedTicks * TICK_MS / 1000),
     rivalHealth: Math.max(0, Math.round((game.rivalHealth / game.rivalMaxHealth) * 100)),
     rivalCurrentHealth: Math.max(0, Math.round(game.rivalHealth)),
@@ -1684,7 +1699,8 @@ function DifficultyBadge({
           ? "FULL"
           : `${charge}%`;
 
-  const gameMode = (live ? hud.mode : pendingMode) === "pvp" ? "PVP" : "PVE";
+  const activeMode = live ? hud.mode : pendingMode;
+  const gameMode = activeMode === "pvp" ? "PVP" : activeMode === "classic" ? "CLASSIC" : "PVE";
   const difficulty = gameMode === "PVP" ? "STABLE" : activeRules.shortName.replace(/ MODE$/i, "");
   // Survival's Rift Level is the run's difficulty, its clock and its score all
   // at once, so it earns a slot of its own on the badge.
@@ -1696,7 +1712,20 @@ function DifficultyBadge({
     : charge === null
       ? "NO COLLISION SHIELD"
       : `SHIELD ${shield}`;
-  const status = `${gameMode} · ${difficulty}${riftLevel > 0 ? ` | RIFT LEVEL ${riftLevel} · ${riftStage}` : ""} | RIFT ${wormhole} | ${shieldText} | CONTACT ${contact}${live && hud.enrageActive ? " | ENRAGED" : ""}`;
+  // Classic keeps its own rail. Difficulty tiers, the collision shield and the
+  // contact hazard are all systems the mode does not have, so reporting them
+  // would describe things the pilot cannot use. Kills and the permanent
+  // upgrades banked so far are what the original's own readout showed.
+  const upgrades = live
+    ? [
+        hud.gun > 0 ? `GUN ×${hud.gun}` : null,
+        hud.thrust > 0 ? `THRUST ×${hud.thrust}` : null,
+        hud.retros > 0 ? "RETROS" : null,
+      ].filter(Boolean).join(" · ")
+    : "";
+  const status = activeMode === "classic"
+    ? `CLASSIC | KILLS ${live ? hud.kills : 0} | RIFT ${wormhole}${upgrades ? ` | ${upgrades}` : ""}`
+    : `${gameMode} · ${difficulty}${riftLevel > 0 ? ` | RIFT LEVEL ${riftLevel} · ${riftStage}` : ""} | RIFT ${wormhole} | ${shieldText} | CONTACT ${contact}${live && hud.enrageActive ? " | ENRAGED" : ""}`;
   const context = live && hud.enrageActive
     ? "ENRAGED"
     : recharge > 0
@@ -3182,7 +3211,7 @@ export default function WormholeGame() {
   useEffect(() => {
     // Every key the game claims, so none of them scrolls the page. Movement
     // comes from the shared list, so WASD and the arrows stay in step.
-    const gameKeys = [...MOVEMENT_CODES, "Space", "KeyE", "KeyQ", "KeyP"] as string[];
+    const gameKeys = [...MOVEMENT_CODES, "Space", "KeyE", "KeyQ", "KeyP", "KeyK"] as string[];
     const down = (event: KeyboardEvent) => {
       const code = event.code;
       const target = event.target as HTMLElement | null;
@@ -3213,6 +3242,19 @@ export default function WormholeGame() {
       if (gameKeys.includes(code)) event.preventDefault();
       if (code === "Enter" && (!gameRef.current.running || gameRef.current.result)) start();
       if (code === "KeyP" && !event.repeat) { toggleMenu(); return; }
+      // Self-destruct. The reference binds this to Q, which is already the ship
+      // special here and not worth breaking muscle memory over, so Classic takes
+      // K. Classic only: no other mode has a way to be stuck that scuttling
+      // would solve, and an instant-death key is not something to leave lying
+      // around in a scored run.
+      if (code === "KeyK" && !event.repeat) {
+        const live = gameRef.current;
+        // A flag, not a hull write: the key handler is outside the simulation,
+        // and hull is the loop's to spend. This also means a scuttle lands on a
+        // tick boundary like every other source of damage.
+        if (live.mode === "classic" && live.running && !live.result) live.selfDestruct = true;
+        return;
+      }
       keys.current[code] = true;
     };
     const up = (event: KeyboardEvent) => { pendingRelease.current.push(event.code); };
@@ -3819,6 +3861,7 @@ export default function WormholeGame() {
 
     const destroyEnemy = (game: Game, enemy: Enemy, guaranteedDrop = false) => {
       enemy.hp = 0;
+      game.kills += 1;
       game.score += enemy.kind === "nuke" ? 600 : enemy.kind === "gunship" ? 300 : 100;
       const run=riftRunRef.current;
       if (run) {
@@ -4682,6 +4725,12 @@ export default function WormholeGame() {
         return;
       }
 
+      if (game.selfDestruct) {
+        game.selfDestruct = false;
+        game.notice = "SCUTTLED";
+        game.noticeLife = 120;
+        damagePlayer(game, game.player.health, "self_destruct");
+      }
       game.cycles += 1;
       game.elapsedTicks += 1;
       // PvpClient owns the single 33ms (~30Hz) position cadence.
