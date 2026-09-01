@@ -41,10 +41,14 @@ html[data-mirror-touch-actions="on"] .touch-capable[data-touch-controls="on"] .t
 [data-touch-profile="custom"][data-immersive="true"] .touch-action .virtual-stick { width: var(--touch-aim-size); }
 
 /* ------------------------------------------------------------- the editor -- */
+/* Above the system controls, which are hidden while it is open: they sit at the
+   same layer in the same corner, and two Close buttons side by side is a
+   guessing game about which one throws the edits away. */
+html[data-touch-editor="open"] .system-controls { display: none; }
 .touch-editor {
   position: fixed;
   inset: 0;
-  z-index: var(--z-system);
+  z-index: calc(var(--z-system) + 10);
   display: grid;
   grid-template-rows: auto auto auto minmax(0, 1fr) auto;
   gap: 10px;

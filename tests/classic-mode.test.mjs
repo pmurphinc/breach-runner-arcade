@@ -10,7 +10,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { CLASSIC_RULES, DIFFICULTIES, PVP_RULES, rulesFor } from "../app/difficulty.ts";
+import { CLASSIC_RULES, DIFFICULTIES, PVP_RULES, isOfflineMode, rulesFor } from "../app/difficulty.ts";
 
 const game = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
 const menu = readFileSync(new URL("../app/main-menu.tsx", import.meta.url), "utf8");
@@ -104,4 +104,38 @@ test("self-destruct is Classic-only and lands on a tick", () => {
   assert.match(game, /if \(game\.selfDestruct\) \{\s*\n\s*game\.selfDestruct = false;/);
   assert.match(game, /damagePlayer\(game, game\.player\.health, "self_destruct"\)/);
   assert.match(game, /selfDestruct: false,/);
+});
+
+test("solo Classic is offline: no socket, no server hull, and it pauses", () => {
+  // Adding a fourth GameMode meant every `mode === "pve"` check silently
+  // excluded Classic. At the network seams that made solo Classic dial a
+  // WebSocket it cannot use, accept a server-owned hull that does not exist,
+  // and refuse to pause because the menu believed a match was still running.
+  assert.equal(isOfflineMode("pve"), true);
+  assert.equal(isOfflineMode("classic"), true);
+  assert.equal(isOfflineMode("coop"), false);
+  assert.equal(isOfflineMode("pvp"), false);
+  assert.match(game, /if \(isOfflineMode\(mode\)\) \{/, "the socket is never opened");
+  assert.match(game, /if \(isOfflineMode\(game\.mode\) \|\| serverHull === null\) return;/);
+  assert.match(game, /pausable=\{isOfflineMode\(hud\.mode\)\}/);
+  assert.match(game, /if \(isOfflineMode\(mode\)\) \{ start\(\); return; \}/, "it launches straight, not via the lobby");
+  // Scoring stays strictly PvE: Classic has its own balance and does not
+  // belong on the PvE board.
+  assert.match(game, /mode === "pve" && saveState\.status === "saving"/);
+});
+
+test("Classic earns its retros instead of starting with them", () => {
+  // The reference ships retros as a power-up. Starting with reverse thrust both
+  // skipped a reward and made the upgrade strip claim RETROS from tick zero.
+  assert.match(game, /retros: mode === "classic" \? 0 : ship\.thrust > 0 \? 1 : 0,/);
+});
+
+test("Classic's visible rail matches its accessible label", () => {
+  // The rail renders its own spans; editing only the aria string left the
+  // visible readout still advertising a difficulty tier, a collision shield and
+  // a contact hazard that Classic does not have.
+  assert.match(game, /\{activeMode === "classic" \? \(/);
+  assert.match(game, /<span className="rule-mode">CLASSIC<\/span>/);
+  assert.match(game, /<span className="rule-rift-level">KILLS \{live \? hud\.kills : 0\}<\/span>/);
+  assert.match(game, /\{upgrades \? <span className="rule-context">\{upgrades\}<\/span> : null\}/);
 });

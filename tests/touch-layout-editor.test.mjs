@@ -105,3 +105,13 @@ test("the profile selector sits in the Controls tab and gates the editor", () =>
   assert.match(controls, /onClick=\{onEditTouchLayout\}/);
   assert.match(game, /onTouchProfile=\{\(next\) => setSetting\("touchProfile", next\)\}/);
 });
+
+test("the editor claims the screen, so there are not two Close buttons", () => {
+  // The system Menu and Fullscreen controls are fixed at the same layer and in
+  // the same corner as the editor's header. Left visible, the player sees two
+  // Close buttons and has to guess which one throws their edits away.
+  assert.match(editor, /document\.documentElement\.dataset\.touchEditor = "open"/);
+  assert.match(editor, /delete document\.documentElement\.dataset\.touchEditor/, "and released on unmount");
+  assert.match(css, /html\[data-touch-editor="open"\] \.system-controls \{ display: none; \}/);
+  assert.match(css, /\.touch-editor \{[^}]*z-index: calc\(var\(--z-system\) \+ 10\)/s);
+});

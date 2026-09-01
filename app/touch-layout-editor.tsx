@@ -70,6 +70,18 @@ export function TouchLayoutEditor({
   const [transferText, setTransferText] = useState("");
   const stageRef = useRef<HTMLDivElement>(null);
 
+  /**
+   * Claim the screen while the editor is open.
+   *
+   * The system Menu and Fullscreen controls are fixed at the same layer and sit
+   * exactly where this header does, so without this the player sees two Close
+   * buttons side by side and has to guess which one abandons their edits.
+   */
+  useEffect(() => {
+    document.documentElement.dataset.touchEditor = "open";
+    return () => { delete document.documentElement.dataset.touchEditor; };
+  }, []);
+
   // Escape is the reflex for "get me out of this overlay", and it must discard
   // rather than commit — the same rule as the Close button.
   useEffect(() => {

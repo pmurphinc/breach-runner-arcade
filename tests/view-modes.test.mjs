@@ -446,7 +446,9 @@ test('the pause menu cannot mutate a run the player can resume into', () => {
 
   // Pause describes the live run, not the preference.
   assert.match(gameCode, /mode=\{hud\.mode\}/);
-  assert.match(gameCode, /pausable=\{hud\.mode === "pve"\}/);
+  // Pausing is a property of being offline, not of being PvE — solo Classic
+  // has no opponent to keep running either.
+  assert.match(gameCode, /pausable=\{isOfflineMode\(hud\.mode\)\}/);
 });
 
 test('Restart Run is solo-only, because the server owns a live match', () => {

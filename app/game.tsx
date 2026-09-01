@@ -55,6 +55,7 @@ import {
   type DifficultyId,
   type DifficultyRules,
   type GameMode,
+  isOfflineMode,
 } from "./difficulty";
 import {
   capabilityStore,
@@ -782,7 +783,10 @@ function createGame(
       invuln: 0,
       gun: ship.gun,
       thrust: ship.thrust,
-      retros: ship.thrust > 0 ? 1 : 0,
+      // Classic earns its retros. The reference ships them as a power-up, so
+      // starting with reverse thrust both skips a reward and makes the upgrade
+      // strip claim RETROS from the first tick. Every other mode is unchanged.
+      retros: mode === "classic" ? 0 : ship.thrust > 0 ? 1 : 0,
       specialCooldown: 0,
       emp: 0,
       beamTicks: 0,
@@ -1797,13 +1801,28 @@ function DifficultyBadge({
     <div className={`difficulty-badge ${contactActive ? "hazard" : ""}`} role="status" aria-live="polite" aria-label={`Score ${hud.score}. Active rules: ${status}`}>
       <span className="rule-score">SCORE {hud.score.toLocaleString().padStart(6, "0")}</span>
       <span className="rule-time">TIME {formatRunTime(hud.elapsedSeconds)}</span>
-      <span className="rule-mode">{gameMode} · {difficulty}</span>
-      {riftLevel > 0 ? <span className="rule-rift-level">LEVEL {riftLevel} · {riftStage}</span> : null}
-      <span className="rule-rift">RIFT {wormhole}</span>
-      <span className={`rule-shield ${charge !== null && charge <= 0 ? "warn" : ""}`}>{shieldText}</span>
-      <span className={`rule-contact ${hazardArmed ? "warn" : ""}`}>CONTACT {contact}</span>
-      {live && hud.enrageActive ? <span className="rule-enraged warn">ENRAGED</span> : null}
-      <span className="rule-context">{context}</span>
+      {/* Classic gets its own visible rail, not just its own accessible label.
+          The shield and contact readouts describe systems the mode does not
+          have, and a difficulty tier it does not use; kills and banked
+          upgrades belong there instead. */}
+      {activeMode === "classic" ? (
+        <>
+          <span className="rule-mode">CLASSIC</span>
+          <span className="rule-rift-level">KILLS {live ? hud.kills : 0}</span>
+          <span className="rule-rift">RIFT {wormhole}</span>
+          {upgrades ? <span className="rule-context">{upgrades}</span> : null}
+        </>
+      ) : (
+        <>
+          <span className="rule-mode">{gameMode} · {difficulty}</span>
+          {riftLevel > 0 ? <span className="rule-rift-level">LEVEL {riftLevel} · {riftStage}</span> : null}
+          <span className="rule-rift">RIFT {wormhole}</span>
+        <span className={`rule-shield ${charge !== null && charge <= 0 ? "warn" : ""}`}>{shieldText}</span>
+        <span className={`rule-contact ${hazardArmed ? "warn" : ""}`}>CONTACT {contact}</span>
+          {live && hud.enrageActive ? <span className="rule-enraged warn">ENRAGED</span> : null}
+          <span className="rule-context">{context}</span>
+        </>
+      )}
     </div>
   );
 }
@@ -2694,9 +2713,10 @@ export default function WormholeGame() {
     setSaveState({ status: "error", message: result.message });
   }, []);
 
-  // Network modes share the proven WebSocket lobby. Solo PvE never opens a socket.
+  // Network modes share the proven WebSocket lobby. Offline modes never open a
+  // socket — solo Classic included, which otherwise dials one it cannot use.
   useEffect(() => {
-    if (mode === "pve") {
+    if (isOfflineMode(mode)) {
       netRef.current?.disconnect();
       netRef.current = null;
       return;
@@ -2935,7 +2955,7 @@ export default function WormholeGame() {
   const serverHull = net?.yourCombat?.hull ?? null;
   useEffect(() => {
     const game = gameRef.current;
-    if (game.mode === "pve" || serverHull === null) return;
+    if (isOfflineMode(game.mode) || serverHull === null) return;
     game.player.health = serverHull;
   }, [serverHull]);
 
@@ -2952,7 +2972,7 @@ export default function WormholeGame() {
   useEffect(() => {
     if (!netResult) return;
     const game = gameRef.current;
-    if (game.mode === "pve") return;
+    if (isOfflineMode(game.mode)) return;
     // Multiplayer results leave the arena immediately. The persistent room
     // is the sole post-round surface and therefore owns touch/controller input.
     game.running = false;
@@ -3052,7 +3072,7 @@ export default function WormholeGame() {
    * nothing left to confirm.
    */
   const launchFromMenu = useCallback(() => {
-    if (mode === "pve") { start(); return; }
+    if (isOfflineMode(mode)) { start(); return; }
     setMenu(resetRoute("lobby"));
   }, [mode, start]);
 
@@ -7809,7 +7829,7 @@ export default function WormholeGame() {
           // The live run's own mode, not the stored preference: the pause
           // screen must describe the simulation actually running.
           mode={hud.mode}
-          pausable={hud.mode === "pve"}
+          pausable={isOfflineMode(hud.mode)}
           onRestart={start}
           onQuit={quitRun}
           onEndRunAndChangeShip={() => endRun("ships")}

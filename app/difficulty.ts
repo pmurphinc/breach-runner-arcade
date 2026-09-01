@@ -410,6 +410,22 @@ export function rulesFor(mode: GameMode, difficulty: DifficultyId): DifficultyRu
   return DIFFICULTIES[difficulty];
 }
 
+/**
+ * Modes that never open a socket.
+ *
+ * The distinction the game actually cares about at its network seams is solo
+ * versus networked, and until Classic gained a mode of its own "pve" was a
+ * complete spelling of solo. It is not any more: solo Classic has no opponent,
+ * no lobby and no server-owned hull, and treating it as networked made it dial
+ * a WebSocket, skip the hull guard and refuse to pause.
+ *
+ * When versus Classic lands it stops being offline, and this is the one place
+ * that has to change.
+ */
+export function isOfflineMode(mode: GameMode): boolean {
+  return mode === "pve" || mode === "classic";
+}
+
 /** True when this ruleset is the endless Rift Survival challenge. */
 export function isSurvival(rules: DifficultyRules) {
   return rules.id === "survival";
