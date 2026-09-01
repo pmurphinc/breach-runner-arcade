@@ -808,14 +808,23 @@ function createGame(
     portalPulse: 0,
     elapsedTicks: 0,
     portalThreshold: PORTAL_THRESHOLD,
-    portals: [
+    portals: (() => {
       // Already arrived: the existing modes have never shown a warp-in, and
       // starting one here would open every run with the rift sliding outward.
-      (() => {
-        const portal = createPortal(0, "rift", arena, 0);
-        return { ...portal, warpRadius: portal.orbitRadius, x: wormhole.x, y: wormhole.y };
-      })(),
-    ],
+      const arrived = (portal: Portal, x: number, y: number) => ({ ...portal, warpRadius: portal.orbitRadius, x, y });
+      // Portal zero is the rift this pilot engages. In PvE and Classic solo it
+      // is the only one; in PvP the pilot also owns a portal of their own.
+      const list = [arrived(createPortal(0, "rift", arena, 0), wormhole.x, wormhole.y)];
+      if (mode === "pvp") {
+        // Share the ruleset's ring so both portals orbit the same circle, and
+        // sit opposite so they are never stacked on each other.
+        const ring = rules.wormhole.kind === "orbit" ? rules.wormhole.radius : createPortal(1, "you", arena, 180).orbitRadius;
+        const own = { ...createPortal(1, "you", arena, 180), orbitRadius: ring };
+        const centre = { x: arena.width / 2, y: arena.height / 2 };
+        list.push(arrived(own, centre.x - ring, centre.y));
+      }
+      return list;
+    })(),
     survival: isSurvival(rules) ? createSurvivalState() : null,
     // Rift Run arms this in `start`, where the run itself is created.
     riftEscalation: null,
@@ -3745,12 +3754,20 @@ export default function WormholeGame() {
 
     const addIncoming = (game: Game, power: PowerId, sizeBonus = 0) => {
       const count = ENEMY_COUNTS[power] * (game.mode === "coop" ? 2 : 1) + Math.max(0, sizeBonus);
-      for (let i = 0; i < count; i += 1) game.enemies.push(makeEnemy(power, game.portalX, game.portalY, i, count));
+      // A payload the opponent sent arrives through *this* pilot's portal, not
+      // through the one they are attacking. Spawning it at the rival rift put
+      // the wave on top of the thing the pilot was already shooting at, which
+      // is the opposite of how attacking through a wormhole is supposed to read.
+      const own = game.portals.find((portal) => portal.ownerId === "you");
+      const originX = own ? own.x : game.portalX;
+      const originY = own ? own.y : game.portalY;
+      for (let i = 0; i < count; i += 1) game.enemies.push(makeEnemy(power, originX, originY, i, count));
       game.incoming = power;
       game.notice = `INCOMING // ${WEAPONS[power].short}`;
       game.noticeLife = 140;
-      pushSpawn(game, "hostile", power, game.portalX, game.portalY, count);
-      burst(game, game.portalX, game.portalY, POWER_COLORS[power], 26, 9);
+      // The arrival flare belongs at the same mouth the wave came out of.
+      pushSpawn(game, "hostile", power, originX, originY, count);
+      burst(game, originX, originY, POWER_COLORS[power], 26, 9);
       playCue(`spawn:${power}`, 0.15);
     };
 
@@ -5495,6 +5512,40 @@ export default function WormholeGame() {
       drift: 0.00001 * (i % 2 === 0 ? 1 : -1),
     }));
 
+    /**
+     * A portal this pilot owns rather than attacks.
+     *
+     * Drawn as its own mouth rather than by reusing drawPortal, which carries
+     * rift state — charge meter, enrage tint, contact hazard ring, victory
+     * collapse — that means nothing here. A shootable body has to be visible,
+     * and it has to be visibly *not* the thing you are trying to destroy.
+     */
+    const drawOwnPortal = (portal: Portal, time: number) => {
+      const pulse = 0.6 + Math.sin(time * 0.004) * 0.15;
+      ctx.save();
+      ctx.translate(portal.x, portal.y);
+      ctx.globalCompositeOperation = "lighter";
+      ctx.strokeStyle = "#8dffd0";
+      for (let ring = 0; ring < 3; ring += 1) {
+        ctx.globalAlpha = (0.5 - ring * 0.12) * pulse;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, 30 + ring * 15, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      // Banked charge, so shooting your own portal for power-ups reads as
+      // progress rather than as hitting a decoration.
+      const banked = cap(portal.charge / Math.max(1, portal.threshold), 0, 1);
+      if (banked > 0) {
+        ctx.globalAlpha = 0.85;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(0, 0, 22, -Math.PI / 2, -Math.PI / 2 + banked * Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    };
+
     const drawPortal = (game: Game, time: number, detail: number) => {
       const charge = cap(game.portalCharge / game.portalThreshold, 0, 1);
       const swell = 1 + game.portalPulse * 0.18;
@@ -5937,6 +5988,7 @@ export default function WormholeGame() {
       // which way to fly. Portal zero is the one already on screen, so it is
       // skipped rather than drawn over.
       if (game.portals.length > 1) {
+        for (let i = 1; i < game.portals.length; i += 1) drawOwnPortal(game.portals[i], time);
         const arenaSize = { width: game.worldWidth, height: game.worldHeight };
         ctx.save();
         ctx.globalAlpha = 0.5;
