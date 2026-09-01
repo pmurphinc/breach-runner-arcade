@@ -181,16 +181,24 @@ function SelectedShipPreview({ ship, onChange }: {
  * control layer can mirror the existing right-stick action targets with CSS
  * without creating a second input implementation.
  */
+/**
+ * The mirrored-actions preference.
+ *
+ * Value and setter only. This deliberately does NOT write
+ * html[data-mirror-touch-actions] — that used to live here, which meant the
+ * attribute only existed once a screen calling this hook had mounted. The app
+ * opens on Ships, not Home, so a pilot who had the setting on launched into a
+ * run with the left-hand buttons still hidden by their default display:none,
+ * and only opening Settings (or toggling the option off and on) applied it.
+ * The game shell owns that attribute now, because the game shell is always
+ * mounted.
+ */
 function useMirroredTouchActionsSetting() {
   const deviceSettings = useSyncExternalStore(
     settingsStore.subscribe,
     settingsStore.getSnapshot,
     settingsStore.getServerSnapshot,
   );
-
-  useEffect(() => {
-    document.documentElement.dataset.mirrorTouchActions = deviceSettings.mirrorTouchActions ? "on" : "off";
-  }, [deviceSettings.mirrorTouchActions]);
 
   return [
     deviceSettings.mirrorTouchActions,
@@ -227,7 +235,6 @@ export function HomeScreen({
   onLaunch: () => void;
   renderShip: (id: ShipId, size: number) => React.ReactNode;
 }) {
-  useMirroredTouchActionsSetting();
   const network = mode !== "pve";
   // A challenge runs solo, so it rides on the PvE mode and replaces the labels
   // rather than adding a fourth mode nothing else in the shell knows about.

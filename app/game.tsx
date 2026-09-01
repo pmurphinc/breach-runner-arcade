@@ -2132,6 +2132,18 @@ export default function WormholeGame() {
   useEffect(() => { combatHapticsRef.current = settings.combatHaptics; }, [settings.combatHaptics]);
   useEffect(() => { cannonHitSoundRef.current = settings.cannonHitSound; }, [settings.cannonHitSound]);
   useEffect(() => { aimGuideRef.current = settings.aimGuide; }, [settings.aimGuide]);
+
+  /**
+   * Publish the mirrored-actions preference to the document.
+   *
+   * Owned here rather than by a menu screen because the shell is the only
+   * component guaranteed to be mounted. The left-hand touch buttons default to
+   * display:none and are revealed solely by this attribute, so a screen-owned
+   * effect left them hidden for anyone who launched straight into a run.
+   */
+  useEffect(() => {
+    document.documentElement.dataset.mirrorTouchActions = settings.mirrorTouchActions ? "on" : "off";
+  }, [settings.mirrorTouchActions]);
   useEffect(() => { cameraRef.current = cameraLocked; }, [cameraLocked]);
   useEffect(() => { zoomRef.current = settings.zoom; }, [settings.zoom]);
   useEffect(() => { qualityRef.current = quality; }, [quality]);
@@ -2227,6 +2239,17 @@ export default function WormholeGame() {
       const availableHeight = Math.max(1, wrapRect.height - playfieldTop);
       const canvasWidth = Math.max(1, Math.floor(Math.min(wrapRect.width, availableHeight * WORLD_WIDTH / WORLD_HEIGHT)));
       const canvasHeight = Math.max(1, Math.floor(canvasWidth * WORLD_HEIGHT / WORLD_WIDTH));
+      // Menu and Fullscreen are position:fixed and sit above everything on the
+      // z-index scale, so the full-width rules rail ran underneath them and its
+      // right-hand entries were unreadable. Reserve exactly the overlap rather
+      // than a guess: the labels change width ("Fullscreen" / "Exit Fullscreen"),
+      // and the controls are viewport-fixed while the rail is wrap-relative.
+      const systemControls = document.querySelector<HTMLElement>(".system-controls");
+      const systemRect = systemControls?.getBoundingClientRect();
+      const systemOverlap = systemRect && systemRect.width > 0
+        ? Math.max(0, wrapRect.right - systemRect.left)
+        : 0;
+      wrap.style.setProperty("--system-controls-width", `${Math.ceil(systemOverlap)}px`);
       wrap.style.setProperty("--rules-bottom", `${Math.max(0, bottomOf(".difficulty-badge"))}px`);
       wrap.style.setProperty("--health-bottom", `${Math.max(0, healthBottom)}px`);
       wrap.style.setProperty("--arena-playfield-top", `${playfieldTop}px`);
@@ -2242,6 +2265,10 @@ export default function WormholeGame() {
       const element = wrap.querySelector(selector);
       if (element) observer.observe(element);
     }
+    // Fixed, so outside the wrap — but its width changes when the Fullscreen
+    // label does, and the rail has to re-inset when it happens.
+    const systemControlsEl = document.querySelector(".system-controls");
+    if (systemControlsEl) observer.observe(systemControlsEl);
     return () => observer.disconnect();
   }, [immersive, layout.arena, layout.form, layout.orientation, layout.preset, layout.sticks, mode, net?.phase, viewProfile.modernHud]);
 

@@ -109,7 +109,9 @@ test("the PC HUD floats over the arena and keeps its controls usable", () => {
   assert.match(game, /className="touch-powerup-hud"/);
 
   // The rules rail is the arena's own top lane in the modern HUD.
-  assert.match(globals, /\.difficulty-badge\s*\{[^}]*top:\s*8px;\s*left:\s*8px;\s*right:\s*8px/s);
+  // Still the arena's own top lane, but its right edge now clears the fixed
+  // Menu/Fullscreen controls instead of running underneath them.
+  assert.match(globals, /\.difficulty-badge\s*\{[^}]*top:\s*8px;\s*left:\s*8px;\s*right:\s*calc\(8px \+ var\(--system-controls-width, 0px\)\)/s);
 
   // Menus and the global controls stay above everything, and the end-of-run
   // card stays above the floating HUD.
