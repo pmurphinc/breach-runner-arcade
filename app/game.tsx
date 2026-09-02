@@ -2725,31 +2725,6 @@ export default function WormholeGame() {
     return () => window.removeEventListener("breach-runner:test-stock", seedStock);
   }, [sync]);
 
-  // TEMP-DEBUG-REMOVE-BEFORE-COMMIT
-  useEffect(() => {
-    (window as unknown as Record<string, unknown>).__brDebug = () => {
-      const g = gameRef.current;
-      const n = netRef.current?.state;
-      return {
-        mode: g.mode, side: g.pvpSide, running: g.running, paused: g.paused, roundId: g.roundId,
-        world: `${g.worldWidth}x${g.worldHeight}`,
-        player: { x: Math.round(g.player.x), y: Math.round(g.player.y), hp: Math.round(g.player.health) },
-        portals: g.portals.map((portal) => ({ id: portal.id, owner: portal.ownerId, x: Math.round(portal.x), y: Math.round(portal.y), charge: Math.round(portal.charge) })),
-        portalXY: [Math.round(g.portalX), Math.round(g.portalY)],
-        portalAngle: Math.round(g.portalAngle),
-        portalCharge: Math.round(g.portalCharge),
-        enemies: g.enemies.map((e) => ({ k: e.kind, x: Math.round(e.x), y: Math.round(e.y) })), rivalBullets: g.rivalBullets.length,
-        pickups: g.pickups.map((q) => ({ t: q.type, x: Math.round(q.x), y: Math.round(q.y) })),
-        stock: g.stock.slice(), kills: g.kills,
-        net: n ? {
-          you: n.you?.id, host: n.hostId, opp: n.opponent?.id, roundId: n.roundId,
-          teammate: n.teammate ? { x: Math.round(n.teammate.x), y: Math.round(n.teammate.y), rid: n.teammate.roundId } : null,
-          worldSeq: n.world?.seq ?? null, enemies: n.world?.enemies?.length ?? null,
-        } : null,
-      };
-    };
-  }, []);
-
   /* The two-browser lifecycle test ends a real server-owned PvP round without
      depending on random arena collisions. Production builds omit this hook. */
   useEffect(() => {

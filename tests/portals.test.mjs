@@ -209,10 +209,14 @@ test("a PvP pilot owns a portal as well as attacking one", () => {
   const game = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
   assert.match(game, /if \(mode === "pvp"\) \{/);
   assert.match(game, /createPortal\(1, "you", arena, 180\)/, "opposite the rift, so they are never stacked");
-  // Both rifts sit on one shared ring, placed by side rather than by role, so
-  // the two clients agree on where both of them are without being told.
-  assert.match(game, /const theirs = pvpPortalPoint\(rivalSide\(side\), arena\)/);
-  assert.match(game, /const mine = pvpPortalPoint\(side, arena\)/);
+  // Both rifts ride one shared ring, half a turn apart, placed by side rather
+  // than by role — so the two clients agree on where both of them are without
+  // being told, and a host migration cannot move either pilot's rift.
+  assert.match(game, /const theirs = pvpPortalPoint\(rivalSide\(side\), arena, 0, pvpRing\)/);
+  assert.match(game, /const mine = pvpPortalPoint\(side, arena, 0, pvpRing\)/);
+  // The ring is the ruleset's, not a PvP invention: PvP's own rules orbit the
+  // rift deliberately, and the fallback only covers a ruleset that locks it.
+  assert.match(game, /const pvpRing = rules\.wormhole\.kind === "orbit" \? rules\.wormhole\.radius : PVP_PORTAL_RADIUS;/);
 });
 
 test("a sent payload arrives through the attacked pilot's own portal", () => {
