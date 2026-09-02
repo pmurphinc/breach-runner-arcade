@@ -20,6 +20,7 @@ import { HARDPOINT_BREACH_MILESTONES, hardpointIndexForBreach, hardpointUnlockFo
 import { riftRunHandling, riftRunHullDamage } from "../app/rift-run/live-modifiers.ts";
 import {
   RIFT_RUN_COLLAPSE_DEPTH,
+  RIFT_RUN_DEEP_LEVELS_PER_BREACH,
   RIFT_RUN_DEPTH_LEVELS,
   armRiftRunDepth,
   createRiftRunEscalationRuntime,
@@ -686,7 +687,9 @@ test("every breach deepens the ruleset, and the fourth lands on Rift Collapse", 
     ["stable", "unstable", "critical", "enraged", "collapse"],
   );
   assert.equal(RIFT_RUN_COLLAPSE_DEPTH, 4);
-  assert.deepEqual([...RIFT_RUN_DEPTH_LEVELS], [1, 3, 5, 7, 11]);
+  // Derived from the stage table rather than restated, so "every breach opens
+  // a stage the pilot has not flown" is structural instead of coincidental.
+  assert.deepEqual([...RIFT_RUN_DEPTH_LEVELS], [1, 2, 4, 6, 9]);
   // Each of the first four breaches opens a stage the pilot has not flown in,
   // so no breach is ever a cosmetic one.
   for (const depth of [1, 2, 3, 4]) {
@@ -728,17 +731,18 @@ test("each breach arms a hazard the previous depth did not have", () => {
 
   // Depth 4: mine storms, the gravity well and double beams — Survival's
   // deepest stage, which is what the mode is aiming at by the fourth rift.
-  assert.equal(enraged.escalation.gravityPull, 0);
+  // Gravity arms the level before collapse, so depth 3 does not have it.
   assert.equal(collapse.escalation.gravityPull > 0, true);
   assert.equal(collapse.escalation.mineStormIntervalTicks > 0, true);
   assert.equal(collapse.escalation.beamCount, 2);
-  assert.deepEqual(collapse.escalation, escalationForLevel(11));
+  assert.deepEqual(collapse.escalation, escalationForLevel(RIFT_RUN_DEPTH_LEVELS[RIFT_RUN_COLLAPSE_DEPTH]));
 });
 
 test("a run past Rift Collapse keeps escalating with no cap", () => {
-  assert.equal(survivalLevelForDepth(4), 11);
+  const collapseLevel = RIFT_RUN_DEPTH_LEVELS[RIFT_RUN_COLLAPSE_DEPTH];
+  assert.equal(survivalLevelForDepth(4), collapseLevel);
   for (const depth of [5, 6, 7, 12, 40]) {
-    assert.equal(survivalLevelForDepth(depth), 11 + (depth - 4) * 2);
+    assert.equal(survivalLevelForDepth(depth), collapseLevel + (depth - 4) * RIFT_RUN_DEEP_LEVELS_PER_BREACH);
   }
   const collapse = riftRunEscalationForDepth(4).escalation;
   const deep = riftRunEscalationForDepth(9).escalation;

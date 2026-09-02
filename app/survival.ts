@@ -36,7 +36,28 @@ import {
 } from "./difficulty.ts";
 
 /** How long one Rift Level lasts. The roadmap's fixed interval. */
-export const SURVIVAL_LEVEL_SECONDS = 60;
+/**
+ * Seconds per Rift Level.
+ *
+ * Was 60. A minute per level meant a run spent its first two minutes in the
+ * gentlest arena the game has, which is a long time to ask of an arcade game
+ * before anything changes.
+ */
+export const SURVIVAL_LEVEL_SECONDS = 45;
+
+/**
+ * The Rift Level each stage begins on.
+ *
+ * One place, because these numbers are read three ways: the stage table below,
+ * the escalation knobs that open beams, mine storms and gravity, and Rift Run's
+ * depth ladder. They used to be scattered literals, so tightening the ramp
+ * meant finding every 3, 4, 9 and 11 that happened to mean a stage boundary.
+ *
+ * Compressed from 1 / 3 / 5 / 7 / 11. The old ladder gave two whole levels to
+ * every stage and four to ENRAGED; a pilot could hold a build together long
+ * enough that the arena stopped being the thing that ended the run.
+ */
+export const STAGE_LEVELS = { stable: 1, unstable: 2, critical: 4, enraged: 6, collapse: 9 } as const;
 
 /** Cannon damage the rift absorbs per power-up at Rift Level 1. */
 export const SURVIVAL_BASE_POWER_UP_CHARGE = 150;
@@ -97,38 +118,38 @@ export type SurvivalStage = {
 /**
  * The five escalation stages, in order.
  *
- * Stage boundaries are the roadmap's minute marks: Stable 0–2, Unstable 2–4,
- * Critical 4–6, Enraged 6–10, Rift Collapse 10+.
+ * Boundaries come from STAGE_LEVELS so the table, the escalation knobs and Rift
+ * Run's depth ladder cannot drift apart.
  */
 export const SURVIVAL_STAGES: readonly SurvivalStage[] = [
   {
     id: "stable",
     name: "STABLE",
-    fromLevel: 1,
+    fromLevel: STAGE_LEVELS.stable,
     blurb: "The rift holds centre. Ordinary hostile waves.",
   },
   {
     id: "unstable",
     name: "UNSTABLE",
-    fromLevel: 3,
+    fromLevel: STAGE_LEVELS.unstable,
     blurb: "The rift breaks orbit, sweep beams appear, and waves come faster.",
   },
   {
     id: "critical",
     name: "CRITICAL",
-    fromLevel: 5,
+    fromLevel: STAGE_LEVELS.critical,
     blurb: "Touching the rift burns hull, and its contact radius keeps growing.",
   },
   {
     id: "enraged",
     name: "ENRAGED",
-    fromLevel: 7,
+    fromLevel: STAGE_LEVELS.enraged,
     blurb: "The rift enrages: it regenerates, shields itself, and answers with mixed waves.",
   },
   {
     id: "collapse",
     name: "RIFT COLLAPSE",
-    fromLevel: 11,
+    fromLevel: STAGE_LEVELS.collapse,
     blurb: "Double beams, a gravity well, and mine storms. Nothing here is survivable forever.",
   },
 ];
@@ -226,17 +247,23 @@ export function escalationForLevel(level: number): SurvivalEscalation {
   return {
     level: safe,
     stage,
-    // 8.5s between waves at level 1, tightening to 2.2s by Rift Collapse.
-    waveIntervalTicks: whole(ticksForSeconds(rampDown(safe, 1, 8.5, 0.65, 2.2))),
-    waveSizeBonus: Math.min(3, Math.floor((safe - 1) / 3)),
-    wavePool: safe < 3 ? STARTER_POOL : SENDABLE_POWERUPS,
-    // Mine storms open at level 4 and keep tightening.
-    mineStormIntervalTicks: safe < 4 ? 0 : whole(ticksForSeconds(rampDown(safe, 4, 9, 0.6, 3))),
-    mineStormCount: safe < 4 ? 0 : Math.min(6, 2 + Math.floor((safe - 4) / 3)),
-    // Sweep beams open at level 3; Rift Collapse runs two at a time.
-    beamIntervalTicks: safe < 3 ? 0 : whole(ticksForSeconds(rampDown(safe, 3, 20, 1.2, 8))),
-    beamCount: safe < 3 ? 0 : safe >= 11 ? 2 : 1,
-    gravityPull: safe < 9 ? 0 : Math.min(0.018, 0.006 + (safe - 9) * 0.002),
+    // 7s between waves at level 1, tightening to 2.2s by Rift Collapse. The
+    // opening was 8.5s, which is most of a level spent waiting for something
+    // to happen.
+    waveIntervalTicks: whole(ticksForSeconds(rampDown(safe, 1, 7, 0.65, 2.2))),
+    waveSizeBonus: Math.min(3, Math.floor((safe - 1) / 2)),
+    // The starter pool is the tutorial. It lasts one level now, not two.
+    wavePool: safe < STAGE_LEVELS.unstable ? STARTER_POOL : SENDABLE_POWERUPS,
+    // Mine storms open one level after the beams do.
+    mineStormIntervalTicks: safe < STAGE_LEVELS.unstable + 1 ? 0 : whole(ticksForSeconds(rampDown(safe, STAGE_LEVELS.unstable + 1, 9, 0.6, 3))),
+    mineStormCount: safe < STAGE_LEVELS.unstable + 1 ? 0 : Math.min(6, 2 + Math.floor((safe - STAGE_LEVELS.unstable - 1) / 3)),
+    // Sweep beams open with UNSTABLE; RIFT COLLAPSE runs two at a time.
+    beamIntervalTicks: safe < STAGE_LEVELS.unstable ? 0 : whole(ticksForSeconds(rampDown(safe, STAGE_LEVELS.unstable, 20, 1.2, 8))),
+    beamCount: safe < STAGE_LEVELS.unstable ? 0 : safe >= STAGE_LEVELS.collapse ? 2 : 1,
+    // The gravity well is the deep run's warning shot: it arms the level
+    // before RIFT COLLAPSE rather than with it, so the last stage is never the
+    // first time the pilot feels it.
+    gravityPull: safe < STAGE_LEVELS.collapse - 1 ? 0 : Math.min(0.018, 0.006 + (safe - (STAGE_LEVELS.collapse - 1)) * 0.002),
     powerUpCharge: Math.round(
       SURVIVAL_BASE_POWER_UP_CHARGE * Math.min(1.6, 1 + (safe - 1) * 0.06)
     ),
@@ -258,18 +285,18 @@ export function survivalRulesFor(level: number): DifficultyRules {
 
   // Stable holds the rift dead centre. From Unstable it orbits, and keeps
   // gaining angular speed, so leading it never stops being a skill.
-  const wormhole: WormholeMotion = safe < 3
+  const wormhole: WormholeMotion = safe < STAGE_LEVELS.unstable
     ? { kind: "locked" }
-    : { kind: "orbit", radius: 210, degreesPerTick: Math.min(1.4, 0.5 + (safe - 3) * 0.07) };
+    : { kind: "orbit", radius: 210, degreesPerTick: Math.min(1.4, 0.5 + (safe - STAGE_LEVELS.unstable) * 0.07) };
 
   // Critical arms the contact hazard, and every level after it widens the
   // radius — the roadmap's "reduced safe space", expressed in the system that
   // already owns proximity danger.
-  const contactHazard: ContactHazardRules = safe < 5
+  const contactHazard: ContactHazardRules = safe < STAGE_LEVELS.critical
     ? { enabled: false }
     : {
         enabled: true,
-        radius: Math.min(76, 46 + (safe - 5) * 3),
+        radius: Math.min(76, 46 + (safe - STAGE_LEVELS.critical) * 3),
         tickIntervalTicks: ticksForSeconds(0.5),
         damagePerTickFraction: 0.03,
         maxEpisodeFraction: 0.24,
@@ -282,12 +309,12 @@ export function survivalRulesFor(level: number): DifficultyRules {
   // off because Survival schedules its own mine storms; two independent mine
   // sources on one timer is exactly the duplicated mechanic the roadmap warns
   // about.
-  const wormholeEnrage: WormholeEnrageRules = safe < 7
+  const wormholeEnrage: WormholeEnrageRules = safe < STAGE_LEVELS.enraged
     ? { enabled: false }
     : {
         enabled: true,
         thresholdFraction: 0,
-        waveIntervalTicks: whole(ticksForSeconds(rampDown(safe, 7, 14, 0.8, 8))),
+        waveIntervalTicks: whole(ticksForSeconds(rampDown(safe, STAGE_LEVELS.enraged, 14, 0.8, 8))),
         wave: [
           { enemy: "mines", count: 4 },
           { enemy: "ufo", count: 1 },
@@ -295,7 +322,7 @@ export function survivalRulesFor(level: number): DifficultyRules {
         ],
         healFraction: 0.08,
         healDurationTicks: ticksForSeconds(8),
-        temporaryShieldFraction: safe >= 11 ? 0.1 : 0,
+        temporaryShieldFraction: safe >= STAGE_LEVELS.collapse ? 0.1 : 0,
         temporaryShieldDurationTicks: ticksForSeconds(8),
         minePulseIntervalTicks: 0,
         minePulseCount: 0,

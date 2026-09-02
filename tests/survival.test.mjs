@@ -14,6 +14,7 @@ import { readFile } from "node:fs/promises";
 
 import {
   SURVIVAL_HOSTILE_CAP,
+  STAGE_LEVELS,
   SURVIVAL_LEVEL_SECONDS,
   SURVIVAL_STAGES,
   advanceSurvival,
@@ -44,13 +45,15 @@ const gameCode = stripComments(game);
 /** Every level the escalation table is exercised across. */
 const LEVELS = Array.from({ length: 24 }, (_, index) => index + 1);
 
-test("the Rift Level clock ticks once a minute, starting at one", () => {
-  assert.equal(SURVIVAL_LEVEL_SECONDS, 60);
+test("the Rift Level clock ticks every 45 seconds, starting at one", () => {
+  // Was a minute. A level a minute left a run in the gentlest arena the game
+  // has for its first two minutes, which is a long time in an arcade game.
+  assert.equal(SURVIVAL_LEVEL_SECONDS, 45);
   assert.equal(riftLevelForSeconds(0), 1);
-  assert.equal(riftLevelForSeconds(59), 1);
-  assert.equal(riftLevelForSeconds(60), 2);
-  assert.equal(riftLevelForSeconds(119), 2);
-  assert.equal(riftLevelForSeconds(600), 11);
+  assert.equal(riftLevelForSeconds(44), 1);
+  assert.equal(riftLevelForSeconds(45), 2);
+  assert.equal(riftLevelForSeconds(89), 2);
+  assert.equal(riftLevelForSeconds(450), 11);
   // A run cannot be at level zero, and nonsense never produces one either.
   assert.equal(riftLevelForSeconds(-30), 1);
   assert.equal(riftLevelForSeconds(Number.NaN), 1);
@@ -61,29 +64,33 @@ test("the Rift Level clock ticks once a minute, starting at one", () => {
   }
 });
 
-test("stages fall on the roadmap's minute marks", () => {
+test("stages come from one table, compressed so the ramp bites sooner", () => {
   const boundaries = SURVIVAL_STAGES.map((stage) => [stage.id, stage.fromLevel]);
   assert.deepEqual(boundaries, [
-    ["stable", 1],
-    ["unstable", 3],
-    ["critical", 5],
-    ["enraged", 7],
-    ["collapse", 11],
+    ["stable", STAGE_LEVELS.stable],
+    ["unstable", STAGE_LEVELS.unstable],
+    ["critical", STAGE_LEVELS.critical],
+    ["enraged", STAGE_LEVELS.enraged],
+    ["collapse", STAGE_LEVELS.collapse],
   ]);
+  // Was 1 / 3 / 5 / 7 / 11: two levels per stage and four for ENRAGED, which
+  // let a pilot outlast the arena rather than the other way round.
+  assert.deepEqual(Object.values(STAGE_LEVELS), [1, 2, 4, 6, 9]);
 
-  // 0-2 minutes stable, 2-4 unstable, 4-6 critical, 6-10 enraged, 10+ collapse.
+  // At 45s a level: stable to 0:45, unstable to 2:15, critical to 3:45,
+  // enraged to 6:00, collapse beyond.
   assert.equal(stageForLevel(riftLevelForSeconds(0)).id, "stable");
-  assert.equal(stageForLevel(riftLevelForSeconds(119)).id, "stable");
-  assert.equal(stageForLevel(riftLevelForSeconds(120)).id, "unstable");
-  assert.equal(stageForLevel(riftLevelForSeconds(240)).id, "critical");
-  assert.equal(stageForLevel(riftLevelForSeconds(360)).id, "enraged");
-  assert.equal(stageForLevel(riftLevelForSeconds(599)).id, "enraged");
-  assert.equal(stageForLevel(riftLevelForSeconds(600)).id, "collapse");
+  assert.equal(stageForLevel(riftLevelForSeconds(44)).id, "stable");
+  assert.equal(stageForLevel(riftLevelForSeconds(45)).id, "unstable");
+  assert.equal(stageForLevel(riftLevelForSeconds(135)).id, "critical");
+  assert.equal(stageForLevel(riftLevelForSeconds(225)).id, "enraged");
+  assert.equal(stageForLevel(riftLevelForSeconds(359)).id, "enraged");
+  assert.equal(stageForLevel(riftLevelForSeconds(360)).id, "collapse");
   // The mode is meant to run indefinitely, so the last stage has no end.
   assert.equal(stageForLevel(400).id, "collapse");
 
-  assert.ok(stageBeginsAtLevel(7));
-  assert.ok(!stageBeginsAtLevel(8));
+  assert.ok(stageBeginsAtLevel(STAGE_LEVELS.enraged));
+  assert.ok(!stageBeginsAtLevel(STAGE_LEVELS.enraged + 1));
 });
 
 test("pressure only ever increases, and every cadence has a floor", () => {
@@ -117,23 +124,26 @@ test("pressure only ever increases, and every cadence has a floor", () => {
 });
 
 test("each hazard arms at its own level rather than all at once", () => {
+  // Expressed against the stage table rather than against level numbers, so
+  // retuning the ladder does not mean rewriting every hazard assertion.
+
   // Sweep beams from Unstable.
-  assert.equal(escalationForLevel(2).beamIntervalTicks, 0);
-  assert.ok(escalationForLevel(3).beamIntervalTicks > 0);
-  assert.equal(escalationForLevel(3).beamCount, 1);
+  assert.equal(escalationForLevel(STAGE_LEVELS.unstable - 1).beamIntervalTicks, 0);
+  assert.ok(escalationForLevel(STAGE_LEVELS.unstable).beamIntervalTicks > 0);
+  assert.equal(escalationForLevel(STAGE_LEVELS.unstable).beamCount, 1);
   // Rift Collapse runs two beams at once.
-  assert.equal(escalationForLevel(10).beamCount, 1);
-  assert.equal(escalationForLevel(11).beamCount, 2);
+  assert.equal(escalationForLevel(STAGE_LEVELS.collapse - 1).beamCount, 1);
+  assert.equal(escalationForLevel(STAGE_LEVELS.collapse).beamCount, 2);
 
-  // Mine storms from level 4.
-  assert.equal(escalationForLevel(3).mineStormIntervalTicks, 0);
-  assert.equal(escalationForLevel(3).mineStormCount, 0);
-  assert.ok(escalationForLevel(4).mineStormIntervalTicks > 0);
-  assert.equal(escalationForLevel(4).mineStormCount, 2);
+  // Mine storms one level after the beams.
+  assert.equal(escalationForLevel(STAGE_LEVELS.unstable).mineStormIntervalTicks, 0);
+  assert.equal(escalationForLevel(STAGE_LEVELS.unstable).mineStormCount, 0);
+  assert.ok(escalationForLevel(STAGE_LEVELS.unstable + 1).mineStormIntervalTicks > 0);
+  assert.equal(escalationForLevel(STAGE_LEVELS.unstable + 1).mineStormCount, 2);
 
-  // The gravity well belongs to the deep run.
-  assert.equal(escalationForLevel(8).gravityPull, 0);
-  assert.ok(escalationForLevel(9).gravityPull > 0);
+  // The gravity well is the deep run's warning shot, one level before collapse.
+  assert.equal(escalationForLevel(STAGE_LEVELS.collapse - 2).gravityPull, 0);
+  assert.ok(escalationForLevel(STAGE_LEVELS.collapse - 1).gravityPull > 0);
 
   // The full hostile catalogue opens once the run leaves Stable.
   assert.ok(escalationForLevel(1).wavePool.length < escalationForLevel(3).wavePool.length);
@@ -167,15 +177,15 @@ test("escalating one run never escalates the next", () => {
 });
 
 test("the rift breaks orbit at Unstable and keeps gaining speed", () => {
-  assert.equal(survivalRulesFor(1).wormhole.kind, "locked");
-  assert.equal(survivalRulesFor(2).wormhole.kind, "locked");
+  assert.equal(survivalRulesFor(STAGE_LEVELS.stable).wormhole.kind, "locked");
+  assert.equal(survivalRulesFor(STAGE_LEVELS.unstable - 1).wormhole.kind, "locked");
 
-  const unstable = survivalRulesFor(3).wormhole;
+  const unstable = survivalRulesFor(STAGE_LEVELS.unstable).wormhole;
   assert.equal(unstable.kind, "orbit");
   assert.equal(unstable.radius, 210);
 
   let previous = 0;
-  for (const level of LEVELS.slice(2)) {
+  for (const level of LEVELS.slice(STAGE_LEVELS.unstable - 1)) {
     const motion = survivalRulesFor(level).wormhole;
     assert.equal(motion.kind, "orbit");
     assert.ok(motion.degreesPerTick >= previous);
@@ -186,12 +196,12 @@ test("the rift breaks orbit at Unstable and keeps gaining speed", () => {
 });
 
 test("Critical arms rift contact and keeps shrinking the safe space", () => {
-  assert.equal(survivalRulesFor(4).contactHazard.enabled, false);
+  assert.equal(survivalRulesFor(STAGE_LEVELS.critical - 1).contactHazard.enabled, false);
 
-  const critical = survivalRulesFor(5).contactHazard;
+  const critical = survivalRulesFor(STAGE_LEVELS.critical).contactHazard;
   assert.equal(critical.enabled, true);
   assert.equal(critical.radius, 46);
-  assert.ok(survivalRulesFor(9).contactHazard.radius > critical.radius);
+  assert.ok(survivalRulesFor(STAGE_LEVELS.critical + 4).contactHazard.radius > critical.radius);
   assert.equal(survivalRulesFor(500).contactHazard.radius, 76);
 
   // One contact episode must never be able to destroy a full-health pilot,
@@ -200,9 +210,9 @@ test("Critical arms rift contact and keeps shrinking the safe space", () => {
 });
 
 test("enrage arrives on the clock, never on the rift's remaining integrity", () => {
-  assert.equal(survivalRulesFor(6).wormholeEnrage.enabled, false);
+  assert.equal(survivalRulesFor(STAGE_LEVELS.enraged - 1).wormholeEnrage.enabled, false);
 
-  const enraged = survivalRulesFor(7).wormholeEnrage;
+  const enraged = survivalRulesFor(STAGE_LEVELS.enraged).wormholeEnrage;
   assert.equal(enraged.enabled, true);
   // A zero threshold is what stops the PvE "the rival is nearly dead" trigger
   // from firing: that check also requires integrity above zero.
@@ -214,8 +224,8 @@ test("enrage arrives on the clock, never on the rift's remaining integrity", () 
   assert.equal(enraged.minePulseCount, 0);
 
   // The rift only starts shielding itself once the run reaches Rift Collapse.
-  assert.equal(survivalRulesFor(7).wormholeEnrage.temporaryShieldFraction, 0);
-  assert.ok(survivalRulesFor(11).wormholeEnrage.temporaryShieldFraction > 0);
+  assert.equal(survivalRulesFor(STAGE_LEVELS.enraged).wormholeEnrage.temporaryShieldFraction, 0);
+  assert.ok(survivalRulesFor(STAGE_LEVELS.collapse).wormholeEnrage.temporaryShieldFraction > 0);
 });
 
 test("survival is a solo ruleset the other modes cannot be dragged into", () => {
@@ -265,10 +275,12 @@ test("a newly armed hazard does not fire the instant it arms", () => {
   assert.equal(state.peakLevel, 5);
 });
 
-test("a twenty-minute run levels up once a minute and never twice", () => {
-  // The level-up branch in the loop is only reachable after a minute of real
-  // play, so the decision it applies is made out here where a whole run can be
-  // simulated in milliseconds.
+test("a twenty-minute run levels up on every boundary and never twice", () => {
+  // The level-up branch in the loop is only reachable after a level's worth of
+  // real play, so the decision it applies is made out here where a whole run
+  // can be simulated in milliseconds. Counts are derived from
+  // SURVIVAL_LEVEL_SECONDS rather than restated, so retuning the clock does not
+  // mean recomputing this by hand.
   const state = createSurvivalState();
   const levelUps = [];
   const stages = [];
@@ -281,12 +293,12 @@ test("a twenty-minute run levels up once a minute and never twice", () => {
     if (levelUp.stageChanged) stages.push(levelUp.stage.id);
   }
 
-  // Twenty boundaries crossed, in order, with no repeats — the twentieth being
-  // the 20:00 mark itself, which opens Rift Level 21.
-  assert.equal(levelUps.length, 20);
-  assert.deepEqual(levelUps.map((entry) => entry.level), Array.from({ length: 20 }, (_, i) => i + 2));
-  assert.equal(state.level, 21);
-  assert.equal(state.peakLevel, 21);
+  // Every boundary in twenty minutes, in order, with no repeats.
+  const expected = Math.floor((20 * 60) / SURVIVAL_LEVEL_SECONDS);
+  assert.equal(levelUps.length, expected);
+  assert.deepEqual(levelUps.map((entry) => entry.level), Array.from({ length: expected }, (_, i) => i + 2));
+  assert.equal(state.level, expected + 1);
+  assert.equal(state.peakLevel, expected + 1);
 
   // Each stage is announced exactly once, in order, and level 1's Stable is
   // never announced because the run opens there.
@@ -305,26 +317,29 @@ test("a twenty-minute run levels up once a minute and never twice", () => {
 
   // The rules really do escalate across the run rather than being handed back
   // unchanged with a new label on them.
-  const first = levelUps[0].rules;
+  // Compared against the rules the run *opens* with rather than the first
+  // level-up's, because the first boundary now lands in UNSTABLE — the ramp
+  // starts biting one level in, which is the point of the compressed ladder.
+  const opening = survivalRulesFor(STAGE_LEVELS.stable);
   const last = levelUps[levelUps.length - 1].rules;
-  assert.equal(first.wormhole.kind, "locked");
+  assert.equal(opening.wormhole.kind, "locked");
   assert.equal(last.wormhole.kind, "orbit");
-  assert.equal(first.contactHazard.enabled, false);
+  assert.equal(opening.contactHazard.enabled, false);
   assert.equal(last.contactHazard.enabled, true);
-  assert.equal(first.wormholeEnrage.enabled, false);
+  assert.equal(opening.wormholeEnrage.enabled, false);
   assert.equal(last.wormholeEnrage.enabled, true);
 });
 
 test("the level clock reports nothing on the ticks where nothing changed", () => {
   const state = createSurvivalState();
   assert.equal(advanceSurvival(state, 0), null);
-  assert.equal(advanceSurvival(state, 59.9), null);
+  assert.equal(advanceSurvival(state, SURVIVAL_LEVEL_SECONDS - 0.1), null);
 
-  const levelUp = advanceSurvival(state, 60);
+  const levelUp = advanceSurvival(state, SURVIVAL_LEVEL_SECONDS);
   assert.equal(levelUp?.level, 2);
   // Crossing the same boundary again is not a second level-up.
-  assert.equal(advanceSurvival(state, 60), null);
-  assert.equal(advanceSurvival(state, 119), null);
+  assert.equal(advanceSurvival(state, SURVIVAL_LEVEL_SECONDS), null);
+  assert.equal(advanceSurvival(state, SURVIVAL_LEVEL_SECONDS * 2 - 1), null);
 });
 
 test("the arena has a hostile ceiling, because the mode has no end", () => {

@@ -2,8 +2,12 @@
 .modern-hud .canvas-wrap > .touch-powerup-hud,
 .modern-hud[data-touch-controls="off"] .touch-powerup-hud {
   --pup-slot: clamp(20px, 3.8vw, 32px);
-  /* The measured health edge includes the Hull, Shield, and Rival labels. */
-  top: calc(var(--health-bottom, 94px) + 8px);
+  /* Anchored to the bars rather than to the shield caption below them: the
+     caption occupies the far left only, and measuring to it left a dead band
+     under the centre where this strip actually sits. Falls back to the full
+     health edge, so a layout that never publishes the bars-only value is
+     spaced as before rather than riding up over the rails. */
+  top: calc(var(--health-bars-bottom, var(--health-bottom, 94px)) + 8px);
   bottom: auto;
   z-index: var(--z-hud-float);
   width: auto;

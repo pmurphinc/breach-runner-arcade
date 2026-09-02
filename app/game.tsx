@@ -2417,6 +2417,19 @@ export default function WormholeGame() {
         bottomOf(".pilot-rail small"),
         bottomOf(".rival-rail")
       );
+      // The same measurement without the shield caption.
+      //
+      // That caption hangs below the pilot rail at the far left, so including
+      // it pushes anything anchored to "below health" down by the caption's
+      // full height — across the entire width, including the centre where
+      // there is nothing to clear. The payload inventory is centred, so it was
+      // sitting a caption's height lower than it needed to and leaving an
+      // obvious dead band under the bars.
+      const healthBarsBottom = Math.max(
+        bottomOf(".difficulty-badge"),
+        bottomOf(".pilot-rail"),
+        bottomOf(".rival-rail")
+      );
       // Only permanent HUD participates in playfield geometry. Spawn notices
       // are absolutely positioned overlays and must never move or resize the
       // arena when their contents change.
@@ -2448,6 +2461,7 @@ export default function WormholeGame() {
       wrap.style.setProperty("--system-controls-width", `${Math.ceil(systemOverlap)}px`);
       wrap.style.setProperty("--rules-bottom", `${Math.max(0, bottomOf(".difficulty-badge"))}px`);
       wrap.style.setProperty("--health-bottom", `${Math.max(0, healthBottom)}px`);
+      wrap.style.setProperty("--health-bars-bottom", `${Math.max(0, healthBarsBottom)}px`);
       wrap.style.setProperty("--arena-playfield-top", `${playfieldTop}px`);
       wrap.style.setProperty("--camera-safe-top", `${layout.form === "phone" && layout.orientation === "landscape" ? Math.ceil(Math.max(healthBottom, bottomOf(".touch-powerup-hud"))) + 2 : 0}px`);
       wrap.style.setProperty("--arena-canvas-width", `${canvasWidth}px`);
@@ -3043,14 +3057,18 @@ export default function WormholeGame() {
   const launchRiftRun = useCallback(() => {
     modePreference.set("pve");
     difficultyPreference.set("easy");
-    // Passed explicitly rather than left to the preference just set above.
-    // `start` closes over the mode from the current render, and the store
-    // update above does not reach it until React re-renders — so the run
-    // launched under whatever mode was remembered from last time. Once Classic
-    // existed as a mode that could be remembered, that meant a Rift Run
-    // inheriting CLASSIC_RULES: an orbiting rift at depth zero, and a rift that
-    // could never lose integrity because the payload path took the network
-    // transmit branch instead of the PvE damage branch.
+    // Stated explicitly rather than left to the preferences set just above.
+    // `start` closes over the mode and difficulty from the render it was
+    // created in, and a store update does not reach that closure until React
+    // re-renders — so a Rift Run launched under whatever was remembered from
+    // the previous run instead of its own rules.
+    //
+    // Harmless while every remembered mode still routed payload damage the
+    // same way. Once Classic could be remembered it was not: a Rift Run
+    // started after a Classic run inherited CLASSIC_RULES, which orbits the
+    // rift at depth zero and sends launched payloads down the network
+    // transmit branch instead of the PvE damage branch, so rift integrity
+    // could never fall and the run could not be won.
     start(riftShipId, "pve", "easy");
   }, [riftShipId, start]);
 
