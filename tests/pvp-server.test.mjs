@@ -446,7 +446,13 @@ test("transmissions reach the opponent, tagged so duplicates can be dropped", ()
   assert.equal(incoming.weapon, "nuke");
   assert.equal(incoming.from, "ALPHA");
   assert.ok(incoming.eventId, "server issues the event id");
-  assert.equal(a.last("incoming"), undefined, "sender must not receive their own attack");
+  assert.equal(incoming.targetId, b.player.id, "the delivery names the pilot it is aimed at");
+  // Both pilots hear about a delivery now that they share one arena: the host
+  // is what spawns the wave, and the host is often the sender. The tag is what
+  // keeps that from being the sender's own attack arriving back at them.
+  const echo = a.last("incoming");
+  assert.equal(echo.eventId, incoming.eventId, "the arena host is told, so it can spawn the wave");
+  assert.notEqual(echo.targetId, a.player.id, "and told it is not the one under attack");
 
   const replay = server.transmit(a.player, { seq: 1, weapon: "nuke" }, 6010);
   assert.equal(replay.duplicate, true);

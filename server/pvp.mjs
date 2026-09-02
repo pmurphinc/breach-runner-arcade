@@ -273,6 +273,11 @@ function handle(matches, player, message, now, send) {
       if (!result.ok) send({ type: "error", code: result.code });
       return;
     }
+    case "pvp_shot": {
+      const result = matches.reportPilotShots(player, message, now);
+      if (!result.ok) send({ type: "error", code: result.code });
+      return;
+    }
     case "rematch": {
       const result = matches.requestRematch(player, now, message.ship);
       if (!result.ok) send({ type: "error", code: result.code });

@@ -209,16 +209,18 @@ test("a PvP pilot owns a portal as well as attacking one", () => {
   const game = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
   assert.match(game, /if \(mode === "pvp"\) \{/);
   assert.match(game, /createPortal\(1, "you", arena, 180\)/, "opposite the rift, so they are never stacked");
-  // Both portals share the ruleset's ring rather than the model's own default,
-  // or they would orbit two different circles.
-  assert.match(game, /rules\.wormhole\.kind === "orbit" \? rules\.wormhole\.radius/);
+  // Both rifts sit on one shared ring, placed by side rather than by role, so
+  // the two clients agree on where both of them are without being told.
+  assert.match(game, /const theirs = pvpPortalPoint\(rivalSide\(side\), arena\)/);
+  assert.match(game, /const mine = pvpPortalPoint\(side, arena\)/);
 });
 
-test("a sent payload arrives through the receiving pilot's own portal", () => {
+test("a sent payload arrives through the attacked pilot's own portal", () => {
   const game = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
   // Spawning it at the rival rift put the wave on top of the thing the pilot
-  // was already shooting at, which is backwards.
-  assert.match(game, /const own = game\.portals\.find\(\(portal\) => portal\.ownerId === "you"\)/);
+  // was already shooting at, which is backwards. In a shared arena the host
+  // also spawns waves aimed at the *other* pilot, out of that pilot's mouth.
+  assert.match(game, /const mouth = at === "you"\s*\n\s*\? game\.portals\.find\(\(portal\) => portal\.ownerId === "you"\)\s*\n\s*: game\.portals\.find\(\(portal\) => portal\.ownerId !== "you"\);/);
   assert.match(game, /makeEnemy\(power, originX, originY, i, count\)/);
   // The arrival flare moves with it.
   assert.match(game, /pushSpawn\(game, "hostile", power, originX, originY, count\)/);
@@ -239,6 +241,6 @@ test("solo modes still carry exactly one portal", () => {
   const game = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
   // The second portal is PvP-only; PvE, Classic solo and co-op are unchanged.
   const seed = game.slice(game.indexOf("portals: (() => {"), game.indexOf("survival: isSurvival(rules)"));
-  assert.match(seed, /const list = \[arrived\(createPortal\(0, "rift"/);
+  assert.match(seed, /return \[arrived\(createPortal\(0, "rift", arena, 0\), wormhole\.x, wormhole\.y\)\];/);
   assert.ok(!seed.includes('mode === "pve"'), "no per-solo-mode branching");
 });

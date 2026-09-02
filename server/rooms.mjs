@@ -5,9 +5,11 @@
  * a `send` function, so the whole state machine can be driven from tests
  * without opening a socket. `server/pvp.mjs` supplies the transport.
  *
- * In co-op the first player is the arena host. Its validated, rate-limited
- * enemy snapshots are relayed to the teammate so both devices render one world.
- * The server still owns match membership, shared rival integrity and results.
+ * In both co-op and PvP the first player is the arena host. Its validated,
+ * rate-limited world snapshots are relayed to the other pilot so both devices
+ * render one world. The server still owns match membership, shared rival
+ * integrity, hull, shield and results -- the host is an authority on geometry
+ * only, and reports every hit it resolves rather than asserting a hull.
  */
 import {
   COUNTDOWN_SECONDS,
@@ -49,6 +51,16 @@ export { PUP_INVENTORY_CAPACITY };
 const COOP_POWER_DAMAGE = { nuke: 24, beam: 18, artillery: 18, gunship: 18 };
 const coopPowerDamage = (weapon) => COOP_POWER_DAMAGE[weapon] ?? 12;
 
+/**
+ * Modes that run one relayed world rather than two private mirrors.
+ *
+ * Co-op has always been one of them. PvP joined it when a duel stopped being a
+ * correspondence game: without this, `updateWorld` rejects every PvP room and
+ * the two pilots never share an arena.
+ */
+export const SHARED_ARENA_KINDS = ["coop", "pvp"];
+const isSharedArena = (room) => SHARED_ARENA_KINDS.includes(room.kind);
+
 /** The sole logical public PvP queue. Client properties never contribute to it. */
 export const PVP_QUICK_MATCH_QUEUE = "PVP_1V1_QUICK_MATCH";
 export const PRIVATE_CODE_ATTEMPTS = 50;
@@ -82,6 +94,7 @@ export function createPlayer(send, { now = Date.now(), random = Math.random } = 
     launchedPups: [],
     lastTransmitSeq: -1,
     lastEnemyHitSeq: -1,
+    lastShotSeq: -1,
     lastWorldActionSeq: -1,
     position: { seq: -1, sentAt: 0, x: 752, y: 470, angle: 270 },
     window: createRateWindow(),
@@ -125,7 +138,15 @@ export class MatchServer {
     }
 
     if (room.phase === PHASES.ACTIVE || room.phase === PHASES.COUNTDOWN) {
-      this.sendTo(this.opponentOf(room, player), {
+      const survivor = this.opponentOf(room, player);
+      // The arena host just dropped. Hand simulation to the pilot who is still
+      // here rather than leave their world frozen for the whole grace period.
+      // The grace itself is untouched: if the host never comes back the sweep
+      // still forfeits them, and if they do they return as the guest.
+      if (room.players[0] === player && survivor?.connected) {
+        this.promoteHost(room, survivor, now);
+      }
+      this.sendTo(survivor, {
         type: "opponent",
         state: "disconnected",
         graceMs: RECONNECT_GRACE_MS,
@@ -142,6 +163,29 @@ export class MatchServer {
       this.sendTo(opponent, { type: "lobby", state: "idle", reason: "opponent_left" });
     }
     this.byResume.delete(player.resume);
+  }
+
+  /**
+   * Moves the arena host to another pilot.
+   *
+   * Host identity is simply position zero in the room, so a migration is a
+   * reorder plus a `match` broadcast. Everything that asks who hosts --
+   * `sendMatch`, `updateWorld`, `reportEnemyHit` -- reads that same slot, so
+   * there is no second source of truth to keep in step.
+   */
+  promoteHost(room, next, now = Date.now()) {
+    const index = room.players.indexOf(next);
+    if (index <= 0) return false;
+    room.players.splice(index, 1);
+    room.players.unshift(next);
+    // The new host counts its own snapshots from its own counter, which has no
+    // relation to the number the old host had reached. Without this reset every
+    // snapshot the new host sends would look stale and be dropped.
+    room.worldSeq = -1;
+    room.lastWorldAt = 0;
+    room.touchedAt = now;
+    this.sendMatch(room);
+    return true;
   }
 
   /** Re-attaches a returning player to their match, if the grace has not expired. */
@@ -372,6 +416,7 @@ export class MatchServer {
       player.launchedPups = [];
       player.lastTransmitSeq = -1;
       player.lastEnemyHitSeq = -1;
+      player.lastShotSeq = -1;
       player.lastWorldActionSeq = -1;
       player.position.seq = -1;
     }
@@ -388,13 +433,31 @@ export class MatchServer {
    * numbers make a replayed frame a no-op, and the sliding window caps both
    * how often and how much a client can claim.
    */
-  reportDamage(player, { seq, source, amount, cause = "unknown" }, now = Date.now()) {
+  reportDamage(player, { seq, source, amount, cause = "unknown", target = "self" }, now = Date.now()) {
     const room = player.room;
     if (!room || room.phase !== PHASES.ACTIVE || !player.combat) {
       return { ok: false, code: ERRORS.NOT_IN_MATCH };
     }
     if (seq <= player.lastDamageSeq) return { ok: true, duplicate: true };
 
+    // Ship-vs-ship fire is resolved once, by the arena host, in the world both
+    // pilots actually share. It is still reported rather than asserted: the
+    // host names who it hit and how hard, and everything below -- shield, hull,
+    // destruction, result -- is decided here exactly as it was before.
+    //
+    // Collisions stay self-reported whoever is hosting, because only the pilot
+    // who hit something knows they did.
+    let victim = player;
+    if (target === "opponent") {
+      if (room.kind !== "pvp" || room.players[0] !== player || source !== "impact") {
+        return { ok: false, code: ERRORS.WRONG_PHASE };
+      }
+      victim = this.opponentOf(room, player);
+      if (!victim || !victim.combat) return { ok: false, code: ERRORS.NOT_IN_MATCH };
+    }
+
+    // The window is charged to the reporter either way, so a host cannot buy
+    // itself a larger damage budget by aiming its claims at the other pilot.
     rollWindow(player.window, now);
     if (
       player.window.damageEvents >= MAX_DAMAGE_EVENTS_PER_WINDOW ||
@@ -406,15 +469,15 @@ export class MatchServer {
     player.window.damageTotal += amount;
     player.lastDamageSeq = seq;
 
-    const hullBefore = player.combat.hull;
-    const outcome = applyDamage(player.combat, source, amount, now);
+    const hullBefore = victim.combat.hull;
+    const outcome = applyDamage(victim.combat, source, amount, now);
     const finalDamage = Math.min(hullBefore, outcome.toHull);
     room.touchedAt = now;
     this.broadcastState(room, now);
 
     if (outcome.destroyed) {
-      if (room.kind === "coop") this.finishCoop(room, "defeat", "pilot_hull", now, player, cause, finalDamage);
-      else this.finish(room, this.opponentOf(room, player), "hull", now, player, cause, finalDamage);
+      if (room.kind === "coop") this.finishCoop(room, "defeat", "pilot_hull", now, victim, cause, finalDamage);
+      else this.finish(room, this.opponentOf(room, victim), "hull", now, victim, cause, finalDamage);
     }
     return { ok: true, ...outcome };
   }
@@ -480,14 +543,24 @@ export class MatchServer {
     const opponent = this.opponentOf(room, player);
     // Server-issued id so the receiver can discard a duplicate delivery.
     const eventId = `${room.code}:${(room.transmitSeq += 1)}`;
-    this.sendTo(opponent, { type: "incoming", eventId, weapon, from: player.name });
+    // Both pilots hear about the delivery, and `targetId` says whose portal it
+    // comes out of. The pilot being attacked raises the warning; the arena host
+    // is the one that spawns the wave, so it exists in the world the two of
+    // them share instead of only in the arena of whoever was attacked.
+    this.broadcast(room, {
+      type: "incoming",
+      eventId,
+      weapon,
+      from: player.name,
+      targetId: opponent?.id ?? null,
+    });
     this.sendTo(player, { type: "state", sent: weapon, eventId });
     return { ok: true, eventId };
   }
 
   updatePosition(player, position, now = Date.now()) {
     const room = player.room;
-    if (!room || room.kind !== "coop" || room.phase !== PHASES.ACTIVE) return { ok: false, code: ERRORS.NOT_IN_MATCH };
+    if (!room || !isSharedArena(room) || room.phase !== PHASES.ACTIVE) return { ok: false, code: ERRORS.NOT_IN_MATCH };
     if (position.seq <= player.position.seq) return { ok: true, ignored: true };
     player.position = { seq: position.seq, sentAt: position.sentAt, x: position.x, y: position.y, angle: position.angle };
     room.touchedAt = now;
@@ -499,7 +572,7 @@ export class MatchServer {
 
   updateWorld(player, world, now = Date.now()) {
     const room = player.room;
-    if (!room || room.kind !== "coop" || room.phase !== PHASES.ACTIVE) {
+    if (!room || !isSharedArena(room) || room.phase !== PHASES.ACTIVE) {
       return { ok: false, code: ERRORS.NOT_IN_MATCH };
     }
     if (room.players[0]?.id !== player.id) return { ok: false, code: ERRORS.WRONG_PHASE };
@@ -515,7 +588,7 @@ export class MatchServer {
 
   reportEnemyHit(player, hit, now = Date.now()) {
     const room = player.room;
-    if (!room || room.kind !== "coop" || room.phase !== PHASES.ACTIVE) return { ok: false, code: ERRORS.NOT_IN_MATCH };
+    if (!room || !isSharedArena(room) || room.phase !== PHASES.ACTIVE) return { ok: false, code: ERRORS.NOT_IN_MATCH };
     if (hit.roundId !== room.roundId || hit.seq <= player.lastEnemyHitSeq) return { ok: true, ignored: true };
     rollWindow(player.window, now);
     if (player.window.enemyHits >= MAX_ENEMY_HITS_PER_WINDOW) return { ok: false, code: ERRORS.RATE_LIMITED };
@@ -529,11 +602,39 @@ export class MatchServer {
 
   reportWorldAction(player, action) {
     const room = player.room;
-    if (!room || room.kind !== "coop" || room.phase !== PHASES.ACTIVE) return { ok: false, code: ERRORS.NOT_IN_MATCH };
+    if (!room || !isSharedArena(room) || room.phase !== PHASES.ACTIVE) return { ok: false, code: ERRORS.NOT_IN_MATCH };
     if (action.roundId !== room.roundId || action.seq <= player.lastWorldActionSeq) return { ok: true, ignored: true };
     player.lastWorldActionSeq = action.seq;
     const host = room.players[0];
     if (player !== host) this.sendTo(host, { type: "coop_world_action", ...action, from: player.id });
+    return { ok: true };
+  }
+
+  /**
+   * One relayed cannon volley.
+   *
+   * Rounds cross as spawn events, not as positions: a cannon round has no
+   * steering, so the receiver integrates it identically and gets a smooth line
+   * of fire instead of one that teleports once per snapshot. It is also what
+   * gives the host per-tick precision when it resolves the other pilot fire
+   * against its own hull, which a six-tick position sample could never do.
+   */
+  reportPilotShots(player, volley, now = Date.now()) {
+    const room = player.room;
+    if (!room || room.kind !== "pvp" || room.phase !== PHASES.ACTIVE) {
+      return { ok: false, code: ERRORS.NOT_IN_MATCH };
+    }
+    if (volley.roundId !== room.roundId || volley.seq <= player.lastShotSeq) {
+      return { ok: true, ignored: true };
+    }
+    player.lastShotSeq = volley.seq;
+    room.touchedAt = now;
+    this.sendTo(this.opponentOf(room, player), {
+      type: "pvp_shot",
+      roundId: volley.roundId,
+      shots: volley.shots,
+      from: player.id,
+    });
     return { ok: true };
   }
 
