@@ -8,7 +8,8 @@ export type RunReplay =
   | { kind: "rift-run"; shipId: ShipId }
   | { kind: "survival" }
   | { kind: "coop" }
-  | { kind: "pvp" };
+  | { kind: "pvp" }
+  | { kind: "classic" };
 
 /** Capture what actually ran; the underlying PvE mode cannot identify Rift Run. */
 export function replayForCompletedRun(
