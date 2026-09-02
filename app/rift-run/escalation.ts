@@ -37,6 +37,7 @@ import {
   escalationForLevel,
   survivalRulesFor,
   SURVIVAL_HOSTILE_CAP,
+  SURVIVAL_STAGES,
   type SurvivalEscalation,
   type SurvivalStage,
 } from "../survival.ts";
@@ -52,13 +53,13 @@ export const RIFT_RUN_HOSTILE_CAP = SURVIVAL_HOSTILE_CAP;
  * is the first level of the next Survival stage. So every breach visibly
  * changes the rules rather than nudging a cadence nobody can feel.
  */
-export const RIFT_RUN_DEPTH_LEVELS = [1, 3, 5, 7, 11] as const;
+export const RIFT_RUN_DEPTH_LEVELS = SURVIVAL_STAGES.map((stage) => stage.fromLevel);
 
 /** The breach that lands a run in RIFT COLLAPSE — Survival's deepest stage. */
 export const RIFT_RUN_COLLAPSE_DEPTH = RIFT_RUN_DEPTH_LEVELS.length - 1;
 
 /** Survival levels each breach past RIFT COLLAPSE is worth. Uncapped tail. */
-export const RIFT_RUN_DEEP_LEVELS_PER_BREACH = 2;
+export const RIFT_RUN_DEEP_LEVELS_PER_BREACH = 3;
 
 /** The Survival Rift Level a run that has breached `depth` times flies under. */
 export function survivalLevelForDepth(depth: number): number {
