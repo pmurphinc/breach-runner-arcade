@@ -816,18 +816,13 @@ function createGame(
       // Already arrived: the existing modes have never shown a warp-in, and
       // starting one here would open every run with the rift sliding outward.
       const arrived = (portal: Portal, x: number, y: number) => ({ ...portal, warpRadius: portal.orbitRadius, x, y });
-      // Portal zero is the rift this pilot engages. In PvE and Classic solo it
-      // is the only one; in PvP the pilot also owns a portal of their own.
-      const list = [arrived(createPortal(0, "rift", arena, 0), wormhole.x, wormhole.y)];
-      if (mode === "pvp") {
-        // Share the ruleset's ring so both portals orbit the same circle, and
-        // sit opposite so they are never stacked on each other.
-        const ring = rules.wormhole.kind === "orbit" ? rules.wormhole.radius : createPortal(1, "you", arena, 180).orbitRadius;
-        const own = { ...createPortal(1, "you", arena, 180), orbitRadius: ring };
-        const centre = { x: arena.width / 2, y: arena.height / 2 };
-        list.push(arrived(own, centre.x - ring, centre.y));
-      }
-      return list;
+      // One rift per arena, in every mode.
+      //
+      // PvP briefly carried a second — the pilot's own — on the way to a shared
+      // arena. Both are gone: a duel here is fought through one rift by sending
+      // payloads into it, not by two pilots circling two rifts in one room. The
+      // list stays plural because Classic's several-portal arena needs it.
+      return [arrived(createPortal(0, "rift", arena, 0), wormhole.x, wormhole.y)];
     })(),
     survival: isSurvival(rules) ? createSurvivalState() : null,
     // Rift Run arms this in `start`, where the run itself is created.
@@ -3800,13 +3795,11 @@ export default function WormholeGame() {
 
     const addIncoming = (game: Game, power: PowerId, sizeBonus = 0) => {
       const count = ENEMY_COUNTS[power] * (game.mode === "coop" ? 2 : 1) + Math.max(0, sizeBonus);
-      // A payload the opponent sent arrives through *this* pilot's portal, not
-      // through the one they are attacking. Spawning it at the rival rift put
-      // the wave on top of the thing the pilot was already shooting at, which
-      // is the opposite of how attacking through a wormhole is supposed to read.
-      const own = game.portals.find((portal) => portal.ownerId === "you");
-      const originX = own ? own.x : game.portalX;
-      const originY = own ? own.y : game.portalY;
+      // Everything the opponent sends arrives through this arena's rift, which
+      // is the same rift the pilot is shooting. That is the mode: you never see
+      // the other pilot, you only feel what they push through.
+      const originX = game.portalX;
+      const originY = game.portalY;
       for (let i = 0; i < count; i += 1) game.enemies.push(makeEnemy(power, originX, originY, i, count));
       game.incoming = power;
       game.notice = `INCOMING // ${WEAPONS[power].short}`;
