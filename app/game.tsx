@@ -2352,6 +2352,19 @@ export default function WormholeGame() {
         bottomOf(".pilot-rail small"),
         bottomOf(".rival-rail")
       );
+      // The same measurement without the shield caption.
+      //
+      // That caption hangs below the pilot rail at the far left, so including
+      // it pushes anything anchored to "below health" down by the caption's
+      // full height — across the entire width, including the centre where
+      // there is nothing to clear. The payload inventory is centred, so it was
+      // sitting a caption's height lower than it needed to and leaving an
+      // obvious dead band under the bars.
+      const healthBarsBottom = Math.max(
+        bottomOf(".difficulty-badge"),
+        bottomOf(".pilot-rail"),
+        bottomOf(".rival-rail")
+      );
       // Only permanent HUD participates in playfield geometry. Spawn notices
       // are absolutely positioned overlays and must never move or resize the
       // arena when their contents change.
@@ -2383,6 +2396,7 @@ export default function WormholeGame() {
       wrap.style.setProperty("--system-controls-width", `${Math.ceil(systemOverlap)}px`);
       wrap.style.setProperty("--rules-bottom", `${Math.max(0, bottomOf(".difficulty-badge"))}px`);
       wrap.style.setProperty("--health-bottom", `${Math.max(0, healthBottom)}px`);
+      wrap.style.setProperty("--health-bars-bottom", `${Math.max(0, healthBarsBottom)}px`);
       wrap.style.setProperty("--arena-playfield-top", `${playfieldTop}px`);
       wrap.style.setProperty("--camera-safe-top", `${layout.form === "phone" && layout.orientation === "landscape" ? Math.ceil(Math.max(healthBottom, bottomOf(".touch-powerup-hud"))) + 2 : 0}px`);
       wrap.style.setProperty("--arena-canvas-width", `${canvasWidth}px`);
