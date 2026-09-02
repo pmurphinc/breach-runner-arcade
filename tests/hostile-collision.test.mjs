@@ -94,18 +94,14 @@ test("pickup labels are aged, expired, and cleared with the arena", () => {
   assert.match(game, /game\.pickupLabels\.length = 0;/, "the singularity sweep must not leave labels behind");
 });
 
-test("PvP delivers sent payloads as real hostiles, out of the attacked pilot's portal", () => {
+test("PvP already delivers sent payloads as real hostiles", () => {
   // Worth pinning: an earlier plan recorded PvP as trading flat integrity
-  // damage. It does not — a real wave is spawned. Only the PvE branch, which
-  // has no opposing pilot to spawn anything at, uses a number.
-  //
-  // In a shared arena the wave exists exactly once, on the arena host, and
-  // reaches the other pilot through the world relay like every other hostile.
-  const pvpStart = game.indexOf("// No bot in PvP");
+  // damage. It does not — the receiving client spawns the actual wave. Only the
+  // PvE branch, which has no opposing pilot to spawn anything at, uses a number.
+  const pvpStart = game.indexOf('if (game.mode === "pvp") {');
   const pvp = game.slice(pvpStart, game.indexOf("} else if (", pvpStart));
   assert.match(pvp, /for \(const attack of netRef\.current\?\.drainIncoming\(\) \?\? \[\]\)/);
-  assert.match(pvp, /addIncoming\(game, attack\.weapon as PowerId, 0, atMe \? "you" : "rival", arenaIsHost\)/);
-  assert.match(pvp, /if \(!arenaIsHost && !atMe\) continue;/, "a guest never spawns a wave itself");
+  assert.match(pvp, /addIncoming\(game, attack\.weapon as PowerId\)/);
   assert.doesNotMatch(pvp, /rivalDamageFor/);
   // rivalDamageFor survives for PvE and the codex readout, and nowhere else.
   assert.equal((game.match(/rivalDamageFor\(/g) ?? []).length, 2);
