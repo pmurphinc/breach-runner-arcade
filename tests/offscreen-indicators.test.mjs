@@ -159,12 +159,19 @@ test("an off-screen ally produces a marker on the edge toward the ally", () => {
   assert.equal(level.y, 320);
 });
 
-test("the ally marker is co-op only — never solo PvE, Survival, or a PvP rival", () => {
-  assert.match(game, /game\.mode === "coop" \? netRef\.current\?\.renderedTeammate\(time\) : null/);
+test("the other-pilot marker covers both shared arenas and nothing else", () => {
+  // It was co-op only for as long as a PvP rival was in a different arena.
+  // Now that a duel is one shared board, the rival is exactly the thing this
+  // marker exists for — and it wears a rival's red rather than an ally's green.
   const block = renderBlock();
-  assert.doesNotMatch(block, /opponentCombat|game\.rival|game\.survival|mode === "pvp"/);
-  // A missing ally renders nothing at all.
+  assert.match(block, /game\.mode === "coop" \|\| game\.mode === "pvp"[\s\S]*?renderedTeammate\(time\)[\s\S]*?: null;/);
+  assert.match(block, /const allyAccent = game\.mode === "pvp" \? "#ff4d6d" : "#b6ff57";/);
+  // Solo rulesets still contribute nothing to the edge.
+  assert.doesNotMatch(block, /opponentCombat|game\.rival|game\.survival/);
+  // A missing second pilot renders nothing at all, and a stale one from the
+  // previous round is dropped rather than pointed at.
   assert.match(block, /allyTarget\s*\?[\s\S]*?:\s*null;/);
+  assert.match(block, /otherPilot\.roundId === game\.roundId/);
   assert.match(block, /if \(allyMarker\) drawOffscreenMarker/);
 });
 
@@ -239,7 +246,7 @@ test("markers draw inside the arena canvas, not as floating DOM HUD", () => {
 test("the Rift marker keeps the rift's own colour language, including enrage", () => {
   const block = renderBlock();
   assert.match(block, /game\.enrageActive \? "#ff2a3f" : "#ff4cbe"/);
-  assert.match(block, /drawOffscreenMarker\(allyMarker, "#b6ff57", true\)/);
+  assert.match(block, /drawOffscreenMarker\(allyMarker, allyAccent, true\)/);
   // A compact directional marker, not a second full rift at the edge.
   assert.doesNotMatch(block, /drawPortal|createRadialGradient/);
 });
@@ -862,7 +869,7 @@ test("the Rift, ally and PUP markers are unchanged by the hostile pass", () => {
   const block = renderBlock();
   assert.match(block, /nearestOffscreenTargets\(\s*game\.pickups,\s*playfieldBounds,\s*MAX_OFFSCREEN_PUP_INDICATORS,/);
   assert.match(block, /if \(riftMarker\) drawOffscreenMarker\(riftMarker, game\.enrageActive \? "#ff2a3f" : "#ff4cbe", false\)/);
-  assert.match(block, /if \(allyMarker\) drawOffscreenMarker\(allyMarker, "#b6ff57", true\)/);
+  assert.match(block, /if \(allyMarker\) drawOffscreenMarker\(allyMarker, allyAccent, true\)/);
 });
 
 test("hostile markers follow every camera mode without touching the camera", () => {
@@ -1243,7 +1250,7 @@ test("ordinary hostiles, the Rift, the ally and the PUPs are untouched", () => {
   const block = renderBlock();
   assert.match(block, /drawOffscreenPupMarker\(marker, WEAPONS\[pickup\.type\]\.pupClass\)/);
   assert.match(block, /if \(riftMarker\) drawOffscreenMarker\(riftMarker, game\.enrageActive \? "#ff2a3f" : "#ff4cbe", false\)/);
-  assert.match(block, /if \(allyMarker\) drawOffscreenMarker\(allyMarker, "#b6ff57", true\)/);
+  assert.match(block, /if \(allyMarker\) drawOffscreenMarker\(allyMarker, allyAccent, true\)/);
 });
 
 test("hazard markers are local presentation: no protocol, no HUD toggle, no sound", () => {

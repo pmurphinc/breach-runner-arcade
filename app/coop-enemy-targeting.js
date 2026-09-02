@@ -39,10 +39,13 @@ export function hostileShotVelocity(origin, target, speed) {
 }
 
 /**
- * Only the arena host may create hostile attacks in co-op. Solo modes keep
- * their existing local authority.
+ * Only the arena host may create hostile attacks in a shared arena.
+ *
+ * Co-op has always been one; PvP became one when a duel stopped being two
+ * private mirrors. Solo modes keep their existing local authority.
  * @param {string} mode @param {string | null | undefined} pilotId @param {string | null | undefined} hostId
  */
 export function hasEnemyAttackAuthority(mode, pilotId, hostId) {
-  return mode !== "coop" || Boolean(pilotId) && pilotId === hostId;
+  if (mode !== "coop" && mode !== "pvp") return true;
+  return Boolean(pilotId) && pilotId === hostId;
 }
