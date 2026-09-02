@@ -2937,7 +2937,19 @@ export default function WormholeGame() {
   const launchRiftRun = useCallback(() => {
     modePreference.set("pve");
     difficultyPreference.set("easy");
-    start(riftShipId);
+    // Stated explicitly rather than left to the preferences set just above.
+    // `start` closes over the mode and difficulty from the render it was
+    // created in, and a store update does not reach that closure until React
+    // re-renders — so a Rift Run launched under whatever was remembered from
+    // the previous run instead of its own rules.
+    //
+    // Harmless while every remembered mode still routed payload damage the
+    // same way. Once Classic could be remembered it was not: a Rift Run
+    // started after a Classic run inherited CLASSIC_RULES, which orbits the
+    // rift at depth zero and sends launched payloads down the network
+    // transmit branch instead of the PvE damage branch, so rift integrity
+    // could never fall and the run could not be won.
+    start(riftShipId, "pve", "easy");
   }, [riftShipId, start]);
 
   // The server decides when the match is live. When it says so, launch the
