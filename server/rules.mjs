@@ -28,14 +28,8 @@ export const COLLISION_SHIELD_RECHARGE_TICKS = 267;
 export const COLLISION_SHIELD_RECHARGE_MS =
   COLLISION_SHIELD_RECHARGE_TICKS * TICK_MS;
 
-/**
- * How a PvP rift moves.
- *
- * "locked" until the duel rift was given an orbit, and left saying so long
- * after it stopped being true. Both rifts in a shared arena ride one orbit half
- * a turn apart; `app/difficulty.ts` PVP_RULES is where the ring itself lives.
- */
-export const WORMHOLE_MOTION = "orbit";
+/** PvP wormholes are locked in the centre of each arena. */
+export const WORMHOLE_MOTION = "locked";
 
 /** PvP never applies the Hard Mode contact hazard. */
 export const CONTACT_HAZARD_ENABLED = false;

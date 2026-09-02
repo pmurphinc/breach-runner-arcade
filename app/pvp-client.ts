@@ -1,7 +1,6 @@
 "use client";
 
 import { RemoteMotion } from "./network-motion.ts";
-import { MAX_PVP_SHOTS_PER_VOLLEY, type PvpShot } from "./pvp-arena.ts";
 
 /**
  * Client side of the PvP protocol.
@@ -16,7 +15,7 @@ import { MAX_PVP_SHOTS_PER_VOLLEY, type PvpShot } from "./pvp-arena.ts";
  */
 
 /** Must match server/protocol.mjs. `tests/pvp-protocol.test.mjs` asserts it. */
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 6;
 export const PVP_PATH = "/pvp";
 export const CODE_LENGTH = 4;
 export const COUNTDOWN_SECONDS = 3;
@@ -52,16 +51,6 @@ export type PvpOpponent = {
 };
 
 export type NetworkMode = "pvp" | "coop";
-/**
- * One attack delivered through the wormhole.
- *
- * `targetId` is what turns a private mirror into a shared arena: both pilots
- * are told about every delivery, the one being attacked raises the warning,
- * and the arena host is the one that actually spawns the wave.
- */
-export type IncomingAttack = { weapon: string; from: string; targetId: string | null };
-/** A relayed cannon volley, tagged with the pilot who fired it. */
-export type RivalVolley = { roundId: number; from: string; shots: PvpShot[] };
 export type TeammatePosition = { id: string; name: string; roundId: number; seq: number; sentAt: number; x: number; y: number; angle: number };
 export const POSITION_SEND_INTERVAL_MS = 33;
 export type CoopRival = { hull: number; maxHull: number; score: number };
@@ -166,10 +155,7 @@ export class PvpClient {
   private clockOffset = 0;
   private seenIncoming = new Set<string>();
   /** Delivered attacks the game has not yet spawned. */
-  private incomingQueue: IncomingAttack[] = [];
-  /** Relayed cannon volleys the game has not yet turned into rounds. */
-  private rivalShotQueue: RivalVolley[] = [];
-  private shotSeq = 0;
+  private incomingQueue: { weapon: string; from: string }[] = [];
   private warningTimer: ReturnType<typeof setTimeout> | null = null;
   private sessionKind: NetworkMode;
   private difficulty: string;
@@ -207,9 +193,6 @@ export class PvpClient {
     this.incomingQueue = [];
     return queued;
   }
-
-  /** Cannon volleys the other pilot fired since the last call. */
-  drainRivalShots() { const volleys = this.rivalShotQueue; this.rivalShotQueue = []; return volleys; }
 
   drainEnemyHits() { const hits = this.enemyHitQueue; this.enemyHitQueue = []; return hits; }
   drainWorldActions() { const actions = this.worldActionQueue; this.worldActionQueue = []; return actions; }
@@ -337,20 +320,13 @@ export class PvpClient {
       }
       case "match": {
         const you = message.you as { id?: string; ship?: string; ready?: boolean } | undefined;
-        const hostId = typeof message.hostId === "string" ? message.hostId : null;
-        // The arena host changed, which in practice means it dropped and the
-        // other pilot took over. The snapshot still holds the old host's world
-        // revision, and the new host counts from its own; keeping it would make
-        // every snapshot from the new host look stale and be discarded.
-        const migrated = hostId !== this.snapshot.hostId;
         this.update({
-          ...(migrated ? { world: null } : {}),
           phase: this.snapshot.phase === "active" ? "active" : "select",
           kind: message.kind === "coop" ? "coop" : "pvp",
           difficulty: typeof message.difficulty === "string" ? message.difficulty : this.difficulty,
           code: typeof message.code === "string" ? message.code : null,
           you: { id: you?.id ?? "", ship: you?.ship ?? "wing", ready: Boolean(you?.ready) },
-          hostId,
+          hostId: typeof message.hostId === "string" ? message.hostId : null,
           roundId: typeof message.roundId === "number" ? message.roundId : this.snapshot.roundId,
           opponent: (message.opponent as PvpOpponent | null) ?? null,
           result: message.lastResult ? this.parseResult(message.lastResult as Record<string, unknown>) : null,
@@ -438,12 +414,7 @@ export class PvpClient {
         if (eventId) this.seenIncoming.add(eventId);
         const weapon = String(message.weapon ?? "");
         const from = String(message.from ?? "OPPONENT");
-        const targetId = typeof message.targetId === "string" ? message.targetId : null;
-        this.incomingQueue.push({ weapon, from, targetId });
-        // In a shared arena both pilots are told about every delivery, so the
-        // host can spawn one aimed at the other. Only the pilot actually being
-        // attacked gets the warning banner.
-        if (targetId !== null && this.snapshot.you && targetId !== this.snapshot.you.id) return;
+        this.incomingQueue.push({ weapon, from });
         // Expiry lives here rather than in the component: a render must not
         // read the clock to decide whether a warning is still current.
         if (this.warningTimer) clearTimeout(this.warningTimer);
@@ -452,17 +423,6 @@ export class PvpClient {
           this.warningTimer = null;
           this.update({ incoming: null });
         }, INCOMING_WARNING_MS);
-        return;
-      }
-      case "pvp_shot": {
-        if (message.roundId !== this.snapshot.roundId) return;
-        const shots = Array.isArray(message.shots) ? (message.shots as PvpShot[]) : [];
-        if (shots.length === 0) return;
-        this.rivalShotQueue.push({
-          roundId: message.roundId as number,
-          from: String(message.from ?? ""),
-          shots: shots.map((shot) => ({ ...shot })),
-        });
         return;
       }
       case "opponent": {
@@ -530,38 +490,11 @@ export class PvpClient {
   setReady(ready: boolean) { this.send({ type: "ready", ready }); }
   requestRematch(ship?: string) { this.send({ type: "rematch", ...(ship ? { ship } : {}) }); }
 
-  /**
-   * Reports damage. The server decides what it costs.
-   *
-   * `target` is "self" for everything a pilot suffers in its own right. The
-   * shared PvP arena's host also uses "opponent" for the ship-vs-ship fire it
-   * resolved: still a report rather than an assertion, so the same sequence
-   * guard, the same sliding window and the same authoritative hull maths apply.
-   */
-  reportDamage(source: "collision" | "impact", amount: number, cause = "unknown", target: "self" | "opponent" = "self") {
+  /** Reports damage taken locally. The server decides what it costs. */
+  reportDamage(source: "collision" | "impact", amount: number, cause = "unknown") {
     if (amount <= 0) return;
     this.damageSeq += 1;
-    this.send({ type: "damage", seq: this.damageSeq, source, amount: Math.round(amount), cause, target });
-  }
-
-  /**
-   * Relays one cannon volley to the other pilot.
-   *
-   * Spawn events rather than positions: a round has no steering, so the
-   * receiver integrates it identically and draws a smooth line of fire.
-   */
-  reportPilotShots(shots: PvpShot[]) {
-    if (shots.length === 0 || this.snapshot.roundId < 1) return false;
-    this.shotSeq += 1;
-    return this.send({
-      type: "pvp_shot",
-      seq: this.shotSeq,
-      roundId: this.snapshot.roundId,
-      shots: shots.slice(0, MAX_PVP_SHOTS_PER_VOLLEY).map((shot) => ({
-        x: shot.x, y: shot.y, vx: shot.vx, vy: shot.vy,
-        damage: shot.damage, life: shot.life, color: shot.color,
-      })),
-    });
+    this.send({ type: "damage", seq: this.damageSeq, source, amount: Math.round(amount), cause });
   }
 
   /** Reports the concrete simulation event; the server owns the resulting count. */
@@ -622,7 +555,6 @@ export class PvpClient {
     this.socket = null;
     this.seenIncoming.clear();
     this.incomingQueue = [];
-    this.rivalShotQueue = [];
     this.teammateMotion.reset();
     this.update({ ...EMPTY });
   }
