@@ -556,6 +556,37 @@ html[data-mirror-touch-actions="on"] .touch-capable[data-immersive="true"][data-
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pup) 60%, transparent),
               0 0 8px color-mix(in srgb, var(--pup) 55%, transparent);
 }
+/* The Special readout, under the payload frame.
+
+   Only drawn once a Special is installed: a Rift Run flies without one until it
+   earns it, and the compact HUD previously had no Special element at all, so
+   unlocking one changed nothing on screen. */
+.compact-special {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(var(--compact-offset), calc(-50% + var(--compact-gauge-h) * .5 + 14px));
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  padding: 2px 5px;
+  border: 1px solid rgba(255, 255, 255, .8);
+  border-radius: 3px;
+  background: rgba(1, 5, 9, .72);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, .55);
+  font-size: 8px;
+  line-height: 1;
+  letter-spacing: .06em;
+  white-space: nowrap;
+}
+.compact-special b { font-size: 8px; }
+.compact-special small { font-size: 7px; opacity: .85; }
+.compact-special.ready {
+  color: var(--cyan);
+  border-color: color-mix(in srgb, var(--cyan) 70%, transparent);
+}
+.compact-special.cooling { color: var(--muted); }
+
 .compact-pup .weapon-icon {
   position: static;
   width: 100%;
@@ -581,4 +612,5 @@ html[data-mirror-touch-actions="on"] .touch-capable[data-immersive="true"][data-
   .compact-gauge { border-color: CanvasText; forced-color-adjust: none; }
   .compact-hull > i, .compact-shield > i { background: Highlight; }
   .compact-pups { border-color: CanvasText; }
+  .compact-special { border-color: CanvasText; color: CanvasText; forced-color-adjust: none; }
 }

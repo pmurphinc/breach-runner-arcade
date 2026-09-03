@@ -43,10 +43,15 @@ test("the compact HUD is available in every mode, not gated on one", () => {
   }
 });
 
-test("the payload frame draws one cell per slot of the shared ceiling", () => {
-  assert.match(game, /"--compact-slots": STOCK_LIMIT/);
-  assert.match(hudCss, /grid-template-rows: repeat\(var\(--compact-slots, 5\), var\(--compact-cell\)\)/);
-  // Five is what the fixed geometry is designed against; see PUP_INVENTORY_CAPACITY.
+test("the payload frame draws one cell per slot the run has earned", () => {
+  // Not one per slot of the shared ceiling. A Rift Run opens on a single slot,
+  // and drawing five with four shut showed the pilot four things they could not
+  // use; the frame grows instead as capacity is bought.
+  assert.ok(game.includes("const capacity = Math.max(1, hud.payloadCapacity)"));
+  assert.ok(game.includes("\"--compact-slots\": capacity"));
+  assert.ok(game.includes("pupInventoryLayout(hud.stock, capacity)"));
+  assert.ok(hudCss.includes("grid-template-rows: repeat(var(--compact-slots, 5), var(--compact-cell))"));
+  // Five remains the ceiling every other mode opens at.
   assert.equal(PUP_INVENTORY_CAPACITY, 5);
 });
 

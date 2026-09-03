@@ -151,15 +151,37 @@ test("the earned loadout is pushed into the live game after every pick", () => {
   assert.match(game, /const next=chooseRiftRunSpecial\(current, shipId\);[\s\S]{0,400}applyRiftRunLoadout\(next\)/);
 });
 
-test("a run's own capacity is the bin's ceiling, and unearned slots read as locked", () => {
-  assert.match(game, /payloadCapacity: riftRun \? RIFT_RUN_STARTING_PAYLOAD_SLOTS : STOCK_LIMIT/);
-  assert.match(game, /game\.stock\.length >= game\.payloadCapacity/);
-  assert.match(game, /const wasBelowCapacity = game\.stock\.length === game\.payloadCapacity - 1/);
-  // The frame stays a fixed five wide in every mode — the compact HUD's
-  // geometry depends on it — so the unearned slots are drawn shut instead.
-  assert.match(game, /const lockedSlots = STOCK_LIMIT - hud\.payloadCapacity/);
-  assert.match(game, /const locked = index >= hud\.payloadCapacity/);
-  assert.match(game, /style=\{\{ "--compact-slots": STOCK_LIMIT \}/);
+test("a run's own capacity is the bin's ceiling, and only earned slots are drawn", () => {
+  assert.ok(game.includes("payloadCapacity: riftRun ? RIFT_RUN_STARTING_PAYLOAD_SLOTS : STOCK_LIMIT"));
+  assert.ok(game.includes("game.stock.length >= game.payloadCapacity"));
+  assert.ok(game.includes("const wasBelowCapacity = game.stock.length === game.payloadCapacity - 1"));
+  // Both frames draw the run's own capacity, not the shared ceiling with the
+  // remainder shut. A row of locked cells advertises capacity the pilot cannot
+  // use, and reads as a fault rather than as progress.
+  assert.ok(game.includes("Array.from({ length: Math.max(1, hud.payloadCapacity) }"));
+  assert.ok(game.includes("const capacity = Math.max(1, hud.payloadCapacity)"));
+  assert.ok(game.includes("style={{ \"--compact-slots\": capacity }"));
+  assert.ok(!game.includes("const lockedSlots ="), "no locked-slot arithmetic survives");
+  assert.ok(!game.includes('"slot locked"'), "the full bin draws no locked cells");
+});
+
+/**
+ * An installed Special has to appear somewhere the pilot is looking.
+ *
+ * Found by playing: unlocking a Special mid-run changed nothing on screen for
+ * anyone using the compact HUD, because the compact HUD had no Special element
+ * at all — only hull, shield and the payload frame. It is drawn only once one
+ * is installed, since a Rift Run starts without one and there is nothing to
+ * report until it is earned.
+ */
+test("the compact HUD shows the Special once it is earned", () => {
+  const block = game.slice(game.indexOf("{settings.compactHud ? (() => {"), game.indexOf('className="touch-powerup-hud"'));
+  assert.ok(block.includes("hud.specialLocked ? null : ("), "nothing is drawn until one is installed");
+  assert.ok(block.includes("className={\"compact-special \" + (hud.specialCooldown > 0 ? \"cooling\" : \"ready\")}"));
+  assert.ok(block.includes("<b>SPEC</b>"));
+  const hudCss = readFileSync(new URL("../app/arena-hud.css", import.meta.url), "utf8");
+  assert.ok(hudCss.includes(".compact-special {"));
+  assert.ok(hudCss.includes(".compact-special.ready {"));
 });
 
 test("an unspent follow-up choice holds the pause and blocks the next roll", () => {
