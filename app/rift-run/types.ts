@@ -59,6 +59,14 @@ export type RiftRunState = {
   pendingLevels: number;
   rollIndex: number;
   riftBreaches: number;
+  /**
+   * Extra lives in hand, beyond the hull currently being flown.
+   *
+   * Milestone-sourced only — see `extra-lives.ts`. Serialized with the rest of
+   * the run so a saved run comes back with what it earned rather than with a
+   * fresh pair.
+   */
+  lives: number;
   pendingHullGunReward: PendingHullGunReward | null;
   evolutionHistory: RiftEvolutionHistory[];
   upgradeHistory: RiftUpgradeHistory[];

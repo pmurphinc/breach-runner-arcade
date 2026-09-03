@@ -1,4 +1,5 @@
 import { RIFT_RUN_MAX_SOCKETS, createStarterLoadout } from "./loadout.ts";
+import { RIFT_RUN_STARTING_LIVES } from "./extra-lives.ts";
 import type { RiftHardpoint, RiftRunState } from "./types.ts";
 
 export function createStartingHardpoints(maximum: number): RiftHardpoint[] {
@@ -27,6 +28,7 @@ export function createRiftRun(seed: string): RiftRunState {
     pendingLevels: 0,
     rollIndex: 0,
     riftBreaches: 0,
+    lives: RIFT_RUN_STARTING_LIVES,
     pendingHullGunReward: null,
     evolutionHistory: [],
     upgradeHistory: [],

@@ -122,6 +122,31 @@ import { awardRiftEnergy, enemyKillEnergy, riftDamaged, riftEnergyRequiredForLev
 import { hasEnemyAttackAuthority, hostileShotVelocity, nearestPilot } from "./coop-enemy-targeting.js";
 import { applyRiftRunHullWeaponDamage, RIFT_RUN_BASE_INTEGRITY } from "./rift-run/rift-damage";
 import { breachRiftRun, tickRiftReform } from "./rift-run/breach";
+import { createRiftDanger, clearRiftDanger, resetRiftDangerForNewRift, type RiftDangerRuntime } from "./rift-run/danger";
+import { creditRiftPupBudget, ejectRiftPup, RIFT_PUP_GRACE_TICKS, RIFT_PUP_LIFE_TICKS, riftPupBudgetRemaining } from "./rift-run/pup-budget";
+import { riftPhaseForIntegrity, riftPhaseNotice, riftPhaseSpawn } from "./rift-run/rift-phases";
+import {
+  createRiftShockwave,
+  createRiftSweep,
+  markRiftSweepHit,
+  RIFT_PRESSURE_RADIUS,
+  riftRetaliationNotice,
+  riftShockwaveHits,
+  riftShockwavePush,
+  riftSweepHits,
+  tickRiftPressure,
+  tickRiftShockwave,
+  tickRiftSweep,
+} from "./rift-run/rift-pressure";
+import {
+  hazardImpactHits,
+  lethalHazardActive,
+  liveHazardImpacts,
+  riftHazardGravity,
+  riftHazardNotice,
+  tickRiftHazards,
+} from "./rift-run/environmental-hazards";
+import { awardLifeForDepth, extraLifeNotice, respawnNotice, spendExtraLife } from "./rift-run/extra-lives";
 import {
   RIFT_RUN_HOSTILE_CAP,
   createRiftRunEscalationRuntime,
@@ -642,6 +667,12 @@ type Game = {
    * cadences that depth armed.
    */
   riftEscalation: RiftRunEscalationRuntime | null;
+  /**
+   * Rift Run's danger systems: the rift's power-up budget, its pressure meter,
+   * the environmental hazard scheduler and any retaliation in flight. Null in
+   * every other mode.
+   */
+  riftDanger: RiftDangerRuntime | null;
   /** Remaining ticks in the staged wormhole-collapse victory sequence. */
   victorySequence: number;
   /** Ensures the central blast, sound, and particle payload fire exactly once. */
@@ -746,6 +777,10 @@ type Hud = {
   riftStage: string;
   /** Times the rift has been collapsed and reformed this Survival run. */
   breaches: number;
+  /** Rift Pressure, 0-100. Zero outside Rift Run. */
+  riftPressure: number;
+  /** Power-ups the current rift has left to shed. Zero outside Rift Run. */
+  riftPupBudget: number;
 };
 
 function cap(value: number, min: number, max: number) {
@@ -778,6 +813,15 @@ function coachLine(game: Game) {
   if (game.paused) return "PAUSED // PRESS P TO RESUME";
   if (game.stock.length > 0) return `AIM AT THE RIFT // PRESS E OR PUP TO SEND ${WEAPONS[game.stock[game.stock.length - 1]].short}`;
   if (game.pickups.length > 0) return "POWER-UP LOOSE // FLY OVER IT TO COLLECT";
+  // Rift Run's rift pays a budget at integrity thresholds, so telling a Rift
+  // Run pilot how much more damage buys a power-up would be a lie: inside a
+  // band the answer is "no amount".
+  if (game.riftDanger) {
+    const left = riftPupBudgetRemaining(game.riftDanger.budget);
+    return left > 0
+      ? `BREAK THE RIFT DOWN // ${left} PAYLOAD${left === 1 ? "" : "S"} LEFT IN IT`
+      : "RIFT SPENT // BREACH IT FOR A FRESH ONE";
+  }
   const remaining = Math.max(0, game.portalThreshold - game.portalCharge);
   return `SHOOT THE RIFT // ${Math.ceil(remaining)} MORE DAMAGE GENERATES A POWER-UP`;
 }
@@ -873,6 +917,7 @@ function createGame(
     survival: isSurvival(rules) ? createSurvivalState() : null,
     // Rift Run arms this in `start`, where the run itself is created.
     riftEscalation: null,
+    riftDanger: riftRun ? createRiftDanger() : null,
     victorySequence: 0,
     victoryExplosionFired: false,
     enrageActive: false,
@@ -955,6 +1000,8 @@ function hudFrom(game: Game): Hud {
     riftLevel: game.survival?.level ?? 0,
     riftStage: game.survival?.escalation.stage.name ?? "",
     breaches: game.survival?.breaches ?? 0,
+    riftPressure: Math.round(game.riftDanger?.pressure.pressure ?? 0),
+    riftPupBudget: game.riftDanger ? riftPupBudgetRemaining(game.riftDanger.budget) : 0,
   };
 }
 
@@ -1072,10 +1119,10 @@ function randomPower(): PickupId {
  * back out of existence in the same breath, which reads as the drop never
  * happening. Ends well before the pilot can realistically fly over it.
  */
-const PUP_SHOOT_GRACE_TICKS = 20;
+const PUP_SHOOT_GRACE_TICKS = RIFT_PUP_GRACE_TICKS;
 
 /** Ticks a loose power-up survives in the arena before it expires. */
-const PUP_LIFE_TICKS = 900;
+const PUP_LIFE_TICKS = RIFT_PUP_LIFE_TICKS;
 
 /** A loose power-up can be shot once its spawn grace has elapsed. */
 function pupIsShootable(pickup: Pickup) {
@@ -1854,12 +1901,18 @@ function DifficultyBadge({
       : "LOCKED";
     return (
       <div className="difficulty-badge rift-run-badge" role="status" aria-live="polite"
-        aria-label={`Rift Run. Depth ${riftRun.riftBreaches}, ${depthStage}. ${active} of ${unlocked} unlocked hardpoints armed. Special ${specialLabel}.`}>
+        aria-label={`Rift Run. Depth ${riftRun.riftBreaches}, ${depthStage}. ${riftRun.lives} extra ${riftRun.lives === 1 ? "life" : "lives"}. ${active} of ${unlocked} unlocked hardpoints armed. Special ${specialLabel}. Rift pressure ${hud.riftPressure} percent. ${hud.riftPupBudget} payloads left in this rift.`}>
         <span className="rule-score">SCORE {hud.score.toLocaleString().padStart(6, "0")}</span>
         <span className="rule-mode">RIFT RUN</span>
         <span className="rule-rift-level">LEVEL {riftRun.level}</span>
         <span className="rule-rift-level">DEPTH {riftRun.riftBreaches}</span>
         <span className="rule-rift-stage">{depthStage}</span>
+        {/* Milestone-sourced only. The rail says how many are in hand because
+            the whole point of the buffer is that the pilot can spend it
+            deliberately rather than discover it on the death screen. */}
+        <span className="rule-rift-lives">LIVES {riftRun.lives}</span>
+        <span className={hud.riftPressure >= 70 ? "rule-rift-pressure hot" : "rule-rift-pressure"}>PRESSURE {hud.riftPressure}%</span>
+        <span>PAYLOADS {hud.riftPupBudget}</span>
         <span>ENERGY {Math.floor(riftRun.riftEnergy)}/{riftEnergyRequiredForLevel(riftRun.level)}</span>
         <span>HARDPOINTS {active}/{unlocked}</span>
         <span>SPECIAL {specialLabel}</span>
@@ -3867,8 +3920,40 @@ export default function WormholeGame() {
       }
       if (player.health > 0) return;
       player.health = 0;
+
+      // A Rift Run spends an extra life rather than ending, if it has one.
+      // Lives are milestone-sourced only — nothing in this file awards one
+      // outside `breachRiftRunNow` — so this is a buffer the pilot earned by
+      // going deep, never one the dice handed them.
+      const run = riftRunRef.current;
+      if (run && run.lives > 0) {
+        const spend = spendExtraLife(run.lives, player.maxHealth);
+        const next = { ...run, lives: spend.lives };
+        riftRunRef.current = next;
+        setRiftRun(next);
+        player.health = spend.health;
+        player.invuln = spend.invuln;
+        player.vx = 0;
+        player.vy = 0;
+        // The arena is not swept, but whatever the rift had in flight is:
+        // respawning into a shockwave that was already halfway across the
+        // room would spend the next life before the pilot could react.
+        if (game.riftDanger) {
+          game.riftDanger.shockwaves = [];
+          game.riftDanger.sweeps = [];
+          game.riftDanger.pressure.pressure = 0;
+          game.riftDanger.pressure.pending = null;
+        }
+        game.notice = respawnNotice(spend);
+        game.noticeLife = 150;
+        burst(game, player.x, player.y, "#64eaff", 50, 10);
+        playCue("shield-down", 0.2);
+        return;
+      }
+
       game.running = false;
       game.result = "defeat";
+      if (game.riftDanger) clearRiftDanger(game.riftDanger);
       game.notice = "SHIP DESTROYED";
       burst(game, player.x, player.y, "#ffb346", 70, 13);
     };
@@ -4231,9 +4316,18 @@ export default function WormholeGame() {
         reformRemainingMs: 0,
         breached: false,
       });
-      const scoreDelta = breached.state.score - run.score;
-      riftRunRef.current = breached.state;
-      setRiftRun(breached.state);
+      // The only place in the game that awards an extra life. Milestone
+      // depths only, capped, and never reachable from a loot table.
+      const award = awardLifeForDepth(breached.state.lives, breached.state.riftBreaches);
+      const banked = award.awarded ? { ...breached.state, lives: award.lives } : breached.state;
+      const scoreDelta = banked.score - run.score;
+      riftRunRef.current = banked;
+      setRiftRun(banked);
+
+      // A new rift is a new budget, a clean pressure meter and no retaliation
+      // in flight. Environmental hazards deliberately survive the breach: they
+      // belong to the run, not to the rift.
+      if (game.riftDanger) resetRiftDangerForNewRift(game.riftDanger);
       game.score += scoreDelta;
       game.rivalHealth = breached.runtime.integrity;
       game.rivalMaxHealth = breached.runtime.maximumIntegrity;
@@ -4258,7 +4352,7 @@ export default function WormholeGame() {
         activateEnrageRecovery(game.enrageRecovery, game.rules, game.rivalMaxHealth);
       }
 
-      game.notice = riftRunBreachNotice(next);
+      game.notice = award.awarded || award.cappedOut ? extraLifeNotice(award) : riftRunBreachNotice(next);
       game.noticeLife = Math.max(game.riftReformTicks, next.stageChanged ? 170 : 120);
       if (breached.state.pendingLevels > 0 || pendingHullGunReward(breached.state)) game.paused = true;
       game.portalPulse = 1;
@@ -4325,11 +4419,167 @@ export default function WormholeGame() {
       }
     };
 
+    /**
+     * Sheds whatever the rift's budget owes at its current integrity.
+     *
+     * Called after every hit that moved integrity, so a single round that
+     * crosses several thresholds pays all of them. Nothing here is
+     * proportional to damage: the budget decides, and once a band is paid,
+     * more fire into the same band produces nothing at all.
+     */
+    const releaseRiftBudget = (game: Game) => {
+      const danger = game.riftDanger;
+      if (!danger || game.rivalMaxHealth <= 0) return;
+      const owed = creditRiftPupBudget(danger.budget, game.rivalHealth / game.rivalMaxHealth);
+      if (owed <= 0) return;
+      for (let index = 0; index < owed; index += 1) {
+        const type = dropForGame(game);
+        // Outward, on a spread, so collecting a power-up is a trip away from
+        // the rift rather than a reason to keep sitting on it.
+        const ejection = ejectRiftPup(index, owed, { x: game.portalX, y: game.portalY });
+        game.pickups.push({ ...ejection, type, phase: range(0, 6) });
+        pushSpawn(game, "friendly", type, ejection.x, ejection.y, 1);
+        playCue(`spawn:${type}`, 0.17);
+      }
+      const left = riftPupBudgetRemaining(danger.budget);
+      game.notice = left > 0
+        ? `RIFT SHEDS ${owed > 1 ? `${owed} PAYLOADS` : "A PAYLOAD"} // ${left} LEFT IN THIS RIFT`
+        : "RIFT SPENT // BREACH IT FOR MORE";
+      game.noticeLife = 110;
+      game.portalPulse = 1;
+    };
+
+
+    /**
+     * One tick of every Rift Run danger system.
+     *
+     * Order matters, and it is the order the pilot experiences: the rift's
+     * health phase is resolved first because everything else reads it, then
+     * the pressure meter, then whatever a landed retaliation left in the
+     * arena, then the environmental hazard scheduler. Nothing here scores and
+     * nothing here touches integrity.
+     *
+     * Every rule consulted lives in `app/rift-run/`; this function is wiring.
+     */
+    const tickRiftDanger = (game: Game) => {
+      const danger = game.riftDanger;
+      const run = riftRunRef.current;
+      if (!danger || !run || game.result || game.riftReformTicks > 0) return;
+      const player = game.player;
+
+      // 1. Phase. Announced once per transition, never per tick.
+      const fraction = game.rivalMaxHealth > 0 ? game.rivalHealth / game.rivalMaxHealth : 1;
+      const phase = riftPhaseForIntegrity(fraction);
+      if (phase.id !== danger.phaseId) {
+        danger.phaseId = phase.id;
+        game.notice = riftPhaseNotice(phase);
+        game.noticeLife = 120;
+        game.portalPulse = 1;
+        burst(game, game.portalX, game.portalY, "#ff4fd8", 26, 8);
+        playCue("rift-level", 0.18);
+      }
+
+      // 2. Pressure. The rift will not begin charging while a lethal hazard
+      // already owns the arena — the fairness guarantee, asked from this side.
+      const pressure = tickRiftPressure(danger.pressure, {
+        distance: dist(player, { x: game.portalX, y: game.portalY }),
+        playerX: player.x,
+        playerY: player.y,
+        riftX: game.portalX,
+        riftY: game.portalY,
+        phase,
+        hazardBusy: lethalHazardActive(danger.hazards),
+      });
+
+      if (pressure.telegraphed) {
+        game.notice = riftRetaliationNotice(pressure.telegraphed.kind);
+        game.noticeLife = pressure.telegraphed.telegraphTicks + 40;
+        playCue("wormhole-explosion", 0.12);
+      }
+
+      const landed = pressure.landed;
+      if (landed) {
+        if (landed.kind === "strike") {
+          burst(game, landed.x, landed.y, "#ff5570", 46, 11);
+          if (dist(player, landed) <= landed.radius) damagePlayer(game, landed.damage, "rift_strike");
+        } else if (landed.kind === "shockwave") {
+          danger.shockwaves.push(createRiftShockwave(game.portalX, game.portalY, landed.damage));
+          burst(game, game.portalX, game.portalY, "#64eaff", 34, 6);
+        } else {
+          danger.sweeps.push(createRiftSweep(game.portalX, game.portalY, landed.angle, landed.damage));
+        }
+        playCue("wormhole-explosion", 0.2);
+
+        // A wounded rift never retaliates alone. The escort is drawn from the
+        // phase's own mix, so what arrives says which phase the rift is in.
+        const crowded = game.enemies.length >= RIFT_RUN_HOSTILE_CAP;
+        if (!crowded && phase.spawnCount > 0) {
+          const kind = riftPhaseSpawn(phase);
+          if (kind) spawnSurvivalHostiles(game, kind, phase.spawnCount, `RIFT ${phase.name}`);
+        }
+      }
+
+      // 3. Retaliations already in the arena.
+      danger.shockwaves = danger.shockwaves.filter((wave) => {
+        const alive = tickRiftShockwave(wave);
+        if (riftShockwaveHits(wave, player)) {
+          wave.struck = true;
+          const push = riftShockwavePush(wave, player);
+          // The shove lands whether or not the damage does: being moved off
+          // the rift is the point, and immunity should not make a pilot immune
+          // to being pushed.
+          player.vx += push.vx;
+          player.vy += push.vy;
+          damagePlayer(game, wave.damage, "rift_shockwave");
+        }
+        return alive;
+      });
+
+      danger.sweeps = danger.sweeps.filter((sweep) => {
+        const alive = tickRiftSweep(sweep);
+        if (riftSweepHits(sweep, player)) {
+          markRiftSweepHit(sweep);
+          damagePlayer(game, sweep.damage, "rift_sweep");
+        }
+        return alive;
+      });
+
+      // 4. Environmental hazards. Depth is the primary gate, pilot level the
+      // secondary floor, and the scheduler refuses to open a lethal event
+      // while the rift is mid-retaliation.
+      const hazards = tickRiftHazards(danger.hazards, {
+        depth: run.riftBreaches,
+        level: run.level,
+        arena: { width: game.worldWidth, height: game.worldHeight },
+        playerX: player.x,
+        playerY: player.y,
+        riftX: game.portalX,
+        riftY: game.portalY,
+        retaliationActive: danger.pressure.pending !== null || danger.shockwaves.length > 0 || danger.sweeps.length > 0,
+      });
+
+      for (const event of hazards.warned) {
+        game.notice = riftHazardNotice(event);
+        game.noticeLife = 140;
+        playCue("rift-level", 0.16);
+      }
+      for (const impact of hazards.erupted) {
+        burst(game, impact.x, impact.y, "#ffb346", 40, 10);
+        playCue("wormhole-explosion", 0.18);
+      }
+      for (const { event, impact } of liveHazardImpacts(danger.hazards)) {
+        if (event.damage <= 0) continue;
+        if (!hazardImpactHits(impact, player)) continue;
+        impact.struck = true;
+        damagePlayer(game, event.damage, `hazard_${event.id.replace(/-/g, "_")}`);
+      }
+    };
+
     /** Resolves every Rift Run hull-weapon hit through one integrity path. */
     const hitRiftWithRiftRunWeapon = (game: Game, weaponDamage: number, weaponInstanceId: string) => {
-      // Nominal damage keeps feeding the temporary PUP loop even when the
-      // separate integrity pool is nearly (or already) exhausted.
-      chargeRiftPup(game, weaponDamage);
+      // Deliberately no per-damage power-up charge here. Rift Run's supply
+      // line is a per-rift budget paid at integrity thresholds rather than a
+      // rate paid per point of damage — see `rift-run/pup-budget.ts` for why.
       const integrityDamage = applyRiftRunHullWeaponDamage(game, weaponDamage);
       const run = riftRunRef.current;
       if (run && integrityDamage > 0) {
@@ -4339,6 +4589,7 @@ export default function WormholeGame() {
         if (next.pendingLevels) game.paused = true;
       }
 
+      if (integrityDamage > 0) releaseRiftBudget(game);
       breachRiftRunNow(game);
       return integrityDamage;
     };
@@ -5049,6 +5300,7 @@ export default function WormholeGame() {
       // Rift Run re-derives `game.rules` on every breach, so its hazard
       // schedule runs in the same slot, before anything reads them this tick.
       tickRiftRunEscalation(game);
+      tickRiftDanger(game);
 
       if (game.enrageActive && game.rules.wormholeEnrage.enabled) {
       const enrage = game.rules.wormholeEnrage;
@@ -5166,6 +5418,19 @@ export default function WormholeGame() {
         const pull = Math.max(1, Math.hypot(dx, dy));
         player.vx += (dx / pull) * gravity;
         player.vy += (dy / pull) * gravity;
+      }
+
+      // An environmental gravity well pulls toward its own centre rather than
+      // toward the rift, and stacks with the depth well above: it is pressure,
+      // not lethality, and its job is to make every other danger harder to
+      // answer rather than to kill anyone by itself.
+      const well = game.riftDanger ? riftHazardGravity(game.riftDanger.hazards) : null;
+      if (well) {
+        const dx = well.x - player.x;
+        const dy = well.y - player.y;
+        const reach = Math.max(1, Math.hypot(dx, dy));
+        player.vx += (dx / reach) * well.pull;
+        player.vy += (dy / reach) * well.pull;
       }
 
       // An upgraded engine says so out of the back of the ship: the existing
@@ -5438,7 +5703,10 @@ export default function WormholeGame() {
         const struck = game.portals.find((portal) => Math.hypot(bullet.x - portal.x, bullet.y - portal.y) < 43);
         if (struck) {
           bullet.life = 0;
-          if (struck.id === 0) chargeRiftPup(game, bullet.damage);
+          // Rift Run's rift pays a per-rift budget at integrity thresholds
+          // instead of a per-damage rate, so cannon fire into it charges
+          // nothing. Every other mode is untouched.
+          if (struck.id === 0 && !game.riftDanger) chargeRiftPup(game, bullet.damage);
           else {
             // A rival's portal banks its own damage and sheds at its own
             // threshold. It is not this pilot's rift, so it does not feed the
@@ -5537,6 +5805,9 @@ export default function WormholeGame() {
               // removed, so the part an enrage shield swallowed scores
               // nothing and a hit on a rift already at zero scores nothing.
               awardRiftDamage(game, game.lastRivalDamage);
+              // The other place integrity moves, so the other place the rift's
+              // budget is booked. A no-op outside Rift Run.
+              if (game.lastRivalDamage > 0) releaseRiftBudget(game);
               game.notice = enrageHit.absorbed > 0
                 ? `${WEAPONS[power.type].short} SENT // RIFT SHIELD −${Math.round(enrageHit.absorbed)}${integrityDamage > 0 ? ` // RIVAL −${Math.round(integrityDamage)}` : ""}`
                 : `${WEAPONS[power.type].short} SENT // RIVAL −${damage}`;
@@ -5828,6 +6099,136 @@ export default function WormholeGame() {
       ctx.arc(0, 0, 64, -Math.PI / 2, -Math.PI / 2 + charge * Math.PI * 2);
       ctx.stroke();
       ctx.restore();
+    };
+
+
+    /**
+     * Every Rift Run danger the pilot has to see, in world space.
+     *
+     * The rule this obeys is that nothing lethal is ever invisible: a
+     * retaliation and a hazard both spend their whole telegraph drawn as a
+     * filling outline, so the pilot reads how long they have left rather than
+     * being told it happened. Drawn after the rift and before ships, so the
+     * pilot's own hull is never hidden under a warning.
+     */
+    const drawRiftDanger = (game: Game, time: number) => {
+      const danger = game.riftDanger;
+      if (!danger) return;
+
+      // The anti-camp radius, shown only once pressure is actually building,
+      // so the arena is not permanently ringed for a pilot who never camps.
+      const pressure = danger.pressure.pressure / 100;
+      if (pressure > 0.02) {
+        ctx.save();
+        ctx.globalAlpha = 0.1 + pressure * 0.4;
+        ctx.strokeStyle = pressure > 0.75 ? "#ff5570" : "#ff9a4d";
+        ctx.lineWidth = 1 + pressure * 2.5;
+        ctx.setLineDash([10, 12]);
+        ctx.beginPath();
+        ctx.arc(game.portalX, game.portalY, RIFT_PRESSURE_RADIUS, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      const pending = danger.pressure.pending;
+      if (pending) {
+        const spent = 1 - pending.telegraphTicks / Math.max(1, pending.telegraphTotal);
+        ctx.save();
+        ctx.strokeStyle = "#ff5570";
+        ctx.fillStyle = "rgba(255, 85, 112, .16)";
+        ctx.lineWidth = 3;
+        if (pending.kind === "strike") {
+          // A filling disc under the pilot's last position: the fill is the
+          // countdown, and leaving the circle is the whole answer to it.
+          ctx.beginPath();
+          ctx.arc(pending.x, pending.y, pending.radius, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(pending.x, pending.y, pending.radius * spent, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (pending.kind === "shockwave") {
+          ctx.globalAlpha = 0.35 + spent * 0.5;
+          ctx.beginPath();
+          ctx.arc(pending.x, pending.y, 44 + spent * 26, 0, Math.PI * 2);
+          ctx.stroke();
+        } else {
+          ctx.globalAlpha = 0.3 + spent * 0.55;
+          ctx.lineWidth = 2;
+          ctx.setLineDash([6, 10]);
+          ctx.beginPath();
+          ctx.moveTo(pending.x, pending.y);
+          ctx.lineTo(pending.x + Math.cos(pending.angle * DEG) * 420, pending.y + Math.sin(pending.angle * DEG) * 420);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      for (const wave of danger.shockwaves) {
+        const fade = 1 - wave.radius / Math.max(1, wave.maxRadius);
+        ctx.save();
+        ctx.globalAlpha = 0.25 + fade * 0.6;
+        ctx.strokeStyle = "#64eaff";
+        ctx.lineWidth = 8;
+        ctx.beginPath();
+        ctx.arc(wave.x, wave.y, wave.radius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      for (const sweep of danger.sweeps) {
+        const half = 9 * DEG;
+        ctx.save();
+        ctx.globalAlpha = 0.55;
+        ctx.fillStyle = "rgba(255, 85, 112, .3)";
+        ctx.strokeStyle = "#ff5570";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(sweep.x, sweep.y);
+        ctx.arc(sweep.x, sweep.y, sweep.length, sweep.angle * DEG - half, sweep.angle * DEG + half);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      for (const event of danger.hazards.active) {
+        for (const impact of event.impacts) {
+          const warning = impact.warningTicks > 0;
+          if (!warning && impact.liveTicks <= 0) continue;
+          const lethal = event.category === "lethal";
+          ctx.save();
+          if (warning) {
+            // Still a warning: outline plus a filling core showing how much of
+            // the telegraph is spent.
+            const spent = 1 - impact.warningTicks / Math.max(1, impact.warningTotal);
+            ctx.globalAlpha = 0.75;
+            ctx.strokeStyle = lethal ? "#ffb346" : "#8f7dff";
+            ctx.lineWidth = 3;
+            ctx.setLineDash([12, 10]);
+            ctx.lineDashOffset = -time * 0.02;
+            ctx.beginPath();
+            ctx.arc(impact.x, impact.y, impact.radius, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.globalAlpha = 0.16;
+            ctx.fillStyle = lethal ? "#ffb346" : "#8f7dff";
+            ctx.beginPath();
+            ctx.arc(impact.x, impact.y, impact.radius * Math.min(1, Math.max(0, spent)), 0, Math.PI * 2);
+            ctx.fill();
+          } else {
+            ctx.globalAlpha = lethal ? 0.42 : 0.2;
+            ctx.fillStyle = lethal ? "#ff5570" : "#8f7dff";
+            ctx.beginPath();
+            ctx.arc(impact.x, impact.y, impact.radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 0.85;
+            ctx.strokeStyle = lethal ? "#ff9a4d" : "#a89bff";
+            ctx.lineWidth = 3;
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+      }
     };
 
     const drawEnemy = (game: Game, enemy: Enemy, time: number, detail: number) => {
@@ -6198,6 +6599,7 @@ export default function WormholeGame() {
       }
 
       drawPortal(game, time, detail);
+      drawRiftDanger(game, time);
       // Breadcrumbs toward every portal that is not the pilot's own. A
       // scrolling camera in a large arena leaves rival portals off-screen with
       // nothing to point at them; a trail of dots from the centre outward says

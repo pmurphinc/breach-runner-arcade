@@ -194,7 +194,9 @@ test("every portal is shootable, not just the pilot's own", () => {
   assert.match(game, /const struck = game\.portals\.find\(\(portal\) => Math\.hypot\(bullet\.x - portal\.x, bullet\.y - portal\.y\) < 43\)/);
   // The pilot's own rift keeps the scoring path; a rival's banks its own charge
   // and sheds at its own threshold without feeding rift-damage score.
-  assert.match(game, /if \(struck\.id === 0\) chargeRiftPup\(game, bullet\.damage\)/);
+  // Rift Run is the one exception: its rift pays a bounded per-rift budget at
+  // integrity thresholds, so cannon fire into it charges nothing at all.
+  assert.match(game, /if \(struck\.id === 0 && !game\.riftDanger\) chargeRiftPup\(game, bullet\.damage\)/);
   assert.match(game, /const banked = chargePortal\(struck, bullet\.damage\)/);
   assert.doesNotMatch(game, /dist\(bullet, \{ x: game\.portalX, y: game\.portalY \}\) < 43/);
 });

@@ -494,6 +494,12 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 .difficulty-badge .warn i { color: var(--amber); }
 .difficulty-badge.hazard .warn i { color: #ff5570; }
 .difficulty-badge .rule-context { display: none; }
+/* Rift Run's danger readouts. `rule-context` is hidden on desktop, so these
+   carry their own classes rather than borrowing it: the extra lives in hand
+   and the anti-camp pressure meter both have to be readable while flying. */
+.difficulty-badge .rule-rift-lives { color: #75ffd0; }
+.difficulty-badge .rule-rift-pressure { color: #ff9a4d; }
+.difficulty-badge .rule-rift-pressure.hot { color: #ff5570; font-weight: 700; }
 /* Small screens and the immersive shell get the mode line plus whichever
    readouts are actually in play, so the badge never eats the arena. */
 @media (max-width: 700px) {

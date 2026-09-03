@@ -426,10 +426,17 @@ test("Railgun and missile Rift collision remain direct, terminating impacts with
   assert.match(source, /hitRiftWithRiftRunWeapon\(game, projectile\.state\.damage, projectile\.state\.instanceId\);\s*projectile\.state\.remainingLifetime = 0/);
 });
 
-test("standard PvE cannon and hull weapons share nominal PUP charging", async () => {
+test("the per-damage PUP charge survives outside Rift Run, and only outside it", async () => {
   const source = await import("node:fs/promises").then(({ readFile }) => readFile(new URL("../app/game.tsx", import.meta.url), "utf8"));
+  // Solo PvE, Classic and Survival are untouched: cannon damage into the rift
+  // still banks toward a threshold and blooms a power-up when it is crossed.
   assert.match(source, /chargeRiftPup\(game, bullet\.damage\)/);
-  assert.match(source, /chargeRiftPup\(game, weaponDamage\)/);
+
+  // Rift Run is not. Its hull weapons no longer charge anything per point of
+  // damage; the rift sheds a fixed budget at integrity thresholds instead, so
+  // it can no longer be farmed by parking on it and holding the trigger.
+  assert.doesNotMatch(source, /chargeRiftPup\(game, weaponDamage\)/);
+  assert.match(source, /const owed = creditRiftPupBudget\(danger\.budget, game\.rivalHealth \/ game\.rivalMaxHealth\)/);
 });
 
 test("upgrade rolls are deterministic, unique, seeded, and weapon eligible", () => {
