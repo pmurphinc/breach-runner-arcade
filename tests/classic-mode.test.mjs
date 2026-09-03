@@ -23,10 +23,35 @@ test("classic is a mode, not a difficulty", () => {
 
 test("the mode id is stable in code, saves and payloads", () => {
   // The player-facing string is one label in MODE_INFO and can change without a
-  // migration; the id must not.
-  assert.match(game, /\["pve", "coop", "pvp", "classic"\]/, "the remembered mode accepts it");
-  assert.match(menu, /export const MODE_ORDER: GameMode\[\] = \["pve", "coop", "pvp", "classic"\]/);
-  assert.match(menu, /classic: \{\s*label: "Classic Wormhole"/);
+  // migration; the id must not. The engine still accepts it everywhere even
+  // though the menu no longer offers it -- see the shelving test below.
+  assert.ok(game.includes("[\"pve\", \"coop\", \"pvp\", \"classic\"]"), "the remembered mode accepts it");
+  assert.ok(menu.includes("export const ALL_MODE_IDS: GameMode[] = [\"pve\", \"coop\", \"pvp\", \"classic\"];"));
+  assert.ok(menu.includes("label: \"Classic Wormhole\""));
+});
+
+/**
+ * Classic Wormhole is shelved, not deleted.
+ *
+ * It was built to imitate the original's 1v1 and there is no opponent for it:
+ * the versus version needed a shared arena, and that was rejected. A mode that
+ * cannot deliver its own premise does not belong on the menu. Everything it
+ * produced stays -- square arenas, the orbiting portal model, the reference
+ * drop table and the compact HUD are all load-bearing in other modes now, so
+ * deleting the mode would break things that have nothing to do with Classic.
+ *
+ * These assertions are what make "shelved" different from "half-removed":
+ * unreachable from the menu, fully intact underneath.
+ */
+test("Classic is off the menu but intact underneath", () => {
+  assert.ok(menu.includes("export const MODE_ORDER: GameMode[] = [\"pve\", \"coop\", \"pvp\"];"), "not offered");
+  const pveScreen = menu.slice(menu.indexOf("export function PveModesScreen"), menu.indexOf("Roster selection inside a lobby"));
+  assert.ok(pveScreen.includes("Classic Wormhole is shelved -- see MODE_ORDER"), "the card is commented out, with the reason");
+  assert.ok(pveScreen.indexOf("{/* Classic Wormhole is shelved") < pveScreen.indexOf("data-mode=\"classic\""), "the card sits inside that comment, not beside it");
+  // Still reachable in code: the ruleset, the drop table and the ships all
+  // answer for "classic" exactly as before.
+  assert.equal(rulesFor("classic", "easy"), CLASSIC_RULES);
+  assert.ok(menu.includes("label: \"Classic Wormhole\""), "the label survives for when it returns");
 });
 
 test("Classic keeps none of the modern safety systems", () => {

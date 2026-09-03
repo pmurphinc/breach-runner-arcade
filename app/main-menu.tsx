@@ -45,7 +45,24 @@ export const MODE_INFO: Record<GameMode, { label: string; blurb: string }> = {
   },
 };
 
-export const MODE_ORDER: GameMode[] = ["pve", "coop", "pvp", "classic"];
+/**
+ * The modes a player can reach, in menu order.
+ *
+ * Classic Wormhole is deliberately absent. It is shelved, not deleted: the mode
+ * builds and passes its suite, but it was designed to imitate a 1v1 and there
+ * is no opponent for it -- the versus version needed a shared arena that was
+ * rejected. A mode that cannot deliver its own premise should not be on the
+ * menu, and the work it produced (square arenas, the orbiting portal model, the
+ * reference drop table, the compact HUD) is load-bearing everywhere else, so
+ * removing it would break things that have nothing to do with Classic.
+ *
+ * To bring it back: add "classic" here and restore the card in
+ * `PveModesScreen`. Nothing else needs to change.
+ */
+export const MODE_ORDER: GameMode[] = ["pve", "coop", "pvp"];
+
+/** Every mode the engine knows, shelved ones included. Used by tests. */
+export const ALL_MODE_IDS: GameMode[] = ["pve", "coop", "pvp", "classic"];
 
 /**
  * Challenges.
@@ -345,9 +362,10 @@ export function PveModesScreen({ onMode, onSurvival, onRiftRun, back, openSettin
       <button type="button" className="mode-card" data-mode="coop" onClick={() => onMode("coop")}><b>{MODE_INFO.coop.label}</b><small>Two pilots, shared objective</small></button>
       <button type="button" className="mode-card" data-mode="survival" onClick={onSurvival}><b>Rift Survival</b><small>Endless escalating challenge</small></button>
       <button type="button" className="mode-card" data-mode="rift-run" onClick={onRiftRun}><b>{RIFT_RUN_TITLE}</b><small>{RIFT_RUN_TAGLINE}</small></button>
-      {/* Solo Classic first: the mode is playable, and testable, without a
-          second pilot. The versus version needs the shared arena. */}
-      <button type="button" className="mode-card" data-mode="classic" onClick={() => onMode("classic")}><b>{MODE_INFO.classic.label}</b><small>{MODE_INFO.classic.blurb}</small></button>
+      {/* Classic Wormhole is shelved -- see MODE_ORDER. The card is commented
+          out rather than deleted so bringing it back is a one-line change:
+          <button type="button" className="mode-card" data-mode="classic" onClick={() => onMode("classic")}><b>{MODE_INFO.classic.label}</b><small>{MODE_INFO.classic.blurb}</small></button>
+      */}
     </div>
   </MenuScreen>;
 }
