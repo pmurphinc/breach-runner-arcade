@@ -1005,13 +1005,28 @@ type RenderProfile = { detail: number; maxParticles: number; shadows: boolean; m
 function profileFor(q: number): RenderProfile {
   return {
     detail: q,
-    maxParticles: Math.round(110 + q * 330),
+    maxParticles: Math.round(150 + q * 450),
     shadows: q >= 0.5,
     maxBackingPx: Math.round(1000 + q * 820),
   };
 }
 
-function spawnParticles(game: Game, x: number, y: number, color: string, count: number, speed: number, budget: number) {
+/**
+ * How much heavier an explosion is than a hit spark.
+ *
+ * A ricochet tick and a gunship going up both came through here at the same
+ * weight, so a kill read as a slightly busier version of a graze. These scale
+ * the count, the outward speed and the size of each fleck for bursts the caller
+ * asked to be large; small bursts are left alone so the screen does not fill
+ * with confetti every time a round connects.
+ */
+const EXPLOSION_COUNT_SCALE = 1.7;
+const EXPLOSION_SPEED_SCALE = 1.22;
+const EXPLOSION_SIZE_SCALE = 1.55;
+/** Bursts at or above this asked-for count are explosions, not sparks. */
+const EXPLOSION_MIN_COUNT = 16;
+
+function spawnParticles(game: Game, x: number, y: number, color: string, count: number, speed: number, budget: number, sizeScale = 1) {
   const room = budget - game.particles.length;
   if (room <= 0) return;
   const total = Math.min(count, room);
@@ -1019,7 +1034,7 @@ function spawnParticles(game: Game, x: number, y: number, color: string, count: 
     const angle = Math.random() * Math.PI * 2;
     const force = Math.random() * speed;
     const life = range(18, 55);
-    game.particles.push({ x, y, vx: Math.cos(angle) * force, vy: Math.sin(angle) * force, color, size: range(1, 3.4), life, maxLife: life });
+    game.particles.push({ x, y, vx: Math.cos(angle) * force, vy: Math.sin(angle) * force, color, size: range(1 * sizeScale, 3.4 * sizeScale), life, maxLife: life });
   }
 }
 
@@ -3782,7 +3797,20 @@ export default function WormholeGame() {
 
     const burst = (game: Game, x: number, y: number, color: string, count: number, speed: number) => {
       const scale = reducedMotionRef.current ? 0.35 : 0.45 + profile.detail * 0.55;
-      spawnParticles(game, x, y, color, Math.max(2, Math.round(count * scale)), speed, profile.maxParticles);
+      // Reduced motion opts out of the heavier cloud as well as the count: a
+      // pilot who asked for less movement did not ask for bigger debris.
+      const explosion = count >= EXPLOSION_MIN_COUNT && !reducedMotionRef.current;
+      const total = Math.max(2, Math.round(count * scale * (explosion ? EXPLOSION_COUNT_SCALE : 1)));
+      spawnParticles(
+        game,
+        x,
+        y,
+        color,
+        total,
+        speed * (explosion ? EXPLOSION_SPEED_SCALE : 1),
+        profile.maxParticles,
+        explosion ? EXPLOSION_SIZE_SCALE : 1,
+      );
     };
 
     const exhaustBurst = (game: Game, x: number, y: number, heading: number, color: string, count: number, speed: number) => {
@@ -7489,18 +7517,21 @@ export default function WormholeGame() {
                 enough that nothing overlaps the hull model.
 
                 Rendered for every mode — it is a display preference, not a mode
-                feature — and the payload frame always draws STOCK_LIMIT slots,
-                so the geometry never reflows when the mode or the player's
-                unlocked capacity changes. A Rift Run that has not yet earned
-                its capacity shows the difference as locked slots rather than a
-                shorter frame, which is what keeps the geometry fixed.
+                feature. The payload frame draws exactly the slots this run has
+                earned, so a Rift Run opening on one slot shows one cell and the
+                frame grows as capacity is bought. Drawing five and locking four
+                showed the pilot four things they could not use.
+
+                The Special sits below the frame and appears only once one is
+                installed, because a Rift Run starts without one and there is
+                nothing to report until it is earned.
               */}
               {settings.compactHud ? (() => {
-                const compact = pupInventoryLayout(hud.stock, STOCK_LIMIT);
+                const capacity = Math.max(1, hud.payloadCapacity);
+                const compact = pupInventoryLayout(hud.stock, capacity);
                 const slots = [...compact.stored, compact.loaded];
-                const lockedSlots = STOCK_LIMIT - hud.payloadCapacity;
                 return (
-                  <div className="compact-hud" style={{ "--compact-slots": STOCK_LIMIT } as React.CSSProperties}>
+                  <div className="compact-hud" style={{ "--compact-slots": capacity } as React.CSSProperties}>
                     <div
                       className="compact-gauges"
                       role="img"
@@ -7519,15 +7550,27 @@ export default function WormholeGame() {
                         return (
                           <li
                             key={index}
-                            className={`compact-pup ${meta ? "occupied" : "empty"} ${isLoaded ? "loaded" : ""}${index < lockedSlots ? " locked" : ""}`}
+                            className={`compact-pup ${meta ? "occupied" : "empty"} ${isLoaded ? "loaded" : ""}`}
                             style={{ "--pup": visual?.color ?? "var(--muted)" } as React.CSSProperties}
-                            aria-label={index < lockedSlots ? "Locked slot" : meta ? `${meta.name}${isLoaded ? ", fires next" : ""}` : "Empty slot"}
+                            aria-label={meta ? `${meta.name}${isLoaded ? ", fires next" : ""}` : "Empty slot"}
                           >
                             {meta ? <WeaponIcon id={meta.id} size={18} inventoryFrame /> : <span aria-hidden="true" />}
                           </li>
                         );
                       })}
                     </ol>
+                    {hud.specialLocked ? null : (
+                      <div
+                        className={"compact-special " + (hud.specialCooldown > 0 ? "cooling" : "ready")}
+                        role="img"
+                        aria-label={hud.specialCooldown > 0
+                          ? `${hud.specialName} ready in ${hud.specialCooldown} seconds`
+                          : `${hud.specialName} ready`}
+                      >
+                        <b>SPEC</b>
+                        <small>{hud.specialCooldown > 0 ? `${hud.specialCooldown}S` : "READY"}</small>
+                      </div>
+                    )}
                   </div>
                 );
               })() : null}
@@ -7906,17 +7949,16 @@ export default function WormholeGame() {
                 <small>FIRE WITH <b>E</b> / <b>PUP</b></small>
               </div>
               <ul className="bin-slots" aria-label="Power-up bin. The last collected power-up fires first.">
-                {Array.from({ length: STOCK_LIMIT }, (_, index) => {
+                {/* Only the slots this run has actually earned are drawn. A row of
+                    locked cells advertises capacity the pilot cannot use and reads
+                    as a fault rather than as progress; one slot means one slot. */}
+                {Array.from({ length: Math.max(1, hud.payloadCapacity) }, (_, index) => {
                   const item = hud.stock[index];
                   if (!item) {
-                    // Beyond what this run has earned the slot is not empty, it
-                    // is not there yet. Saying so is the whole readout for a
-                    // Rift Run climbing from one slot to five.
-                    const locked = index >= hud.payloadCapacity;
                     return (
-                      <li key={index} className={locked ? "slot locked" : "slot empty"}>
+                      <li key={index} className="slot empty">
                         <span className="slot-index" aria-hidden="true">{index + 1}</span>
-                        <small>{locked ? "LOCKED" : "EMPTY"}</small>
+                        <small>EMPTY</small>
                       </li>
                     );
                   }
