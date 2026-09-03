@@ -10,6 +10,7 @@ import {
   STAR_TINTS,
   VIGNETTE,
   backdropKey,
+  createBandStars,
   createMotes,
   createNebulae,
   createStars,
@@ -135,6 +136,32 @@ test("wrapSpan folds negatives forward and survives a degenerate span", () => {
   assert.equal(wrapSpan(0, 100), 0);
   assert.equal(wrapSpan(5, 0), 0);
   assert.equal(wrapSpan(Number.NaN, 100), 0);
+});
+
+test("the galactic band is a structure, not another uniform scatter", () => {
+  const width = 900, height = 600;
+  const band = createBandStars(120, width, height, 6);
+  assert.equal(band.length, 120);
+  const loose = createStars(120, width, height, "far", 6);
+  const spread = (stars) => {
+    const mean = stars.reduce((total, star) => total + star.y, 0) / stars.length;
+    return Math.sqrt(stars.reduce((total, star) => total + (star.y - mean) ** 2, 0) / stars.length);
+  };
+  assert.ok(spread(band) < spread(loose), "band stars cluster where the loose field does not");
+  for (const star of band) {
+    assert.ok(star.x >= 0 && star.x < width && star.y >= 0 && star.y < height, "band stars stay in the tile");
+    assert.ok(star.alpha < 0.4, "the band never competes with the foreground layers");
+  }
+  assert.equal(createBandStars(9999, width, height, 6).length, STARFIELD_MAX.band, "the band is capped too");
+  assert.deepEqual(createBandStars(20, width, height, 6), createBandStars(20, width, height, 6), "and deterministic");
+});
+
+test("the band is baked with the clouds rather than drawn every frame", () => {
+  assert.ok(game.includes("createBandStars(budget.band, width, depth, 6)"), "the band is painted into the bake");
+  const bakeStart = game.indexOf("const bakeBackdrop =");
+  const bakeEnd = game.indexOf("const drawBackdrop =");
+  assert.ok(bakeStart > 0 && bakeEnd > bakeStart);
+  assert.ok(game.slice(bakeStart, bakeEnd).includes("createBandStars"), "and only inside the bake");
 });
 
 test("clouds stay faint enough for combat to win the pixel", () => {

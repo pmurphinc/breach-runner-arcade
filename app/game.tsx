@@ -289,6 +289,7 @@ import {
   STAR_TINTS,
   VIGNETTE,
   backdropKey,
+  createBandStars,
   createMotes,
   createNebulae,
   createStars,
@@ -6086,7 +6087,7 @@ export default function WormholeGame() {
     rebuildStarLayers(backdropBudget);
 
     const bakeBackdrop = (paletteKey: string, budget: StarfieldBudget, height: number) => {
-      const key = backdropKey(paletteKey, budget.nebulae, budget.far, VIEW_WIDTH, height);
+      const key = backdropKey(paletteKey, budget.nebulae, budget.far + budget.band, VIEW_WIDTH, height);
       if (bakedBackdrop && bakedBackdropKey === key) return bakedBackdrop;
       const width = VIEW_WIDTH + BACKDROP_MARGIN * 2, depth = Math.round(height) + BACKDROP_MARGIN * 2;
       const canvas = bakedBackdrop ?? document.createElement("canvas");
@@ -6095,22 +6096,34 @@ export default function WormholeGame() {
       if (!bake) return null;
       bake.clearRect(0, 0, width, depth);
       const [primary, secondary] = nebulaTints(paletteKey);
+      // Additive, so where lobes overlap the cloud brightens into a visible
+      // core and where they do not it stays a wisp. That structure is the
+      // difference between a nebula and a background gradient.
+      bake.globalCompositeOperation = "lighter";
       for (const cloud of createNebulae(budget.nebulae, width, depth, 11)) {
         const colour = cloud.tint === 0 ? primary : secondary;
         for (const lobe of cloud.lobes) {
           const cx = cloud.x + lobe.dx, cy = cloud.y + lobe.dy;
           const cloudFill = bake.createRadialGradient(cx, cy, 0, cx, cy, lobe.radius);
           cloudFill.addColorStop(0, rgba(colour, NEBULA_ALPHA * lobe.alpha));
-          cloudFill.addColorStop(0.5, rgba(colour, NEBULA_ALPHA * lobe.alpha * 0.4));
+          cloudFill.addColorStop(0.35, rgba(colour, NEBULA_ALPHA * lobe.alpha * 0.6));
           cloudFill.addColorStop(1, rgba(colour, 0));
           bake.fillStyle = cloudFill;
           bake.beginPath(); bake.arc(cx, cy, lobe.radius, 0, Math.PI * 2); bake.fill();
         }
       }
+      // The galactic band first, then the loose field over it: a scatter of
+      // dots with a structure running through it reads as a place rather than
+      // as noise, and both are baked, so neither costs a frame.
+      for (const star of createBandStars(budget.band, width, depth, 6)) {
+        bake.fillStyle = `rgba(${STAR_TINTS[star.tint]},${star.alpha.toFixed(3)})`;
+        bake.fillRect(star.x, star.y, star.size, star.size);
+      }
       for (const star of createStars(budget.far, width, depth, "far", 1)) {
         bake.fillStyle = `rgba(${STAR_TINTS[star.tint]},${star.alpha.toFixed(3)})`;
         bake.fillRect(star.x, star.y, star.size, star.size);
       }
+      bake.globalCompositeOperation = "source-over";
       bakedBackdrop = canvas; bakedBackdropKey = key;
       return canvas;
     };
@@ -6880,7 +6893,7 @@ export default function WormholeGame() {
             ctx.globalAlpha = trace.alpha;
             ctx.globalCompositeOperation = "lighter";
             ctx.strokeStyle = channel;
-            ctx.lineWidth = Math.max(1.2, projectile.radius * 1.1);
+            ctx.lineWidth = Math.max(2.4, projectile.radius * 1.7);
             ctx.lineCap = "round";
             ctx.beginPath(); ctx.moveTo(trace.fromX, trace.fromY); ctx.lineTo(projectile.x, projectile.y); ctx.stroke();
             ctx.restore();

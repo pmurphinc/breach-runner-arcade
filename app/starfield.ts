@@ -63,6 +63,8 @@ export type StarfieldBudget = {
   far: number;
   mid: number;
   near: number;
+  /** Stars clustered along the galactic band. Baked, so effectively free. */
+  band: number;
   nebulae: number;
   motes: number;
   /** False under reduced motion: stars hold a constant alpha. */
@@ -75,7 +77,7 @@ export type StarfieldBudget = {
  * Hard ceilings. `starfieldBudget` never exceeds these however generous the
  * quality scalar gets, so a future detail level cannot quietly uncap the field.
  */
-export const STARFIELD_MAX = { far: 130, mid: 90, near: 55, nebulae: 5, motes: 34 } as const;
+export const STARFIELD_MAX = { far: 170, mid: 110, near: 58, nebulae: 7, motes: 34, band: 150 } as const;
 
 /**
  * How fast each layer slides against the camera.
@@ -130,7 +132,7 @@ export function nebulaTints(key: string): readonly [string, string] {
  * large translucent shapes are exactly what swallows a bullet. Kept under a
  * fifth so the field is felt more than seen.
  */
-export const NEBULA_ALPHA = 0.17;
+export const NEBULA_ALPHA = 0.2;
 
 /**
  * The screen-edge darkening drawn over the backdrop.
@@ -199,13 +201,53 @@ export function createStars(count: number, width: number, height: number, layer:
   });
 }
 
+/**
+ * The band of denser, dimmer stars a galaxy is seen edge-on as.
+ *
+ * A uniform scatter of dots reads as noise; a scatter with a *structure*
+ * running through it reads as a place. This is the cheapest structure there is:
+ * a diagonal band whose stars are pushed toward its centre line by squaring a
+ * signed random offset, so the band has soft edges instead of a hard rectangle.
+ */
+export const STAR_BAND = { angle: -0.28, thickness: 0.3 } as const;
+
+/**
+ * Stars clustered along {@link STAR_BAND}. Dimmer and smaller than the loose
+ * field, because a band that competes with the foreground stars flattens the
+ * depth the layers just bought.
+ */
+export function createBandStars(count: number, width: number, height: number, seed = 0): BackdropStar[] {
+  const total = Math.max(0, Math.min(Math.floor(count), STARFIELD_MAX.band));
+  const cos = Math.cos(STAR_BAND.angle), sin = Math.sin(STAR_BAND.angle);
+  const halfSpan = Math.hypot(width, height) / 2;
+  return Array.from({ length: total }, (_unused, index) => {
+    const base = seed * 733 + index * 19;
+    const along = (noise(base + 1) - 0.5) * 2 * halfSpan;
+    const offsetRoll = (noise(base + 2) - 0.5) * 2;
+    // Squaring pulls the distribution toward the centre line without ever
+    // leaving the band, which is what gives it soft edges.
+    const across = Math.sign(offsetRoll) * offsetRoll * offsetRoll * height * STAR_BAND.thickness;
+    return {
+      x: wrapSpan(width / 2 + along * cos - across * sin, width),
+      y: wrapSpan(height / 2 + along * sin + across * cos, height),
+      size: 1,
+      tint: Math.floor(noise(base + 3) ** 2 * STAR_TINTS.length) % STAR_TINTS.length,
+      phase: noise(base + 4) * Math.PI * 2,
+      alpha: 0.1 + noise(base + 5) * 0.22,
+    };
+  });
+}
+
 /** Scatter nebula clouds across a tile, each built from overlapping soft lobes. */
 export function createNebulae(count: number, width: number, height: number, seed = 0): BackdropNebula[] {
   const total = Math.max(0, Math.min(Math.floor(count), STARFIELD_MAX.nebulae));
   return Array.from({ length: total }, (_unused, index) => {
     const base = seed * 613 + index * 29;
-    const radius = Math.min(width, height) * (0.28 + noise(base + 1) * 0.3);
-    const lobeCount = 3 + Math.floor(noise(base + 2) * 3);
+    // Deliberately smaller than the viewport. Clouds wider than the screen read
+    // as a background gradient, not as clouds; several mid-sized ones overlap
+    // into something with visible structure.
+    const radius = Math.min(width, height) * (0.11 + noise(base + 1) * 0.17);
+    const lobeCount = 4 + Math.floor(noise(base + 2) * 4);
     return {
       x: noise(base + 3) * width,
       y: noise(base + 4) * height,
@@ -214,12 +256,12 @@ export function createNebulae(count: number, width: number, height: number, seed
       lobes: Array.from({ length: lobeCount }, (_lobe, lobeIndex) => {
         const lobeBase = base * 7 + lobeIndex * 41;
         const angle = noise(lobeBase + 1) * Math.PI * 2;
-        const distance = noise(lobeBase + 2) * radius * 0.55;
+        const distance = noise(lobeBase + 2) * radius * 0.85;
         return {
           dx: Math.cos(angle) * distance,
           dy: Math.sin(angle) * distance,
-          radius: radius * (0.45 + noise(lobeBase + 3) * 0.55),
-          alpha: 0.4 + noise(lobeBase + 4) * 0.6,
+          radius: radius * (0.35 + noise(lobeBase + 3) * 0.5),
+          alpha: 0.35 + noise(lobeBase + 4) * 0.65,
         };
       }),
     };
@@ -262,10 +304,13 @@ export function starfieldBudget(detail: number, reducedMotion: boolean, maxParti
   return {
     far: Math.round(STARFIELD_MAX.far * scale),
     mid: Math.round(STARFIELD_MAX.mid * scale),
+    // Baked alongside the clouds rather than drawn per frame, so the band is
+    // thinned far less aggressively than the live layers.
+    band: Math.round(STARFIELD_MAX.band * (0.6 + quality * 0.4)),
     // The nearest layer is the most expensive per star (it twinkles and it is
     // the widest); it is the first thing thinned on a weak device.
     near: quality < 0.35 ? 0 : Math.round(STARFIELD_MAX.near * scale),
-    nebulae: quality < 0.35 ? 2 : quality < 0.7 ? 3 : STARFIELD_MAX.nebulae,
+    nebulae: quality < 0.35 ? 3 : quality < 0.7 ? 5 : STARFIELD_MAX.nebulae,
     motes: quality < 0.6 || reducedMotion ? 0 : Math.min(STARFIELD_MAX.motes, Math.round(particles * 0.06)),
     twinkle: !reducedMotion && quality >= 0.5,
     drift: !reducedMotion,
