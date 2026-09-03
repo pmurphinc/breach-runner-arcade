@@ -730,6 +730,8 @@ type Hud = {
   collisionRecharge: number;
   contactHazard: boolean;
   specialName: string;
+  /** True when no Special is installed at all — a Rift Run before its unlock. */
+  specialLocked: boolean;
   /** Payload slots this run holds. Rift Run earns this; everyone else starts capped. */
   payloadCapacity: number;
   /** Whole seconds remaining; zero means Q/SPEC is ready. */
@@ -945,6 +947,7 @@ function hudFrom(game: Game): Hud {
     collisionRecharge: game.collisionShield ? secondsForTicks(game.collisionShield.rechargeIn) : 0,
     contactHazard: game.rules.contactHazard.enabled,
     specialName: game.specialShip ? SHIP_SPECIALS[game.specialShip].name : "NO SPECIAL",
+    specialLocked: game.specialShip === null,
     payloadCapacity: game.payloadCapacity,
     specialCooldown: wholeSecondsForTicks(game.player.specialCooldown),
     contactActive: game.contactWarning > 0,
@@ -985,6 +988,7 @@ function hudEqual(a: Hud, b: Hud) {
     && a.collisionRecharge === b.collisionRecharge
     && a.contactHazard === b.contactHazard
     && a.specialName === b.specialName
+    && a.specialLocked === b.specialLocked
     && a.payloadCapacity === b.payloadCapacity
     && a.specialCooldown === b.specialCooldown
     && a.contactActive === b.contactActive
@@ -2208,8 +2212,12 @@ export default function WormholeGame() {
   const applyRiftRunLoadout = useCallback((next: RiftRunState) => {
     const game = gameRef.current;
     game.payloadCapacity = next.loadout.payloadSlots;
-    game.player.gun = cannonMarkForTier(next.loadout.cannonTier);
-    game.player.thrust = thrusterMarkForTier(next.loadout.thrusterTier);
+    // A floor, never a cap. CANNON UPGRADE and ENGINE UPGRADE pickups raise
+    // these same marks off the arena floor, and assigning the tier's mark
+    // outright would silently confiscate one the pilot had already flown
+    // across the map to collect.
+    game.player.gun = Math.max(game.player.gun, cannonMarkForTier(next.loadout.cannonTier));
+    game.player.thrust = Math.max(game.player.thrust, thrusterMarkForTier(next.loadout.thrusterTier));
     game.player.retros = Math.max(game.player.retros, retrosForTier(next.loadout.thrusterTier));
     game.specialShip = next.loadout.special?.shipId ?? null;
     // Payload capacity can only go up, but the bin has to obey it either way.
@@ -7297,7 +7305,10 @@ export default function WormholeGame() {
   const touchUtility = (mirrored = false) => (
     <div className={`touch-utility ${mirrored ? "touch-utility-mirrored" : ""}`} aria-label={mirrored ? "Mirrored left-side actions" : "Right-side actions"}>
       <button className="touch-pup" type="button" disabled={!gameActive || !queued} aria-label={queued ? `Fire power-up ${WEAPONS[queued].name}. Same as keyboard E.` : "Fire power-up. Bin is empty. Same as keyboard E."} {...controlProps("KeyE")}><b>PUP</b><small>E</small></button>
-      <button className="touch-special" type="button" aria-label={`${hud.specialName}. ${hud.specialCooldown > 0 ? `Ready in ${hud.specialCooldown} seconds.` : "Ready."} Same as keyboard Q.`} disabled={!gameActive || hud.specialCooldown > 0} {...controlProps("KeyQ")}><b>SPEC</b><small>{hud.specialCooldown > 0 ? `${hud.specialCooldown}S` : "READY"}</small></button>
+      {/* A Rift Run flies with no Special until it earns one. The button has
+          to say so: reading READY and accepting the press for an ability that
+          does not exist is a promise the ship cannot keep. */}
+      <button className="touch-special" type="button" aria-label={hud.specialLocked ? "No special installed. Earn one with an upgrade." : `${hud.specialName}. ${hud.specialCooldown > 0 ? `Ready in ${hud.specialCooldown} seconds.` : "Ready."} Same as keyboard Q.`} disabled={!gameActive || hud.specialLocked || hud.specialCooldown > 0} {...controlProps("KeyQ")}><b>SPEC</b><small>{hud.specialLocked ? "LOCKED" : hud.specialCooldown > 0 ? `${hud.specialCooldown}S` : "READY"}</small></button>
       <button className="touch-pause" type="button" aria-label="Pause, opens the menu" onClick={toggleMenu}><b aria-hidden="true">Ⅱ</b><small>P</small></button>
     </div>
   );
@@ -7887,7 +7898,7 @@ export default function WormholeGame() {
               <div className="meter hull"><i style={{ width: `${healthPct}%` }} /></div>
               <span>SHIELD <b>{hud.shield}%</b></span>
               <div className="meter shield"><i style={{ width: `${hud.shield}%` }} /></div>
-              <span>SPECIAL <b>{hud.specialCooldown > 0 ? `${hud.specialName} ${hud.specialCooldown}S` : `${hud.specialName} READY`}</b></span>
+              <span>SPECIAL <b>{hud.specialLocked ? "LOCKED" : hud.specialCooldown > 0 ? `${hud.specialName} ${hud.specialCooldown}S` : `${hud.specialName} READY`}</b></span>
             </div>
             <div className="power-bin">
               <div className="bin-label">

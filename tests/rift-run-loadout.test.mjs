@@ -139,8 +139,11 @@ test("the loop dispatches abilities off the installed Special, never the hull", 
 test("the earned loadout is pushed into the live game after every pick", () => {
   const sync = game.slice(game.indexOf("const applyRiftRunLoadout = useCallback"), game.indexOf("const riftRunSettled"));
   assert.match(sync, /game\.payloadCapacity = next\.loadout\.payloadSlots/);
-  assert.match(sync, /game\.player\.gun = cannonMarkForTier\(next\.loadout\.cannonTier\)/);
-  assert.match(sync, /game\.player\.thrust = thrusterMarkForTier\(next\.loadout\.thrusterTier\)/);
+  // A floor, not a cap. Found by playing: an ENGINE UPGRADE collected off the
+  // arena floor raises the same mark, and a plain assignment took it back on
+  // the pilot's next upgrade pick.
+  assert.match(sync, /game\.player\.gun = Math\.max\(game\.player\.gun, cannonMarkForTier\(next\.loadout\.cannonTier\)\)/);
+  assert.match(sync, /game\.player\.thrust = Math\.max\(game\.player\.thrust, thrusterMarkForTier\(next\.loadout\.thrusterTier\)\)/);
   assert.match(sync, /retrosForTier\(next\.loadout\.thrusterTier\)/);
   assert.match(sync, /game\.specialShip = next\.loadout\.special\?\.shipId \?\? null/);
   // Both pickers run it, so a Special installed mid-run is armed immediately.
@@ -181,4 +184,24 @@ test("the Special picker offers the shipped roster and nothing that needs a spec
   assert.match(game, /CHOOSE YOUR SPECIAL/);
   assert.ok(!RIFT_RUN_SPECIALS.some(({ shipId }) => shipId === "flash"), "FORM SHIFT only means anything on Switchback");
   assert.equal(new Set(RIFT_RUN_SPECIALS.map(({ shipId }) => shipId)).size, RIFT_RUN_SPECIALS.length);
+});
+
+/**
+ * A locked Special must read locked.
+ *
+ * Found by playing: the starter frame flies with no Special at all, but the
+ * SPEC control still said READY and still accepted the press, and the HUD line
+ * read "NO SPECIAL READY". A control that offers an ability the ship does not
+ * have is worse than one that is plainly disabled.
+ */
+test("with no Special installed the controls say so and refuse the press", () => {
+  assert.match(game, /specialLocked: game\.specialShip === null/);
+  assert.match(game, /specialLocked: boolean;/);
+  assert.match(game, /&& a\.specialLocked === b\.specialLocked/);
+  const button = game.slice(game.indexOf('className="touch-special"'), game.indexOf('className="touch-special"') + 900);
+  assert.match(button, /disabled=\{!gameActive \|\| hud\.specialLocked \|\| hud\.specialCooldown > 0\}/);
+  assert.match(button, /hud\.specialLocked \? "LOCKED"/);
+  assert.match(button, /aria-label=\{hud\.specialLocked \? "No special installed\./);
+  // And the panel readout agrees rather than announcing "NO SPECIAL READY".
+  assert.match(game, /<span>SPECIAL <b>\{hud\.specialLocked \? "LOCKED"/);
 });
