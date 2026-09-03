@@ -327,34 +327,47 @@ export function Toggle({
 }
 
 /**
- * A summary line with an inline way to change it.
+ * A summary line that is itself the way to change it.
  *
  * This is what replaces walking the player through a full screen per choice:
- * the value is visible where the decision is made, and editing it is opt-in.
+ * the value is visible where the decision is made, and the whole row is the
+ * control. There is deliberately no separate CHANGE button sitting beside a
+ * card that already looks pressable -- one target, not two.
+ *
+ * `media` takes an optional visual (a ship silhouette, say) shown ahead of the
+ * text, so a row can carry the thing it is describing rather than only naming
+ * it.
  */
 export function SummaryRow({
   label,
   value,
   detail,
   actionLabel = "Change",
+  media,
   onAction,
 }: {
   label: string;
   value: string;
   detail?: string;
   actionLabel?: string;
+  media?: React.ReactNode;
   onAction: () => void;
 }) {
   return (
-    <div className="summary-row">
-      <div className="summary-text">
+    <button
+      type="button"
+      className="summary-row"
+      onClick={onAction}
+      aria-label={`${label}: ${value}. ${actionLabel}.`}
+    >
+      {media ? <span className="summary-media" aria-hidden="true">{media}</span> : null}
+      <span className="summary-text">
         <span>{label}</span>
         <b>{value}</b>
         {detail ? <small>{detail}</small> : null}
-      </div>
-      <button type="button" className="summary-action" onClick={onAction}>
-        {actionLabel}
-      </button>
-    </div>
+      </span>
+      {/* An affordance, not a second target: it is inside the button. */}
+      <span className="summary-cue" aria-hidden="true">{actionLabel}</span>
+    </button>
   );
 }

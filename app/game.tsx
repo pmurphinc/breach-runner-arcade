@@ -8494,6 +8494,8 @@ export default function WormholeGame() {
         <HomeScreen
           mode={mode}
           difficulty={difficulty}
+          ship={shipId}
+          renderShip={renderShip}
           running={launched && gameActive}
           onLaunch={beginPlayFlow}
           go={go}
