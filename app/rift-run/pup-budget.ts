@@ -53,8 +53,14 @@ export const RIFT_PUP_LIFE_TICKS = 900;
  * indestructible for the first twenty ticks: the burst that ejects one would
  * otherwise routinely shoot it back out of existence in the same breath, which
  * reads to the pilot as the drop never having happened.
+ *
+ * A full second at the 15ms tick. Twenty ticks -- a third of a second -- was
+ * not enough: a pilot already firing at the rift when it bloomed destroyed the
+ * drop before it had cleared the rift's own radius. A second is long enough to
+ * stop firing and see what arrived, and still ends well before the PUP can be
+ * flown to.
  */
-export const RIFT_PUP_GRACE_TICKS = 20;
+export const RIFT_PUP_GRACE_TICKS = 67;
 
 /** Speed range an ejected power-up leaves the rift at. */
 // Fast enough to be past the cannon's line of fire before it can hit them
