@@ -112,7 +112,7 @@ import {
   tierNumeral,
 } from "./rift-run/loadout";
 import type { RiftRunState, RiftWeaponId } from "./rift-run/types";
-import { RIFT_WEAPONS } from "./rift-run/weapons";
+import { RIFT_WEAPON_BY_ID, RIFT_WEAPONS } from "./rift-run/weapons";
 import { createWeaponRuntime, tickWeaponRuntime, type WeaponRuntime } from "./rift-run/weapon-runtime";
 import { createRunAgainRiftRun, replayForCompletedRun, type RunReplay } from "./run-replay";
 import { processHardpointFire } from "./rift-run/weapon-fire";
@@ -283,6 +283,37 @@ import {
 } from "./beam-motion";
 import { BeamAudioManager } from "./beam-audio";
 import { type ArenaSize, DEFAULT_ARENA } from "./arena";
+import {
+  NEBULA_ALPHA,
+  PARALLAX_DEPTH,
+  STAR_TINTS,
+  VIGNETTE,
+  backdropKey,
+  createBandStars,
+  createMotes,
+  createNebulae,
+  createStars,
+  moteAt,
+  nebulaTints,
+  parallaxPoint,
+  rgba,
+  starfieldBudget,
+  twinkleAlpha,
+  type BackdropMote,
+  type BackdropStar,
+  type StarfieldBudget,
+} from "./starfield";
+import {
+  RAILGUN_FIRE_CUE,
+  RAILGUN_IMPACT_CUE,
+  RAILGUN_IMPACT_PARTICLES,
+  RAILGUN_MUZZLE_PARTICLES,
+  RAILGUN_PALETTE,
+  RAIL_TRACE_TICKS,
+  railTrace,
+  railgunSlugGeometry,
+  type ProceduralCue,
+} from "./rift-run/railgun-fx";
 import {
   PORTAL_THRESHOLD,
   type Portal,
@@ -2688,7 +2719,7 @@ export default function WormholeGame() {
    * Procedural event cues avoid a large audio download while giving every
    * power-up a stable, recognizable two-note signature.
    */
-  const playCue = useCallback((cue: string | PupPickupSoundProfile, volume = 0.16) => {
+  const playCue = useCallback((cue: string | PupPickupSoundProfile | ProceduralCue, volume = 0.16) => {
     const context = ensureAudioContext();
     if (!context) return;
 
@@ -2739,8 +2770,13 @@ export default function WormholeGame() {
       const noteEnd = noteStart + special.duration / special.frequencies.length;
       oscillator.type = special.type;
       oscillator.frequency.setValueAtTime(frequency, noteStart);
-      if (cueName === "wormhole-explosion" || cueName === "overcharge:core") {
-        oscillator.frequency.exponentialRampToValueAtTime(Math.max(24, frequency * 0.45), noteEnd);
+      // A cue may ask for its notes to bend down over their own length, which
+      // is what separates a discharge from a beep. The two cues named below
+      // predate the flag and keep the bend they always had.
+      const sweep = (special as { sweep?: number }).sweep
+        ?? (cueName === "wormhole-explosion" || cueName === "overcharge:core" ? 0.45 : 0);
+      if (sweep > 0) {
+        oscillator.frequency.exponentialRampToValueAtTime(Math.max(24, frequency * sweep), noteEnd);
       }
       gain.gain.setValueAtTime(0.0001, noteStart);
       gain.gain.exponentialRampToValueAtTime(Math.max(0.001, volume), noteStart + 0.018);
@@ -5527,7 +5563,18 @@ export default function WormholeGame() {
         if (mountedShots.length > 0 && game.cycles - lastGunFeedbackTick >= (mountedShots[0].weaponId === "minigun" ? 6 : mountedShots[0].weaponId === "flamethrower" ? 10 : 1)) {
           lastGunFeedbackTick = game.cycles;
           const id = mountedShots[0].weaponId;
-          play(id === "missile-pod" ? "thrust" : id === "flamethrower" ? "magic" : "fire", id === "minigun" ? 0.04 : 0.11, id === "railgun" ? 0.6 : id === "minigun" ? 1.8 : id === "flamethrower" ? 0.7 : 1);
+          if (id === "railgun") {
+            // A rail round is not a slowed-down pulse. It gets its own
+            // procedural crack and its own violet flash at the rail that
+            // fired it, so the weapon is identifiable with eyes shut.
+            playCue(RAILGUN_FIRE_CUE, cap(RAILGUN_FIRE_CUE.volume * SOUND_GAIN[soundLevelRef.current], 0, 1));
+            for (const shot of mountedShots) {
+              if (shot.weaponId !== "railgun") continue;
+              burst(game, shot.origin.x, shot.origin.y, RAILGUN_PALETTE.glow, RAILGUN_MUZZLE_PARTICLES, 4);
+            }
+          } else {
+            play(id === "missile-pod" ? "thrust" : id === "flamethrower" ? "magic" : "fire", id === "minigun" ? 0.04 : 0.11, id === "minigun" ? 1.8 : id === "flamethrower" ? 0.7 : 1);
+          }
           vibrateCombat("gun");
         }
       }
@@ -5639,7 +5686,13 @@ export default function WormholeGame() {
               const persists = penetrate(projectile.state, id);
               if (!persists || projectile.state.remainingPenetrations <= 0) projectile.state.remainingLifetime = 0;
             }
-            burst(game, projectile.x, projectile.y, POWER_COLORS[enemy.kind], projectile.state.weaponId === "railgun" ? 7 : 4, 3);
+            if (projectile.state.weaponId === "railgun") {
+              // Violet sparks first so the hit reads as the rail's, then a
+              // few flecks in the victim's colour so it still reads as a hit.
+              burst(game, projectile.x, projectile.y, RAILGUN_PALETTE.spark, RAILGUN_IMPACT_PARTICLES, 5);
+              burst(game, projectile.x, projectile.y, POWER_COLORS[enemy.kind], 4, 3);
+              playCue(RAILGUN_IMPACT_CUE, cap(RAILGUN_IMPACT_CUE.volume * SOUND_GAIN[soundLevelRef.current], 0, 1));
+            } else burst(game, projectile.x, projectile.y, POWER_COLORS[enemy.kind], 4, 3);
           }
         }
       }
@@ -6002,14 +6055,124 @@ export default function WormholeGame() {
       if (hudDelay >= 7 || game.result) { hudDelay = 0; sync(); }
     };
 
-    // Star field positions are deterministic, so build them once instead of
-    // recomputing 85 modulo pairs on every frame.
-    const stars = Array.from({ length: 85 }, (_, i) => ({
-      x: (i * 83.17) % VIEW_WIDTH,
-      y: (i * 47.31) % VIEW_HEIGHT,
-      size: i % 11 === 0 ? 2 : 1,
-      cyan: i % 8 === 0,
-    }));
+    /**
+     * The backdrop.
+     *
+     * Three parallax star layers, a nebula field and a slow dust drift, in
+     * place of the flat grid and the single pinned sheet of stars that used to
+     * sit here. Layout comes from app/starfield.ts; this is the canvas half.
+     *
+     * The far layer and the clouds are baked once into an offscreen canvas and
+     * blitted, because large translucent radial gradients are the only part of
+     * this design that would cost real frames at 60fps. The bake is keyed on
+     * the arena palette, so it repaints itself when a run escalates a stage and
+     * at no other time. The two nearer layers are plain fillRects and are drawn
+     * live, which is what buys the twinkle and the faster parallax.
+     */
+    const BACKDROP_MARGIN = 72;
+    let backdropBudget = starfieldBudget(profile.detail, reducedMotionRef.current, profile.maxParticles);
+    let midStars: BackdropStar[] = [];
+    let nearStars: BackdropStar[] = [];
+    let dustMotes: BackdropMote[] = [];
+    let bakedBackdrop: HTMLCanvasElement | null = null;
+    let bakedBackdropKey = "";
+    let vignetteGradient: CanvasGradient | null = null;
+    let vignetteKey = "";
+
+    const rebuildStarLayers = (budget: StarfieldBudget) => {
+      midStars = createStars(budget.mid, VIEW_WIDTH, VIEW_HEIGHT, "mid", 2);
+      nearStars = createStars(budget.near, VIEW_WIDTH, VIEW_HEIGHT, "near", 3);
+      dustMotes = createMotes(budget.motes, VIEW_WIDTH, VIEW_HEIGHT, 4);
+    };
+    rebuildStarLayers(backdropBudget);
+
+    const bakeBackdrop = (paletteKey: string, budget: StarfieldBudget, height: number) => {
+      const key = backdropKey(paletteKey, budget.nebulae, budget.far + budget.band, VIEW_WIDTH, height);
+      if (bakedBackdrop && bakedBackdropKey === key) return bakedBackdrop;
+      const width = VIEW_WIDTH + BACKDROP_MARGIN * 2, depth = Math.round(height) + BACKDROP_MARGIN * 2;
+      const canvas = bakedBackdrop ?? document.createElement("canvas");
+      canvas.width = width; canvas.height = depth;
+      const bake = canvas.getContext("2d");
+      if (!bake) return null;
+      bake.clearRect(0, 0, width, depth);
+      const [primary, secondary] = nebulaTints(paletteKey);
+      // Additive, so where lobes overlap the cloud brightens into a visible
+      // core and where they do not it stays a wisp. That structure is the
+      // difference between a nebula and a background gradient.
+      bake.globalCompositeOperation = "lighter";
+      for (const cloud of createNebulae(budget.nebulae, width, depth, 11)) {
+        const colour = cloud.tint === 0 ? primary : secondary;
+        for (const lobe of cloud.lobes) {
+          const cx = cloud.x + lobe.dx, cy = cloud.y + lobe.dy;
+          const cloudFill = bake.createRadialGradient(cx, cy, 0, cx, cy, lobe.radius);
+          cloudFill.addColorStop(0, rgba(colour, NEBULA_ALPHA * lobe.alpha));
+          cloudFill.addColorStop(0.35, rgba(colour, NEBULA_ALPHA * lobe.alpha * 0.6));
+          cloudFill.addColorStop(1, rgba(colour, 0));
+          bake.fillStyle = cloudFill;
+          bake.beginPath(); bake.arc(cx, cy, lobe.radius, 0, Math.PI * 2); bake.fill();
+        }
+      }
+      // The galactic band first, then the loose field over it: a scatter of
+      // dots with a structure running through it reads as a place rather than
+      // as noise, and both are baked, so neither costs a frame.
+      for (const star of createBandStars(budget.band, width, depth, 6)) {
+        bake.fillStyle = `rgba(${STAR_TINTS[star.tint]},${star.alpha.toFixed(3)})`;
+        bake.fillRect(star.x, star.y, star.size, star.size);
+      }
+      for (const star of createStars(budget.far, width, depth, "far", 1)) {
+        bake.fillStyle = `rgba(${STAR_TINTS[star.tint]},${star.alpha.toFixed(3)})`;
+        bake.fillRect(star.x, star.y, star.size, star.size);
+      }
+      bake.globalCompositeOperation = "source-over";
+      bakedBackdrop = canvas; bakedBackdropKey = key;
+      return canvas;
+    };
+
+    const drawBackdrop = (paletteKey: string, time: number, detail: number, camX: number, camY: number, height: number) => {
+      const budget = starfieldBudget(detail, reducedMotionRef.current, profile.maxParticles);
+      if (budget.mid !== backdropBudget.mid || budget.near !== backdropBudget.near || budget.motes !== backdropBudget.motes) {
+        rebuildStarLayers(budget);
+      }
+      backdropBudget = budget;
+
+      const baked = bakeBackdrop(paletteKey, budget, height);
+      if (baked) {
+        // Clamped rather than tiled: one blit a frame, and at the extremes of
+        // a follow camera the deepest layer simply stops sliding, which at a
+        // parallax factor of 0.05 nobody can see.
+        const slide = (value: number) => Math.max(-BACKDROP_MARGIN, Math.min(BACKDROP_MARGIN, value * PARALLAX_DEPTH.far));
+        ctx.drawImage(baked, -BACKDROP_MARGIN + slide(camX), -BACKDROP_MARGIN + slide(camY));
+      }
+
+      for (const layer of [{ stars: midStars, depth: PARALLAX_DEPTH.mid }, { stars: nearStars, depth: PARALLAX_DEPTH.near }]) {
+        for (const star of layer.stars) {
+          const point = parallaxPoint(star.x, star.y, camX, camY, layer.depth, VIEW_WIDTH, height);
+          ctx.fillStyle = `rgba(${STAR_TINTS[star.tint]},${twinkleAlpha(star, time, budget.twinkle).toFixed(3)})`;
+          ctx.fillRect(point.x, point.y, star.size, star.size);
+        }
+      }
+
+      for (const mote of dustMotes) {
+        const drifted = moteAt(mote, time, VIEW_WIDTH, VIEW_HEIGHT, budget.drift);
+        const point = parallaxPoint(drifted.x, drifted.y, camX, camY, PARALLAX_DEPTH.near, VIEW_WIDTH, height);
+        ctx.fillStyle = `rgba(190,214,240,${mote.alpha.toFixed(3)})`;
+        ctx.beginPath(); ctx.arc(point.x, point.y, mote.radius, 0, Math.PI * 2); ctx.fill();
+      }
+
+      // Corners down, middle untouched. Spent entirely on the backdrop: this
+      // runs before a single ship, bullet or power-up is drawn, so it buys
+      // contrast for the fight without dimming any of it.
+      const vignetteId = `${Math.round(height)}`;
+      if (!vignetteGradient || vignetteKey !== vignetteId) {
+        const cx = VIEW_WIDTH / 2, cy = height / 2, outer = Math.max(VIEW_WIDTH, height) * VIGNETTE.outerRatio;
+        const shade = ctx.createRadialGradient(cx, cy, outer * VIGNETTE.innerRatio, cx, cy, outer);
+        shade.addColorStop(0, "rgba(0,0,0,0)");
+        shade.addColorStop(1, `rgba(0,0,0,${VIGNETTE.alpha})`);
+        vignetteGradient = shade; vignetteKey = vignetteId;
+      }
+      ctx.fillStyle = vignetteGradient;
+      ctx.fillRect(0, 0, VIEW_WIDTH, height);
+    };
     // Sparse, non-colliding world landmarks. They move with the camera to make
     // flight readable, but stay faint enough to remain behind combat.
     // Scattered across whatever arena this run is actually using, so a square
@@ -6519,6 +6682,14 @@ export default function WormholeGame() {
       // Survival repaints the arena as it escalates, and a Rift Run repaints
       // it per breach, so the stage a run has reached is legible before a
       // single word of HUD is read.
+      // One key for both halves of the arena's look: the gradient underneath
+      // and the nebula field over it. Survival and Rift Run key it to the
+      // escalation stage, everything else to the difficulty.
+      const paletteKey: string = game.survival
+        ? game.survival.escalation.stage.id
+        : game.riftEscalation
+          ? game.riftEscalation.current.stage.id
+          : game.rules.id;
       const palette = game.survival
         ? SURVIVAL_PALETTES[game.survival.escalation.stage.id]
         : game.riftEscalation
@@ -6531,27 +6702,8 @@ export default function WormholeGame() {
       ctx.fillStyle = gradient;
       ctx.fillRect(0, 0, VIEW_WIDTH, renderViewHeight);
 
-      for (const star of stars) {
-        const environmentTime = game.cycles * TICK_MS;
-        const alpha = quiet || detail < 0.5 ? 0.3 : .22 + Math.sin(environmentTime * .001 + star.x) * .18;
-        ctx.fillStyle = star.cyan ? `rgba(103,232,255,${alpha})` : `rgba(255,255,255,${alpha})`;
-        ctx.fillRect(star.x, star.y, star.size, star.size);
-      }
-
-      // One batched path for the whole grid instead of 42 stroke calls.
-      ctx.strokeStyle = "rgba(86, 176, 200, .055)";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      for (let x = 30; x < VIEW_WIDTH; x += 30) {
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, renderViewHeight);
-      }
-      for (let y = 30; y < renderViewHeight; y += 30) {
-        ctx.moveTo(0, y);
-        ctx.lineTo(VIEW_WIDTH, y);
-      }
-      ctx.stroke();
-
+      // The starfield needs the camera it is parallaxing against, so the
+      // backdrop is drawn a few lines below, once camX/camY exist.
       const locked = cameraRef.current;
       const camScale = locked ? ZOOM_SCALE[zoomRef.current] : Math.min(VIEW_WIDTH / game.worldWidth, renderViewHeight / game.worldHeight);
       // On short landscape phones, bias critical focal objects below the DOM
@@ -6571,6 +6723,8 @@ export default function WormholeGame() {
       const viewBottom = (renderViewHeight - camY) / camScale;
       const visible = (x: number, y: number, r: number) =>
         x + r > viewLeft && x - r < viewRight && y + r > viewTop && y - r < viewBottom;
+
+      drawBackdrop(paletteKey, time, detail, camX, camY, renderViewHeight);
 
       const victoryCamera = game.victorySequence > 0 ? victoryVisualState(game.victorySequence, TICK_MS) : null;
       const shake = quiet ? 0 : victoryCamera?.shake ?? 0;
@@ -6719,14 +6873,70 @@ export default function WormholeGame() {
       }
 
       for (const projectile of game.riftProjectiles) {
+        const id = projectile.state.weaponId;
+        if (id === "railgun") {
+          // A hypervelocity slug, not a pulse: an ionised channel hanging back
+          // toward the muzzle, a violet motion streak, and a white-hot needle
+          // roughly twenty times longer than it is wide.
+          const speed = Math.hypot(projectile.vx, projectile.vy);
+          if (!visible(projectile.x, projectile.y, RAIL_TRACE_TICKS * speed + 40)) continue;
+          const slug = railgunSlugGeometry(projectile.radius);
+          const trace = detail >= 0.35
+            ? railTrace(projectile.x, projectile.y, projectile.vx, projectile.vy,
+                projectile.state.remainingLifetime, RIFT_WEAPON_BY_ID.railgun.lifetimeTicks)
+            : null;
+          if (trace) {
+            const channel = ctx.createLinearGradient(trace.fromX, trace.fromY, projectile.x, projectile.y);
+            channel.addColorStop(0, rgba(RAILGUN_PALETTE.edge, 0));
+            channel.addColorStop(1, RAILGUN_PALETTE.plasma);
+            ctx.save();
+            ctx.globalAlpha = trace.alpha;
+            ctx.globalCompositeOperation = "lighter";
+            ctx.strokeStyle = channel;
+            ctx.lineWidth = Math.max(2.4, projectile.radius * 1.7);
+            ctx.lineCap = "round";
+            ctx.beginPath(); ctx.moveTo(trace.fromX, trace.fromY); ctx.lineTo(projectile.x, projectile.y); ctx.stroke();
+            ctx.restore();
+          }
+          ctx.save();
+          ctx.translate(projectile.x, projectile.y);
+          ctx.rotate(Math.atan2(projectile.vy, projectile.vx));
+          if (profile.shadows) { ctx.shadowColor = RAILGUN_PALETTE.edge; ctx.shadowBlur = 18; }
+          const streak = ctx.createLinearGradient(-slug.tailLength, 0, 0, 0);
+          streak.addColorStop(0, rgba(RAILGUN_PALETTE.edge, 0));
+          streak.addColorStop(1, RAILGUN_PALETTE.edge);
+          ctx.fillStyle = streak;
+          ctx.beginPath();
+          ctx.moveTo(-slug.tailLength, 0);
+          ctx.lineTo(-slug.bodyLength, -slug.halfWidth);
+          ctx.lineTo(-slug.bodyLength, slug.halfWidth);
+          ctx.closePath(); ctx.fill();
+          ctx.fillStyle = RAILGUN_PALETTE.plasma;
+          ctx.beginPath();
+          ctx.moveTo(slug.noseLength, 0);
+          ctx.lineTo(0, -slug.halfWidth);
+          ctx.lineTo(-slug.bodyLength, -slug.halfWidth * 0.5);
+          ctx.lineTo(-slug.bodyLength, slug.halfWidth * 0.5);
+          ctx.lineTo(0, slug.halfWidth);
+          ctx.closePath(); ctx.fill();
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = RAILGUN_PALETTE.core;
+          ctx.beginPath();
+          ctx.moveTo(slug.noseLength * 0.8, 0);
+          ctx.lineTo(0, -slug.coreHalfWidth);
+          ctx.lineTo(-slug.bodyLength * 0.7, 0);
+          ctx.lineTo(0, slug.coreHalfWidth);
+          ctx.closePath(); ctx.fill();
+          ctx.restore();
+          continue;
+        }
         if (!visible(projectile.x, projectile.y, 30)) continue;
-        const id = projectile.state.weaponId, angle = Math.atan2(projectile.vy, projectile.vx);
-        ctx.save(); ctx.translate(projectile.x, projectile.y); ctx.rotate(angle);
-        ctx.shadowColor = id === "railgun" ? "#e9ffff" : id === "missile-pod" ? "#ff9b58" : id === "minigun" ? "#ffe67b" : "#69ecff";
-        if (profile.shadows) ctx.shadowBlur = id === "railgun" ? 15 : 8;
+        ctx.save(); ctx.translate(projectile.x, projectile.y); ctx.rotate(Math.atan2(projectile.vy, projectile.vx));
+        ctx.shadowColor = id === "missile-pod" ? "#ff9b58" : id === "minigun" ? "#ffe67b" : "#69ecff";
+        if (profile.shadows) ctx.shadowBlur = 8;
         ctx.fillStyle = ctx.shadowColor;
         if (id === "missile-pod") { ctx.fillRect(-8,-3,12,6); ctx.fillStyle="#ff5b39"; ctx.fillRect(-11,-2,4,4); }
-        else { ctx.fillRect(id === "railgun" ? -24 : -8, -projectile.radius, id === "railgun" ? 30 : 12, projectile.radius*2); }
+        else { ctx.fillRect(-8, -projectile.radius, 12, projectile.radius*2); }
         ctx.restore();
       }
       for (const flame of game.riftFlames) {
