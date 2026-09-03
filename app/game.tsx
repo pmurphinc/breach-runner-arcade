@@ -1172,15 +1172,75 @@ const BLOOM_RADIUS_PER_HP = 0.35;
  * damage visible. The floor is the size it spawned at: fire holds a bloom back
  * and eventually kills it, but never shrinks it below what came out of the rift.
  */
+/**
+ * A bloom's drawn and collidable size.
+ *
+ * Floored at the spawn radius, so a bloom is never smaller than the one that
+ * arrived. Fed from the bloom's *peak* health rather than its current health
+ * (see the inflator branch): a bloom that has grown keeps the size it grew to
+ * even as it is shot down. Deflating a large bloom back to a small dot under
+ * fire made the thing harder to hit the more damage it had taken, which reads
+ * backwards -- the health bar already carries the damage.
+ */
 function bloomRadiusForHp(hp: number) {
   const base = ENEMY_STATS.inflator;
   return base.radius + Math.max(0, hp - base.hp) * BLOOM_RADIUS_PER_HP;
 }
 
+/**
+ * How a tracker swarm flies.
+ *
+ * Twelve trackers launched at one speed with one turn rate all converge on the
+ * same heading within a few ticks and arrive as a single thick bullet -- there
+ * is nothing to dodge, only something to absorb. The reference swarm fans out
+ * and closes from several angles at once.
+ *
+ * Three changes produce that. They fly slower, so there is time to react. Each
+ * one flies straight for a moment before it starts hunting, which spreads the
+ * swarm across an arc first. And each gets its own turn rate, so even once
+ * hunting they curve at different rates and stay spread instead of collapsing
+ * onto one line.
+ */
+const TRACKER_SPEED = 5;
+/** Ticks a tracker flies straight before it begins hunting. */
+const TRACKER_SCATTER_TICKS = 26;
+/** Per-tracker turn rate, in degrees per tick. Was a flat 16 for all of them. */
+const TRACKER_TURN_MIN_DEG = 5;
+const TRACKER_TURN_MAX_DEG = 10;
+/** Extra launch spread for a swarm, on top of its even distribution. */
+const TRACKER_LAUNCH_JITTER = 0.42;
+
+/**
+ * A stable 0..1 for one tracker, derived from its launch angle.
+ *
+ * Deterministic rather than random so a tracker's turn rate is fixed for its
+ * whole life: re-rolling each tick would average out to the old uniform swarm.
+ */
+function trackerTurnRate(phase: number) {
+  const spread = (Math.sin(phase * 12.9898) + 1) / 2;
+  return (TRACKER_TURN_MIN_DEG + spread * (TRACKER_TURN_MAX_DEG - TRACKER_TURN_MIN_DEG)) * DEG;
+}
+
+/**
+ * A launch velocity for a dropped power-up.
+ *
+ * An angle and a speed, not an independent vx and vy. Rolling the two axes
+ * separately clusters the result around the diagonals and can land on a pair
+ * of near-zero components, which drops a PUP that barely moves -- every drop
+ * ends up in the same place, right where it was made. This gives an even
+ * spread of headings and guarantees a real speed on every one.
+ */
+function pupLaunchVelocity(minSpeed: number, maxSpeed: number) {
+  const angle = Math.random() * Math.PI * 2;
+  const speed = minSpeed + Math.random() * (maxSpeed - minSpeed);
+  return { vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed };
+}
+
 function makeEnemy(kind: PowerId, x: number, y: number, index: number, count: number): Enemy {
   const stats = ENEMY_STATS[kind];
-  const angle = (index / Math.max(1, count)) * Math.PI * 2 + range(-0.18, 0.18);
-  let speed = kind === "mines" ? 6 : kind === "heatseeker" ? 7 : range(0.8, 2.8);
+  const jitter = kind === "heatseeker" ? TRACKER_LAUNCH_JITTER : 0.18;
+  const angle = (index / Math.max(1, count)) * Math.PI * 2 + range(-jitter, jitter);
+  let speed = kind === "mines" ? 6 : kind === "heatseeker" ? TRACKER_SPEED : range(0.8, 2.8);
   if (kind === "turret" || kind === "beam" || kind === "emp" || kind === "nuke") speed = 0;
   return {
     enemyId: 0,
@@ -4244,7 +4304,7 @@ export default function WormholeGame() {
       burst(game, enemy.x, enemy.y, POWER_COLORS[enemy.kind], 18, 8);
       play("explosion", 0.16);
       if (enemy.kind !== "ghost" && enemy.kind !== "beam" && enemy.kind !== "emp" && enemy.kind !== "mines" && (guaranteedDrop || Math.random() < 0.48)) {
-        game.pickups.push({ x: enemy.x, y: enemy.y, vx: range(-1.4, 1.4), vy: range(-1.4, 1.4), type: dropForGame(game), life: 900, phase: range(0, 6) });
+        game.pickups.push({ x: enemy.x, y: enemy.y, ...pupLaunchVelocity(1.1, 2.6), type: dropForGame(game), life: 900, phase: range(0, 6) });
       }
     };
 
@@ -4289,7 +4349,7 @@ export default function WormholeGame() {
       game.portalCharge = banked.portal.charge;
       if (!banked.bloomed) return;
       const type = dropForGame(game);
-      game.pickups.push({ x: game.portalX + range(-28, 28), y: game.portalY + range(-28, 28), vx: range(-2.4, 2.4), vy: range(-2.4, 2.4), type, life: 900, phase: range(0, 6) });
+      game.pickups.push({ x: game.portalX + range(-28, 28), y: game.portalY + range(-28, 28), ...pupLaunchVelocity(2.0, 4.2), type, life: 900, phase: range(0, 6) });
       game.notice = `${WEAPONS[type].short} READY TO COLLECT`;
       game.noticeLife = 100;
       pushSpawn(game, "friendly", type, game.portalX, game.portalY, 1);
@@ -5021,14 +5081,24 @@ export default function WormholeGame() {
       const d = Math.max(1, Math.hypot(dx, dy));
 
       if (enemy.kind === "heatseeker") {
-        const desired = Math.atan2(dy, dx);
-        const current = Math.atan2(enemy.vy, enemy.vx);
-        let delta = desired - current;
-        while (delta > Math.PI) delta -= Math.PI * 2;
-        while (delta < -Math.PI) delta += Math.PI * 2;
-        const angle = current + cap(delta, -16 * DEG, 16 * DEG);
-        enemy.vx = Math.cos(angle) * 7;
-        enemy.vy = Math.sin(angle) * 7;
+        // Straight first, so the swarm fans out across an arc before any of it
+        // turns toward the pilot. See TRACKER_SCATTER_TICKS.
+        if (enemy.age < TRACKER_SCATTER_TICKS) {
+          const heading = Math.atan2(enemy.vy, enemy.vx);
+          enemy.vx = Math.cos(heading) * TRACKER_SPEED;
+          enemy.vy = Math.sin(heading) * TRACKER_SPEED;
+        } else {
+          const desired = Math.atan2(dy, dx);
+          const current = Math.atan2(enemy.vy, enemy.vx);
+          let delta = desired - current;
+          while (delta > Math.PI) delta -= Math.PI * 2;
+          while (delta < -Math.PI) delta += Math.PI * 2;
+          // Each tracker's own rate, not one shared rate for the swarm.
+          const turn = trackerTurnRate(enemy.phase);
+          const angle = current + cap(delta, -turn, turn);
+          enemy.vx = Math.cos(angle) * TRACKER_SPEED;
+          enemy.vy = Math.sin(angle) * TRACKER_SPEED;
+        }
       } else if (enemy.kind === "ufo") {
         enemy.vx += (dx / d) * 0.2;
         enemy.vy += (dy / d) * 0.2;
@@ -5039,10 +5109,11 @@ export default function WormholeGame() {
         }
       } else if (enemy.kind === "inflator") {
         if (enemy.age % 2 === 0) enemy.hp += 1;
-        // Size follows health, so a shot bloom visibly deflates. maxHp tracks
-        // the peak so the health bar still reads as a fraction of full.
+        // Size follows the peak, not the current health, so shooting a bloom
+        // never shrinks it below what it had already grown to. maxHp is that
+        // peak, and the health bar still reads as a fraction of it.
         enemy.maxHp = Math.max(enemy.maxHp, enemy.hp);
-        enemy.radius = bloomRadiusForHp(enemy.hp);
+        enemy.radius = bloomRadiusForHp(enemy.maxHp);
         enemy.vx += (dx / d) * 0.025;
         enemy.vy += (dy / d) * 0.025;
       } else if (enemy.kind === "mines") {
@@ -5793,7 +5864,7 @@ export default function WormholeGame() {
             struck.charge = banked.portal.charge;
             if (banked.bloomed) {
               const type = dropForGame(game);
-              game.pickups.push({ x: struck.x + range(-28, 28), y: struck.y + range(-28, 28), vx: range(-2.4, 2.4), vy: range(-2.4, 2.4), type, life: PUP_LIFE_TICKS, phase: range(0, 6) });
+              game.pickups.push({ x: struck.x + range(-28, 28), y: struck.y + range(-28, 28), ...pupLaunchVelocity(2.0, 4.2), type, life: PUP_LIFE_TICKS, phase: range(0, 6) });
               pushSpawn(game, "friendly", type, struck.x, struck.y, 1);
               playCue(`spawn:${type}`, 0.17);
             }

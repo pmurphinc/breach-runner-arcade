@@ -39,7 +39,9 @@ test("loose power-ups are shootable, but only after a spawn grace", () => {
   // was shed by a rift budget or dropped by anything else.
   assert.match(game, /const PUP_SHOOT_GRACE_TICKS = RIFT_PUP_GRACE_TICKS;/);
   assert.match(game, /const PUP_LIFE_TICKS = RIFT_PUP_LIFE_TICKS;/);
-  assert.equal(RIFT_PUP_GRACE_TICKS, 20);
+  // A full second at the 15ms tick. A third of a second let a pilot already
+  // firing at the rift destroy the drop before it had cleared the rift.
+  assert.equal(RIFT_PUP_GRACE_TICKS, 67);
   assert.equal(RIFT_PUP_LIFE_TICKS, 900);
   assert.match(game, /return pickup\.life > 0 && pickup\.life <= PUP_LIFE_TICKS - PUP_SHOOT_GRACE_TICKS;/);
   assert.match(playerRound, /if \(!pupIsShootable\(loose\)\) continue/);
@@ -57,10 +59,15 @@ test("Kestrel's salvage link still collects rather than destroys", () => {
   );
 });
 
-test("a bloom's drawn size is its health, floored at spawn size", () => {
+test("a bloom's size is its peak health, floored at spawn size", () => {
   assert.match(game, /const BLOOM_RADIUS_PER_HP = 0\.35;/);
   assert.match(game, /return base\.radius \+ Math\.max\(0, hp - base\.hp\) \* BLOOM_RADIUS_PER_HP;/);
-  assert.match(game, /enemy\.radius = bloomRadiusForHp\(enemy\.hp\)/);
+  // Peak health, not current: shooting a bloom must never shrink it below
+  // what it had already grown to. Deflating under fire made a bloom harder
+  // to hit the more damage it had taken, which reads backwards -- the health
+  // bar already carries the damage.
+  assert.ok(game.includes("enemy.radius = bloomRadiusForHp(enemy.maxHp)"));
+  assert.ok(!game.includes("enemy.radius = bloomRadiusForHp(enemy.hp)"), "not current health");
   // Health still climbs on the same cadence; only the coupling is new.
   assert.match(game, /enemy\.kind === "inflator"[\s\S]{0,120}enemy\.hp \+= 1/);
   assert.match(game, /enemy\.maxHp = Math\.max\(enemy\.maxHp, enemy\.hp\)/);

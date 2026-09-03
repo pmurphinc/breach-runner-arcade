@@ -57,8 +57,15 @@ export const PUP_PICKUP_RADIUS = PUP_RADIUS + PUP_PICKUP_GRACE;
 /** Fraction of the incoming speed a PUP keeps after hitting a wall. */
 export const PUP_WALL_BOUNCE = 0.82;
 
-/** Per-tick drift decay. Unchanged: the float is the PUP's whole character. */
-export const PUP_DRIFT_DECAY = 0.995;
+/**
+ * Per-tick drift decay. The float is the PUP's whole character.
+ *
+ * Raised from 0.995: at that rate an ejected PUP shed most of its speed within
+ * a couple of seconds and settled near where it was thrown, so the arena filled
+ * up around the rift instead of scattering. It now carries momentum well across
+ * the arena and keeps bouncing.
+ */
+export const PUP_DRIFT_DECAY = 0.998;
 
 /** Radians per tick the badge rotates. Unchanged. */
 export const PUP_SPIN = 0.08;
