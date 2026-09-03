@@ -177,12 +177,7 @@ test("two guests quick-match, ready up, and fight to a hull victory", async () =
     const incoming = await bravo.waitFor("incoming");
     assert.equal(incoming.weapon, "nuke");
     assert.equal(incoming.from, "ALPHA");
-    assert.equal(incoming.targetId, matchB.you.id, "the delivery names who it is aimed at");
-    // The sender hears about it too — it may be the arena host, and the host is
-    // what spawns the wave — but tagged as somebody else's problem.
-    const echoed = alpha.inbox.filter((m) => m.type === "incoming");
-    assert.equal(echoed.length, 1);
-    assert.notEqual(echoed[0].targetId, matchA.you.id, "never delivered to the sender");
+    assert.equal(alpha.inbox.filter((m) => m.type === "incoming").length, 0);
 
     // Collisions spend BRAVO's shield without touching hull.
     bravo.send({ type: "damage", seq: 1, source: "collision", amount: 20 });

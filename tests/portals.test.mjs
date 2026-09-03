@@ -205,46 +205,23 @@ test("breadcrumbs are drawn for rival portals only", () => {
   assert.match(game, /for \(let i = 1; i < game\.portals\.length; i \+= 1\) \{\s*\n\s*for \(const dot of portalBreadcrumbs/);
 });
 
-test("a PvP pilot owns a portal as well as attacking one", () => {
+test("every arena has exactly one rift, in every mode", () => {
   const game = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
-  assert.match(game, /if \(mode === "pvp"\) \{/);
-  assert.match(game, /createPortal\(1, "you", arena, 180\)/, "opposite the rift, so they are never stacked");
-  // Both rifts ride one shared ring, half a turn apart, placed by side rather
-  // than by role — so the two clients agree on where both of them are without
-  // being told, and a host migration cannot move either pilot's rift.
-  assert.match(game, /const theirs = pvpPortalPoint\(rivalSide\(side\), arena, 0, pvpRing\)/);
-  assert.match(game, /const mine = pvpPortalPoint\(side, arena, 0, pvpRing\)/);
-  // The ring is the ruleset's, not a PvP invention: PvP's own rules orbit the
-  // rift deliberately, and the fallback only covers a ruleset that locks it.
-  assert.match(game, /const pvpRing = rules\.wormhole\.kind === "orbit" \? rules\.wormhole\.radius : PVP_PORTAL_RADIUS;/);
-});
-
-test("a sent payload arrives through the attacked pilot's own portal", () => {
-  const game = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
-  // Spawning it at the rival rift put the wave on top of the thing the pilot
-  // was already shooting at, which is backwards. In a shared arena the host
-  // also spawns waves aimed at the *other* pilot, out of that pilot's mouth.
-  assert.match(game, /const mouth = at === "you"\s*\n\s*\? game\.portals\.find\(\(portal\) => portal\.ownerId === "you"\)\s*\n\s*: game\.portals\.find\(\(portal\) => portal\.ownerId !== "you"\);/);
-  assert.match(game, /makeEnemy\(power, originX, originY, i, count\)/);
-  // The arrival flare moves with it.
-  assert.match(game, /pushSpawn\(game, "hostile", power, originX, originY, count\)/);
-  assert.match(game, /burst\(game, originX, originY, POWER_COLORS\[power\], 26, 9\)/);
-});
-
-test("an owned portal is visible, and visibly not the target", () => {
-  const game = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
-  // A shootable body that cannot be seen is a bug, but reusing drawPortal would
-  // give it a charge meter, enrage tint and victory collapse it has no use for.
-  assert.match(game, /const drawOwnPortal = \(portal: Portal, time: number\) =>/);
-  assert.match(game, /for \(let i = 1; i < game\.portals\.length; i \+= 1\) drawOwnPortal\(game\.portals\[i\], time\)/);
-  // It shows its own banked charge, so shooting it reads as progress.
-  assert.match(game, /const banked = cap\(portal\.charge \/ Math\.max\(1, portal\.threshold\), 0, 1\)/);
-});
-
-test("solo modes still carry exactly one portal", () => {
-  const game = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
-  // The second portal is PvP-only; PvE, Classic solo and co-op are unchanged.
   const seed = game.slice(game.indexOf("portals: (() => {"), game.indexOf("survival: isSurvival(rules)"));
-  assert.match(seed, /return \[arrived\(createPortal\(0, "rift", arena, 0\), wormhole\.x, wormhole\.y\)\];/);
-  assert.ok(!seed.includes('mode === "pve"'), "no per-solo-mode branching");
+
+  // PvP briefly gave the pilot a second rift of their own, on the way to
+  // putting both pilots in one room. Both were wrong. A duel here is fought
+  // through one rift by sending payloads into it; the pilots never share a
+  // room and never see each other.
+  assert.ok(seed.includes('return [arrived(createPortal(0, "rift"'), "one rift, seeded unconditionally");
+  assert.ok(!seed.includes('mode === "pvp"'), "PvP must not seed a second rift");
+  assert.ok(!seed.includes('"you"'), "there is no pilot-owned rift");
+  assert.ok(!game.includes('portal.ownerId === "you"'), "nothing may look one up");
+});
+
+test("what the opponent sends arrives through this arena's own rift", () => {
+  const game = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
+  // Which is also the rift the pilot is shooting — there is only one.
+  assert.ok(game.includes("const originX = game.portalX;"));
+  assert.ok(game.includes("const originY = game.portalY;"));
 });

@@ -10,7 +10,7 @@
  * `tests/pvp-protocol.test.mjs` asserts the two agree.
  */
 
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 6;
 
 /** WebSocket path. Shares the game's HTTP server and Railway's injected PORT. */
 export const PVP_PATH = "/pvp";
@@ -30,7 +30,6 @@ export const CLIENT_MESSAGES = [
   "world",
   "enemy_hit",
   "coop_world_action",
-  "pvp_shot",
   "pong",
   "leave",
   "rematch",
@@ -49,7 +48,6 @@ export const SERVER_MESSAGES = [
   "world",
   "enemy_hit",
   "coop_world_action",
-  "pvp_shot",
   "result",
   "opponent",
   "error",
@@ -103,14 +101,6 @@ export const MAX_DAMAGE_EVENT = 60;
 export const DAMAGE_WINDOW_MS = 1000;
 export const MAX_DAMAGE_EVENTS_PER_WINDOW = 30;
 export const MAX_DAMAGE_TOTAL_PER_WINDOW = 220;
-
-/**
- * Rounds one relayed cannon volley may carry.
- *
- * Mirrors MAX_PVP_SHOTS_PER_VOLLEY in `app/pvp-arena.ts`; the widest spread in
- * the game is Warden's Suppression Barrage.
- */
-export const MAX_PVP_SHOTS_PER_VOLLEY = 8;
 
 /** Transmissions are a deliberate action; this is far above human cadence. */
 export const MAX_TRANSMITS_PER_WINDOW = 6;
@@ -249,12 +239,6 @@ export function parseClientMessage(raw) {
       if (parsed.amount > MAX_DAMAGE_EVENT) {
         return { ok: false, code: ERRORS.INVALID_DAMAGE, detail: "amount too large" };
       }
-      // The shared PvP arena's host resolves pilot-bullet against pilot-hull
-      // and reports what it resolved. It still reports rather than asserts:
-      // the target names who was hit, and `rules.mjs` decides what it costs.
-      if (parsed.target !== undefined && parsed.target !== "self" && parsed.target !== "opponent") {
-        return { ok: false, code: ERRORS.BAD_MESSAGE, detail: "bad damage target" };
-      }
       return {
         ok: true,
         message: {
@@ -262,7 +246,6 @@ export function parseClientMessage(raw) {
           seq: parsed.seq,
           source: parsed.source,
           amount: parsed.amount,
-          target: parsed.target === "opponent" ? "opponent" : "self",
           cause: typeof parsed.cause === "string" && /^[a-z0-9_]{1,32}$/.test(parsed.cause) ? parsed.cause : "unknown",
         },
       };
@@ -383,33 +366,6 @@ export function parseClientMessage(raw) {
         portalAngle: parsed.portalAngle,
         enrageActive: Boolean(parsed.enrageActive),
       } };
-    }
-    case "pvp_shot": {
-      if (!Number.isInteger(parsed.seq) || parsed.seq < 0 || parsed.seq > 1_000_000_000
-        || !Number.isInteger(parsed.roundId) || parsed.roundId < 1
-        || !Array.isArray(parsed.shots) || parsed.shots.length < 1
-        || parsed.shots.length > MAX_PVP_SHOTS_PER_VOLLEY) {
-        return { ok: false, code: ERRORS.BAD_MESSAGE, detail: "bad volley" };
-      }
-      const shots = [];
-      for (const shot of parsed.shots) {
-        if (!isPlainObject(shot)
-          || ![shot.x, shot.y, shot.vx, shot.vy, shot.damage, shot.life].every(isFiniteNumber)
-          || shot.damage <= 0 || shot.damage > MAX_DAMAGE_EVENT
-          || typeof shot.color !== "string") {
-          return { ok: false, code: ERRORS.BAD_MESSAGE, detail: "bad round" };
-        }
-        shots.push({
-          x: Math.max(-100, Math.min(1604, shot.x)),
-          y: Math.max(-100, Math.min(1040, shot.y)),
-          vx: Math.max(-30, Math.min(30, shot.vx)),
-          vy: Math.max(-30, Math.min(30, shot.vy)),
-          damage: shot.damage,
-          life: Math.max(0, Math.min(200, shot.life)),
-          color: shot.color.slice(0, 32),
-        });
-      }
-      return { ok: true, message: { type, seq: parsed.seq, roundId: parsed.roundId, shots } };
     }
     case "rematch": {
       if (parsed.ship !== undefined && !SHIP_IDS.includes(parsed.ship)) {

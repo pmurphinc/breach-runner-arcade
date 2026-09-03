@@ -268,23 +268,6 @@ import {
   portalBreadcrumbs,
   stepPortalWarpIn,
 } from "./portals";
-import {
-  PVP_PORTAL_RADIUS,
-  PVP_RIVAL_INVULN_TICKS,
-  PVP_WORLD_INTERVAL_TICKS,
-  type PvpShot,
-  type PvpSide,
-  advancePvpShot,
-  dropPortalsOwnedBy,
-  pvpAuthority,
-  pvpPortalAngle,
-  pvpPortalPoint,
-  pvpShotAlive,
-  pvpShotHitsPilot,
-  pvpSide,
-  pvpSpawnPoint,
-  rivalSide,
-} from "./pvp-arena";
 import { rollClassicDrop } from "./classic-drops";
 import { shipForMode } from "./classic-ships";
 
@@ -633,28 +616,6 @@ type Game = {
    * today. It is what a second pilot's portal slots into.
    */
   portals: Portal[];
-  /**
-   * Which half of the shared PvP arena this pilot flies from.
-   *
-   * Decided by comparing the two player ids, so it survives host migration:
-   * the portals belong to the pilots, not to whoever is simulating. Meaningless
-   * outside PvP, where it stays at its "left" default.
-   */
-  pvpSide: PvpSide;
-  /**
-   * Cannon rounds the other pilot fired, relayed as spawn events and
-   * integrated locally. The arena host resolves these against its own hull;
-   * the guest draws them and lets the host's report move its hull.
-   */
-  rivalBullets: PvpShot[];
-  /**
-   * Ticks of immunity the host owes the rival it just hit.
-   *
-   * The mirror of the local post-hit invulnerability. Without it the host would
-   * report a hit every tick a round overlapped, and a duel would be decided by
-   * whoever pulled the trigger first.
-   */
-  rivalInvuln: number;
   portalAngle: number;
   portalCharge: number;
   portalX: number;
@@ -824,10 +785,6 @@ function createGame(
   mode: GameMode = "pve",
   difficulty: DifficultyId = "difficult",
   arena: ArenaSize = DEFAULT_ARENA,
-  // Which half of a shared PvP arena this pilot holds. Ignored by every other
-  // mode; "left" is what the pre-match preview draws before there is an
-  // opponent to compare ids with.
-  side: PvpSide = "left",
   // Rift Run rides on the PvE mode, so the mode alone cannot say whether this
   // run starts stripped. Stated explicitly instead of inferred.
   riftRun = false
@@ -836,17 +793,8 @@ function createGame(
   // Classic flies the reference handling. Resolved here rather than at every
   // read site, so the rest of the loop simply uses game.ship as it always has.
   ship = shipForMode(ship, mode);
-  // A duel opens with the two pilots on opposite sides of the board, each
-  // behind their own rift. Every other mode keeps the ruleset's own spawn.
-  const spawn = mode === "pvp" ? pvpSpawnPoint(side, arena) : pilotSpawn(rules, arena);
-  // Both duel rifts ride one shared orbit, half a turn apart. The ruleset owns
-  // the ring, exactly as it does in every other mode; all PvP adds is the
-  // second phase offset. So portal zero — the thing this pilot shoots at — sits
-  // over on the other pilot's side rather than in the middle of the board.
-  const pvpRing = rules.wormhole.kind === "orbit" ? rules.wormhole.radius : PVP_PORTAL_RADIUS;
-  const wormhole = mode === "pvp"
-    ? pvpPortalPoint(rivalSide(side), arena, 0, pvpRing)
-    : wormholePosition(rules, arena, 0);
+  const spawn = pilotSpawn(rules, arena);
+  const wormhole = wormholePosition(rules, arena, 0);
   return {
     worldWidth: arena.width,
     worldHeight: arena.height,
@@ -908,24 +856,16 @@ function createGame(
     portalPulse: 0,
     elapsedTicks: 0,
     portalThreshold: PORTAL_THRESHOLD,
-    pvpSide: side,
-    rivalBullets: [],
-    rivalInvuln: 0,
     portals: (() => {
       // Already arrived: the existing modes have never shown a warp-in, and
       // starting one here would open every run with the rift sliding outward.
       const arrived = (portal: Portal, x: number, y: number) => ({ ...portal, warpRadius: portal.orbitRadius, x, y });
-      // Portal zero is the rift this pilot engages. In PvE and Classic solo it
-      // is the only one; in PvP it is the rival's, and portal one is this
-      // pilot's own — the mouth their opponent's payloads come out of.
-      if (mode === "pvp") {
-        const theirs = pvpPortalPoint(rivalSide(side), arena, 0, pvpRing);
-        const mine = pvpPortalPoint(side, arena, 0, pvpRing);
-        return [
-          arrived({ ...createPortal(0, "rift", arena, 0), orbitRadius: pvpRing }, theirs.x, theirs.y),
-          arrived({ ...createPortal(1, "you", arena, 180), orbitRadius: pvpRing }, mine.x, mine.y),
-        ];
-      }
+      // One rift per arena, in every mode.
+      //
+      // PvP briefly carried a second — the pilot's own — on the way to a shared
+      // arena. Both are gone: a duel here is fought through one rift by sending
+      // payloads into it, not by two pilots circling two rifts in one room. The
+      // list stays plural because Classic's several-portal arena needs it.
       return [arrived(createPortal(0, "rift", arena, 0), wormhole.x, wormhole.y)];
     })(),
     survival: isSurvival(rules) ? createSurvivalState() : null,
@@ -1868,7 +1808,7 @@ function DifficultyBadge({
     : "";
   const status = activeMode === "classic"
     ? `CLASSIC | KILLS ${live ? hud.kills : 0} | RIFT ${wormhole}${upgrades ? ` | ${upgrades}` : ""}`
-    : `${gameMode} · ${difficulty}${riftLevel > 0 ? ` | RIFT LEVEL ${riftLevel} · ${riftStage}` : ""} | RIFT ${wormhole} | ${shieldText} | CONTACT ${contact}${live && hud.enrageActive ? " | ENRAGED" : ""}${activeMode === "pvp" ? ` | KILLS ${live ? hud.kills : 0}` : ""}`;
+    : `${gameMode} · ${difficulty}${riftLevel > 0 ? ` | RIFT LEVEL ${riftLevel} · ${riftStage}` : ""} | RIFT ${wormhole} | ${shieldText} | CONTACT ${contact}${live && hud.enrageActive ? " | ENRAGED" : ""}`;
   const context = live && hud.enrageActive
     ? "ENRAGED"
     : recharge > 0
@@ -1930,10 +1870,6 @@ function DifficultyBadge({
           <span className="rule-rift">RIFT {wormhole}</span>
         <span className={`rule-shield ${charge !== null && charge <= 0 ? "warn" : ""}`}>{shieldText}</span>
         <span className={`rule-contact ${hazardArmed ? "warn" : ""}`}>CONTACT {contact}</span>
-          {/* A duel shares one arena full of hostiles now, so what the pilot
-              shot down there is worth reporting. Rendered as well as spoken:
-              an aria-label the sighted pilot cannot see is not a readout. */}
-          {activeMode === "pvp" ? <span className="rule-rift-level">KILLS {live ? hud.kills : 0}</span> : null}
           {live && hud.enrageActive ? <span className="rule-enraged warn">ENRAGED</span> : null}
           <span className="rule-context">{context}</span>
         </>
@@ -2015,13 +1951,7 @@ function MultiplayerLobby({
     ? result?.outcome === "victory"
       ? `RIVAL RIFT DESTROYED BY ${result.finisherName ? `${result.finisherName}'S ` : ""}${finalCause}`
       : `${result?.eliminatedName ?? "A PILOT"} WAS DESTROYED BY ${finalCause}`
-    // A forfeit is not an elimination. Nobody was shot down: one pilot's
-    // connection did not come back inside the reconnection grace, so the round
-    // was awarded rather than won, and saying otherwise names a kill that
-    // never happened.
-    : result?.reason === "forfeit"
-      ? `${result.finisherName ?? "OPPONENT"} WON BY FORFEIT · THE OTHER PILOT DID NOT RETURN`
-      : `${result?.eliminatedName ?? "A PILOT"} WAS ELIMINATED BY ${finalCause} · ${result?.finisherName ?? "OPPONENT"} WON`;
+    : `${result?.eliminatedName ?? "A PILOT"} WAS ELIMINATED BY ${finalCause} · ${result?.finisherName ?? "OPPONENT"} WON`;
 
   return (
     <div className="codex-backdrop" role="presentation" onClick={onClose}>
@@ -3073,24 +3003,13 @@ export default function WormholeGame() {
     const launchMode = modeOverride ?? mode;
     const selectedDifficulty = difficultyOverride ?? difficulty;
     stopVictorySuction();
-    // The server sizes the hull from the ship it has on record, so every
-    // networked launch flies the ship the lobby confirmed rather than whatever
-    // the local menu was last left on.
-    const confirmedShip = launchMode === "coop" || launchMode === "pvp"
-      ? netRef.current?.state.you?.ship
-      : null;
+    const confirmedShip = launchMode === "coop" ? netRef.current?.state.you?.ship : null;
     const launchDifficulty = safeDifficulty(selectedDifficulty, pilotProgressionStore.getSnapshot());
     if (launchDifficulty !== selectedDifficulty) difficultyPreference.set(launchDifficulty);
-    // Which half of a shared duel arena this pilot holds. Settled by comparing
-    // the two player ids, so both clients agree without another wire field and
-    // a later host migration cannot move either pilot's rift.
-    const duelSide = launchMode === "pvp"
-      ? pvpSide(netRef.current?.state.you?.id, netRef.current?.state.opponent?.id)
-      : "left";
     // Rift Run issues the same stripped starter frame every time; every other
     // mode flies the hull its lobby confirmed.
     const launchSpec = riftRun ? riftRunStarterSpec() : selectedShip((confirmedShip ?? shipId) as ShipId);
-    const game = createGame(launchSpec, launchMode, launchDifficulty, DEFAULT_ARENA, duelSide, Boolean(riftRun));
+    const game = createGame(launchSpec, launchMode, launchDifficulty, DEFAULT_ARENA, Boolean(riftRun));
     if (riftRun) {
       const seed = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-rift-run`;
       const run = createRunAgainRiftRun({ kind: "rift-run" }, seed);
@@ -3109,12 +3028,7 @@ export default function WormholeGame() {
       riftWeaponRuntime.current = {};
       setRiftRun(null);
     }
-    // Every shared-arena message is stamped with the round it belongs to, so a
-    // frame from the previous round cannot be applied to this one. PvP needs it
-    // for exactly the same reason co-op does now that the two share a world.
-    game.roundId = launchMode === "coop" || launchMode === "pvp"
-      ? (netRef.current?.state.roundId ?? 0)
-      : 0;
+    game.roundId = launchMode === "coop" ? (netRef.current?.state.roundId ?? 0) : 0;
     game.running = true;
     game.notice = "ENTERING NEW GROUND";
     gameRef.current = game;
@@ -4009,42 +3923,17 @@ export default function WormholeGame() {
       applyHullDamage(game, amount);
     };
 
-    /**
-     * A wave arriving through a portal.
-     *
-     * `at` names whose mouth it comes out of. A payload the opponent sent
-     * arrives through *this* pilot's portal, not through the one they are
-     * attacking — spawning it at the rival rift put the wave on top of the
-     * thing the pilot was already shooting at, which is the opposite of how
-     * attacking through a wormhole is supposed to read. In a shared PvP arena
-     * the host also spawns the wave aimed at the *other* pilot, which is what
-     * `at: "rival"` is for.
-     *
-     * `spawn` is what lets the attacked pilot raise the warning without also
-     * creating hostiles: in a shared arena those exist once, on the host, and
-     * reach the guest through the world relay like every other hostile.
-     */
-    const addIncoming = (
-      game: Game,
-      power: PowerId,
-      sizeBonus = 0,
-      at: "you" | "rival" = "you",
-      spawn = true
-    ) => {
+    const addIncoming = (game: Game, power: PowerId, sizeBonus = 0) => {
       const count = ENEMY_COUNTS[power] * (game.mode === "coop" ? 2 : 1) + Math.max(0, sizeBonus);
-      const mouth = at === "you"
-        ? game.portals.find((portal) => portal.ownerId === "you")
-        : game.portals.find((portal) => portal.ownerId !== "you");
-      const originX = mouth ? mouth.x : game.portalX;
-      const originY = mouth ? mouth.y : game.portalY;
-      if (spawn) {
-        for (let i = 0; i < count; i += 1) game.enemies.push(makeEnemy(power, originX, originY, i, count));
-      }
-      if (at === "you") {
-        game.incoming = power;
-        game.notice = `INCOMING // ${WEAPONS[power].short}`;
-        game.noticeLife = 140;
-      }
+      // Everything the opponent sends arrives through this arena's rift, which
+      // is the same rift the pilot is shooting. That is the mode: you never see
+      // the other pilot, you only feel what they push through.
+      const originX = game.portalX;
+      const originY = game.portalY;
+      for (let i = 0; i < count; i += 1) game.enemies.push(makeEnemy(power, originX, originY, i, count));
+      game.incoming = power;
+      game.notice = `INCOMING // ${WEAPONS[power].short}`;
+      game.noticeLife = 140;
       // The arrival flare belongs at the same mouth the wave came out of.
       pushSpawn(game, "hostile", power, originX, originY, count);
       burst(game, originX, originY, POWER_COLORS[power], 26, 9);
@@ -4418,20 +4307,6 @@ export default function WormholeGame() {
       return integrityDamage;
     };
 
-    /**
-     * True when this client shares an arena but is not the one simulating it.
-     *
-     * A guest never damages a hostile directly — it reports the hit and lets
-     * the host apply it to the copy both pilots can see. Co-op has always
-     * worked this way; a shared PvP arena works the same way for the same
-     * reason, so the two clients cannot disagree about what is still alive.
-     */
-    const arenaGuest = (game: Game) => {
-      if (game.mode !== "coop" && game.mode !== "pvp") return false;
-      const network = netRef.current?.state;
-      return pvpAuthority(network?.you?.id, network?.hostId) === "guest";
-    };
-
     const enemyTarget = (game: Game, enemy: Enemy) => {
       const network = netRef.current?.state;
       const localId = network?.you?.id ?? "local";
@@ -4442,8 +4317,7 @@ export default function WormholeGame() {
       // The arena host consumes the teammate transform already delivered by
       // the ordinary co-op position stream. No targeting channel or guest
       // simulation is introduced here.
-      if ((game.mode === "coop" || game.mode === "pvp")
-        && network?.you?.id === network?.hostId && network?.teammate) {
+      if (game.mode === "coop" && network?.you?.id === network?.hostId && network?.teammate) {
         pilots.push({
           id: network.teammate.id,
           x: network.teammate.x,
@@ -4513,7 +4387,8 @@ export default function WormholeGame() {
           scrambleTicks: timing.scramble,
           spec,
         });
-        if (timing.scramble > 0 && arenaGuest(game)) {
+        if (game.mode === "coop" && timing.scramble > 0
+          && netRef.current?.state.you?.id !== netRef.current?.state.hostId) {
           netRef.current?.reportWorldAction("emp");
         }
       }
@@ -4580,7 +4455,7 @@ export default function WormholeGame() {
         player.viperGuidance = ticksForSeconds(VIPER_GUIDANCE_SECONDS);
         game.notice = "TARGET LINK // LAUNCH WITHIN 3S";
       } else if (ship === "turtle") {
-        if (arenaGuest(game)) netRef.current?.reportWorldAction("clear");
+        if (game.mode === "coop" && netRef.current?.state.you?.id !== netRef.current?.state.hostId) netRef.current?.reportWorldAction("clear");
         game.enemies.forEach((enemy) => {
           if (enemy.kind !== "ghost") destroyEnemy(game, enemy);
         });
@@ -4641,7 +4516,8 @@ export default function WormholeGame() {
       else if (type === "retros") player.retros = Math.min(RETRO_MAX_LEVEL, player.retros + 1);
       else if (type === "shield") player.shield = Math.max(450, player.shield + 200);
       else if (type === "clear") {
-        if (arenaGuest(game)) netRef.current?.reportWorldAction("clear");
+        const coopGuest = game.mode === "coop" && netRef.current?.state.you?.id !== netRef.current?.state.hostId;
+        if (coopGuest) netRef.current?.reportWorldAction("clear");
         else game.enemies.forEach((enemy) => destroyEnemy(game, enemy));
         // The screen clear takes loose power-ups with it. They are arena bodies
         // like anything else, and sparing them would make the clear read as
@@ -4705,7 +4581,8 @@ export default function WormholeGame() {
 
       const angle = player.angle * DEG;
       const muzzle = playerBeamMuzzle(game.ship.id, player);
-      const coopGuest = arenaGuest(game);
+      const coopGuest = game.mode === "coop"
+        && netRef.current?.state.you?.id !== netRef.current?.state.hostId;
 
       for (const enemy of game.enemies) {
         if (enemy.hp <= 0 || !beamDestroysHostile(enemy.kind, beam)) continue;
@@ -5082,10 +4959,8 @@ export default function WormholeGame() {
       }
       game.cycles += 1;
       game.elapsedTicks += 1;
-      // PvpClient owns the single 33ms (~30Hz) position cadence. Both shared
-      // arena modes stream it: co-op draws an ally from it, and PvP draws a
-      // rival and gives the host something to resolve cannon fire against.
-      if (game.mode === "coop" || game.mode === "pvp") {
+      // PvpClient owns the single 33ms (~30Hz) position cadence.
+      if (game.mode === "coop") {
         netRef.current?.reportPosition(player.x, player.y, player.angle);
       }
       game.shotCycle -= 1;
@@ -5109,40 +4984,10 @@ export default function WormholeGame() {
       // while DIFFICULT and HARD MODE keep the original orbit.
       game.portalAngle = advanceWormholeAngle(game.rules, game.portalAngle);
       const arenaSize = { width: game.worldWidth, height: game.worldHeight };
-      // A duel's two rifts ride one shared orbit, half a turn apart, one per
-      // pilot. The phase is `game.portalAngle` — advanced by the arena host and
-      // relayed to the guest in the snapshot it already sends — so both clients
-      // derive both positions rather than each moving its own copy and drifting.
-      const pvpRing = game.rules.wormhole.kind === "orbit" ? game.rules.wormhole.radius : PVP_PORTAL_RADIUS;
-      const wormhole = game.mode === "pvp"
-        ? pvpPortalPoint(rivalSide(game.pvpSide), arenaSize, game.portalAngle, pvpRing)
-        : wormholePosition(game.rules, arenaSize, game.portalAngle);
+      const wormhole = wormholePosition(game.rules, arenaSize, game.portalAngle);
       game.portalX = wormhole.x;
       game.portalY = wormhole.y;
-      if (game.mode === "pvp") {
-        // Placed by owner rather than by index, because a destroyed pilot's
-        // portal leaves the list and the survivor's must not slide into the
-        // slot it vacated.
-        const own = pvpPortalPoint(game.pvpSide, arenaSize, game.portalAngle, pvpRing);
-        for (const portal of game.portals) {
-          const mine = portal.ownerId === "you";
-          portal.angle = pvpPortalAngle(mine ? game.pvpSide : rivalSide(game.pvpSide), game.portalAngle);
-          portal.x = mine ? own.x : wormhole.x;
-          portal.y = mine ? own.y : wormhole.y;
-          if (!mine) {
-            portal.charge = game.portalCharge;
-            portal.threshold = game.portalThreshold;
-          }
-        }
-        // A destroyed pilot loses their rift. The server ends the match at the
-        // same moment, but the arena should show why: the mouth the loser was
-        // feeding closes with them.
-        const rivalHull = netRef.current?.state.opponentCombat?.hull;
-        if (typeof rivalHull === "number" && rivalHull <= 0) {
-          game.portals = dropPortalsOwnedBy(game.portals, "rift");
-        }
-        if (player.health <= 0) game.portals = dropPortalsOwnedBy(game.portals, "you");
-      } else if (game.portals.length > 0) {
+      if (game.portals.length > 0) {
         // Portal zero stays driven by the ruleset rather than by the portal
         // model, because the ruleset is what knows about a locked rift — the
         // model always orbits. Syncing rather than replacing keeps every
@@ -5371,17 +5216,11 @@ export default function WormholeGame() {
           ? suppressionBarrageRounds(aimAngle, cannonDamage)
           : (shot.shots === 2 ? [-0.05, 0.05] : [0]).map((offset) => ({ angle: aimAngle + offset, damage: cannonDamage, supplemental: false }));
         const muzzle = shipMuzzleWorldPoint(game.ship.id, player, aimAngle, 1.15);
-        const volley: PvpShot[] = [];
         rounds.forEach((round) => {
           const velocity = shipForwardVelocity(round.angle, 10, { x: player.vx, y: player.vy });
           game.bullets.push({ x: muzzle.x, y: muzzle.y, vx: velocity.x, vy: velocity.y, damage: round.damage, life: 110, enemy: false, color: shot.color, bouncesLeft: player.ricochetTicks > 0 ? RICOCHET_BOUNCES : 0, salvageLinked: game.specialShip === "kestrel" && player.salvageLink > 0, supplemental: round.supplemental });
-          volley.push({ x: muzzle.x, y: muzzle.y, vx: velocity.x, vy: velocity.y, damage: round.damage, life: 110, color: shot.color });
           if (!round.supplemental) game.playerShots += 1;
         });
-        // A duel has to see the fire coming. Relayed as spawn events, so the
-        // other client integrates the same rounds rather than watching them
-        // jump a snapshot at a time.
-        if (game.mode === "pvp") netRef.current?.reportPilotShots(volley);
         game.shotCycle = Math.max(1, Math.round(shot.delay / (activeRiftRun?.shipModifiers.cannonFireRate ?? 1)));
         play("fire", 0.12, cannonPlaybackRate(player.gun));
         vibrateCombat("gun");
@@ -5617,17 +5456,9 @@ export default function WormholeGame() {
           if (enemy.hp <= 0 || bullet.life <= 0 || enemy.kind === "ghost") continue;
           if (dist(bullet, enemy) < enemy.radius + 4) {
             bullet.life = 0;
-            const coopGuest = arenaGuest(game);
-            if (coopGuest) {
-              netRef.current?.reportEnemyHit(enemyIdentity(game, enemy), bullet.damage, bullet.special ? "overcharge" : "cannon");
-              // The host owns the hostile and rules on whether it died. This is
-              // the pilot's own readout and nothing else: a guest that lands a
-              // round heavier than the hull the last snapshot gave it counts the
-              // kill locally, and clears its copy so the arena stops drawing a
-              // wreck for the 90ms until the next snapshot says the same thing.
-              // No rule, no score and no result reads this.
-              if (bullet.damage >= enemy.hp) { enemy.hp = 0; game.kills += 1; }
-            } else damageEnemy(game, enemy, bullet.damage);
+            const coopGuest = game.mode === "coop" && netRef.current?.state.you?.id !== netRef.current?.state.hostId;
+            if (coopGuest) netRef.current?.reportEnemyHit(enemyIdentity(game, enemy), bullet.damage, bullet.special ? "overcharge" : "cannon");
+            else damageEnemy(game, enemy, bullet.damage);
             burst(game, bullet.x, bullet.y, POWER_COLORS[enemy.kind], 4, 2.5);
             cannonImpactFeedback(game, bullet);
           }
@@ -5713,7 +5544,7 @@ export default function WormholeGame() {
           if (enemy.hp <= 0 || power.life <= 0) continue;
           if (dist(power, enemy) < enemy.radius + 10) {
             power.life = 0;
-            const coopGuest = arenaGuest(game);
+            const coopGuest = game.mode === "coop" && netRef.current?.state.you?.id !== netRef.current?.state.hostId;
             if (coopGuest) netRef.current?.reportEnemyHit(enemyIdentity(game, enemy), 60, "projectile");
             else damageEnemy(game, enemy, enemy.hp);
           }
@@ -5734,12 +5565,11 @@ export default function WormholeGame() {
         }
       });
 
-      const arenaNetwork = netRef.current?.state;
-      const sharedArena = game.mode === "coop" || game.mode === "pvp";
-      const arenaIsHost = sharedArena
-        && Boolean(arenaNetwork?.you?.id)
-        && arenaNetwork?.you?.id === arenaNetwork?.hostId;
-      if (arenaIsHost) {
+      const coopNetwork = netRef.current?.state;
+      const coopIsHost = game.mode === "coop"
+        && Boolean(coopNetwork?.you?.id)
+        && coopNetwork?.you?.id === coopNetwork?.hostId;
+      if (coopIsHost) {
         for (const hit of netRef.current?.drainEnemyHits() ?? []) {
           if (hit.roundId !== game.roundId) continue;
           const enemy = game.enemies.find((entry) => entry.enemyId === hit.enemyId);
@@ -5751,19 +5581,13 @@ export default function WormholeGame() {
           else game.enemies.forEach((enemy) => { enemy.scrambled = Math.max(enemy.scrambled ?? 0, ticksForSeconds(3)); });
         }
       }
-      if (sharedArena && !arenaIsHost && arenaNetwork?.world
-        && arenaNetwork.world.seq !== game.lastWorldSeq) {
-        const world = arenaNetwork.world;
+      if (game.mode === "coop" && !coopIsHost && coopNetwork?.world
+        && coopNetwork.world.seq !== game.lastWorldSeq) {
+        const world = coopNetwork.world;
         game.lastWorldSeq = world.seq;
-        // Co-op takes the host's whole portal transform. A duel takes only the
-        // shared orbit phase and derives both rift positions from its own side,
-        // because the host's portalX/portalY describe the host's own opposite
-        // number rather than this pilot's.
+        game.portalX = world.portalX;
+        game.portalY = world.portalY;
         game.portalAngle = world.portalAngle;
-        if (game.mode === "coop") {
-          game.portalX = world.portalX;
-          game.portalY = world.portalY;
-        }
         game.enrageActive = world.enrageActive;
         game.enemies = world.enemies.map((enemy) => ({ ...enemy })) as unknown as Enemy[];
         const localShots = game.bullets.filter((bullet) => !bullet.enemy);
@@ -5771,18 +5595,10 @@ export default function WormholeGame() {
       }
 
       if (game.mode === "pvp") {
-        // No bot in PvP: every hostile wave is something a pilot chose to send.
-        // The server tags deliveries, so a resend never spawns twice, and names
-        // the pilot being attacked so the wave comes out of the right mouth.
-        const youId = arenaNetwork?.you?.id ?? null;
+        // No bot in PvP: every hostile wave is something the opponent chose to
+        // send. The server tags deliveries, so a resend never spawns twice.
         for (const attack of netRef.current?.drainIncoming() ?? []) {
-          const atMe = attack.targetId === null || attack.targetId === youId;
-          // The hostiles exist once, in the host's world, and reach the guest
-          // through the ordinary relay. The pilot under attack still gets the
-          // flare and the warning wherever they happen to be simulating.
-          if (!arenaIsHost && !atMe) continue;
-          addIncoming(game, attack.weapon as PowerId, 0, atMe ? "you" : "rival", arenaIsHost);
-          if (!atMe) continue;
+          addIncoming(game, attack.weapon as PowerId);
           game.notice = `${WEAPONS[attack.weapon as PowerId].short} FROM ${attack.from}`;
           game.noticeLife = 140;
         }
@@ -5792,7 +5608,7 @@ export default function WormholeGame() {
         // scheduler stands down rather than spawning alongside it.
         !game.survival
         && !game.riftEscalation?.current.ownsWaveSchedule
-        && (game.mode !== "coop" || arenaIsHost)
+        && (game.mode !== "coop" || coopIsHost)
         && game.botTimer <= 0
         && game.running
       ) {
@@ -5802,62 +5618,10 @@ export default function WormholeGame() {
         game.botTimer = Math.max(330, 580 - Math.floor(game.cycles / 140));
       }
 
-      if (game.mode === "pvp") {
-        const arena = { width: game.worldWidth, height: game.worldHeight };
-        const duel = netRef.current?.state;
-        const hosting = pvpAuthority(duel?.you?.id, duel?.hostId) === "host";
-        const rival = netRef.current?.renderedTeammate() ?? null;
-        const rivalPresent = Boolean(rival)
-          && rival?.roundId === game.roundId
-          && duel?.opponent?.connected === true
-          && (duel?.opponentCombat?.hull ?? 0) > 0;
-
-        // Rounds the other pilot fired reach us as spawn events and are
-        // integrated here, so both machines run the same line of fire instead
-        // of one of them watching rounds jump a snapshot at a time.
-        for (const volley of netRef.current?.drainRivalShots() ?? []) {
-          if (volley.roundId !== game.roundId) continue;
-          for (const shot of volley.shots) game.rivalBullets.push({ ...shot });
-        }
-        game.rivalInvuln = Math.max(0, game.rivalInvuln - 1);
-        for (const shot of game.rivalBullets) {
-          if (shot.life <= 0) continue;
-          advancePvpShot(shot);
-          if (!pvpShotHitsPilot(shot, player)) continue;
-          shot.life = 0;
-          burst(game, shot.x, shot.y, "#ff9db0", 6, 3);
-          // Only the arena host resolves ship-vs-ship fire. A guest draws the
-          // round dying against its hull and waits for the hull the host's
-          // report produces, so one hit is never counted twice.
-          if (hosting) damagePlayer(game, shot.damage, "rival_cannon");
-        }
-        compact(game.rivalBullets, (shot) => pvpShotAlive(shot, arena));
-
-        // This pilot's own rounds against the other ship. Both clients kill the
-        // round and draw the impact, so firing feels the same on either side of
-        // the wire, but only the host reports the damage — and it reports it
-        // through the ordinary `damage` message, so the server still owns the
-        // shield, the hull and the result.
-        if (rivalPresent && rival) {
-          for (const bullet of game.bullets) {
-            if (bullet.enemy || bullet.life <= 0) continue;
-            if (!pvpShotHitsPilot(bullet, rival)) continue;
-            bullet.life = 0;
-            burst(game, bullet.x, bullet.y, "#ff9db0", 6, 3);
-            cannonImpactFeedback(game, bullet);
-            if (!hosting || game.rivalInvuln > 0) continue;
-            // The mirror of the local post-hit invulnerability. Without it the
-            // host would report a hit on every tick a round overlapped.
-            game.rivalInvuln = PVP_RIVAL_INVULN_TICKS;
-            netRef.current?.reportDamage("impact", bullet.damage, "pilot_cannon", "opponent");
-          }
-        }
-      }
-
       tickPlayerBeam(game);
       game.blasts.forEach((fx) => updateBlast(game, fx));
       game.enemies.forEach((enemy) => { if (enemy.hp > 0) updateEnemy(game, enemy); });
-      if (arenaIsHost && game.cycles % PVP_WORLD_INTERVAL_TICKS === 0) {
+      if (coopIsHost && game.cycles % 6 === 0) {
         netRef.current?.reportWorld({
           roundId: game.roundId,
           portalX: game.portalX,
@@ -6447,25 +6211,6 @@ export default function WormholeGame() {
         drawEnemy(game, enemy, time, detail);
       }
 
-      // Rounds the other pilot fired, in the rival's red rather than this
-      // ship's cannon colour, so incoming fire reads as incoming at a glance.
-      for (const shot of game.rivalBullets) {
-        if (shot.life <= 0 || !visible(shot.x, shot.y, 20)) continue;
-        ctx.save();
-        if (profile.shadows) { ctx.shadowColor = "#ff4d6d"; ctx.shadowBlur = 8; }
-        ctx.strokeStyle = "#ff4d6d";
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(shot.x, shot.y);
-        ctx.lineTo(shot.x - shot.vx * 2.2, shot.y - shot.vy * 2.2);
-        ctx.stroke();
-        ctx.fillStyle = "#ffe7ec";
-        ctx.beginPath();
-        ctx.arc(shot.x, shot.y, 2.4, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-      }
-
       // Pulse-cannon rounds: thin bright darts with a white core.
       for (const bullet of game.bullets) {
         if (!visible(bullet.x, bullet.y, 20)) continue;
@@ -6751,45 +6496,6 @@ export default function WormholeGame() {
           ctx.strokeRect(teammate.x - labelWidth / 2, teammate.y - 49, labelWidth, 22);
           ctx.fillStyle = "#b6ff57";
           ctx.fillText(label, teammate.x, teammate.y - 33);
-          ctx.restore();
-        }
-
-        // The other pilot in a duel. Hostile red rather than ally green, and no
-        // tether line: this one is a target, not a wing.
-        if (game.mode === "pvp" && teammate && teammate.roundId === game.roundId) {
-          const rivalPulse = 30 + Math.sin(time * 0.012) * 4;
-          ctx.save();
-          ctx.translate(teammate.x, teammate.y);
-          ctx.strokeStyle = "#ffffff";
-          ctx.lineWidth = 6;
-          ctx.shadowColor = "#ff4d6d";
-          ctx.shadowBlur = 18;
-          ctx.beginPath();
-          ctx.arc(0, 0, rivalPulse, 0, Math.PI * 2);
-          ctx.stroke();
-          ctx.strokeStyle = "#ff4d6d";
-          ctx.lineWidth = 3;
-          ctx.beginPath();
-          ctx.arc(0, 0, rivalPulse, 0, Math.PI * 2);
-          ctx.stroke();
-          ctx.rotate(teammate.angle * DEG);
-          ctx.strokeStyle = "#ffffff";
-          ctx.fillStyle = "rgba(255,77,109,.42)";
-          ctx.lineWidth = 4;
-          drawShipModel(ctx, (netRef.current?.state.opponent?.ship as ShipId | undefined) ?? "wing", 1.15);
-          ctx.restore();
-          ctx.save();
-          ctx.fillStyle = "#160207";
-          ctx.strokeStyle = "#ff4d6d";
-          ctx.lineWidth = 2;
-          const rivalLabel = `RIVAL · ${teammate.name}`;
-          ctx.font = "900 13px monospace";
-          ctx.textAlign = "center";
-          const rivalWidth = ctx.measureText(rivalLabel).width + 16;
-          ctx.fillRect(teammate.x - rivalWidth / 2, teammate.y - 49, rivalWidth, 22);
-          ctx.strokeRect(teammate.x - rivalWidth / 2, teammate.y - 49, rivalWidth, 22);
-          ctx.fillStyle = "#ff4d6d";
-          ctx.fillText(rivalLabel, teammate.x, teammate.y - 33);
           ctx.restore();
         }
 
@@ -7176,23 +6882,9 @@ export default function WormholeGame() {
         };
 
         const riftBody = { x: game.portalX, y: game.portalY, radius: PORTAL_VISUAL_RADIUS };
-        // The other pilot, in either mode that has one.
-        //
-        // Co-op calls them an ally and PvP a rival, but what the marker has to
-        // say is the same either way — "the other ship is that way, past the
-        // edge of the frame" — and in a duel across one shared arena it is the
-        // difference between having an opponent and staring at an empty board.
-        // Solo PvE and Survival have no second pilot and still render nothing.
-        const otherPilot = game.mode === "coop" || game.mode === "pvp"
-          ? netRef.current?.renderedTeammate(time)
-          : null;
-        // Between rounds a duel drops the marker rather than pointing at where
-        // the rival happened to be standing in the last one.
-        const allyTarget = otherPilot && (game.mode !== "pvp" || otherPilot.roundId === game.roundId)
-          ? otherPilot
-          : null;
-        // Green reads as a wing to fly toward. A rival is not one.
-        const allyAccent = game.mode === "pvp" ? "#ff4d6d" : "#b6ff57";
+        // Co-op only. Solo PvE and Survival have no ally, and a PvP rival is
+        // an opponent rather than one, so neither gets this marker.
+        const allyTarget = game.mode === "coop" ? netRef.current?.renderedTeammate(time) : null;
         const allyBody = allyTarget
           ? { x: allyTarget.x, y: allyTarget.y, radius: ALLY_VISUAL_RADIUS }
           : null;
@@ -7363,7 +7055,7 @@ export default function WormholeGame() {
         }
 
         if (riftMarker) drawOffscreenMarker(riftMarker, game.enrageActive ? "#ff2a3f" : "#ff4cbe", false);
-        if (allyMarker) drawOffscreenMarker(allyMarker, allyAccent, true);
+        if (allyMarker) drawOffscreenMarker(allyMarker, "#b6ff57", true);
       }
       ctx.restore();
 
