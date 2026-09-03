@@ -2291,25 +2291,16 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
 
 .play-summary { display: grid; gap: var(--space-2); }
 
-.selected-ship-preview {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3);
-  border: var(--border-2);
-  border-radius: var(--radius-2);
-  background: linear-gradient(110deg, rgba(12, 35, 48, .92), rgba(5, 15, 24, .78));
-  width: 100%; color: inherit; cursor: pointer; text-align: left;
-}
-.selected-ship-preview:hover, .selected-ship-preview:focus-visible { border-color: var(--focus); }
-.selected-ship-preview-art { width: clamp(72px, 15cqw, 112px); display: grid; place-items: center; }
-.selected-ship-preview-art :is(img, canvas) { width: 100%; height: auto; object-fit: contain; }
-.selected-ship-preview > div:nth-child(2) { display: grid; gap: 2px; min-width: 0; }
-.selected-ship-preview span, .selected-ship-preview small, .difficulty-card em {
+/* Ship choice happens inside a lobby now, in place, so there is no "selected
+   ship, tap to change" card standing between the menu and a run. */
+.difficulty-card em {
   color: var(--muted); font: 700 var(--fs-nano)/1.25 var(--mono); letter-spacing: .1em; text-transform: uppercase;
 }
-.selected-ship-preview b { color: var(--ink); font: 900 var(--fs-lg)/1.1 var(--mono); text-transform: uppercase; }
+
+.lobby-ship-picker { display: grid; gap: var(--space-2); }
+.lobby-ship-grid { grid-template-columns: repeat(auto-fit, minmax(min(96px, 100%), 1fr)); }
+.lobby-ship-grid .ship-card { min-height: 66px; padding: var(--space-1); gap: 2px; }
+.lobby-ship-summary b { color: var(--ink); }
 
 .difficulty-progression { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
 .difficulty-card {
@@ -2329,9 +2320,10 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
 .simulation-option .difficulty-card { width: 100%; }
 
 @container menu (max-width: 560px) {
-  .selected-ship-preview { grid-template-columns: 72px minmax(0, 1fr); gap: var(--space-2); padding: var(--space-2); }
-  .selected-ship-preview .menu-link-button { grid-column: 1 / -1; width: 100%; }
   .difficulty-progression { grid-template-columns: minmax(0, 1fr); }
+  .lobby-ship-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .lobby-ship-grid .ship-card { min-height: 52px; }
+  .lobby-ship-grid .ship-card b { font-size: var(--fs-nano); }
 }
 
 .summary-row {
@@ -2688,6 +2680,31 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
 .rift-sockets { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3); border: 1px solid rgba(100, 234, 255, .3); background: rgba(5, 25, 35, .65); }
 .rift-sockets span { color: var(--muted); font: 700 var(--fs-nano)/1 var(--mono); letter-spacing: .12em; }
 .rift-sockets b { color: var(--cyan); font: 900 var(--fs-lg)/1 var(--mono); letter-spacing: .14em; }
+
+/* The starting loadout, stated plainly. This is the whole point of the Rift
+   Run lobby now that there is no ship to choose in it. */
+.rift-starter-loadout { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }
+.rift-starter-loadout li { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); padding: 5px var(--space-2); border: 1px solid rgba(100, 234, 255, .18); background: rgba(5, 25, 35, .5); }
+.rift-starter-loadout span { color: var(--muted); font: 700 var(--fs-nano)/1.2 var(--mono); letter-spacing: .12em; }
+.rift-starter-loadout b { color: var(--cyan); font: 800 var(--fs-xs)/1.2 var(--mono); letter-spacing: .1em; }
+
+.rift-run-archetypes { display: grid; align-content: start; gap: var(--space-2); padding: var(--space-3); border: var(--border-1); background: rgba(4, 13, 25, .6); }
+.rift-run-archetypes h3 { margin: 0; color: var(--pink); font: 800 var(--fs-sm)/1.2 var(--mono); letter-spacing: .12em; }
+.rift-run-archetypes ul { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--space-2); }
+.rift-run-archetypes li { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: var(--space-2); align-items: center; }
+.rift-run-archetypes b { display: block; color: var(--ink); font: 800 var(--fs-xs)/1.3 var(--mono); letter-spacing: .08em; }
+.rift-run-archetypes small { color: var(--muted); font: 500 var(--fs-nano)/1.4 var(--mono); }
+
+.rift-special-options { grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 600px) { .rift-special-options { grid-template-columns: repeat(2, 1fr); } }
+
+/* A payload slot a run has not earned yet is not empty, it is absent. The
+   frame stays five wide in every mode; the unearned slots just read as shut. */
+.slot.locked { width: 100%; min-height: 58px; display: grid; align-content: center; justify-items: center; gap: 3px; padding: 6px 4px; text-align: center; border: 1px solid rgba(111, 190, 208, .12); border-radius: 3px; background: rgba(1, 6, 10, .8); color: #46626a; opacity: .55; }
+.slot.locked small { color: #46626a; font: 700 var(--fs-nano)/1 var(--mono); letter-spacing: .1em; }
+.slot.locked .slot-index { color: #3d565d; }
+.touch-powerup-slot.locked, .compact-pup.locked { opacity: .34; filter: saturate(.2); }
+
 @container menu (min-width: 760px) { .rift-run-layout { grid-template-columns: minmax(0, 2fr) minmax(240px, 1fr); } }
 @container menu (min-width: 720px) {
   .ships-layout { grid-template-columns: minmax(0, 1fr) minmax(280px, .8fr); align-items: start; }
@@ -2789,9 +2806,7 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
   .menu-eyebrow { display: none; }
   .home-layout, .ships-layout { gap: var(--space-2); }
   .ship-detail-art { display: none; }
-  .selected-ship-preview { grid-template-columns: 56px minmax(0, 1fr) auto; padding: var(--space-1) var(--space-2); }
-  .selected-ship-preview-art { width: 52px; }
-  .selected-ship-preview b { font-size: var(--fs-md); }
+  .lobby-ship-grid .ship-card { min-height: 46px; }
 }
 
 /* Foldables: keep the panel inside one segment rather than straddling the

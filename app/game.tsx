@@ -99,8 +99,18 @@ import {
   SettingsScreen,
   ShipsScreen,
 } from "./main-menu";
-import { activeHardpointCount } from "./rift-run/state";
-import { RIFT_RUN_SHIPS, riftRunShip } from "./rift-run/ships";
+import { activeHardpointCount, unlockedHardpointCount } from "./rift-run/state";
+import { riftRunStarterSpec } from "./rift-run/starter-ship";
+import { RIFT_RUN_SPECIALS } from "./rift-run/specials";
+import {
+  RIFT_SYSTEM_LABELS,
+  RIFT_RUN_SPECIAL_COOLDOWN_SCALE,
+  RIFT_RUN_STARTING_PAYLOAD_SLOTS,
+  cannonMarkForTier,
+  retrosForTier,
+  thrusterMarkForTier,
+  tierNumeral,
+} from "./rift-run/loadout";
 import type { RiftRunState, RiftWeaponId } from "./rift-run/types";
 import { RIFT_WEAPONS } from "./rift-run/weapons";
 import { createWeaponRuntime, tickWeaponRuntime, type WeaponRuntime } from "./rift-run/weapon-runtime";
@@ -122,7 +132,7 @@ import {
 } from "./rift-run/escalation";
 import { rollUpgradeChoices } from "./rift-run/upgrade-pool";
 import { riftRunHandling, riftRunHullDamage } from "./rift-run/live-modifiers";
-import { applyUpgrade } from "./rift-run/upgrade-apply";
+import { applyUpgrade, chooseRiftRunSpecial } from "./rift-run/upgrade-apply";
 import { claimHullGunWeapon, pendingHullGunReward } from "./rift-run/hull-gun-reward";
 import { drawRiftEnergyRing } from "./rift-run/energy-ring";
 import { rewardCategoryLabel } from "./rift-run/upgrades";
@@ -335,6 +345,14 @@ const OFFSCREEN_ENEMY_BADGE: readonly { x: number; y: number }[] = Array.from(
   },
 );
 const DEG = Math.PI / 180;
+/**
+ * The payload ceiling every mode but one starts at.
+ *
+ * Rift Run is the exception: it opens with a single slot and earns its way to
+ * exactly this number, so the live ceiling is carried per-run on
+ * `game.payloadCapacity` and the HUD draws `hud.payloadCapacity` slots. This
+ * constant is what a run that does not earn capacity is handed at creation.
+ */
 const STOCK_LIMIT = PUP_INVENTORY_CAPACITY;
 const ticksForSeconds = (seconds: number) => Math.round(seconds * 1000 / TICK_MS);
 const wholeSecondsForTicks = (ticks: number) => Math.max(0, Math.ceil(ticks * TICK_MS / 1000));
@@ -554,6 +572,23 @@ type Game = {
   worldWidth: number;
   worldHeight: number;
   ship: ShipSpec;
+  /**
+   * The frame whose Special ability is armed, or null for none at all.
+   *
+   * Normally the hull's own id. Rift Run separates the two: the starter frame
+   * flies with no Special until the run unlocks one, and the ability it then
+   * installs comes from a different frame entirely. Ability *dispatch* reads
+   * this; hull geometry — muzzles, thruster points, the drawn model — always
+   * reads `ship.id`, because that is what is actually on screen.
+   */
+  specialShip: ShipId | null;
+  /**
+   * Payload slots this run can hold, loaded plus stored.
+   *
+   * Per-run rather than a constant because Rift Run earns capacity from one
+   * slot up to the shared cap while every other mode simply starts there.
+   */
+  payloadCapacity: number;
   /** Rules in force for this run. Read by the loop; never re-derived from an id. */
   rules: DifficultyRules;
   mode: GameMode;
@@ -734,6 +769,8 @@ type Hud = {
   collisionRecharge: number;
   contactHazard: boolean;
   specialName: string;
+  /** Payload slots this run holds. Rift Run earns this; everyone else starts capped. */
+  payloadCapacity: number;
   /** Whole seconds remaining; zero means Q/SPEC is ready. */
   specialCooldown: number;
   /** True while the pilot is inside the wormhole contact radius. */
@@ -790,7 +827,10 @@ function createGame(
   // Which half of a shared PvP arena this pilot holds. Ignored by every other
   // mode; "left" is what the pre-match preview draws before there is an
   // opponent to compare ids with.
-  side: PvpSide = "left"
+  side: PvpSide = "left",
+  // Rift Run rides on the PvE mode, so the mode alone cannot say whether this
+  // run starts stripped. Stated explicitly instead of inferred.
+  riftRun = false
 ): Game {
   const rules = rulesFor(mode, difficulty);
   // Classic flies the reference handling. Resolved here rather than at every
@@ -811,6 +851,10 @@ function createGame(
     worldWidth: arena.width,
     worldHeight: arena.height,
     ship,
+    // A Rift Run starts with no Special installed; every other mode arms the
+    // hull's own.
+    specialShip: riftRun ? null : ship.id,
+    payloadCapacity: riftRun ? RIFT_RUN_STARTING_PAYLOAD_SLOTS : STOCK_LIMIT,
     rules,
     mode,
     lastDamageCause: "unknown",
@@ -960,7 +1004,8 @@ function hudFrom(game: Game): Hud {
       : null,
     collisionRecharge: game.collisionShield ? secondsForTicks(game.collisionShield.rechargeIn) : 0,
     contactHazard: game.rules.contactHazard.enabled,
-    specialName: SHIP_SPECIALS[game.ship.id].name,
+    specialName: game.specialShip ? SHIP_SPECIALS[game.specialShip].name : "NO SPECIAL",
+    payloadCapacity: game.payloadCapacity,
     specialCooldown: wholeSecondsForTicks(game.player.specialCooldown),
     contactActive: game.contactWarning > 0,
     enrageActive: game.enrageActive,
@@ -1000,6 +1045,7 @@ function hudEqual(a: Hud, b: Hud) {
     && a.collisionRecharge === b.collisionRecharge
     && a.contactHazard === b.contactHazard
     && a.specialName === b.specialName
+    && a.payloadCapacity === b.payloadCapacity
     && a.specialCooldown === b.specialCooldown
     && a.contactActive === b.contactActive
     && a.enrageActive === b.enrageActive
@@ -1838,16 +1884,26 @@ function DifficultyBadge({
     // takes the slot the always-1 sector readout used to hold, which keeps the
     // rail exactly as wide and as tall as the layout budget already measured.
     const depthStage = riftRunStageForDepth(riftRun.riftBreaches).name;
+    // The build is the mode, so the rail reports what the run has actually
+    // earned: sockets opened rather than the ship's theoretical capacity, and
+    // the Special by name once one exists. `unlocked` and `active` differ
+    // whenever a socket is open with no gun bolted into it yet.
+    const unlocked = unlockedHardpointCount(riftRun);
+    const special = riftRun.loadout.special;
+    const specialLabel = special
+      ? `${SHIP_SPECIALS[special.shipId].name} ${tierNumeral(special.tier)}`
+      : "LOCKED";
     return (
       <div className="difficulty-badge rift-run-badge" role="status" aria-live="polite"
-        aria-label={`Rift Run. Depth ${riftRun.riftBreaches}, ${depthStage}. ${active} of ${riftRun.maximumHardpoints} hardpoints active.`}>
+        aria-label={`Rift Run. Depth ${riftRun.riftBreaches}, ${depthStage}. ${active} of ${unlocked} unlocked hardpoints armed. Special ${specialLabel}.`}>
         <span className="rule-score">SCORE {hud.score.toLocaleString().padStart(6, "0")}</span>
         <span className="rule-mode">RIFT RUN</span>
         <span className="rule-rift-level">LEVEL {riftRun.level}</span>
         <span className="rule-rift-level">DEPTH {riftRun.riftBreaches}</span>
         <span className="rule-rift-stage">{depthStage}</span>
         <span>ENERGY {Math.floor(riftRun.riftEnergy)}/{riftEnergyRequiredForLevel(riftRun.level)}</span>
-        <span>HARDPOINTS {active}/{riftRun.maximumHardpoints}</span>
+        <span>HARDPOINTS {active}/{unlocked}</span>
+        <span>SPECIAL {specialLabel}</span>
       </div>
     );
   }
@@ -2192,33 +2248,77 @@ export default function WormholeGame() {
    */
   const [menu, setMenu] = useState<MenuStack>(INITIAL_STACK);
   const route = activeRoute(menu);
-  const [riftShipId, setRiftShipId] = useState<ShipId>(RIFT_RUN_SHIPS[0].id);
   const [riftRun, setRiftRun] = useState<RiftRunState | null>(null);
   const riftRunRef = useRef<RiftRunState | null>(null);
   const riftWeaponRuntime = useRef<WeaponRuntime>({});
   const hullGunRewardPending = Boolean(riftRun && pendingHullGunReward(riftRun));
-  const upgradeRoll = useMemo(() => riftRun && !riftRun.pendingHullGunReward && riftRun.pendingLevels > 0 ? rollUpgradeChoices(riftRun) : null, [riftRun]);
+  const specialChoicePending = Boolean(riftRun?.pendingSpecialChoice);
+  // A follow-up choice always wins over the next upgrade screen. Unlocking a
+  // socket or a Special hands the pilot a second decision immediately, and
+  // rolling the next card set over the top of it would lose that decision.
+  const upgradeRoll = useMemo(
+    () => riftRun && !riftRun.pendingHullGunReward && !riftRun.pendingSpecialChoice && riftRun.pendingLevels > 0
+      ? rollUpgradeChoices(riftRun)
+      : null,
+    [riftRun]
+  );
   const pendingHardpoint = riftRun?.pendingHullGunReward
     ? riftRun.hardpoints[riftRun.pendingHullGunReward.hardpointIndex]
     : undefined;
   const commitRiftRun = useCallback((next: RiftRunState) => { riftRunRef.current=next; setRiftRun(next); }, []);
+  /**
+   * Push the earned loadout into the live simulation.
+   *
+   * Payload capacity, the cannon mark, the engine mark and reverse thrust are
+   * all things the loop reads directly off the game object every tick, so an
+   * upgrade is not applied until they are written across. Derived from the run
+   * state rather than incremented in place: replaying the same state twice
+   * lands on the same ship.
+   */
+  const applyRiftRunLoadout = useCallback((next: RiftRunState) => {
+    const game = gameRef.current;
+    game.payloadCapacity = next.loadout.payloadSlots;
+    game.player.gun = cannonMarkForTier(next.loadout.cannonTier);
+    game.player.thrust = thrusterMarkForTier(next.loadout.thrusterTier);
+    game.player.retros = Math.max(game.player.retros, retrosForTier(next.loadout.thrusterTier));
+    game.specialShip = next.loadout.special?.shipId ?? null;
+    // Payload capacity can only go up, but the bin has to obey it either way.
+    if (game.stock.length > game.payloadCapacity) game.stock = game.stock.slice(-game.payloadCapacity);
+  }, []);
+  /** True once every pending choice has been spent, so the run can resume. */
+  const riftRunSettled = (state: RiftRunState) =>
+    !state.pendingLevels && !pendingHullGunReward(state) && !state.pendingSpecialChoice;
   const chooseUpgrade = useCallback((choice: NonNullable<typeof upgradeRoll>["choices"][number]) => {
     const current=riftRunRef.current; if (!current || !upgradeRoll) return;
-    const next=applyUpgrade({...current,rollIndex:upgradeRoll.nextRollIndex},choice); commitRiftRun(next);
+    const next=applyUpgrade({...current,rollIndex:upgradeRoll.nextRollIndex},choice);
+    if (next === current) return;
+    commitRiftRun(next);
     const player=gameRef.current.player;
     const hullGain=next.shipModifiers.hull-current.shipModifiers.hull;
     const shieldGain=next.shipModifiers.shield-current.shipModifiers.shield;
     if (hullGain>0) { player.maxHealth+=hullGain; player.health=Math.min(player.maxHealth,player.health+hullGain); }
     if (shieldGain>0) player.shield+=shieldGain;
-    if (!next.pendingLevels && !pendingHullGunReward(next)) gameRef.current.paused=false;
-  }, [commitRiftRun, upgradeRoll]);
+    applyRiftRunLoadout(next);
+    if (riftRunSettled(next)) gameRef.current.paused=false;
+  }, [commitRiftRun, applyRiftRunLoadout, upgradeRoll]);
+  const chooseSpecial = useCallback((shipId: ShipId) => {
+    const current=riftRunRef.current; if (!current) return;
+    const next=chooseRiftRunSpecial(current, shipId);
+    if (next === current) return;
+    commitRiftRun(next);
+    applyRiftRunLoadout(next);
+    // A freshly installed Special is ready at once. Waiting out a cooldown for
+    // an ability that has never been used would read as a bug.
+    gameRef.current.player.specialCooldown = 0;
+    if (riftRunSettled(next)) gameRef.current.paused=false;
+  }, [commitRiftRun, applyRiftRunLoadout]);
   const chooseHardpointWeapon = useCallback((weaponId: RiftWeaponId) => {
     const current=riftRunRef.current;
     const hardpointIndex=current?.pendingHullGunReward?.hardpointIndex;
     if (!current || hardpointIndex === undefined) return;
     const next=claimHullGunWeapon(current,hardpointIndex,weaponId);
     commitRiftRun(next); riftWeaponRuntime.current=createWeaponRuntime(next);
-    if (!next.pendingLevels && !pendingHullGunReward(next)) gameRef.current.paused=false;
+    if (riftRunSettled(next)) gameRef.current.paused=false;
   }, [commitRiftRun]);
   const menuOpen = menuIsOpen(menu);
   const go = useCallback((next: MenuRoute) => setMenu((stack) => pushRoute(stack, next)), []);
@@ -2718,7 +2818,7 @@ export default function WormholeGame() {
     const seedStock = (event: Event) => {
       const detail = (event as CustomEvent<PowerId[]>).detail;
       if (!Array.isArray(detail)) return;
-      gameRef.current.stock = detail.filter((id): id is PowerId => id in WEAPONS).slice(0, STOCK_LIMIT);
+      gameRef.current.stock = detail.filter((id): id is PowerId => id in WEAPONS).slice(0, gameRef.current.payloadCapacity);
       sync();
     };
     window.addEventListener("breach-runner:test-stock", seedStock);
@@ -2962,7 +3062,14 @@ export default function WormholeGame() {
     gameRef.current = createGame(selectedShip(shipId), mode, difficulty);
   }, [difficulty, mode, shipId]);
 
-  const start = useCallback((riftShip?: ShipId, modeOverride?: GameMode, difficultyOverride?: DifficultyId) => {
+  /**
+   * Begin a run.
+   *
+   * `riftRun` is a flag rather than a ship id now: Rift Run has no ship to
+   * name. It rides on the PvE mode, so the mode alone cannot distinguish the
+   * two and the caller has to say which it wants.
+   */
+  const start = useCallback((riftRun?: boolean, modeOverride?: GameMode, difficultyOverride?: DifficultyId) => {
     const launchMode = modeOverride ?? mode;
     const selectedDifficulty = difficultyOverride ?? difficulty;
     stopVictorySuction();
@@ -2972,7 +3079,6 @@ export default function WormholeGame() {
     const confirmedShip = launchMode === "coop" || launchMode === "pvp"
       ? netRef.current?.state.you?.ship
       : null;
-    const launchShip = riftShip && riftRunShip(riftShip) ? riftShip : (confirmedShip ?? shipId) as ShipId;
     const launchDifficulty = safeDifficulty(selectedDifficulty, pilotProgressionStore.getSnapshot());
     if (launchDifficulty !== selectedDifficulty) difficultyPreference.set(launchDifficulty);
     // Which half of a shared duel arena this pilot holds. Settled by comparing
@@ -2981,10 +3087,13 @@ export default function WormholeGame() {
     const duelSide = launchMode === "pvp"
       ? pvpSide(netRef.current?.state.you?.id, netRef.current?.state.opponent?.id)
       : "left";
-    const game = createGame(selectedShip(launchShip), launchMode, launchDifficulty, DEFAULT_ARENA, duelSide);
-    if (riftShip && riftRunShip(riftShip)) {
-      const seed = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${riftShip}`;
-      const run = createRunAgainRiftRun({ kind: "rift-run", shipId: riftShip }, seed);
+    // Rift Run issues the same stripped starter frame every time; every other
+    // mode flies the hull its lobby confirmed.
+    const launchSpec = riftRun ? riftRunStarterSpec() : selectedShip((confirmedShip ?? shipId) as ShipId);
+    const game = createGame(launchSpec, launchMode, launchDifficulty, DEFAULT_ARENA, duelSide, Boolean(riftRun));
+    if (riftRun) {
+      const seed = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-rift-run`;
+      const run = createRunAgainRiftRun({ kind: "rift-run" }, seed);
       riftRunRef.current = run;
       riftWeaponRuntime.current = createWeaponRuntime(run);
       setRiftRun(run);
@@ -3044,8 +3153,8 @@ export default function WormholeGame() {
     // rift at depth zero and sends launched payloads down the network
     // transmit branch instead of the PvE damage branch, so rift integrity
     // could never fall and the run could not be won.
-    start(riftShipId, "pve", "easy");
-  }, [riftShipId, start]);
+    start(true, "pve", "easy");
+  }, [start]);
 
   // The server decides when the match is live. When it says so, launch the
   // local arena; the client never starts a PvP run on its own timing.
@@ -3135,7 +3244,9 @@ export default function WormholeGame() {
   const setPaused = useCallback((paused: boolean) => {
     const game = gameRef.current;
     if (!game.running || game.result) return;
-    if (!paused && riftRunRef.current && pendingHullGunReward(riftRunRef.current)) return;
+    // An unspent choice holds the pause. Resuming with a hull gun or a Special
+    // still to pick would leave the reward stranded behind live gameplay.
+    if (!paused && riftRunRef.current && (pendingHullGunReward(riftRunRef.current) || riftRunRef.current.pendingSpecialChoice)) return;
     if (game.mode !== "pve") {
       game.notice = game.mode === "coop" ? "CO-OP // TEAM PLAY CONTINUES" : "PVP // MATCH CONTINUES";
       game.noticeLife = 90;
@@ -3183,8 +3294,27 @@ export default function WormholeGame() {
     setMenu(resetRoute("lobby"));
   }, [mode, start]);
 
-  const beginPlayFlow = useCallback(() => setMenu(resetRoute("ships")), []);
-  const confirmShip = useCallback(() => setMenu(["ships", "modes"]), []);
+  /**
+   * Play opens the mode question, not the ship question.
+   *
+   * Menu -> Mode -> Lobby -> Ship/Ready. Ship choice belongs to the round's
+   * lobby now, so the only thing Play has to establish is what is being
+   * played; Rift Run's lobby then asks nothing about ships at all.
+   */
+  const beginPlayFlow = useCallback(() => setMenu(resetRoute("modes")), []);
+  /**
+   * Confirm on the Ships screen returns where it was opened from.
+   *
+   * Ships is a browsing surface reached from Home (and from "end run and
+   * change ship"), never the first screen of a launch. Popping keeps it that
+   * way; the fallback to Home covers the case where it is the whole stack,
+   * because popping the last route would drop the pilot into an inert cockpit
+   * with no run in it.
+   */
+  const confirmShip = useCallback(
+    () => setMenu((stack) => (stack.length > 1 ? popRoute(stack) : resetRoute("home"))),
+    []
+  );
 
   /** Back out of the menu: resume the run if there is one, else stay home. */
   const resumeOrClose = useCallback(() => {
@@ -4425,14 +4555,21 @@ export default function WormholeGame() {
       if (keys.current.__specialLatch) return;
       keys.current.__specialLatch = true;
 
-      const spec = SHIP_SPECIALS[game.ship.id];
+      // No Special installed at all: a Rift Run before its unlock. Say so
+      // rather than firing whatever the hull would have had.
+      if (!game.specialShip) {
+        game.notice = "NO SPECIAL INSTALLED // EARN ONE WITH AN UPGRADE";
+        game.noticeLife = 55;
+        return;
+      }
+      const spec = SHIP_SPECIALS[game.specialShip];
       if (player.specialCooldown > 0) {
         game.notice = `${spec.name} // READY IN ${wholeSecondsForTicks(player.specialCooldown)}S`;
         game.noticeLife = 55;
         return;
       }
 
-      const ship = game.ship.id;
+      const ship = game.specialShip;
       const overcharge = overchargeFor(ship);
       if (overcharge) {
         fireOvercharge(game, overcharge);
@@ -4464,7 +4601,11 @@ export default function WormholeGame() {
         game.notice = `SUPPRESSION BARRAGE // ${spec.activeSeconds ?? 0}S`;
       }
 
-      player.specialCooldown = ticksForSeconds(spec.cooldownSeconds);
+      // A Rift Run's Special tier buys its cooldown down. Tier I is the
+      // ability exactly as the fleet flies it.
+      const specialTier = riftRunRef.current?.loadout.special?.tier ?? 1;
+      const cooldownScale = RIFT_RUN_SPECIAL_COOLDOWN_SCALE[Math.min(specialTier, RIFT_RUN_SPECIAL_COOLDOWN_SCALE.length - 1)] ?? 1;
+      player.specialCooldown = ticksForSeconds(spec.cooldownSeconds * cooldownScale);
       game.noticeLife = 90;
       if (!overcharge) {
         burst(game, player.x, player.y, "#68f2ff", 26, 8);
@@ -4485,7 +4626,7 @@ export default function WormholeGame() {
     const resolvePlayerPickup = (game: Game, pickup: Pickup, source: PickupCollectionSource) => {
       const player = game.player;
       const type = pickup.type;
-      if (WEAPONS[type].sendable && game.stock.length >= STOCK_LIMIT) {
+      if (WEAPONS[type].sendable && game.stock.length >= game.payloadCapacity) {
         if (source === "physical") pickup.life = 0;
         game.notice = "POWERUP BIN FULL";
         game.noticeLife = 75;
@@ -4515,7 +4656,7 @@ export default function WormholeGame() {
       else if (type === "health") player.health = Math.min(player.maxHealth, player.health + 30);
       else if (type === "ricochet") player.ricochetTicks = ticksForSeconds(RICOCHET_DURATION_SECONDS);
       else {
-        const wasBelowCapacity = game.stock.length === STOCK_LIMIT - 1;
+        const wasBelowCapacity = game.stock.length === game.payloadCapacity - 1;
         game.stock.push(type);
         // This is the existing sequenced delta event. The server still owns
         // capacity and ordering; no absolute inventory count crosses the wire.
@@ -5226,14 +5367,14 @@ export default function WormholeGame() {
         const shot = SHOT_LEVELS[player.gun];
         const aimAngle = player.angle * DEG;
         const cannonDamage = shot.damage * (activeRiftRun?.shipModifiers.cannonDamage ?? 1);
-        const rounds = game.ship.id === "warden" && player.suppressionBarrage > 0
+        const rounds = game.specialShip === "warden" && player.suppressionBarrage > 0
           ? suppressionBarrageRounds(aimAngle, cannonDamage)
           : (shot.shots === 2 ? [-0.05, 0.05] : [0]).map((offset) => ({ angle: aimAngle + offset, damage: cannonDamage, supplemental: false }));
         const muzzle = shipMuzzleWorldPoint(game.ship.id, player, aimAngle, 1.15);
         const volley: PvpShot[] = [];
         rounds.forEach((round) => {
           const velocity = shipForwardVelocity(round.angle, 10, { x: player.vx, y: player.vy });
-          game.bullets.push({ x: muzzle.x, y: muzzle.y, vx: velocity.x, vy: velocity.y, damage: round.damage, life: 110, enemy: false, color: shot.color, bouncesLeft: player.ricochetTicks > 0 ? RICOCHET_BOUNCES : 0, salvageLinked: game.ship.id === "kestrel" && player.salvageLink > 0, supplemental: round.supplemental });
+          game.bullets.push({ x: muzzle.x, y: muzzle.y, vx: velocity.x, vy: velocity.y, damage: round.damage, life: 110, enemy: false, color: shot.color, bouncesLeft: player.ricochetTicks > 0 ? RICOCHET_BOUNCES : 0, salvageLinked: game.specialShip === "kestrel" && player.salvageLink > 0, supplemental: round.supplemental });
           volley.push({ x: muzzle.x, y: muzzle.y, vx: velocity.x, vy: velocity.y, damage: round.damage, life: 110, color: shot.color });
           if (!round.supplemental) game.playerShots += 1;
         });
@@ -5253,7 +5394,7 @@ export default function WormholeGame() {
         const type = consumeLoadedPup(game.stock)!;
         if (game.mode !== "pve") netRef.current?.reportInventory("launch", type);
         const angle = player.angle * DEG;
-        const homing = game.ship.id === "rabbit" && player.viperGuidance > 0;
+        const homing = game.specialShip === "rabbit" && player.viperGuidance > 0;
         const muzzle = shipMuzzleWorldPoint(game.ship.id, player, angle, 1.15), velocity = shipForwardVelocity(angle, 10, { x: player.vx, y: player.vy });
         game.powers.push({ x: muzzle.x, y: muzzle.y, vx: velocity.x, vy: velocity.y, type, life: homing ? 320 : 160, homing });
         game.notice = homing ? `${WEAPONS[type].short} // TARGET LINK` : `${WEAPONS[type].short} ARMED`;
@@ -5402,7 +5543,7 @@ export default function WormholeGame() {
         // Additional cannon/PUP contact only: combat checks below are intact
         // for every round that did not actually touch a loose collectible.
         if (bullet.life > 0 && bullet.salvageLinked) {
-          const pickup = game.pickups.find((item) => item.life > 0 && salvageLinkHitsPup(game.ship.id, bullet, item));
+          const pickup = game.pickups.find((item) => item.life > 0 && salvageLinkHitsPup(game.specialShip ?? game.ship.id, bullet, item));
           if (pickup) {
             const collected = resolvePlayerPickup(game, pickup, "salvage-link");
             // Consume on both success and a full bin so this one round cannot
@@ -6144,7 +6285,7 @@ export default function WormholeGame() {
       const game = gameRef.current;
       const player = game.player;
       const quiet = reducedMotionRef.current;
-      const shipOvercharge = overchargeFor(game.ship.id);
+      const shipOvercharge = game.specialShip ? overchargeFor(game.specialShip) : null;
 
       ctx.setTransform(worldScale, 0, 0, worldScale, 0, 0);
       // Survival repaints the arena as it escalates, so the stage a run has
@@ -6484,7 +6625,7 @@ export default function WormholeGame() {
         }
         ctx.restore();
 
-        if (game.ship.id === "warden" && player.suppressionBarrage > 0) {
+        if (game.specialShip === "warden" && player.suppressionBarrage > 0) {
             const total = ticksForSeconds(SHIP_SPECIALS.warden.activeSeconds ?? 0);
             ctx.save();
             ctx.translate(player.x, player.y);
@@ -7647,11 +7788,14 @@ export default function WormholeGame() {
                 Rendered for every mode — it is a display preference, not a mode
                 feature — and the payload frame always draws STOCK_LIMIT slots,
                 so the geometry never reflows when the mode or the player's
-                unlocked capacity changes.
+                unlocked capacity changes. A Rift Run that has not yet earned
+                its capacity shows the difference as locked slots rather than a
+                shorter frame, which is what keeps the geometry fixed.
               */}
               {settings.compactHud ? (() => {
                 const compact = pupInventoryLayout(hud.stock, STOCK_LIMIT);
                 const slots = [...compact.stored, compact.loaded];
+                const lockedSlots = STOCK_LIMIT - hud.payloadCapacity;
                 return (
                   <div className="compact-hud" style={{ "--compact-slots": STOCK_LIMIT } as React.CSSProperties}>
                     <div
@@ -7662,7 +7806,7 @@ export default function WormholeGame() {
                       <span className="compact-gauge compact-hull"><i style={{ height: `${healthPct}%` }} /></span>
                       <span className="compact-gauge compact-shield"><i style={{ height: `${hud.shield}%` }} /></span>
                     </div>
-                    <ol className="compact-pups" aria-label={`${hud.stock.length} of ${STOCK_LIMIT} power-ups stored`}>
+                    <ol className="compact-pups" aria-label={`${hud.stock.length} of ${hud.payloadCapacity} power-ups stored`}>
                       {slots.map((itemId, index) => {
                         const item = itemId as PickupId | null;
                         const meta = item ? WEAPONS[item] : null;
@@ -7672,9 +7816,9 @@ export default function WormholeGame() {
                         return (
                           <li
                             key={index}
-                            className={`compact-pup ${meta ? "occupied" : "empty"} ${isLoaded ? "loaded" : ""}`}
+                            className={`compact-pup ${meta ? "occupied" : "empty"} ${isLoaded ? "loaded" : ""}${index < lockedSlots ? " locked" : ""}`}
                             style={{ "--pup": visual?.color ?? "var(--muted)" } as React.CSSProperties}
-                            aria-label={meta ? `${meta.name}${isLoaded ? ", fires next" : ""}` : "Empty slot"}
+                            aria-label={index < lockedSlots ? "Locked slot" : meta ? `${meta.name}${isLoaded ? ", fires next" : ""}` : "Empty slot"}
                           >
                             {meta ? <WeaponIcon id={meta.id} size={18} inventoryFrame /> : <span aria-hidden="true" />}
                           </li>
@@ -7701,8 +7845,8 @@ export default function WormholeGame() {
                    cannot leave the HUD laying out columns that no longer exist. */
                 style={{ "--pup-stored-slots": STOCK_LIMIT - 1 } as React.CSSProperties}
                 aria-label={queued
-                  ? `${hud.stock.length} of ${STOCK_LIMIT} power-ups stored. ${WEAPONS[queued].name} fires next.`
-                  : `0 of ${STOCK_LIMIT} power-ups stored.`}
+                  ? `${hud.stock.length} of ${hud.payloadCapacity} power-ups stored. ${WEAPONS[queued].name} fires next.`
+                  : `0 of ${hud.payloadCapacity} power-ups stored.`}
               >
                 <ol className="touch-powerup-slots" aria-label="Stored power-ups in loading order">
                   {pupInventoryLayout(hud.stock, STOCK_LIMIT).stored.map((itemId, index) => {
@@ -7712,9 +7856,9 @@ export default function WormholeGame() {
                     return (
                       <li
                         key={index}
-                        className={`touch-powerup-slot ${meta ? "occupied" : "empty"}`}
+                        className={`touch-powerup-slot ${meta ? "occupied" : "empty"}${index < STOCK_LIMIT - hud.payloadCapacity ? " locked" : ""}`}
                         style={{ "--pup": visual?.color ?? "var(--muted)" } as React.CSSProperties}
-                        aria-label={meta ? `${meta.name}${index === STOCK_LIMIT - 2 ? ", loads next" : ""}` : "Empty slot"}
+                        aria-label={index < STOCK_LIMIT - hud.payloadCapacity ? "Locked slot" : meta ? `${meta.name}${index === STOCK_LIMIT - 2 ? ", loads next" : ""}` : "Empty slot"}
                       >
                         {meta ? (
                           <button type="button" onClick={() => pinSlot(meta.id)} aria-label={`View ${meta.name}`}>
@@ -7730,7 +7874,7 @@ export default function WormholeGame() {
                   const meta = loaded ? WEAPONS[loaded] : null;
                   const visual = loaded ? inventoryPupVisual(loaded) : null;
                   return <div className={`touch-powerup-loaded ${meta ? "occupied" : "empty"}`} style={{ "--pup": visual?.color ?? "var(--muted)" } as React.CSSProperties}>
-                    <small>LOADED PUP <b>{hud.stock.length}/{STOCK_LIMIT}</b></small>
+                    <small>LOADED PUP <b>{hud.stock.length}/{hud.payloadCapacity}</b></small>
                     {meta ? <button type="button" onClick={() => pinSlot(meta.id)} aria-label={`View loaded ${meta.name}`}>
                       <WeaponIcon id={meta.id} size={28} inventoryFrame /><strong>{meta.name}</strong>
                     </button> : <span aria-label="No PUP loaded">—</span>}
@@ -7775,7 +7919,12 @@ export default function WormholeGame() {
               <DifficultyBadge hud={hud} pending={pendingRules} pendingMode={mode} live={badgeLive} riftRun={riftRun} />
               <i className="reticle tl" aria-hidden="true" /><i className="reticle tr" aria-hidden="true" />
               <i className="reticle bl" aria-hidden="true" /><i className="reticle br" aria-hidden="true" />
-              {hullGunRewardPending && pendingHardpoint ? (
+              {specialChoicePending ? (
+                <div className="rift-upgrade-layer"><section className="rift-upgrade-dialog" data-controller-surface role="dialog" aria-modal="true" aria-label="Select special ability">
+                  <header><p>SPECIAL ABILITY INSTALLED</p><h2>CHOOSE YOUR SPECIAL</h2></header>
+                  <div className="rift-weapon-options rift-special-options">{RIFT_RUN_SPECIALS.map(option=><button type="button" key={option.shipId} onClick={()=>chooseSpecial(option.shipId)}><small>SPECIAL</small><b>{option.name}</b><span>{option.summary}</span></button>)}</div>
+                </section></div>
+              ) : hullGunRewardPending && pendingHardpoint ? (
                 <div className="rift-upgrade-layer"><section className="rift-upgrade-dialog" data-controller-surface role="dialog" aria-modal="true" aria-label="Select weapon">
                   <header><p>HARDPOINT UNLOCKED · HARDPOINT {pendingHardpoint.index+1}</p><h2>SELECT HULL GUN</h2></header>
                   <div className="rift-weapon-options">{RIFT_WEAPONS.map(weapon=><button type="button" key={weapon.id} onClick={()=>chooseHardpointWeapon(weapon.id)}><small>{rewardCategoryLabel("hull-gun")}</small><b>{weapon.name}</b><span>{weapon.role}</span></button>)}</div>
@@ -7784,7 +7933,9 @@ export default function WormholeGame() {
               ) : upgradeRoll ? (
                 <div className="rift-upgrade-layer"><section className="rift-upgrade-dialog" data-controller-surface role="dialog" aria-modal="true" aria-label="Upgrade available">
                   <header><p>UPGRADE AVAILABLE</p><h2>CHOOSE ONE</h2></header>
-                  <div className="rift-upgrade-options">{upgradeRoll.choices.map(choice=><button type="button" className={choice.kind==="evolution"?"rift-evolution-card":undefined} key={choice.key} onClick={()=>chooseUpgrade(choice)}><small>{choice.targetInstanceId ? rewardCategoryLabel("hull-gun") : rewardCategoryLabel(choice.gameplayCategory)}</small><b>{choice.title}</b><em>{choice.target}</em><span>{choice.description}</span></button>)}</div>
+                  {/* The eyebrow names the ship system, because the system is
+                      what the three cards are competing over. */}
+                  <div className="rift-upgrade-options">{upgradeRoll.choices.map(choice=><button type="button" className={choice.kind==="evolution"?"rift-evolution-card":undefined} key={choice.key} onClick={()=>chooseUpgrade(choice)}><small>{RIFT_SYSTEM_LABELS[choice.system]}</small><b>{choice.title}</b><em>{choice.target}</em><span>{choice.description}</span></button>)}</div>
                 </section></div>
               ) : null}
               {summary ? (
@@ -7940,7 +8091,7 @@ export default function WormholeGame() {
                           className="run-action primary"
                           disabled={summary.awaitingInitials || (mode !== "pve" && Boolean(net?.rematch?.you))}
                           onClick={() => {
-                            if (summary.replay.kind === "rift-run") start(summary.replay.shipId);
+                            if (summary.replay.kind === "rift-run") start(true, "pve", "easy");
                             else if (summary.replay.kind === "pve" || summary.replay.kind === "survival") start();
                             else netRef.current?.requestRematch();
                           }}
@@ -8048,17 +8199,21 @@ export default function WormholeGame() {
             </div>
             <div className="power-bin">
               <div className="bin-label">
-                <span>POWER-UP BIN <b className="bin-count">{hud.stock.length}/{STOCK_LIMIT}</b></span>
+                <span>POWER-UP BIN <b className="bin-count">{hud.stock.length}/{hud.payloadCapacity}</b></span>
                 <small>FIRE WITH <b>E</b> / <b>PUP</b></small>
               </div>
               <ul className="bin-slots" aria-label="Power-up bin. The last collected power-up fires first.">
                 {Array.from({ length: STOCK_LIMIT }, (_, index) => {
                   const item = hud.stock[index];
                   if (!item) {
+                    // Beyond what this run has earned the slot is not empty, it
+                    // is not there yet. Saying so is the whole readout for a
+                    // Rift Run climbing from one slot to five.
+                    const locked = index >= hud.payloadCapacity;
                     return (
-                      <li key={index} className="slot empty">
+                      <li key={index} className={locked ? "slot locked" : "slot empty"}>
                         <span className="slot-index" aria-hidden="true">{index + 1}</span>
-                        <small>EMPTY</small>
+                        <small>{locked ? "LOCKED" : "EMPTY"}</small>
                       </li>
                     );
                   }
@@ -8140,10 +8295,8 @@ export default function WormholeGame() {
         <HomeScreen
           mode={mode}
           difficulty={difficulty}
-          ship={shipId}
           running={launched && gameActive}
           onLaunch={beginPlayFlow}
-          renderShip={renderShip}
           go={go}
           openSettings={openSettings}
           back={back}
@@ -8157,7 +8310,10 @@ export default function WormholeGame() {
           // screen must describe the simulation actually running.
           mode={hud.mode}
           pausable={isOfflineMode(hud.mode)}
-          onRestart={start}
+          // Restart has to restart the run that is actually running. A Rift
+          // Run restarted through a bare start() came back as ordinary PvE,
+          // because the mode alone cannot tell the two apart.
+          onRestart={() => (riftRunRef.current ? start(true, "pve", "easy") : start(false, hud.mode))}
           onQuit={quitRun}
           onEndRunAndChangeShip={() => endRun("ships")}
           onEndRunAndChangeMode={() => endRun("modes")}
@@ -8169,29 +8325,27 @@ export default function WormholeGame() {
       ) : null}
 
       {route === "modes" ? (
-        <GameTypeScreen ship={shipId} go={go} openSettings={openSettings} back={back} close={resumeOrClose} />
+        <GameTypeScreen go={go} openSettings={openSettings} back={back} close={resumeOrClose} />
       ) : null}
 
       {route === "pvp-modes" ? (
-        <PvpModesScreen ship={shipId} onSelect={() => { chooseMode("pvp"); setMenu(["ships", "modes", "pvp-modes", "lobby"]); }} go={go} openSettings={openSettings} back={back} close={resumeOrClose} />
+        <PvpModesScreen onSelect={() => { chooseMode("pvp"); setMenu(["modes", "pvp-modes", "lobby"]); }} go={go} openSettings={openSettings} back={back} close={resumeOrClose} />
       ) : null}
 
       {route === "pve-modes" ? (
-        <PveModesScreen ship={shipId} onMode={(next) => {
+        <PveModesScreen onMode={(next) => {
           chooseMode(next);
           if (next === "classic") start(undefined, "classic");
-          else setMenu(["ships", "modes", "pve-modes", "difficulty"]);
+          else setMenu(["modes", "pve-modes", "difficulty"]);
         }} onSurvival={() => { chooseSurvival(); start(undefined, "pve", "survival"); }} onRiftRun={() => go("rift-run")} go={go} openSettings={openSettings} back={back} close={resumeOrClose} />
       ) : null}
 
       {route === "difficulty" ? (
-        <DifficultyScreen ship={shipId} mode={mode === "coop" ? "coop" : "pve"} difficulty={difficulty} progression={progression} onDifficulty={chooseDifficulty} onLaunch={launchFromMenu} go={go} openSettings={openSettings} back={back} close={resumeOrClose} />
+        <DifficultyScreen ship={shipId} mode={mode === "coop" ? "coop" : "pve"} difficulty={difficulty} progression={progression} onDifficulty={chooseDifficulty} onSelectShip={(id) => { setShipId(id); netRef.current?.chooseShip(id); }} onLaunch={launchFromMenu} renderShip={renderShip} go={go} openSettings={openSettings} back={back} close={resumeOrClose} />
       ) : null}
 
       {route === "rift-run" ? (
         <RiftRunSetupScreen
-          ship={riftShipId}
-          onSelect={setRiftShipId}
           onLaunch={launchRiftRun}
           renderShip={renderShip}
           go={go}

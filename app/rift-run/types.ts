@@ -1,5 +1,13 @@
-import type { ShipId } from "../game-data.ts";
+import type { RiftLoadout } from "./loadout.ts";
 
+/**
+ * Ship classes are no longer part of a Rift Run.
+ *
+ * Every run flies the same classless starter frame, so nothing about the ship
+ * pre-decides how many hull guns it can carry or what it is good at. The type
+ * survives because `RIFT_SHIP_CLASSES` still describes the finished fleet as
+ * build archetypes to aim at — it just no longer constrains a run.
+ */
 export type RiftShipClass = "light" | "medium" | "heavy";
 export type RiftRunStatus = "setup" | "active" | "completed" | "abandoned";
 export type PendingHullGunReward = { hardpointIndex: number; breach: number };
@@ -33,10 +41,17 @@ export type RiftHardpoint =
   | { index: number; status: "occupied"; weapon: RiftWeaponInstance };
 
 export type RiftRunState = {
-  selectedShip: ShipId;
-  shipClass: RiftShipClass;
+  /**
+   * What the run has earned across the five ship systems.
+   *
+   * Replaces the old `selectedShip`/`shipClass` pair: there is no ship choice
+   * to record, and no class to gate anything on.
+   */
+  loadout: RiftLoadout;
   maximumHardpoints: number;
   hardpoints: RiftHardpoint[];
+  /** Set when an upgrade unlocked a Special and the pilot must now pick one. */
+  pendingSpecialChoice: boolean;
   sector: number;
   wave: number;
   riftEnergy: number;
@@ -54,4 +69,5 @@ export type RiftRunState = {
 };
 
 export type RiftUpgradeHistory = { upgradeId: string; targetInstanceId?: string; hardpointIndex?: number; stack: number; level: number };
+export type { RiftLoadout } from "./loadout.ts";
 export type RiftEvolutionHistory = { evolutionId: RiftEvolutionId; weaponInstanceId: string; hardpoint: number; level: number };

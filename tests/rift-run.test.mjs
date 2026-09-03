@@ -34,20 +34,49 @@ import { DIFFICULTIES } from "../app/difficulty.ts";
 import { escalationForLevel, survivalRulesFor } from "../app/survival.ts";
 import { applyIntent, intentFromKeys } from "../app/movement.ts";
 import { createRunAgainRiftRun, replayForCompletedRun } from "../app/run-replay.ts";
+import { SHIPS } from "../app/game-data.ts";
+import { RIFT_RUN_ARCHETYPES } from "../app/rift-run/ships.ts";
+import { RIFT_RUN_STARTER_HULL, riftRunStarterSpec, starterHullExists } from "../app/rift-run/starter-ship.ts";
+import { RIFT_RUN_SPECIALS, isRiftRunSpecial } from "../app/rift-run/specials.ts";
+import { SHIP_SPECIALS } from "../app/game-data.ts";
+import { chooseRiftRunSpecial } from "../app/rift-run/upgrade-apply.ts";
+import { nextLockedHardpointIndex, unlockedHardpointCount } from "../app/rift-run/state.ts";
+import { choicesForSystem, liveSystems, RIFT_UPGRADE_CARDS } from "../app/rift-run/upgrade-pool.ts";
+import { trackChoices } from "../app/rift-run/tracks.ts";
+import {
+  RIFT_RUN_MAX_CANNON_TIER,
+  RIFT_RUN_MAX_PAYLOAD_SLOTS,
+  RIFT_RUN_MAX_SOCKETS,
+  RIFT_RUN_MAX_SPECIAL_TIER,
+  RIFT_RUN_MAX_THRUSTER_TIER,
+  RIFT_RUN_SPECIAL_COOLDOWN_SCALE,
+  RIFT_RUN_STARTING_PAYLOAD_SLOTS,
+  RIFT_SYSTEMS,
+  cannonMarkForTier,
+  retrosForTier,
+  thrusterMarkForTier,
+} from "../app/rift-run/loadout.ts";
+import { PUP_INVENTORY_CAPACITY } from "../app/pup-inventory.js";
 
-test("Run Again preserves Rift Run identity and ship while creating fresh progression", () => {
-  const completed = createArmedRun("tank", "completed-seed", "railgun");
+test("Run Again preserves the Rift Run format and starts a brand new build", () => {
+  const completed = createArmedRun("completed-seed", "railgun");
   completed.level = 8;
   completed.riftEnergy = 42;
   completed.riftBreaches = 3;
+  completed.loadout = { payloadSlots: 4, cannonTier: 3, thrusterTier: 2, special: { shipId: "tank", tier: 2 } };
   completed.upgradeHistory = [{ upgradeId: "impact-plating", stack: 2, level: 2 }];
   completed.status = "completed";
 
+  // The replay carries the format and nothing else. There is no ship to carry:
+  // every Rift Run begins on the same issued starter frame, so Run Again is a
+  // fresh build rather than a re-equip of the finished one.
   const replay = replayForCompletedRun("pve", "difficult", completed);
-  assert.deepEqual(replay, { kind: "rift-run", shipId: "tank" });
+  assert.deepEqual(replay, { kind: "rift-run" });
   const restarted = createRunAgainRiftRun(replay, "new-seed");
 
-  assert.equal(restarted.selectedShip, completed.selectedShip);
+  assert.deepEqual(restarted.loadout, {
+    payloadSlots: RIFT_RUN_STARTING_PAYLOAD_SLOTS, cannonTier: 1, thrusterTier: 1, special: null,
+  }, "Run Again hands back the stripped starter, not the finished ship");
   assert.equal(restarted.status, "active");
   assert.equal(restarted.seed, "new-seed");
   assert.equal(restarted.level, 1);
@@ -56,6 +85,52 @@ test("Run Again preserves Rift Run identity and ship while creating fresh progre
   assert.deepEqual(restarted.upgradeHistory, []);
   assert.ok(restarted.hardpoints.every(({ status }) => status === "locked"));
   assert.equal(activeHardpointCount(restarted), 0);
+});
+
+/**
+ * The starter frame, in full.
+ *
+ * Every clause here is a line of the design's starting loadout, and each one is
+ * something a run now has to earn back: one payload slot of the shared five, no
+ * Special at all, cannon and thrusters at tier one — which is mark zero and no
+ * reverse thrust — and every hull socket locked.
+ */
+test("every Rift Run starts on the same stripped ship", () => {
+  const a = createRiftRun("seed-a");
+  const b = createRiftRun("seed-b");
+  assert.deepEqual(a.loadout, b.loadout, "the starter cannot vary from run to run");
+
+  assert.equal(a.loadout.payloadSlots, 1);
+  assert.equal(RIFT_RUN_STARTING_PAYLOAD_SLOTS, 1);
+  assert.equal(a.loadout.special, null, "no Special until one is unlocked and chosen");
+  assert.equal(a.loadout.cannonTier, 1);
+  assert.equal(a.loadout.thrusterTier, 1);
+  assert.equal(cannonMarkForTier(a.loadout.cannonTier), 0, "the basic cannon is mark zero");
+  assert.equal(thrusterMarkForTier(a.loadout.thrusterTier), 0, "basic thrusters are mark zero");
+  assert.equal(retrosForTier(a.loadout.thrusterTier), 0, "no reverse thrust on the starter");
+  assert.ok(a.hardpoints.every(({ status }) => status === "locked"), "no hull weapons, every socket locked");
+  assert.equal(a.hardpoints.length, RIFT_RUN_MAX_SOCKETS);
+
+  // No class, and nothing naming a ship.
+  assert.ok(!("shipClass" in a), "a run has no class");
+  assert.ok(!("selectedShip" in a), "a run has no selected ship");
+});
+
+test("the starter spec is stripped, and leaves the canonical fleet untouched", () => {
+  const starter = riftRunStarterSpec();
+  assert.equal(starter.gun, 0, "basic cannon");
+  assert.equal(starter.thrust, 0, "basic thrusters, and therefore no retros");
+  assert.equal(starter.id, RIFT_RUN_STARTER_HULL, "the silhouette comes from a real fleet hull");
+  assert.ok(starterHullExists());
+  // The frame is its own row. Rift Run must not retune the shipped fleet, the
+  // way Classic does not.
+  const hull = SHIPS.find((ship) => ship.id === RIFT_RUN_STARTER_HULL);
+  assert.notEqual(starter.name, hull.name);
+  assert.notEqual(starter.health, hull.health);
+  // And it is genuinely modest: no shipped hull opens on a lower cannon or
+  // engine mark, and most of the fleet is faster.
+  assert.ok(SHIPS.every((ship) => ship.gun >= starter.gun && ship.thrust >= starter.thrust));
+  assert.ok(SHIPS.filter((ship) => ship.maxSpeed > starter.maxSpeed).length > SHIPS.length / 2);
 });
 
 test("normal PvE Run Again remains normal PvE", () => {
@@ -79,46 +154,59 @@ test("Kestrel and Warden reuse their canonical classes, hardpoints, and specials
   });
 });
 
-test("Kestrel and Warden follow their class milestones and replay from locked sockets", () => {
-  for (const shipId of ["kestrel", "warden"]) {
-    const fresh = createRiftRun(shipId, `${shipId}-fresh`);
-    assert.equal(fresh.selectedShip, shipId);
-    assert.equal(activeHardpointCount(fresh), 0);
-    assert.ok(fresh.hardpoints.every(({ status }) => status === "locked"));
+/**
+ * The first breach still hands out a gun; nothing after it does.
+ *
+ * Sockets used to arrive on a timer at breaches 1, 3 and 5, capped by the ship
+ * class picked in the menu. The first breach is the only free one now and the
+ * rest are upgrade choices, so a run that used to be handed three guns has to
+ * choose them over cannon marks, payload slots and its Special.
+ */
+test("the first breach opens a socket and no later breach does", () => {
+  const fresh = createRiftRun("breach-sockets");
+  assert.equal(activeHardpointCount(fresh), 0);
+  assert.ok(fresh.hardpoints.every(({ status }) => status === "locked"));
 
-    const first = breachRiftRun(fresh, { integrity: 0, maximumIntegrity: 100, reformRemainingMs: 0, breached: false });
-    assert.deepEqual(first.state.pendingHullGunReward, { hardpointIndex: 0, breach: 1 });
-    assert.equal(first.state.hardpoints.filter(({ status }) => status === "available").length, 1);
-    assert.equal(activeHardpointCount(first.state), 0);
+  const first = breachRiftRun(fresh, { integrity: 0, maximumIntegrity: 100, reformRemainingMs: 0, breached: false });
+  assert.deepEqual(first.state.pendingHullGunReward, { hardpointIndex: 0, breach: 1 });
+  assert.equal(first.state.hardpoints.filter(({ status }) => status === "available").length, 1);
+  assert.equal(activeHardpointCount(first.state), 0);
 
-    let progressed = claimHullGunWeapon(first.state, 0, "pulse-cannon");
-    progressed.riftBreaches = 2;
+  let progressed = claimHullGunWeapon(first.state, 0, "pulse-cannon");
+  assert.equal(activeHardpointCount(progressed), 1);
+  for (const breach of [2, 3, 4, 5, 6]) {
+    progressed = { ...progressed, riftBreaches: breach - 1, pendingHullGunReward: null };
     progressed = breachRiftRun(progressed, { integrity: 0, maximumIntegrity: 100, reformRemainingMs: 0, breached: false }).state;
-    if (shipId === "warden") {
-      assert.deepEqual(progressed.pendingHullGunReward, { hardpointIndex: 1, breach: 3 });
-      progressed = claimHullGunWeapon(progressed, 1, "pulse-cannon");
-      assert.equal(activeHardpointCount(progressed), 2);
-      assert.notEqual(progressed.hardpoints[0].weapon.instanceId, progressed.hardpoints[1].weapon.instanceId);
-    } else {
-      assert.equal(progressed.pendingHullGunReward, null);
-      assert.equal(activeHardpointCount(progressed), 1);
-    }
-
-    const replay = replayForCompletedRun("pve", "difficult", { ...progressed, status: "completed" });
-    assert.deepEqual(replay, { kind: "rift-run", shipId });
-    const restarted = createRunAgainRiftRun(replay, `${shipId}-again`);
-    assert.equal(restarted.selectedShip, shipId);
-    assert.equal(activeHardpointCount(restarted), 0);
-    assert.equal(restarted.pendingHullGunReward, null);
-    assert.equal(restarted.riftBreaches, 0);
-    assert.ok(restarted.hardpoints.every(({ status }) => status === "locked"));
+    assert.equal(progressed.pendingHullGunReward, null, `breach ${breach} must not hand out a free socket`);
+    assert.equal(activeHardpointCount(progressed), 1);
   }
+
+  const replay = replayForCompletedRun("pve", "difficult", { ...progressed, status: "completed" });
+  assert.deepEqual(replay, { kind: "rift-run" });
+  const restarted = createRunAgainRiftRun(replay, "breach-sockets-again");
+  assert.equal(activeHardpointCount(restarted), 0);
+  assert.equal(restarted.pendingHullGunReward, null);
+  assert.equal(restarted.riftBreaches, 0);
+  assert.ok(restarted.hardpoints.every(({ status }) => status === "locked"));
 });
 
-test("Rift Run setup renders every canonical fleet entry with the shared ship renderer", async () => {
+test("the Rift Run lobby offers no ship selection at all", async () => {
   const source = await import("node:fs/promises").then(({ readFile }) => readFile(new URL("../app/main-menu.tsx", import.meta.url), "utf8"));
-  assert.match(source, /RIFT_RUN_SHIPS\.map\(\(candidate\) =>/);
-  assert.match(source, /renderShip\(candidate\.id, 44\)/);
+  const lobby = source.slice(source.indexOf("export function RiftRunSetupScreen"), source.indexOf("export function ShipsScreen"));
+  assert.ok(lobby.length > 0);
+  // No grid, no radio group, no per-ship handler: the absence is the design.
+  assert.doesNotMatch(lobby, /ship-grid|role="radiogroup"|onSelect/);
+  assert.doesNotMatch(lobby, /RIFT_RUN_SHIPS/);
+  // What it shows instead is the issued starter and what a build can become.
+  assert.match(lobby, /RIFT_RUN_STARTER_HULL/);
+  assert.match(lobby, /RIFT_RUN_ARCHETYPES\.map/);
+  assert.match(lobby, /Start Run</);
+});
+
+test("the finished fleet survives as build archetypes rather than starting choices", () => {
+  assert.equal(RIFT_RUN_ARCHETYPES.length, 3);
+  assert.deepEqual(RIFT_RUN_ARCHETYPES.map(({ label }) => label), ["Ironclad-type", "Starling-type", "Phantom-type"]);
+  for (const archetype of RIFT_RUN_ARCHETYPES) assert.ok(RIFT_RUN_SHIP_IDS.includes(archetype.id));
 });
 
 test("Rift Run classes constrain physical hardpoints", () => {
@@ -126,30 +214,32 @@ test("Rift Run classes constrain physical hardpoints", () => {
   for (const ship of RIFT_RUN_SHIPS) assert.equal(ship.maximumHardpoints, expected[ship.shipClass]);
 });
 
-test("fresh runs start with every class socket locked and no hull guns", () => {
-  const maximums = { light: 1, medium: 2, heavy: 3 };
-  for (const ship of RIFT_RUN_SHIPS) {
-    const state = createRiftRun(ship.id, "phase-1-test");
+test("every run gets the same socket ceiling, and no class narrows it", () => {
+  for (const seed of ["a", "b", "c"]) {
+    const state = createRiftRun(seed);
     assert.equal(activeHardpointCount(state), 0);
-    assert.equal(state.hardpoints.length, maximums[ship.shipClass]);
+    assert.equal(state.hardpoints.length, RIFT_RUN_MAX_SOCKETS);
+    assert.equal(state.maximumHardpoints, RIFT_RUN_MAX_SOCKETS);
     assert.ok(state.hardpoints.every(({ status }) => status === "locked"));
-    assert.equal(JSON.parse(JSON.stringify(state)).seed, "phase-1-test");
+    assert.equal(JSON.parse(JSON.stringify(state)).seed, seed);
   }
+  // Three was the heaviest class's allowance; it is now everyone's ceiling.
+  assert.equal(RIFT_RUN_MAX_SOCKETS, 3);
 });
 
-function createArmedRun(ship, seed, weaponId) {
-  const run = createRiftRun(ship, seed);
+function createArmedRun(seed, weaponId) {
+  const run = createRiftRun(seed);
   run.hardpoints[0] = { index: 0, status: "available" };
   return mountUnlockedWeapon(run, 0, weaponId);
 }
 
 test("all five stable weapons can be mounted after a socket unlock", () => {
   assert.deepEqual(RIFT_WEAPONS.map(({ id }) => id), ["pulse-cannon", "minigun", "railgun", "missile-pod", "flamethrower"]);
-  for (const weapon of RIFT_WEAPONS) assert.equal(createArmedRun("wing", "seed", weapon.id).hardpoints[0].weapon.weaponId, weapon.id);
+  for (const weapon of RIFT_WEAPONS) assert.equal(createArmedRun("seed", weapon.id).hardpoints[0].weapon.weaponId, weapon.id);
 });
 
 test("Rift Run defensive and mobility modifiers alter live simulation inputs only while active", () => {
-  let run = createRiftRun("tank", "live-modifiers");
+  let run = createRiftRun("live-modifiers");
   run = { ...run, status: "active", pendingLevels: 3 };
   const choice = (upgradeId, gameplayCategory) => ({ key: upgradeId, upgradeId, gameplayCategory, title: "", target: "", description: "" });
   run = applyUpgrade(run, choice("impact-plating", "defensive"));
@@ -174,7 +264,7 @@ test("every local hull-loss path applies Rift Run damage resistance", async () =
 });
 
 test("hardpoints schedule independently and ignore locked or empty sockets", () => {
-  const run = createRiftRun("flagship", "multi");
+  const run = createRiftRun("multi");
   run.hardpoints = ["minigun", "railgun", "missile-pod"].map((id, index) => ({ index, status: "occupied", weapon: createWeaponInstance(id, `w${index}`) }));
   const runtime = createWeaponRuntime(run);
   runtime.w0.cooldown = 2;
@@ -216,7 +306,7 @@ test("missile blast damages in-radius targets once", () => {
 
 test("flame cone is multi-target, directional, and hardpoint cadence is bounded", () => {
   assert.deepEqual(targetsInFlameCone({ x: 0, y: 0 }, 0, 100, 60, [{ id: "a", x: 40, y: 5 }, { id: "b", x: 60, y: -5 }, { id: "behind", x: -10, y: 0 }, { id: "wide", x: 20, y: 80 }]), ["a", "b"]);
-  const run = createArmedRun("wing", "flame", "flamethrower"), runtime = createWeaponRuntime(run);
+  const run = createArmedRun("flame", "flamethrower"), runtime = createWeaponRuntime(run);
   assert.equal(processHardpointFire(run.hardpoints, runtime, true, { x: 0, y: 0 }, 0).length, 1);
   for (let i=0;i<4;i++) { runtime[run.hardpoints[0].weapon.instanceId].cooldown--; assert.equal(processHardpointFire(run.hardpoints, runtime, true, { x: 0, y: 0 }, 0).length, 0); }
 });
@@ -255,12 +345,12 @@ test("Rift Run remains a format rather than a DifficultyId", () => {
 test("combat energy rewards and an increasing curve safely queue multiple levels", () => {
   assert.ok(enemyKillEnergy("nuke") > enemyKillEnergy("turret")); assert.ok(enemyKillEnergy("turret") > enemyKillEnergy("ufo"));
   assert.ok(riftEnergyRequiredForLevel(4) > riftEnergyRequiredForLevel(2));
-  const start=createRiftRun("wing", "energy"), damaged=riftDamaged(start,10,"socket-1"); assert.ok(damaged.riftEnergy>0);
+  const start=createRiftRun("energy"), damaged=riftDamaged(start,10,"socket-1"); assert.ok(damaged.riftEnergy>0);
   const advanced=awardRiftEnergy(start,1000); assert.ok(advanced.level>3); assert.equal(advanced.pendingLevels,advanced.level-1);
 });
 
 test("Rift Energy progress normalizes the current threshold and becomes full when ready", () => {
-  const run = createRiftRun("wing", "ring");
+  const run = createRiftRun("ring");
   const required = riftEnergyRequiredForLevel(run.level);
   assert.deepEqual(riftEnergyProgress({ ...run, riftEnergy: required / 2 }), { current: required / 2, required, fraction: .5, ready: false });
   assert.equal(riftEnergyProgress({ ...run, riftEnergy: -100 }).fraction, 0);
@@ -302,13 +392,13 @@ for (const [weaponId, label] of [
 ]) test(`${label} Rift hit reduces integrity using Rift Run scaling`, () => {
   const weapon = RIFT_WEAPONS.find(({ id }) => id === weaponId);
   const game = { rivalHealth: 200, portalCharge: 0 };
-  const hit = riftRunHullHit(game, createRiftRun("wing", weaponId), weapon.damage);
+  const hit = riftRunHullHit(game, createRiftRun(weaponId), weapon.damage);
   assert.equal(hit.integrityDamage, weapon.damage * RIFT_RUN_RIFT_DAMAGE_SCALE);
   assert.equal(game.rivalHealth, 200 - hit.integrityDamage);
 });
 
 test("Flamethrower cadence tick applies exactly one scaled Rift hit", () => {
-  const run = createArmedRun("wing", "flame-rift", "flamethrower");
+  const run = createArmedRun("flame-rift", "flamethrower");
   const runtime = createWeaponRuntime(run);
   const [tick] = processHardpointFire(run.hardpoints, runtime, true, { x: 0, y: 0 }, 0);
   const game = { rivalHealth: 200, portalCharge: 0 };
@@ -318,7 +408,7 @@ test("Flamethrower cadence tick applies exactly one scaled Rift hit", () => {
 });
 
 test("Rift Energy uses actual removed integrity and zero integrity awards no more", () => {
-  const start = createRiftRun("wing", "clamped-energy");
+  const start = createRiftRun("clamped-energy");
   const game = { rivalHealth: 0.5, portalCharge: 0 };
   const first = riftRunHullHit(game, start, 10);
   assert.equal(first.integrityDamage, 0.5);
@@ -343,62 +433,195 @@ test("standard PvE cannon and hull weapons share nominal PUP charging", async ()
 });
 
 test("upgrade rolls are deterministic, unique, seeded, and weapon eligible", () => {
-  const a=createArmedRun("tank", "same", "railgun"), b=createArmedRun("tank", "same", "railgun"), c=createArmedRun("tank", "other", "railgun");
+  const a=createArmedRun("same", "railgun"), b=createArmedRun("same", "railgun"), c=createArmedRun("other", "railgun");
   assert.deepEqual(rollUpgradeChoices(a),rollUpgradeChoices(b)); assert.notDeepEqual(rollUpgradeChoices(a).choices,rollUpgradeChoices(c).choices);
-  const choices=rollUpgradeChoices(a).choices; assert.equal(choices.length,3); assert.equal(new Set(choices.map(x=>x.key)).size,3);
-  assert.deepEqual(choices.map(x=>x.gameplayCategory), ["offensive", "defensive", "mobility"]);
-  assert.ok(!eligibleUpgradeChoices(createRiftRun("wing","pulse")).some(x=>x.upgradeId==="penetrator"));
+  const choices=rollUpgradeChoices(a).choices; assert.equal(choices.length,RIFT_UPGRADE_CARDS); assert.equal(new Set(choices.map(x=>x.key)).size,RIFT_UPGRADE_CARDS);
+  // The five ship systems are what compete, so a screen never shows two cards
+  // from the same one — the question is always "which part of my ship?".
+  assert.equal(new Set(choices.map(x=>x.system)).size, RIFT_UPGRADE_CARDS);
+  for (const choice of choices) assert.ok(RIFT_SYSTEMS.includes(choice.system));
+  assert.ok(!eligibleUpgradeChoices(createRiftRun("pulse")).some(x=>x.upgradeId==="penetrator"));
 });
 
-test("deep deterministic progression always retains exactly one eligible card per category", () => {
-  let run=createArmedRun("flagship", "deep-category-run", "railgun");
+/**
+ * The five systems, and only choices the pilot can actually use.
+ *
+ * This is the pool's whole contract. A card for a maxed ladder, a second
+ * UNLOCK SPECIAL, or a hull-gun perk with no matching gun mounted would each
+ * silently turn a three-choice screen into a two-choice one.
+ */
+test("the pool offers all five systems and nothing that is already finished", () => {
+  assert.deepEqual([...RIFT_SYSTEMS], ["payload", "cannon", "thrusters", "special", "hull"]);
+
+  const fresh = createRiftRun("systems");
+  assert.deepEqual(liveSystems(fresh), ["payload", "cannon", "thrusters", "special", "hull"]);
+  // Fresh run: one card on each ladder, and the Special reads as an unlock.
+  assert.deepEqual(trackChoices(fresh).map(({ track }) => track),
+    ["payload-slot", "cannon-tier", "thruster-tier", "special-unlock", "socket-unlock"]);
+
+  // Payload runs out exactly at the ceiling every other mode starts on.
+  let run = { ...fresh, pendingLevels: 40 };
+  for (let step = fresh.loadout.payloadSlots; step < RIFT_RUN_MAX_PAYLOAD_SLOTS; step += 1) {
+    const card = choicesForSystem(run, "payload")[0];
+    assert.ok(card, `payload slot ${step + 1} must be offered`);
+    run = applyUpgrade(run, card);
+  }
+  assert.equal(run.loadout.payloadSlots, RIFT_RUN_MAX_PAYLOAD_SLOTS);
+  assert.equal(RIFT_RUN_MAX_PAYLOAD_SLOTS, PUP_INVENTORY_CAPACITY, "Rift Run earns its way to the shared cap");
+  assert.deepEqual(choicesForSystem(run, "payload"), [], "a maxed payload ladder leaves the pool");
+  assert.ok(!liveSystems(run).includes("payload"));
+
+  // Cannon and thruster ladders top out at tier five.
+  for (const [system, max, key] of [["cannon", RIFT_RUN_MAX_CANNON_TIER, "cannonTier"], ["thrusters", RIFT_RUN_MAX_THRUSTER_TIER, "thrusterTier"]]) {
+    for (let tier = run.loadout[key]; tier < max; tier += 1) {
+      const card = choicesForSystem(run, system).find(({ track }) => track);
+      assert.ok(card, `${system} tier ${tier + 1} must be offered`);
+      run = applyUpgrade(run, card);
+    }
+    assert.equal(run.loadout[key], max);
+    assert.equal(choicesForSystem(run, system).filter(({ track }) => track).length, 0, `${system} ladder is finished`);
+    // The system itself stays live through its repeatable perks, which is what
+    // keeps three cards on screen once the ladders are done.
+    assert.ok(liveSystems(run).includes(system));
+  }
+});
+
+test("Special unlocks exactly once, then tiers, and the roster is the shipped one", () => {
+  let run = { ...createRiftRun("special"), pendingLevels: 20 };
+  const unlock = choicesForSystem(run, "special")[0];
+  assert.equal(unlock.track, "special-unlock");
+  assert.equal(unlock.title, "UNLOCK SPECIAL");
+
+  run = applyUpgrade(run, unlock);
+  assert.equal(run.pendingSpecialChoice, true, "the unlock hands the pilot a second decision");
+  assert.equal(run.loadout.special, null, "nothing is armed until one is picked");
+  // While that decision is outstanding the system offers nothing, so the roll
+  // cannot pre-empt it with another Special card.
+  assert.deepEqual(choicesForSystem(run, "special"), []);
+
+  // Only Rift Run's own roster can be installed.
+  assert.equal(chooseRiftRunSpecial(run, "flash"), run, "FORM SHIFT is not a Rift Run Special");
+  assert.ok(!isRiftRunSpecial("flash"));
+  assert.ok(RIFT_RUN_SPECIALS.length >= 5);
+  for (const option of RIFT_RUN_SPECIALS) assert.equal(option.name, SHIP_SPECIALS[option.shipId].name);
+
+  run = chooseRiftRunSpecial(run, "tank");
+  assert.equal(run.pendingSpecialChoice, false);
+  assert.deepEqual(run.loadout.special, { shipId: "tank", tier: 1 });
+  // A second unlock cannot exist. From here the system only offers tiers.
+  assert.ok(!choicesForSystem(run, "special").some(({ track }) => track === "special-unlock"));
+
+  for (let tier = 1; tier < RIFT_RUN_MAX_SPECIAL_TIER; tier += 1) {
+    const card = choicesForSystem(run, "special")[0];
+    assert.equal(card.track, "special-tier");
+    run = applyUpgrade(run, card);
+  }
+  assert.equal(run.loadout.special.tier, RIFT_RUN_MAX_SPECIAL_TIER);
+  assert.deepEqual(choicesForSystem(run, "special"), [], "a maxed Special leaves the pool entirely");
+  assert.ok(!liveSystems(run).includes("special"));
+  // Each tier is a real, monotonic cooldown cut.
+  assert.equal(RIFT_RUN_SPECIAL_COOLDOWN_SCALE[1], 1);
+  assert.ok(RIFT_RUN_SPECIAL_COOLDOWN_SCALE[2] < RIFT_RUN_SPECIAL_COOLDOWN_SCALE[1]);
+  assert.ok(RIFT_RUN_SPECIAL_COOLDOWN_SCALE[3] < RIFT_RUN_SPECIAL_COOLDOWN_SCALE[2]);
+});
+
+/**
+ * Sockets are bought now, not handed out on a timer.
+ *
+ * And a socket is never sold while an unfilled one is still open: an empty
+ * socket is already a pending decision, so offering a second would waste the
+ * pick and orphan the first.
+ */
+test("hull sockets are earned upgrade choices, capped, and never oversold", () => {
+  let run = { ...createRiftRun("sockets"), pendingLevels: 20 };
+  assert.equal(unlockedHardpointCount(run), 0);
+  assert.equal(nextLockedHardpointIndex(run), 0);
+
+  for (let socket = 0; socket < RIFT_RUN_MAX_SOCKETS; socket += 1) {
+    const card = choicesForSystem(run, "hull").find(({ track }) => track === "socket-unlock");
+    assert.ok(card, `socket ${socket + 1} must be purchasable`);
+    run = applyUpgrade(run, card);
+    assert.equal(run.hardpoints[socket].status, "available");
+    assert.deepEqual(run.pendingHullGunReward, { hardpointIndex: socket, breach: run.riftBreaches });
+    // The socket is open but empty: no second socket is for sale yet.
+    assert.ok(!choicesForSystem(run, "hull").some(({ track }) => track === "socket-unlock"));
+    run = claimHullGunWeapon(run, socket, "pulse-cannon");
+    assert.equal(run.hardpoints[socket].status, "occupied");
+  }
+
+  assert.equal(unlockedHardpointCount(run), RIFT_RUN_MAX_SOCKETS);
+  assert.equal(nextLockedHardpointIndex(run), null);
+  assert.ok(!choicesForSystem(run, "hull").some(({ track }) => track === "socket-unlock"), "the socket ladder is finished");
+  // Hull integrity perks keep the hull system alive after the sockets are gone.
+  assert.ok(liveSystems(run).includes("hull"));
+});
+
+test("deep deterministic progression always fills three distinct systems", () => {
+  let run=createArmedRun("deep-category-run", "railgun");
   run.status="active"; run.riftBreaches=1;
   for (let level=0; level<60; level++) {
     run.pendingLevels=1;
     const roll=rollUpgradeChoices(run);
-    assert.equal(roll.choices.length,3,`level ${level+1}`);
-    assert.deepEqual(roll.choices.map(x=>x.gameplayCategory),["offensive","defensive","mobility"]);
-    assert.equal(new Set(roll.choices.map(x=>x.key)).size,3);
+    assert.equal(roll.choices.length,RIFT_UPGRADE_CARDS,`level ${level+1}`);
+    assert.equal(new Set(roll.choices.map(x=>x.system)).size,RIFT_UPGRADE_CARDS,`level ${level+1} repeated a system`);
+    assert.equal(new Set(roll.choices.map(x=>x.key)).size,RIFT_UPGRADE_CARDS);
     for (const card of roll.choices) assert.ok(eligibleUpgradeChoices(run).some(x=>x.key===card.key) || card.kind==="evolution");
-    const selected=roll.choices[level%3];
+    const selected=roll.choices[level%RIFT_UPGRADE_CARDS];
     run=applyUpgrade({...run,rollIndex:roll.nextRollIndex},selected);
     const definition=RIFT_UPGRADES.find(x=>x.id===selected.upgradeId);
     if (definition && upgradeStack(run,definition.id,selected.targetInstanceId)>=definition.maxStacks) {
       assert.ok(!eligibleUpgradeChoices(run).some(x=>x.key===selected.key),`${selected.key} must disappear at max stacks`);
     }
+    // Follow-up decisions are resolved the way the shell resolves them, so the
+    // run keeps moving instead of stalling on an unspent unlock.
+    if (run.pendingSpecialChoice) run=chooseRiftRunSpecial(run,"tank");
     const available=run.hardpoints.find(x=>x.status==="available");
-    if (available) run=mountUnlockedWeapon(run,available.index,"pulse-cannon");
+    if (available) run={...mountUnlockedWeapon(run,available.index,"pulse-cannon"),pendingHullGunReward:null};
   }
 });
 
-test("adversarial single-category progression cannot exhaust any class or category", () => {
-  const classes=[["wing","light"],["squid","medium"],["tank","heavy"]];
-  const categories=["offensive","defensive","mobility"];
-  for (const [ship,shipClass] of classes) for (const selectedCategory of categories) {
-    let run=createRiftRun(ship,`${shipClass}-${selectedCategory}-exhaustion`);
+/**
+ * A pilot who only ever takes one system still gets a full screen.
+ *
+ * Every finite ladder is deliberately drained here — payload to five, cannon
+ * and thrusters to tier five, the Special to three, every socket bought — and
+ * the roll still has to come back with three usable cards from three distinct
+ * systems, none of them maxed. That is the failure mode this whole design has
+ * to avoid: a late run where the screen quietly shrinks or starts offering
+ * upgrades that do nothing.
+ */
+test("adversarial single-system progression cannot exhaust the pool", () => {
+  for (const preferred of RIFT_SYSTEMS) {
+    let run=createRiftRun(`${preferred}-exhaustion`);
     run.status="active";
     run=breachRiftRun(run,{integrity:0,maximumIntegrity:100,reformRemainingMs:0,breached:false}).state;
-    run=mountUnlockedWeapon(run,0,"railgun");
+    run={...mountUnlockedWeapon(run,0,"railgun"),pendingHullGunReward:null};
     for (let level=0; level<75; level++) {
       run.pendingLevels=1;
       const roll=rollUpgradeChoices(run);
-      assert.equal(roll.choices.length,3,`${shipClass} ${selectedCategory} level ${level+1}`);
-      assert.deepEqual(roll.choices.map(x=>x.gameplayCategory),categories);
-      assert.equal(new Set(roll.choices.map(x=>x.key)).size,3);
+      assert.equal(roll.choices.length,RIFT_UPGRADE_CARDS,`${preferred} level ${level+1}`);
+      assert.equal(new Set(roll.choices.map(x=>x.system)).size,RIFT_UPGRADE_CARDS,`${preferred} level ${level+1}`);
+      assert.equal(new Set(roll.choices.map(x=>x.key)).size,RIFT_UPGRADE_CARDS);
       for (const card of roll.choices) {
         if (card.kind==="evolution") continue;
+        if (card.track) {
+          // A ladder card is only ever offered for a step that exists.
+          assert.notEqual(applyUpgrade(run,card),run,`${card.key} was offered with nothing left to give`);
+          continue;
+        }
         const definition=RIFT_UPGRADES.find(x=>x.id===card.upgradeId);
-        assert.ok(definition);
+        assert.ok(definition,card.upgradeId);
         assert.ok(definition.repeatable || upgradeStack(run,definition.id,card.targetInstanceId)<definition.maxStacks,`${card.key} was offered maxed`);
       }
-      const selected=roll.choices.find(x=>x.gameplayCategory===selectedCategory);
+      const selected=roll.choices.find(x=>x.system===preferred) ?? roll.choices[0];
       run=applyUpgrade({...run,rollIndex:roll.nextRollIndex},selected);
+      if (run.pendingSpecialChoice) run=chooseRiftRunSpecial(run,"tank");
       const available=run.hardpoints.find(x=>x.status==="available");
-      if (available) run=mountUnlockedWeapon(run,available.index,"pulse-cannon");
+      if (available) run={...mountUnlockedWeapon(run,available.index,"pulse-cannon"),pendingHullGunReward:null};
     }
     const next=rollUpgradeChoices({...run,pendingLevels:1});
-    assert.equal(next.choices.length,3);
-    assert.deepEqual(next.choices.map(x=>x.gameplayCategory),categories);
+    assert.equal(next.choices.length,RIFT_UPGRADE_CARDS);
+    assert.equal(new Set(next.choices.map(x=>x.system)).size,RIFT_UPGRADE_CARDS);
   }
 });
 
@@ -415,46 +638,46 @@ test("every selectable upgrade effect has a live combat or flight consumer", asy
 });
 
 test("per-instance upgrades are capped and create deterministic real volleys", () => {
-  let run=createArmedRun("tank", "upgrades", "pulse-cannon"); run.hardpoints[1]={index:1,status:"occupied",weapon:createWeaponInstance("pulse-cannon","second")};
+  let run=createArmedRun("upgrades", "pulse-cannon"); run.hardpoints[1]={index:1,status:"occupied",weapon:createWeaponInstance("pulse-cannon","second")};
   const choice={key:"twin-pulse:second",upgradeId:"twin-pulse",targetInstanceId:"second",hardpointIndex:1,title:"",target:"",description:""};
   run=applyUpgrade(run,choice); assert.equal(run.hardpoints[0].weapon.modifiers.projectileCount,0); assert.equal(run.hardpoints[1].weapon.modifiers.projectileCount,1);
   const shots=processHardpointFire(run.hardpoints,createWeaponRuntime(run),true,{x:0,y:0},0).filter(x=>x.instanceId==="second"); assert.equal(shots.length,2); assert.notEqual(shots[0].angle,shots[1].angle);
   for(let i=0;i<10;i++) run=applyUpgrade(run,choice); assert.ok(run.hardpoints[1].weapon.modifiers.projectileCount<=3);
 });
 
-test("hardpoint breach milestones map exact class-limited sockets", () => {
-  assert.deepEqual(HARDPOINT_BREACH_MILESTONES, [1, 3, 5]);
-  assert.equal(hardpointIndexForBreach(1, 3), 0);
-  assert.equal(hardpointIndexForBreach(3, 3), 1);
-  assert.equal(hardpointIndexForBreach(5, 3), 2);
-  for (const breach of [0, 2, 4, 6]) assert.equal(hardpointIndexForBreach(breach, 3), null);
-  assert.equal(hardpointIndexForBreach(3, 1), null);
-  assert.equal(hardpointIndexForBreach(5, 2), null);
+test("the breach milestone is the first socket and only the first socket", () => {
+  // Breaches remain one source of unlocks rather than the only one; the rest
+  // are bought on the upgrade screen.
+  assert.deepEqual(HARDPOINT_BREACH_MILESTONES, [1]);
+  assert.equal(hardpointIndexForBreach(1, RIFT_RUN_MAX_SOCKETS), 0);
+  for (const breach of [0, 2, 3, 4, 5, 6]) assert.equal(hardpointIndexForBreach(breach, RIFT_RUN_MAX_SOCKETS), null);
+  assert.equal(hardpointIndexForBreach(1, 0), null, "a run with no sockets is handed nothing");
 });
 
 test("milestone unlocking is exact and idempotent for available and occupied old state", () => {
-  const locked = createRiftRun("flagship", "idempotent").hardpoints;
-  const unlocked = hardpointUnlockForBreach(locked, 3, 3);
-  assert.equal(unlocked.hardpointIndex, 1);
-  assert.equal(unlocked.hardpoints[1].status, "available");
-  assert.equal(hardpointUnlockForBreach(unlocked.hardpoints, 3, 3).hardpointIndex, null);
+  const locked = createRiftRun("idempotent").hardpoints;
+  const unlocked = hardpointUnlockForBreach(locked, 1, RIFT_RUN_MAX_SOCKETS);
+  assert.equal(unlocked.hardpointIndex, 0);
+  assert.equal(unlocked.hardpoints[0].status, "available");
+  assert.equal(hardpointUnlockForBreach(unlocked.hardpoints, 1, RIFT_RUN_MAX_SOCKETS).hardpointIndex, null);
+  // A socket already bought on the upgrade screen is left exactly as it is.
   const occupied = structuredClone(locked);
-  occupied[1] = { index: 1, status: "occupied", weapon: createWeaponInstance("railgun", "legacy") };
-  const unchanged = hardpointUnlockForBreach(occupied, 3, 3);
+  occupied[0] = { index: 0, status: "occupied", weapon: createWeaponInstance("railgun", "legacy") };
+  const unchanged = hardpointUnlockForBreach(occupied, 1, RIFT_RUN_MAX_SOCKETS);
   assert.equal(unchanged.hardpointIndex, null);
-  assert.equal(unchanged.hardpoints[2].status, "locked");
-  assert.equal(unchanged.hardpoints[1].weapon.instanceId, "legacy");
+  assert.equal(unchanged.hardpoints[1].status, "locked");
+  assert.equal(unchanged.hardpoints[0].weapon.instanceId, "legacy");
 });
 
 test("random upgrades contain no hardpoint activation and offensive upgrades remain valid", () => {
-  const armed = createArmedRun("flagship", "no-random-sockets", "pulse-cannon");
+  const armed = createArmedRun("no-random-sockets", "pulse-cannon");
   assert.ok(!RIFT_UPGRADES.some(({ id, effect }) => id === "hardpoint-online" || effect === "hardpoint"));
   assert.ok(!eligibleUpgradeChoices(armed).some(({ upgradeId }) => upgradeId === "hardpoint-online"));
-  assert.ok(rollUpgradeChoices({ ...armed, pendingLevels: 1 }).choices.some(({ gameplayCategory }) => gameplayCategory === "offensive"));
+  assert.ok(rollUpgradeChoices({ ...armed, pendingLevels: 1 }).choices.some(({ system }) => system === "hull"));
 });
 
 test("Phase 3B breach rewards once, blocks reform damage, and reforms stronger", () => {
-  const run = createRiftRun("tank", "breach-once");
+  const run = createRiftRun("breach-once");
   const runtime = { integrity: 0, maximumIntegrity: RIFT_RUN_BASE_INTEGRITY, reformRemainingMs: 0, breached: false };
   const first = breachRiftRun(run, runtime);
   assert.equal(first.state.riftBreaches, 1);
@@ -474,56 +697,60 @@ test("Phase 3B breach rewards once, blocks reform damage, and reforms stronger",
   assert.equal(reformed.maximumIntegrity, reformed.integrity);
 });
 
-test("Light, Medium, and Heavy earn exact milestone Hull Guns without exceeding capacity", () => {
-  for (const [ship, milestones] of [["wing", [1]], ["squid", [1, 3]], ["flagship", [1, 3, 5]]]) {
-    let run = createRiftRun(ship, `milestones-${ship}`);
-    let runtime = { integrity: 0, maximumIntegrity: 100, reformRemainingMs: 0, breached: false };
-    for (let breach = 1; breach <= 5; breach++) {
-      const result = breachRiftRun(run, runtime);
-      run = result.state;
-      if (milestones.includes(breach)) {
-        const index = milestones.indexOf(breach);
-        assert.deepEqual(run.pendingHullGunReward, { hardpointIndex: index, breach });
-        const pendingLevels = run.pendingLevels;
-        run = claimHullGunWeapon(run, index, "railgun");
-        assert.equal(run.pendingLevels, pendingLevels, "Hull Gun selection preserves normal levels");
-        assert.equal(run.hardpoints[index].status, "occupied");
-      } else {
-        assert.equal(run.pendingHullGunReward, null);
-      }
-      runtime = tickRiftReform(result.runtime, RIFT_RUN_REFORM_DELAY_MS, RIFT_RUN_BASE_INTEGRITY, run.riftBreaches);
-      runtime = { ...runtime, integrity: 0 };
+test("a run of pure breaches earns exactly one hull gun, and buys the rest", () => {
+  let run = createRiftRun("milestones");
+  let runtime = { integrity: 0, maximumIntegrity: 100, reformRemainingMs: 0, breached: false };
+  for (let breach = 1; breach <= 5; breach++) {
+    const result = breachRiftRun(run, runtime);
+    run = result.state;
+    if (breach === 1) {
+      assert.deepEqual(run.pendingHullGunReward, { hardpointIndex: 0, breach });
+      const pendingLevels = run.pendingLevels;
+      run = claimHullGunWeapon(run, 0, "railgun");
+      assert.equal(run.pendingLevels, pendingLevels, "Hull Gun selection preserves normal levels");
+      assert.equal(run.hardpoints[0].status, "occupied");
+    } else {
+      assert.equal(run.pendingHullGunReward, null, `breach ${breach} is not a free socket`);
     }
-    const weapons = run.hardpoints.filter(point => point.status === "occupied").map(point => point.weapon);
-    assert.equal(weapons.length, milestones.length);
-    assert.equal(new Set(weapons.map(({ instanceId }) => instanceId)).size, weapons.length);
+    runtime = tickRiftReform(result.runtime, RIFT_RUN_REFORM_DELAY_MS, RIFT_RUN_BASE_INTEGRITY, run.riftBreaches);
+    runtime = { ...runtime, integrity: 0 };
   }
+  assert.equal(activeHardpointCount(run), 1);
+
+  // The other two are upgrade choices, and they land as independent instances.
+  for (const socket of [1, 2]) {
+    const card = choicesForSystem({ ...run, pendingLevels: 1 }, "hull").find(({ track }) => track === "socket-unlock");
+    assert.ok(card, `socket ${socket + 1} must be purchasable`);
+    run = applyUpgrade({ ...run, pendingLevels: 1 }, card);
+    run = claimHullGunWeapon(run, socket, "railgun");
+  }
+  const weapons = run.hardpoints.filter(point => point.status === "occupied").map(point => point.weapon);
+  assert.equal(weapons.length, RIFT_RUN_MAX_SOCKETS);
+  assert.equal(new Set(weapons.map(({ instanceId }) => instanceId)).size, weapons.length);
 });
 
-test("duplicate weapon types mount as fresh independent milestone instances", () => {
-  let run = createRiftRun("squid", "duplicates");
-  let first = breachRiftRun(run, { integrity: 0, maximumIntegrity: 100, reformRemainingMs: 0, breached: false });
+test("duplicate weapon types mount as fresh independent instances", () => {
+  let run = createRiftRun("duplicates");
+  const first = breachRiftRun(run, { integrity: 0, maximumIntegrity: 100, reformRemainingMs: 0, breached: false });
   run = claimHullGunWeapon(first.state, 0, "minigun");
-  run.riftBreaches = 2;
-  const third = breachRiftRun(run, { integrity: 0, maximumIntegrity: 100, reformRemainingMs: 0, breached: false }).state;
-  const mounted = claimHullGunWeapon(third, 1, "minigun");
+  const socket = applyUpgrade({ ...run, pendingLevels: 1 }, choicesForSystem({ ...run, pendingLevels: 1 }, "hull").find(({ track }) => track === "socket-unlock"));
+  const mounted = claimHullGunWeapon(socket, 1, "minigun");
   assert.notEqual(mounted.hardpoints[0].weapon.instanceId, mounted.hardpoints[1].weapon.instanceId);
   assert.deepEqual(mounted.hardpoints[0].weapon.modifiers, mounted.hardpoints[1].weapon.modifiers);
 });
 
-test("occupied or available milestone sockets do not reward or unlock a different socket", () => {
+test("a socket already opened is not re-rewarded by its milestone breach", () => {
   for (const status of ["available", "occupied"]) {
-    const run = createRiftRun("flagship", `legacy-${status}`);
-    run.riftBreaches = 2;
-    run.hardpoints[1] = status === "available" ? { index: 1, status } : { index: 1, status, weapon: createWeaponInstance("railgun", "existing") };
+    const run = createRiftRun(`legacy-${status}`);
+    run.hardpoints[0] = status === "available" ? { index: 0, status } : { index: 0, status, weapon: createWeaponInstance("railgun", "existing") };
     const breached = breachRiftRun(run, { integrity: 0, maximumIntegrity: 100, reformRemainingMs: 0, breached: false }).state;
     assert.equal(breached.pendingHullGunReward, null);
-    assert.equal(breached.hardpoints[2].status, "locked");
+    assert.equal(breached.hardpoints[1].status, "locked", "the milestone owns socket one and nothing else");
   }
 });
 
 test("breach energy can queue a level-up and live integration pauses it", async () => {
-  const run = createRiftRun("tank", "breach-level");
+  const run = createRiftRun("breach-level");
   run.riftEnergy = riftEnergyRequiredForLevel(run.level) - 1;
   const breached = breachRiftRun(run, { integrity: 0, maximumIntegrity: RIFT_RUN_BASE_INTEGRITY, reformRemainingMs: 0, breached: false });
   assert.ok(breached.state.pendingLevels > 0);
@@ -543,7 +770,7 @@ function qualifyForEvolution(run, evolution, instanceId = run.hardpoints[0].weap
 
 test("all five evolution recipes are per-instance and prioritized on the next roll", () => {
   for (const evolution of RIFT_EVOLUTIONS) {
-    const run = qualifyForEvolution(createArmedRun("tank", `evo-${evolution.id}`, evolution.sourceWeapon), evolution);
+    const run = qualifyForEvolution(createArmedRun(`evo-${evolution.id}`, evolution.sourceWeapon), evolution);
     const instanceId = run.hardpoints[0].weapon.instanceId;
     const eligible = eligibleEvolutions(run);
     assert.ok(eligible.some(({ definition, weapon }) => definition.id === evolution.id && weapon.instanceId === instanceId));
@@ -555,7 +782,7 @@ test("all five evolution recipes are per-instance and prioritized on the next ro
 
 test("duplicate weapon stacks never combine and duplicate instances can evolve independently", () => {
   const evolution = RIFT_EVOLUTIONS.find(({ id }) => id === "seismic-rail");
-  let run = createArmedRun("tank", "duplicate-rails", "railgun");
+  let run = createArmedRun("duplicate-rails", "railgun");
   run.hardpoints[1] = { index: 1, status: "occupied", weapon: createWeaponInstance("railgun", "rail-two") };
   const first = run.hardpoints[0].weapon.instanceId;
   const second = run.hardpoints[1].weapon.instanceId;
@@ -590,10 +817,10 @@ test("Nova and Seismic radial effects are bounded and respect already-hit identi
 });
 
 test("MIRV salvos spread wider, distribute deterministic targets, and keep per-instance caps", () => {
-  const normal = createArmedRun("tank", "normal-missiles", "missile-pod");
+  const normal = createArmedRun("normal-missiles", "missile-pod");
   normal.hardpoints[0].weapon.modifiers.projectileCount = 2;
   const normalShots = processHardpointFire(normal.hardpoints, createWeaponRuntime(normal), true, { x: 0, y: 0 }, 0);
-  const mirv = createArmedRun("tank", "mirv-missiles", "missile-pod");
+  const mirv = createArmedRun("mirv-missiles", "missile-pod");
   mirv.hardpoints[0].weapon.modifiers.projectileCount = 2;
   mirv.hardpoints[0].weapon.evolution = { id: "mirv-battery", name: "MIRV BATTERY" };
   const mirvShots = processHardpointFire(mirv.hardpoints, createWeaponRuntime(mirv), true, { x: 0, y: 0 }, 0);

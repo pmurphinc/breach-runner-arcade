@@ -72,8 +72,17 @@ export type MenuStack = readonly MenuRoute[];
 
 export const CLOSED: MenuStack = [];
 
-/** Where a fresh browser session begins: the main menu. */
-export const INITIAL_STACK: MenuStack = ["ships"];
+/**
+ * Where a fresh browser session begins: the main menu.
+ *
+ * The game used to open on the ship picker, which made choosing a hull part of
+ * *launching the game* rather than part of preparing a round. Ship choice now
+ * belongs to each mode's pre-round lobby — and Rift Run, which issues one
+ * standard starter ship, has no ship choice at all. Opening on Home is what
+ * makes that possible: the first question is "what do you want to play?", and
+ * only the modes that still fly the roster go on to ask which hull.
+ */
+export const INITIAL_STACK: MenuStack = ["home"];
 
 export function isMenuRoute(value: unknown): value is MenuRoute {
   return typeof value === "string" && (MENU_ROUTES as readonly string[]).includes(value);

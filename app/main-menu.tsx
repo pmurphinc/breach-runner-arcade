@@ -19,8 +19,10 @@ import { PRODUCT_TAGLINE, PRODUCT_TITLE } from "./product";
 import type { MenuRoute } from "./menu-routes";
 import { settingsStore, type AimGuide, type CombatHaptics, type SoundLevel, type TouchControlHeight, type TouchControlSize, type ViewMode, type ZoomLevel } from "./view-settings";
 import { GAMEPAD_BINDINGS } from "./gamepad";
-import { RIFT_RUN_DESCRIPTION, RIFT_RUN_TAGLINE, RIFT_RUN_TITLE, RIFT_SHIP_CLASSES } from "./rift-run/data";
-import { RIFT_RUN_SHIPS, riftRunShip } from "./rift-run/ships";
+import { RIFT_RUN_DESCRIPTION, RIFT_RUN_TAGLINE, RIFT_RUN_TITLE } from "./rift-run/data";
+import { RIFT_RUN_ARCHETYPES } from "./rift-run/ships";
+import { RIFT_RUN_STARTER_HULL, RIFT_RUN_STARTER_SHIP } from "./rift-run/starter-ship";
+import { RIFT_RUN_MAX_PAYLOAD_SLOTS, RIFT_RUN_MAX_SOCKETS, RIFT_RUN_STARTING_PAYLOAD_SLOTS } from "./rift-run/loadout";
 import {
   TOUCH_PROFILE_HINTS,
   TOUCH_PROFILE_IDS,
@@ -175,17 +177,6 @@ export function MenuShipPreview({ ship, size = 104, animated = true }: { ship: S
   return <canvas className="menu-ship-preview" ref={canvas} width={size} height={size} data-canonical-ship-preview={ship} aria-hidden="true" />;
 }
 
-function SelectedShipPreview({ ship, onChange }: {
-  ship: ShipId;
-  onChange: () => void;
-}) {
-  const profile = SHIP_PROFILES[ship];
-  return <button type="button" className="selected-ship-preview" aria-label={`Selected ship: ${profile.name}. Choose another ship`} onClick={onChange}>
-    <span className="selected-ship-preview-art"><MenuShipPreview ship={ship} /></span>
-    <div><span>Selected ship</span><b>{profile.name}</b><small>{profile.role}</small></div>
-  </button>;
-}
-
 /**
  * Keep the persistent setting reflected on the document root so the gameplay
  * control layer can mirror the existing right-stick action targets with CSS
@@ -196,9 +187,10 @@ function SelectedShipPreview({ ship, onChange }: {
  *
  * Value and setter only. This deliberately does NOT write
  * html[data-mirror-touch-actions] — that used to live here, which meant the
- * attribute only existed once a screen calling this hook had mounted. The app
- * opens on Ships, not Home, so a pilot who had the setting on launched into a
- * run with the left-hand buttons still hidden by their default display:none,
+ * attribute only existed once a screen calling this hook had mounted. When the
+ * app opened on Ships rather than Home, a pilot who had the setting on
+ * launched into a run with the left-hand buttons still hidden by their
+ * default display:none,
  * and only opening Settings (or toggling the option off and on) applied it.
  * The game shell owns that attribute now, because the game shell is always
  * mounted.
@@ -230,20 +222,16 @@ function useMirroredTouchActionsSetting() {
 export function HomeScreen({
   mode,
   difficulty,
-  ship,
   running,
   onLaunch,
   go,
   openSettings,
   close,
-  renderShip,
 }: MenuCallbacks & {
   mode: GameMode;
   difficulty: DifficultyId;
-  ship: ShipId;
   running: boolean;
   onLaunch: () => void;
-  renderShip: (id: ShipId, size: number) => React.ReactNode;
 }) {
   const network = mode !== "pve";
   // A challenge runs solo, so it rides on the PvE mode and replaces the labels
@@ -284,7 +272,6 @@ export function HomeScreen({
             Launch a run
           </h3>
 
-          <SelectedShipPreview ship={ship} onChange={() => go("ships")} />
           <div className="play-summary">
             <SummaryRow
               label="Mode"
@@ -318,9 +305,8 @@ export function HomeScreen({
 
 /* ----------------------------------------------------------------- modes -- */
 
-export function GameTypeScreen({ ship, go, back, openSettings }: MenuCallbacks & { ship: ShipId }) {
+export function GameTypeScreen({ go, back, openSettings }: MenuCallbacks) {
   return <MenuScreen route="modes" onOpenSettings={openSettings} title="Select Game Mode" onBack={back}>
-    <SelectedShipPreview ship={ship} onChange={() => go("ships")} />
     <div className="mode-grid launch-choice-grid" aria-label="Game type">
       <button type="button" className="mode-card" data-mode="pvp" onClick={() => go("pvp-modes")}><b>PvP</b><small>Competitive multiplayer</small></button>
       <button type="button" className="mode-card" data-mode="pve" onClick={() => go("pve-modes")}><b>PvE</b><small>Rift missions and challenge modes</small></button>
@@ -328,18 +314,16 @@ export function GameTypeScreen({ ship, go, back, openSettings }: MenuCallbacks &
   </MenuScreen>;
 }
 
-export function PvpModesScreen({ ship, onSelect, go, back, openSettings }: MenuCallbacks & { ship: ShipId; onSelect: () => void }) {
+export function PvpModesScreen({ onSelect, back, openSettings }: MenuCallbacks & { onSelect: () => void }) {
   return <MenuScreen route="pvp-modes" onOpenSettings={openSettings} title="Select PvP Mode" onBack={back}>
-    <SelectedShipPreview ship={ship} onChange={() => go("ships")} />
     <div className="mode-grid"><button type="button" className="mode-card" data-mode="pvp" onClick={onSelect}><b>1v1</b><small>Matchmaking or private match</small></button></div>
   </MenuScreen>;
 }
 
-export function PveModesScreen({ ship, onMode, onSurvival, onRiftRun, go, back, openSettings }: MenuCallbacks & {
-  ship: ShipId; onMode: (mode: "pve" | "coop" | "classic") => void; onSurvival: () => void; onRiftRun: () => void;
+export function PveModesScreen({ onMode, onSurvival, onRiftRun, back, openSettings }: MenuCallbacks & {
+  onMode: (mode: "pve" | "coop" | "classic") => void; onSurvival: () => void; onRiftRun: () => void;
 }) {
   return <MenuScreen route="pve-modes" onOpenSettings={openSettings} title="Select PvE Mode" onBack={back}>
-    <SelectedShipPreview ship={ship} onChange={() => go("ships")} />
     <div className="mode-grid pve-mode-grid">
       <button type="button" className="mode-card" data-mode="pve" onClick={() => onMode("pve")}><b>{MODE_INFO.pve.label}</b><small>One pilot against the rift</small></button>
       <button type="button" className="mode-card" data-mode="coop" onClick={() => onMode("coop")}><b>{MODE_INFO.coop.label}</b><small>Two pilots, shared objective</small></button>
@@ -352,14 +336,56 @@ export function PveModesScreen({ ship, onMode, onSurvival, onRiftRun, go, back, 
   </MenuScreen>;
 }
 
-export function DifficultyScreen({ ship, mode, difficulty, progression, onDifficulty, onLaunch, go, back, openSettings }: MenuCallbacks & {
-  ship: ShipId; mode: "pve" | "coop"; difficulty: DifficultyId; progression: PilotProgression;
-  onDifficulty: (id: DifficultyId) => void; onLaunch: () => void;
+/**
+ * Roster selection inside a lobby.
+ *
+ * Deliberately not a link to the Ships screen. Navigating away to choose and
+ * then navigating back is what made ship choice feel like a step in launching
+ * the game; picking in place makes it part of preparing the round, so a pilot
+ * can adjust for the mode, the difficulty or the last round without losing the
+ * screen they were on. The full stat sheet still lives on the Ships screen.
+ */
+export function LobbyShipPicker({ ship, onSelectShip, renderShip }: {
+  ship: ShipId; onSelectShip: (id: ShipId) => void; renderShip: (id: ShipId, size: number) => React.ReactNode;
 }) {
-  return <MenuScreen route="difficulty" onOpenSettings={openSettings} title="Select Difficulty" onBack={back}
+  const profile = SHIP_PROFILES[ship];
+  return <MenuSection title="Ship" hint="Change your ship any time before the round starts.">
+    <div className="lobby-ship-picker">
+      <div className="ship-grid lobby-ship-grid" role="radiogroup" aria-label="Choose your ship">
+        {SHIP_ORDER.map((id) => (
+          <button key={id} type="button" role="radio" aria-checked={ship === id}
+            className={`ship-card ${ship === id ? "active" : ""}`} onClick={() => onSelectShip(id)}>
+            <span className="ship-card-art" aria-hidden="true">{renderShip(id, 40)}</span>
+            <b>{SHIP_PROFILES[id].name}</b>
+            {ship === id ? <span className="ship-card-check" aria-hidden="true">✓</span> : null}
+          </button>
+        ))}
+      </div>
+      <p className="menu-hint lobby-ship-summary" aria-live="polite">
+        <b>{profile.name}</b> · {profile.role} · Special {profile.special.name}
+      </p>
+    </div>
+  </MenuSection>;
+}
+
+/**
+ * The pre-round lobby for the solo and co-op PvE modes.
+ *
+ * Ship choice lives here rather than on the way in to the game. The lobby
+ * answers "how do you want to play *this round*?", so the hull is picked in
+ * place — beside the difficulty it will fly at — and can be changed again
+ * without leaving the screen. Rift Run has no equivalent control on purpose:
+ * every run there starts with the same issued starter ship.
+ */
+export function DifficultyScreen({ ship, mode, difficulty, progression, onDifficulty, onSelectShip, onLaunch, go, back, openSettings, renderShip }: MenuCallbacks & {
+  ship: ShipId; mode: "pve" | "coop"; difficulty: DifficultyId; progression: PilotProgression;
+  onDifficulty: (id: DifficultyId) => void; onSelectShip: (id: ShipId) => void; onLaunch: () => void;
+  renderShip: (id: ShipId, size: number) => React.ReactNode;
+}) {
+  return <MenuScreen route="difficulty" onOpenSettings={openSettings} title="Round Setup" onBack={back}
     footer={<button type="button" className="play-button" onClick={onLaunch} disabled={!isDifficultyUnlocked(difficulty, progression)}>{mode === "coop" ? "Continue to Co-op" : "Play"}</button>}>
-    <SelectedShipPreview ship={ship} onChange={() => go("ships")} />
     <button type="button" className="selected-mode-card" onClick={() => go("pve-modes")}><span>Selected mode</span><b>{MODE_INFO[mode].label}</b></button>
+    <LobbyShipPicker ship={ship} onSelectShip={onSelectShip} renderShip={renderShip} />
     <MenuSection title="Difficulty" hint="Complete each tier to unlock the next.">
       <div className="difficulty-progression" role="radiogroup" aria-label="PvE difficulty">
         {PROGRESSION_DIFFICULTIES.map((id) => { const unlocked=isDifficultyUnlocked(id, progression); const prerequisite=id === "difficult" ? "STABLE" : "VOLATILE"; return <button key={id} type="button" role="radio" aria-checked={difficulty===id} disabled={!unlocked} aria-disabled={!unlocked} className={`difficulty-card ${difficulty===id ? "active" : ""} ${unlocked ? "unlocked" : "locked"}`} onClick={() => onDifficulty(id)}><span className="option-check" aria-hidden="true">{difficulty===id ? "✓" : !unlocked ? "🔒" : ""}</span><b>{difficultyLabel(id)}</b><small>{unlocked ? difficultyBlurb(id) : `Complete ${prerequisite} to unlock`}</small><em>{progression.completedDifficulties.includes(id) ? "Completed" : unlocked ? "Available" : `Complete ${prerequisite} to unlock`}</em></button>; })}
@@ -371,20 +397,25 @@ export function DifficultyScreen({ ship, mode, difficulty, progression, onDiffic
 
 /* -------------------------------------------------------------- Rift Run -- */
 
+/**
+ * The Rift Run lobby.
+ *
+ * There is no ship choice here, and that absence is the design rather than an
+ * omission: every Rift Run begins on the same stripped starter frame, and the
+ * ship's identity is created by the upgrades taken during the run. What the
+ * lobby does instead is tell the pilot exactly what they are being handed and
+ * what they are being handed it for — the starting loadout on one side, the
+ * kinds of ship a run can grow into on the other.
+ */
 export function RiftRunSetupScreen({
-  ship,
-  onSelect,
   onLaunch,
   back,
   openSettings,
   renderShip,
 }: MenuCallbacks & {
-  ship: ShipId;
-  onSelect: (id: ShipId) => void;
   onLaunch: () => void;
   renderShip: (id: ShipId, size: number) => React.ReactNode;
 }) {
-  const selected = riftRunShip(ship) ?? RIFT_RUN_SHIPS[0];
   return (
     <MenuScreen
       route="rift-run"
@@ -393,32 +424,40 @@ export function RiftRunSetupScreen({
       eyebrow={RIFT_RUN_TAGLINE}
       onBack={back}
       wide
-      footer={<button type="button" className="play-button" onClick={onLaunch}>Start Run · {selected.name}</button>}
+      footer={<button type="button" className="play-button" onClick={onLaunch}>Start Run</button>}
     >
       <p className="menu-hint rift-run-intro">{RIFT_RUN_DESCRIPTION}</p>
       <div className="rift-run-layout">
-        <div className="ship-grid" role="radiogroup" aria-label="Choose a Rift Run ship">
-          {RIFT_RUN_SHIPS.map((candidate) => (
-            <button key={candidate.id} type="button" role="radio" aria-checked={selected.id === candidate.id}
-              className={`ship-card ${selected.id === candidate.id ? "active" : ""}`} onClick={() => onSelect(candidate.id)}>
-              <span className="ship-card-art" aria-hidden="true">{renderShip(candidate.id, 44)}</span>
-              <b>{candidate.name}</b>
-              <small>{RIFT_SHIP_CLASSES[candidate.shipClass].label} · {candidate.maximumHardpoints} sockets</small>
-              <small>{candidate.abilityName}</small>
-              {selected.id === candidate.id ? <span className="ship-card-check" aria-hidden="true">✓</span> : null}
-            </button>
-          ))}
-        </div>
-        <section className="ship-detail rift-run-detail" aria-live="polite">
-          <div className="ship-detail-art" aria-hidden="true">{renderShip(selected.id, 112)}</div>
-          <h3>{selected.name}</h3>
-          <p className="ship-detail-role">{RIFT_SHIP_CLASSES[selected.shipClass].label} class · {selected.abilityName}</p>
-          <p className="menu-hint"><b>BASE CANNON</b><br />Ship&apos;s standard cannon remains equipped.</p>
-          <div className="rift-sockets" aria-label={`Zero of ${selected.maximumHardpoints} hull hardpoints online`}>
-            <span>HULL HARDPOINTS</span>
-            <b>0 / {selected.maximumHardpoints} ONLINE</b>
-          </div>
-          <p className="menu-hint">Destroy the first Rift to bring your first hull hardpoint online.</p>
+        <section className="ship-detail rift-run-detail">
+          <div className="ship-detail-art" aria-hidden="true">{renderShip(RIFT_RUN_STARTER_HULL, 112)}</div>
+          <h3>{RIFT_RUN_STARTER_SHIP.name}</h3>
+          <p className="ship-detail-role">Standard issue · No class · No special</p>
+          <ul className="rift-starter-loadout" aria-label="Starting loadout">
+            <li><span>PAYLOAD</span><b>{RIFT_RUN_STARTING_PAYLOAD_SLOTS} / {RIFT_RUN_MAX_PAYLOAD_SLOTS} SLOTS</b></li>
+            <li><span>MAIN CANNON</span><b>CANNON I</b></li>
+            <li><span>THRUSTERS</span><b>THRUSTERS I</b></li>
+            <li><span>SPECIAL</span><b>LOCKED</b></li>
+            <li><span>HULL WEAPONS</span><b>0 / {RIFT_RUN_MAX_SOCKETS} SOCKETS</b></li>
+          </ul>
+          <p className="menu-hint">
+            Every run starts here. Rift Energy earns upgrade choices, and each choice
+            improves one of five competing systems.
+          </p>
+        </section>
+        <section className="rift-run-archetypes" aria-label="Build archetypes">
+          <h3>WHAT YOU CAN BUILD</h3>
+          <p className="menu-hint">
+            The fleet are reference builds, not starting choices. Hybrids that match no
+            preset are the point.
+          </p>
+          <ul>
+            {RIFT_RUN_ARCHETYPES.map((archetype) => (
+              <li key={archetype.id}>
+                <span className="ship-card-art" aria-hidden="true">{renderShip(archetype.id, 40)}</span>
+                <div><b>{archetype.label}</b><small>{archetype.summary}</small></div>
+              </li>
+            ))}
+          </ul>
         </section>
       </div>
     </MenuScreen>
