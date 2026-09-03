@@ -12,6 +12,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
+import { RIFT_PUP_GRACE_TICKS, RIFT_PUP_LIFE_TICKS } from "../app/rift-run/pup-budget.ts";
 import { readFileSync } from "node:fs";
 
 import { ENEMY_STATS } from "../app/game-data.ts";
@@ -33,8 +34,13 @@ test("player rounds trade with hostile rounds", () => {
 });
 
 test("loose power-ups are shootable, but only after a spawn grace", () => {
-  assert.match(game, /const PUP_SHOOT_GRACE_TICKS = 20;/);
-  assert.match(game, /const PUP_LIFE_TICKS = 900;/);
+  // The two numbers now live in `rift-run/pup-budget.ts`, which the rift's
+  // ejections read as well, so a loose power-up behaves identically whether it
+  // was shed by a rift budget or dropped by anything else.
+  assert.match(game, /const PUP_SHOOT_GRACE_TICKS = RIFT_PUP_GRACE_TICKS;/);
+  assert.match(game, /const PUP_LIFE_TICKS = RIFT_PUP_LIFE_TICKS;/);
+  assert.equal(RIFT_PUP_GRACE_TICKS, 20);
+  assert.equal(RIFT_PUP_LIFE_TICKS, 900);
   assert.match(game, /return pickup\.life > 0 && pickup\.life <= PUP_LIFE_TICKS - PUP_SHOOT_GRACE_TICKS;/);
   assert.match(playerRound, /if \(!pupIsShootable\(loose\)\) continue/);
   // Hit radius comes from the canonical loose-PUP size, not a second constant.

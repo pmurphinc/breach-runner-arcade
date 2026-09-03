@@ -187,6 +187,15 @@ export type RiftHazardImpact = {
   radius: number;
   /** Ticks of warning left. Dangerous only once this reaches zero. */
   warningTicks: number;
+  /**
+   * The warning length this impact started with.
+   *
+   * Kept so a renderer can draw how much of the telegraph is spent as a fill
+   * fraction. A telegraph the pilot cannot read the length of is barely a
+   * telegraph, and deriving it from the spec at draw time would be wrong for a
+   * meteor storm, whose impacts each carry a different warning.
+   */
+  warningTotal: number;
   /** Ticks of live window left, once the warning has elapsed. */
   liveTicks: number;
   /** True once this impact has already cost the pilot hull. */
@@ -285,6 +294,7 @@ function placeImpact(
     y,
     radius: spec.radius,
     warningTicks: spec.warningTicks + index * spec.impactSpacingTicks,
+    warningTotal: spec.warningTicks + index * spec.impactSpacingTicks,
     liveTicks: spec.liveTicks,
     struck: false,
   };
