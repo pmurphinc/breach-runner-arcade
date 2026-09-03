@@ -281,7 +281,10 @@ test("a wounded rift charges its retaliation faster than a healthy one", () => {
 test("a retaliation telegraphs before it lands", () => {
   const state = createRiftPressure();
   let telegraphed = null;
-  for (let tick = 0; tick < 400 && !telegraphed; tick += 1) {
+  // Camping dead centre on an INTACT rift takes about nine seconds to charge,
+  // which is the whole point of the tuning: this is a long stand-still, not an
+  // approach. The bound is generous so the test is not a timing assertion.
+  for (let tick = 0; tick < 2000 && !telegraphed; tick += 1) {
     telegraphed = camp(state, INTACT, 0, 1).telegraphed;
   }
   assert.ok(telegraphed, "camping eventually draws a retaliation");

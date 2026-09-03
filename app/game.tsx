@@ -1910,8 +1910,8 @@ function DifficultyBadge({
         {/* Milestone-sourced only. The rail says how many are in hand because
             the whole point of the buffer is that the pilot can spend it
             deliberately rather than discover it on the death screen. */}
-        <span className={hud.riftPressure >= 70 ? "rule-context hazard" : "rule-context"}>LIVES {riftRun.lives}</span>
-        <span className={hud.riftPressure >= 70 ? "rule-context hazard" : "rule-context"}>PRESSURE {hud.riftPressure}%</span>
+        <span className="rule-rift-lives">LIVES {riftRun.lives}</span>
+        <span className={hud.riftPressure >= 70 ? "rule-rift-pressure hot" : "rule-rift-pressure"}>PRESSURE {hud.riftPressure}%</span>
         <span>PAYLOADS {hud.riftPupBudget}</span>
         <span>ENERGY {Math.floor(riftRun.riftEnergy)}/{riftEnergyRequiredForLevel(riftRun.level)}</span>
         <span>HARDPOINTS {active}/{unlocked}</span>

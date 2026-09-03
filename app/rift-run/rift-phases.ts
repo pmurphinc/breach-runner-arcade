@@ -44,12 +44,12 @@ export type RiftPhase = {
 /**
  * The four phases, healthiest first.
  *
- * The shape is deliberate: the opening phase is barely a phase at all — a
- * generous eighty ticks of telegraph, a long rest between strikes and no
+ * The shape is deliberate: the opening phase is barely a phase at all — over
+ * two seconds of telegraph, seven seconds of rest between strikes and no
  * hostiles at all — because a pilot meeting the system for the first time
- * should get hit exactly once and understand why. By COLLAPSING the same
- * telegraph is a third as long, the rest between strikes is halved, and every
- * retaliation arrives with an escort.
+ * should get hit exactly once and understand why. By COLLAPSING that telegraph
+ * is well under a second, the rest is halved, and every retaliation arrives
+ * with an escort.
  */
 export const RIFT_PHASES: readonly RiftPhase[] = [
   {
@@ -57,8 +57,8 @@ export const RIFT_PHASES: readonly RiftPhase[] = [
     name: "INTACT",
     atFraction: 1,
     pressureScale: 1,
-    telegraphTicks: 80,
-    cooldownTicks: 320,
+    telegraphTicks: 110,
+    cooldownTicks: 420,
     retaliationDamage: 12,
     spawnMix: [],
     spawnCount: 0,
@@ -68,8 +68,8 @@ export const RIFT_PHASES: readonly RiftPhase[] = [
     name: "STRAINED",
     atFraction: 0.7,
     pressureScale: 1.25,
-    telegraphTicks: 62,
-    cooldownTicks: 250,
+    telegraphTicks: 85,
+    cooldownTicks: 330,
     retaliationDamage: 16,
     spawnMix: ["heatseeker", "scarab", "mines"],
     spawnCount: 2,
@@ -79,8 +79,8 @@ export const RIFT_PHASES: readonly RiftPhase[] = [
     name: "FRACTURING",
     atFraction: 0.4,
     pressureScale: 1.6,
-    telegraphTicks: 44,
-    cooldownTicks: 190,
+    telegraphTicks: 62,
+    cooldownTicks: 260,
     retaliationDamage: 20,
     spawnMix: ["turret", "minelayer", "ufo", "inflator"],
     spawnCount: 3,
@@ -90,8 +90,8 @@ export const RIFT_PHASES: readonly RiftPhase[] = [
     name: "COLLAPSING",
     atFraction: 0.18,
     pressureScale: 2.1,
-    telegraphTicks: 28,
-    cooldownTicks: 150,
+    telegraphTicks: 45,
+    cooldownTicks: 200,
     retaliationDamage: 26,
     spawnMix: ["gunship", "wallcrawler", "artillery", "nuke"],
     spawnCount: 3,

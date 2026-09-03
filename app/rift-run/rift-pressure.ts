@@ -44,20 +44,31 @@ export const RIFT_PRESSURE_MAX = 100;
  * Pressure gained per tick while sitting exactly on the rift.
  *
  * Scaled down linearly to zero at the edge of the radius, and up by the rift's
- * health phase, so the worst case — a COLLAPSING rift with the pilot on top of
- * it — charges in a little under two seconds and the gentlest approach at the
- * rim charges never.
+ * health phase. The resulting curve, at 20ms ticks:
+ *
+ *   sitting dead centre     INTACT 9.1s   COLLAPSING 4.3s
+ *   half a radius out       INTACT 18s    COLLAPSING 8.7s
+ *   three quarters out      INTACT 36s    COLLAPSING 17s
+ *   at the rim              never, at any phase
+ *
+ * The first row is the number that matters, and it is deliberately generous.
+ * A pilot has to close on the rift to land payloads and to bring short-range
+ * hull guns to bear, so a meter that filled in two or three seconds would not
+ * be punishing camping — it would be punishing playing the mode. Nine seconds
+ * of standing still is unmistakably camping; anything shorter is an approach.
  */
-export const RIFT_PRESSURE_GAIN = 1.15;
+export const RIFT_PRESSURE_GAIN = 0.22;
 
 /**
  * Pressure lost per tick outside the radius.
  *
- * Deliberately faster than the gain. Disengaging has to be a real answer to
- * pressure, not a slow one, or the system stops teaching movement and starts
- * taxing time.
+ * Two and a half times the gain, so a full meter bleeds away in about three
+ * and a half seconds. Disengaging has to be a real answer to pressure, or the
+ * system stops teaching movement and starts taxing time — but it should not be
+ * free either, or the meter never means anything to a pilot who taps out of
+ * the radius once a second.
  */
-export const RIFT_PRESSURE_DECAY = 1.9;
+export const RIFT_PRESSURE_DECAY = 0.55;
 
 /** Radius of a targeted strike's detonation. */
 export const RIFT_STRIKE_RADIUS = 96;
