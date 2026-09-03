@@ -205,3 +205,28 @@ test("with no Special installed the controls say so and refuse the press", () =>
   // And the panel readout agrees rather than announcing "NO SPECIAL READY".
   assert.match(game, /<span>SPECIAL <b>\{hud\.specialLocked \? "LOCKED"/);
 });
+
+/**
+ * The card's second line has to earn its place.
+ *
+ * Found by playing: with the ship system named in the eyebrow, repeating the
+ * old gameplay category underneath it produced cards reading
+ * "MAIN CANNON / CANNON CYCLER / OFFENSIVE" — three lines, two of which say
+ * the same thing. Stack progress is the one fact about a stacking upgrade the
+ * pilot cannot read anywhere else.
+ */
+test("a stacking upgrade card reports how far along it is", () => {
+  const run = createRiftRun("stack-readout");
+  const card = choicesForSystem(run, "cannon").find(({ upgradeId }) => upgradeId === "cannon-amplifier");
+  assert.ok(card);
+  assert.equal(card.target, "STACK 1 / 10");
+  assert.notEqual(card.target, card.gameplayCategory.toUpperCase());
+
+  const stacked = applyUpgrade({ ...run, pendingLevels: 1 }, card);
+  const next = choicesForSystem(stacked, "cannon").find(({ upgradeId }) => upgradeId === "cannon-amplifier");
+  assert.equal(next.target, "STACK 2 / 10");
+
+  // An endlessly repeatable upgrade has no denominator to report.
+  const mastery = choicesForSystem(run, "cannon").find(({ upgradeId }) => upgradeId === "weapons-mastery");
+  assert.equal(mastery.target, "STACK 1");
+});

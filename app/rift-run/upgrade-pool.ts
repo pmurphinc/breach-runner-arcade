@@ -38,8 +38,13 @@ export function eligibleUpgradeChoices(state: RiftRunState): UpgradeChoice[] {
       if (def.weapons && !def.weapons.includes(weapon.weaponId) || def.excludes?.includes(weapon.weaponId) || !def.repeatable && upgradeStack(state, def.id, weapon.instanceId) >= def.maxStacks) return [];
       return [{ key: `${def.id}:${weapon.instanceId}`, upgradeId: def.id, system: def.system, gameplayCategory: def.gameplayCategory, targetInstanceId: weapon.instanceId, hardpointIndex, title: def.name, target: `${RIFT_WEAPON_BY_ID[weapon.weaponId].name} · HARDPOINT ${hardpointIndex+1}`, description: def.description }];
     });
-    if (!def.repeatable && upgradeStack(state, def.id) >= def.maxStacks) return [];
-    return [{ key: def.id, upgradeId: def.id, system: def.system, gameplayCategory: def.gameplayCategory, title: def.name, target: def.gameplayCategory.toUpperCase(), description: def.description }];
+    const stack = upgradeStack(state, def.id);
+    if (!def.repeatable && stack >= def.maxStacks) return [];
+    // The card's eyebrow already names the ship system, so repeating the old
+    // gameplay category underneath it was noise. How far along this particular
+    // upgrade is says something the pilot cannot read anywhere else.
+    const target = Number.isFinite(def.maxStacks) ? `STACK ${stack + 1} / ${def.maxStacks}` : `STACK ${stack + 1}`;
+    return [{ key: def.id, upgradeId: def.id, system: def.system, gameplayCategory: def.gameplayCategory, title: def.name, target, description: def.description }];
   });
   return [...trackChoices(state), ...definitions];
 }
