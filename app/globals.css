@@ -215,9 +215,46 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 .eyebrow { color: #86b0bb; font: 800 var(--fs-micro)/1.2 var(--mono); letter-spacing: .16em; }
 
 /* ------------------------------------------------------------ ship panel -- */
-.selected-ship { display: flex; align-items: center; gap: 12px; padding: 15px 0 14px; border-bottom: 1px solid var(--line); }
+/* The whole ship card is the change control -- no separate CHANGE SHIP
+   button sits next to it. The small CHANGE label in the corner is an
+   affordance, not a second target. */
+.selected-ship { position: relative; display: flex; align-items: center; gap: 12px; padding: 15px 0 14px; border-bottom: 1px solid var(--line); }
 .selected-ship h2 { margin: 0; font-size: var(--fs-md); letter-spacing: .06em; }
 .selected-ship p { margin: 5px 0 0; color: var(--muted); font: 500 var(--fs-xs)/1.35 var(--mono); }
+button.selected-ship-button {
+  width: 100%;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 12px;
+  cursor: pointer;
+  font: inherit;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+button.selected-ship-button:hover,
+button.selected-ship-button:focus-visible {
+  border-color: var(--line-strong);
+  background: rgba(8, 20, 30, .55);
+  outline: none;
+}
+.selected-ship-cta {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  color: var(--muted);
+  font: 800 var(--fs-nano)/1 var(--mono);
+  letter-spacing: .12em;
+  font-style: normal;
+  opacity: .55;
+  transition: opacity 120ms ease, color 120ms ease;
+}
+button.selected-ship-button:hover .selected-ship-cta,
+button.selected-ship-button:focus-visible .selected-ship-cta {
+  color: var(--cyan);
+  opacity: 1;
+}
 .ship-icon { flex: 0 0 auto; width: 50px; height: 50px; display: grid; place-items: center; border: 1px solid rgba(100, 234, 255, .22); background: radial-gradient(circle, rgba(100, 234, 255, .12), transparent 68%); }
 .ship-glyph { display: block; width: 30px; height: 22px; background: linear-gradient(90deg, #51cfe8, #d9fbff); clip-path: polygon(100% 50%, 0 0, 20% 50%, 0 100%); filter: drop-shadow(0 0 7px rgba(100, 234, 255, .7)); }
 .ship-glyph.tank, .ship-glyph.turtle { clip-path: polygon(100% 50%, 45% 0, 0 12%, 15% 50%, 0 88%, 45% 100%); }
@@ -804,13 +841,44 @@ html.wh-playing .app-shell { user-select: none; -webkit-user-select: none; -webk
 .setup-launch:hover { filter: brightness(1.08); }
 
 .mission-summary { display: grid; gap: 8px; margin-bottom: 14px; }
-.mission-summary p { display: flex; justify-content: space-between; gap: 8px; margin: 0; font: 700 var(--fs-nano)/1 var(--mono); letter-spacing: .08em; }
 .mission-summary span { color: var(--muted); }
 .mission-summary b { color: var(--cyan); }
-.mission-summary div { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.mission-summary button { min-height: var(--touch-target); color: #c4e2ea; border: 1px solid var(--line); border-radius: 3px;
-  background: rgba(8, 20, 30, .8); cursor: pointer; font: 800 var(--fs-nano)/1 var(--mono); letter-spacing: .08em; }
-.mission-summary button:hover { color: white; border-color: var(--line-strong); }
+/* The mode line is the change control. Cards are the buttons; nothing else
+   sits alongside them competing for the tap. */
+button.mission-line-button {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+  min-height: var(--touch-target);
+  padding: 8px 10px;
+  color: #c4e2ea;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  cursor: pointer;
+  font: 700 var(--fs-nano)/1 var(--mono);
+  letter-spacing: .08em;
+  text-align: left;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+button.mission-line-button:hover,
+button.mission-line-button:focus-visible {
+  color: white;
+  border-color: var(--line-strong);
+  outline: none;
+}
+button.mission-line-button em {
+  color: var(--muted);
+  font-style: normal;
+  opacity: .55;
+  transition: opacity 120ms ease, color 120ms ease;
+}
+button.mission-line-button:hover em,
+button.mission-line-button:focus-visible em {
+  color: var(--cyan);
+  opacity: 1;
+}
 
 /* Narrow screens: the detail panel becomes a second block below the grid,
    and the whole scene scrolls rather than compressing into unreadability. */
@@ -2831,3 +2899,58 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
   }
   .option-choices button.active, .mode-card.active, .ship-card.active { outline: 2px solid Highlight; }
 }
+
+
+/* Desktop status row for mouse-and-keyboard players. Same PUP/SPEC/PAUSE
+   indicators as the touch layout gets, minus the thumbsticks. Sits at the
+   bottom-right of the arena so it does not compete with the HUD rails.
+   Keeps the same colours as the touch buttons so the readouts read the same
+   at a glance regardless of input mode. */
+.desktop-utility-rail {
+  position: absolute;
+  right: clamp(10px, 2vw, 24px);
+  bottom: clamp(10px, 2.4vh, 22px);
+  z-index: 6;
+  pointer-events: none;
+}
+.desktop-utility-rail .touch-utility {
+  flex-direction: row;
+  gap: 6px;
+  pointer-events: none;
+}
+.desktop-utility-rail .touch-utility button {
+  pointer-events: auto;
+  min-width: 62px;
+  min-height: 48px;
+  padding: 6px 10px;
+  display: grid;
+  place-items: center;
+  gap: 2px;
+  color: #c4e2ea;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: rgba(4, 12, 18, .82);
+  cursor: pointer;
+  font: 800 var(--fs-xs)/1 var(--mono);
+  letter-spacing: .08em;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+.desktop-utility-rail .touch-utility button b { font-size: var(--fs-xs); }
+.desktop-utility-rail .touch-utility button small {
+  font-size: var(--fs-nano);
+  color: var(--muted);
+  letter-spacing: .12em;
+}
+.desktop-utility-rail .touch-utility button:hover,
+.desktop-utility-rail .touch-utility button:focus-visible {
+  color: white;
+  border-color: var(--line-strong);
+  outline: none;
+}
+.desktop-utility-rail .touch-utility button:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+  filter: saturate(.4);
+}
+.desktop-utility-rail .touch-pup { color: #f9c1d8 !important; border-color: color-mix(in srgb, var(--pink) 55%, transparent) !important; }
+.desktop-utility-rail .touch-special { color: #ffd799 !important; border-color: color-mix(in srgb, var(--amber) 55%, transparent) !important; }

@@ -120,7 +120,7 @@ import { admitsProjectile, applyScorched, detonateMissile, evolutionRadialHit, p
 import { clearInactiveFlameFx, flameDisplayTransform, refreshFlameFx, type RiftFlameFx } from "./rift-run/flame-fx";
 import { awardRiftEnergy, enemyKillEnergy, riftDamaged, riftEnergyRequiredForLevel } from "./rift-run/progression";
 import { hasEnemyAttackAuthority, hostileShotVelocity, nearestPilot } from "./coop-enemy-targeting.js";
-import { applyRiftRunHullWeaponDamage, RIFT_RUN_BASE_INTEGRITY } from "./rift-run/rift-damage";
+import { applyRiftRunCannonDamage, applyRiftRunHullWeaponDamage, RIFT_RUN_BASE_INTEGRITY } from "./rift-run/rift-damage";
 import { breachRiftRun, tickRiftReform } from "./rift-run/breach";
 import { createRiftDanger, clearRiftDanger, resetRiftDangerForNewRift, type RiftDangerRuntime } from "./rift-run/danger";
 import { creditRiftPupBudget, ejectRiftPup, RIFT_PUP_GRACE_TICKS, RIFT_PUP_LIFE_TICKS, riftPupBudgetRemaining } from "./rift-run/pup-budget";
@@ -4208,7 +4208,7 @@ export default function WormholeGame() {
       burst(game, enemy.x, enemy.y, POWER_COLORS[enemy.kind], 18, 8);
       play("explosion", 0.16);
       if (enemy.kind !== "ghost" && enemy.kind !== "beam" && enemy.kind !== "emp" && enemy.kind !== "mines" && (guaranteedDrop || Math.random() < 0.48)) {
-        game.pickups.push({ x: enemy.x, y: enemy.y, vx: range(-0.7, 0.7), vy: range(-0.7, 0.7), type: dropForGame(game), life: 900, phase: range(0, 6) });
+        game.pickups.push({ x: enemy.x, y: enemy.y, vx: range(-1.4, 1.4), vy: range(-1.4, 1.4), type: dropForGame(game), life: 900, phase: range(0, 6) });
       }
     };
 
@@ -4253,7 +4253,7 @@ export default function WormholeGame() {
       game.portalCharge = banked.portal.charge;
       if (!banked.bloomed) return;
       const type = dropForGame(game);
-      game.pickups.push({ x: game.portalX + range(-28, 28), y: game.portalY + range(-28, 28), vx: range(-1.2, 1.2), vy: range(-1.2, 1.2), type, life: 900, phase: range(0, 6) });
+      game.pickups.push({ x: game.portalX + range(-28, 28), y: game.portalY + range(-28, 28), vx: range(-2.4, 2.4), vy: range(-2.4, 2.4), type, life: 900, phase: range(0, 6) });
       game.notice = `${WEAPONS[type].short} READY TO COLLECT`;
       game.noticeLife = 100;
       pushSpawn(game, "friendly", type, game.portalX, game.portalY, 1);
@@ -4573,6 +4573,28 @@ export default function WormholeGame() {
         impact.struck = true;
         damagePlayer(game, event.damage, `hazard_${event.id.replace(/-/g, "_")}`);
       }
+    };
+
+    /**
+     * Resolves a Rift Run cannon hit against the rift.
+     *
+     * A small trickle -- a fraction of a hull-weapon hit -- so cannon fire is a
+     * fallback source of progress rather than a substitute for PUPs and hull
+     * weapons. Sheds the budget the same way any other integrity damage does,
+     * so crossing a threshold on cannon fire alone still bloomed a power-up.
+     */
+    const hitRiftWithCannonInRiftRun = (game: Game, cannonDamage: number) => {
+      const integrityDamage = applyRiftRunCannonDamage(game, cannonDamage);
+      if (integrityDamage <= 0) return;
+      const run = riftRunRef.current;
+      if (run) {
+        const next = riftDamaged(run, integrityDamage, "cannon");
+        riftRunRef.current = next;
+        setRiftRun(next);
+        if (next.pendingLevels) game.paused = true;
+      }
+      releaseRiftBudget(game);
+      breachRiftRunNow(game);
     };
 
     /** Resolves every Rift Run hull-weapon hit through one integrity path. */
@@ -5704,9 +5726,12 @@ export default function WormholeGame() {
         if (struck) {
           bullet.life = 0;
           // Rift Run's rift pays a per-rift budget at integrity thresholds
-          // instead of a per-damage rate, so cannon fire into it charges
-          // nothing. Every other mode is untouched.
+          // instead of a per-damage rate, so cannon fire does not feed the
+          // meter there. It still lands, at a small integrity trickle, so a
+          // pilot out of PUPs and without a hull weapon still has a way to
+          // make progress. Every other mode is untouched.
           if (struck.id === 0 && !game.riftDanger) chargeRiftPup(game, bullet.damage);
+          else if (struck.id === 0 && game.riftDanger) hitRiftWithCannonInRiftRun(game, bullet.damage);
           else {
             // A rival's portal banks its own damage and sheds at its own
             // threshold. It is not this pilot's rift, so it does not feed the
@@ -5715,7 +5740,7 @@ export default function WormholeGame() {
             struck.charge = banked.portal.charge;
             if (banked.bloomed) {
               const type = dropForGame(game);
-              game.pickups.push({ x: struck.x + range(-28, 28), y: struck.y + range(-28, 28), vx: range(-1.2, 1.2), vy: range(-1.2, 1.2), type, life: PUP_LIFE_TICKS, phase: range(0, 6) });
+              game.pickups.push({ x: struck.x + range(-28, 28), y: struck.y + range(-28, 28), vx: range(-2.4, 2.4), vy: range(-2.4, 2.4), type, life: PUP_LIFE_TICKS, phase: range(0, 6) });
               pushSpawn(game, "friendly", type, struck.x, struck.y, 1);
               playCue(`spawn:${type}`, 0.17);
             }
@@ -7828,21 +7853,33 @@ export default function WormholeGame() {
       <section className="cockpit">
         <aside className="panel ship-panel">
           <div className="eyebrow">MISSION</div>
+          {/* Cards are the buttons. Standing "CHANGE SHIP" and "CHANGE MODE"
+              controls used to sit next to a mode readout that already looked
+              tappable; the readout is the control now, so there is no second
+              thing to hunt for. */}
           <div className="mission-summary">
-            <p>
+            <button
+              type="button"
+              className="mission-line-button"
+              onClick={() => go("modes")}
+              aria-label={`Mode: ${mode === "pvp" ? "PVP 1V1" : mode === "coop" ? "PVE Co-op" : DIFFICULTIES[difficulty].shortName}. Change mode.`}
+            >
               <span>MODE</span>
               <b>{mode === "pvp" ? "PVP 1V1" : mode === "coop" ? `PVE CO-OP · ${DIFFICULTIES[difficulty].shortName}` : DIFFICULTIES[difficulty].shortName}</b>
-            </p>
-            <div>
-              <button type="button" onClick={() => go("ships")}>CHANGE SHIP</button>
-              <button type="button" onClick={() => go("modes")}>CHANGE MODE</button>
-            </div>
+              <em aria-hidden="true">CHANGE</em>
+            </button>
           </div>
           <div className="eyebrow">CURRENT SHIP</div>
-          <div className="selected-ship">
+          <button
+            type="button"
+            className="selected-ship selected-ship-button"
+            onClick={() => go("ships")}
+            aria-label={`Current ship: ${currentShip.name}, ${currentShip.role}. Change ship.`}
+          >
             <div className="ship-icon" aria-hidden="true"><span className={`ship-glyph ${currentShip.id}`} /></div>
             <div><h2>{currentShip.name}</h2><p>{currentShip.role}</p></div>
-          </div>
+            <em className="selected-ship-cta" aria-hidden="true">CHANGE</em>
+          </button>
           <p className="ship-description">{currentShip.special}</p>
           <div className="data-grid">
             <div><span>HULL</span><b>{currentShip.health}</b></div>
@@ -7937,10 +7974,16 @@ export default function WormholeGame() {
                     <div
                       className="compact-gauges"
                       role="img"
-                      aria-label={`Hull ${hud.health} of ${hud.maxHealth}. Shield ${hud.shield ? `${hud.shield} percent` : "disabled"}.`}
+                      aria-label={hud.shield > 0
+                        ? `Hull ${hud.health} of ${hud.maxHealth}. Shield ${hud.shield} percent.`
+                        : `Hull ${hud.health} of ${hud.maxHealth}.`}
                     >
                       <span className="compact-gauge compact-hull"><i style={{ height: `${healthPct}%` }} /></span>
-                      <span className="compact-gauge compact-shield"><i style={{ height: `${hud.shield}%` }} /></span>
+                      {/* The shield gauge is drawn only when a shield actually
+                          exists on this run. A permanently-empty gauge is dead
+                          weight, and a ship without a shield never earns one
+                          later — no need to hold space for it. */}
+                      {hud.shield > 0 ? <span className="compact-gauge compact-shield"><i style={{ height: `${hud.shield}%` }} /></span> : null}
                     </div>
                     <ol className="compact-pups" aria-label={`${hud.stock.length} of ${hud.payloadCapacity} power-ups stored`}>
                       {slots.map((itemId, index) => {
@@ -8294,6 +8337,15 @@ export default function WormholeGame() {
                 </div>
               ) : null}
             </div>
+            {!touchCapable ? (
+              // Mouse-and-keyboard status row: same three indicators (payload,
+              // special, pause), same cooldown text, same click behaviour, no
+              // thumbsticks. Sits in the corner of the arena chrome; the CSS
+              // scales it down and pins it out of the way of the HUD rails.
+              <div className="desktop-utility-rail" aria-label="Payload, special ability, and pause">
+                {touchUtility()}
+              </div>
+            ) : null}
             {touchCapable ? <div className="touch-controls" aria-label="Twin-stick touch controls">
               <div className="touch-flight">
                 <div
