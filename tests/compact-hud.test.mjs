@@ -65,6 +65,8 @@ test("the loaded payload is distinguishable from stored ones", () => {
 
 test("hull and shield read as separate vertical gauges beside the ship", () => {
   assert.match(game, /className="compact-gauge compact-hull"/);
+  // The shield gauge is conditional: drawn only when the pilot has one. See
+  // the "hides the shield gauge" test below.
   assert.match(game, /className="compact-gauge compact-shield"/);
   assert.match(game, /height: `\$\{healthPct\}%`/);
   assert.match(game, /height: `\$\{hud\.shield\}%`/);
@@ -82,4 +84,11 @@ test("the compact gauges stay legible in forced-colors mode", () => {
   const forced = hudCss.slice(hudCss.lastIndexOf("@media (forced-colors: active)"));
   assert.match(forced, /\.compact-gauge \{ border-color: CanvasText/);
   assert.match(forced, /\.compact-pups \{ border-color: CanvasText/);
+});
+
+test("the shield gauge is drawn only when the pilot has a shield", () => {
+  const block = game.slice(game.indexOf("{settings.compactHud ? (() => {"), game.indexOf('className="touch-powerup-hud"'));
+  // Nothing draws a permanently-empty shield rail. A ship without a shield
+  // never earns one later, so a dead gauge is dead weight on every frame.
+  assert.ok(block.includes("hud.shield > 0 ? <span"), "shield gauge is conditional on a shield existing");
 });

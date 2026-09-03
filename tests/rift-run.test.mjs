@@ -886,13 +886,13 @@ test("Rift Run payload destruction breaches instead of starting PvE victory", as
   assert.match(source.slice(riftRunBranch, standardVictory), /breachRiftRunNow\(game\)/);
 });
 
-test("both Rift Run breach paths go through the one helper that escalates the run", async () => {
+test("every Rift Run breach path goes through the one helper that escalates the run", async () => {
   const source = await import("node:fs/promises").then(({ readFile }) => readFile(new URL("../app/game.tsx", import.meta.url), "utf8"));
-  // Two call sites can collapse a rift — hull-mounted Rift Run weapons and
-  // ordinary power-up damage — and both have to pay the same rewards and buy
-  // the same escalation, so neither is allowed its own copy of the sequence.
-  assert.equal(source.match(/breachRiftRunNow\(game\)/g).length, 2);
-  assert.equal(source.match(/const breachRiftRunNow = /g).length, 1);
+  // Three call sites can collapse a rift -- hull-mounted Rift Run weapons,
+  // ordinary power-up damage, and a cannon trickle that lets a pilot make
+  // progress when starved of PUPs -- and all three have to pay the same
+  // rewards and buy the same escalation, so none is allowed its own copy of
+  // the sequence.
   const helper = source.indexOf("const breachRiftRunNow = ");
   const helperEnd = source.indexOf("const tickRiftRunEscalation = ");
   const body = source.slice(helper, helperEnd);

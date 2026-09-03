@@ -57,7 +57,10 @@ export const RIFT_PUP_LIFE_TICKS = 900;
 export const RIFT_PUP_GRACE_TICKS = 20;
 
 /** Speed range an ejected power-up leaves the rift at. */
-export const RIFT_PUP_EJECT_SPEED = { min: 1.6, max: 3.4 } as const;
+// Fast enough to be past the cannon's line of fire before it can hit them
+// twice. 1.6-3.4 left them drifting through the pilot's own bullet stream and
+// a graze that was meant to bloom the rift ate the drop it just produced.
+export const RIFT_PUP_EJECT_SPEED = { min: 3.0, max: 5.4 } as const;
 
 /** How far from the rift centre an ejection starts. */
 export const RIFT_PUP_EJECT_OFFSET = 26;
