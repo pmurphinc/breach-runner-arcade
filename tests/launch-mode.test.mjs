@@ -20,9 +20,30 @@ import { readFileSync } from "node:fs";
 const game = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
 
 test("Rift Run launches as PvE explicitly, not via the preference it just set", () => {
-  const launcher = game.slice(game.indexOf("const launchRiftRun = useCallback"), game.indexOf("}, [riftShipId, start]);"));
-  assert.match(launcher, /start\(riftShipId, "pve", "easy"\)/);
-  assert.doesNotMatch(launcher, /start\(riftShipId\);/, "a bare start() reads the stale closed-over mode");
+  const launcher = game.slice(game.indexOf("const launchRiftRun = useCallback"), game.indexOf("}, [start]);"));
+  assert.match(launcher, /start\(true, "pve", "easy"\)/);
+  assert.doesNotMatch(launcher, /start\(true\);/, "a bare mode-less start() reads the stale closed-over mode");
+});
+
+/**
+ * Rift Run is a flag now, not a ship.
+ *
+ * It used to be identified by passing one of its ten selectable ships to
+ * `start`, which stopped being possible when every run started on the same
+ * issued frame. Anything that launches or relaunches a Rift Run has to say so
+ * explicitly, because Rift Run rides on the PvE mode and the mode alone cannot
+ * tell the two apart — a Rift Run relaunched without the flag comes back as
+ * ordinary PvE, with no run state, no upgrades and no rift to breach.
+ */
+test("every Rift Run entry point states the format and its rules", () => {
+  assert.match(game, /const start = useCallback\(\(riftRun\?: boolean, modeOverride\?: GameMode, difficultyOverride\?: DifficultyId\)/);
+  // Run Again from the summary card.
+  assert.match(game, /summary\.replay\.kind === "rift-run"\) start\(true, "pve", "easy"\)/);
+  // Restart from the pause screen.
+  assert.match(game, /riftRunRef\.current \? start\(true, "pve", "easy"\) : start\(false, hud\.mode\)/);
+  // And nothing still tries to name a ship on the way in.
+  assert.doesNotMatch(game, /start\(riftShipId/);
+  assert.doesNotMatch(game, /riftRunShip\(/);
 });
 
 test("Classic launches as Classic explicitly", () => {

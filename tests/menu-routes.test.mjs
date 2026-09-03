@@ -65,9 +65,13 @@ test("with a run, Menu toggles Pause against the game", () => {
   );
 });
 
-test("a fresh session starts on Ships", () => {
-  assert.deepEqual(INITIAL_STACK, ["ships"]);
-  assert.equal(activeRoute(INITIAL_STACK), "ships");
+test("a fresh session starts on Home, not on the ship picker", () => {
+  // Ship choice belongs to each mode's pre-round lobby, so the first question
+  // the game asks is what to play rather than what to fly. Rift Run's lobby
+  // asks nothing about ships at all, which only works if the picker is not
+  // standing in front of every launch.
+  assert.deepEqual(INITIAL_STACK, ["home"]);
+  assert.equal(activeRoute(INITIAL_STACK), "home");
   assert.ok(isOpen(INITIAL_STACK));
 });
 

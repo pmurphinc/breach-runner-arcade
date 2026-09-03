@@ -26,7 +26,10 @@ test("gameplay uses one pickup resolver and consumes a linked round after its fi
 test("full-bin handling consumes physical PUPs but preserves remotely hit PUPs", () => {
   const game = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
   const resolver = game.slice(game.indexOf("const resolvePlayerPickup ="), game.indexOf("Burns Phantom's lance"));
-  assert.match(resolver, /game\.stock\.length >= STOCK_LIMIT/);
+  // The ceiling is the run's own now, not a module constant: Rift Run earns
+  // capacity from one slot up to the shared five while every other mode starts
+  // there. A full bin is full relative to what this run can actually hold.
+  assert.match(resolver, /game\.stock\.length >= game\.payloadCapacity/);
   assert.match(resolver, /if \(source === "physical"\) pickup\.life = 0/);
   assert.doesNotMatch(resolver, /source === "salvage-link"[^\n]*pickup\.life = 0/);
   assert.match(resolver, /playCue\("inventory-full", 0\.2\);\s*return false/);

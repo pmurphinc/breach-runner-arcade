@@ -3,8 +3,84 @@ import type { RiftRunState, RiftWeaponId } from "./types.ts";
 import { RIFT_UPGRADE_BY_ID, upgradeStack, type UpgradeChoice } from "./upgrades.ts";
 import { createWeaponInstance } from "./weapons.ts";
 import { RIFT_EVOLUTION_BY_ID, activeEvolution, qualifiesForEvolution } from "./evolutions.ts";
+import {
+  RIFT_RUN_MAX_CANNON_TIER,
+  RIFT_RUN_MAX_PAYLOAD_SLOTS,
+  RIFT_RUN_MAX_SPECIAL_TIER,
+  RIFT_RUN_MAX_THRUSTER_TIER,
+  RIFT_RUN_TIER_GAINS as G,
+} from "./loadout.ts";
+import { isRiftRunSpecial } from "./specials.ts";
+import { nextLockedHardpointIndex } from "./state.ts";
+import type { ShipId } from "../game-data.ts";
+
+/**
+ * Advance one of the tiered ladders.
+ *
+ * Returns the unchanged state when the ladder is already finished, which makes
+ * a stale card — one rolled before another choice moved the same track —
+ * harmless rather than a way to exceed a cap. The caller sees `state === next`
+ * and knows nothing was spent.
+ *
+ * Cannon and thruster steps pay out twice: the mark, which changes the shots
+ * or the engine curve outright, and a modifier on top so the last step of each
+ * ladder still lands after the mark has hit its ceiling.
+ */
+function applyTrack(state: RiftRunState, choice: UpgradeChoice): RiftRunState | null {
+  const track = choice.track;
+  if (!track) return null;
+  const next = structuredClone(state);
+  const loadout = next.loadout;
+  if (track === "payload-slot") {
+    if (loadout.payloadSlots >= RIFT_RUN_MAX_PAYLOAD_SLOTS) return state;
+    loadout.payloadSlots += 1;
+  } else if (track === "cannon-tier") {
+    if (loadout.cannonTier >= RIFT_RUN_MAX_CANNON_TIER) return state;
+    loadout.cannonTier += 1;
+    next.shipModifiers.cannonDamage += G.cannonDamage;
+    next.shipModifiers.cannonFireRate += G.cannonFireRate;
+  } else if (track === "thruster-tier") {
+    if (loadout.thrusterTier >= RIFT_RUN_MAX_THRUSTER_TIER) return state;
+    loadout.thrusterTier += 1;
+    next.shipModifiers.movement = clampModifier(next.shipModifiers.movement + G.movement, L.movement);
+    next.shipModifiers.handling = clampModifier(next.shipModifiers.handling + G.handling, L.handling);
+  } else if (track === "special-unlock") {
+    if (loadout.special || next.pendingSpecialChoice) return state;
+    // The card installs the mount; which ability goes in it is the pilot's
+    // next decision, exactly as unlocking a socket is followed by picking the
+    // gun that fills it.
+    next.pendingSpecialChoice = true;
+  } else if (track === "special-tier") {
+    if (!loadout.special || loadout.special.tier >= RIFT_RUN_MAX_SPECIAL_TIER) return state;
+    loadout.special = { ...loadout.special, tier: loadout.special.tier + 1 };
+  } else if (track === "socket-unlock") {
+    const index = nextLockedHardpointIndex(next);
+    if (index === null) return state;
+    next.hardpoints[index] = { index, status: "available" };
+    next.pendingHullGunReward = { hardpointIndex: index, breach: next.riftBreaches };
+  } else {
+    return null;
+  }
+  const stack = upgradeStack(next, track) + 1;
+  next.upgradeHistory.push({ upgradeId: track, stack, level: next.level - next.pendingLevels + 1 });
+  next.pendingLevels = Math.max(0, next.pendingLevels - 1);
+  return next;
+}
+
+/**
+ * Install the Special the pilot picked after an UNLOCK SPECIAL.
+ *
+ * Rejects anything that is not on Rift Run's own roster, so a stale or
+ * hand-made id cannot arm an ability the mode does not offer.
+ */
+export function chooseRiftRunSpecial(state: RiftRunState, shipId: ShipId): RiftRunState {
+  if (!state.pendingSpecialChoice || state.loadout.special || !isRiftRunSpecial(shipId)) return state;
+  return { ...state, pendingSpecialChoice: false, loadout: { ...state.loadout, special: { shipId, tier: 1 } } };
+}
 
 export function applyUpgrade(state: RiftRunState, choice: UpgradeChoice): RiftRunState {
+  const tracked = applyTrack(state, choice);
+  if (tracked) return tracked;
   if (choice.evolutionId) {
     const next=structuredClone(state), point=next.hardpoints.find(p=>p.status==="occupied"&&p.weapon.instanceId===choice.targetInstanceId);
     if (!point || point.status!=="occupied" || activeEvolution(point.weapon)) return state;

@@ -46,7 +46,10 @@ test("live barrage uses normal speed, lifetime, collision, network cause, and pr
   assert.match(game, /damage: round\.damage, life: 110, enemy: false/);
   assert.match(game, /bullet\.special \? "overcharge" : "cannon"/);
   assert.match(game, /if \(!round\.supplemental\) game\.playerShots \+= 1/);
-  assert.match(game, /game\.ship\.id === "warden" && player\.suppressionBarrage > 0/);
+  // Dispatch reads the armed Special, not the hull: a Rift Run can install
+  // SUPPRESSION BARRAGE on the starter frame, and the barrage has to fire from
+  // whatever hull is actually carrying it.
+  assert.match(game, /game\.specialShip === "warden" && player\.suppressionBarrage > 0/);
   assert.doesNotMatch(game, /selectAutoGunTarget|autoGun|sentryOverdrive/i);
 
   const player = { x: 50, y: 80 };
@@ -55,7 +58,7 @@ test("live barrage uses normal speed, lifetime, collision, network cause, and pr
 
 test("mounted Rift Run fire stays separate from primary barrage resolution", () => {
   const mounted = game.indexOf("const mountedShots = processHardpointFire");
-  const primary = game.indexOf("const rounds = game.ship.id", mounted);
+  const primary = game.indexOf("const rounds = game.specialShip", mounted);
   assert.ok(mounted >= 0 && primary > mounted);
   const mountedBlock = game.slice(mounted, primary);
   assert.doesNotMatch(mountedBlock, /suppressionBarrage|SUPPRESSION_BARRAGE/i);
