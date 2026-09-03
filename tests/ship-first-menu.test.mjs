@@ -43,14 +43,39 @@ test("Ships is a browsing surface: confirming returns where it was opened from",
   assert.match(menu, /\{ route: "ships", label: "Ships", hint: "Compare the fleet" \}/);
 });
 
-test("no pre-lobby screen carries a ship at all", () => {
-  // The old "selected ship" card is gone from Home and from every mode screen,
-  // along with the component that drew it.
-  assert.doesNotMatch(menu, /SelectedShipPreview/);
-  assert.doesNotMatch(css, /selected-ship-preview/);
-  for (const [name, next] of [["HomeScreen", "GameTypeScreen"], ["GameTypeScreen", "PvpModesScreen"], ["PvpModesScreen", "PveModesScreen"], ["PveModesScreen", "LobbyShipPicker"]]) {
-    assert.doesNotMatch(screen(name, next), /ship=\{|go\("ships"\)/, `${name} must not ask about ships`);
+test("Home shows the hull it will fly; the mode screens still do not", () => {
+  // Ship *selection* moved into the round lobby, and the mode screens stay out
+  // of it. Home is the exception, by explicit request: it summarises the whole
+  // launch decision, and a summary that names the mode and the difficulty but
+  // not the hull leaves out the part a returning pilot most wants to check
+  // before pressing Play. It is a summary row like the other two -- reading it
+  // costs nothing, and pressing it opens the same browsing surface.
+  assert.ok(!menu.includes("SelectedShipPreview"), "not the old bespoke preview card");
+  assert.ok(!css.includes("selected-ship-preview"));
+
+  const home = screen("HomeScreen", "GameTypeScreen");
+  assert.ok(home.includes("label=\"Ship\""), "Home names the hull");
+  assert.ok(home.includes("media={renderShip(ship, 44)}"), "and draws it");
+  assert.ok(home.includes("onAction={() => go(\"ships\")}"), "pressing it opens the browsing surface");
+
+  // The mode screens are still not a place to think about hulls.
+  for (const [name, next] of [["GameTypeScreen", "PvpModesScreen"], ["PvpModesScreen", "PveModesScreen"], ["PveModesScreen", "LobbyShipPicker"]]) {
+    assert.doesNotMatch(screen(name, next), /ship={|go("ships")/, `${name} must not ask about ships`);
   }
+});
+
+test("every launch summary row is itself the button", () => {
+  // No standing CHANGE control sits beside a card that already looks
+  // pressable. One target, not two: the row is the button and the cue is
+  // inside it.
+  const ui = readFileSync(new URL("../app/ui-system.tsx", import.meta.url), "utf8");
+  const at = ui.indexOf("export function SummaryRow");
+  const row = ui.slice(at, at + 2000);
+  assert.ok(row.includes("className=\"summary-row\""), "the row itself is the button");
+  assert.ok(row.includes("className=\"summary-cue\""), "the cue is inside it");
+  assert.ok(!row.includes("className=\"summary-action\""), "the standalone action button is gone");
+  assert.ok(!css.includes(".summary-action {"), "and so is its styling");
+  assert.ok(css.includes("button.summary-row {"), "styled as a button");
 });
 
 test("solo and co-op choose their hull in the round lobby, in place", () => {

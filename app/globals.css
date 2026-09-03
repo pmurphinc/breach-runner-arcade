@@ -2400,7 +2400,10 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
   .lobby-ship-grid .ship-card b { font-size: var(--fs-nano); }
 }
 
-.summary-row {
+/* The whole row is the control. There is no separate CHANGE button beside a
+   card that already looks pressable -- one target, not two. */
+button.summary-row {
+  width: 100%;
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -2408,6 +2411,25 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
   border: var(--border-1);
   border-radius: var(--radius-1);
   background: rgba(3, 11, 18, .6);
+  min-height: var(--touch-target);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+button.summary-row:hover,
+button.summary-row:focus-visible {
+  border-color: var(--focus);
+  background: rgba(6, 18, 27, .78);
+  outline: none;
+}
+.summary-media {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
 }
 .summary-text { min-width: 0; display: grid; gap: 1px; flex: 1 1 auto; }
 .summary-text span {
@@ -2419,21 +2441,18 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
 .summary-text b { color: var(--ink); font: 800 var(--fs-md)/1.2 var(--mono); }
 .summary-text small { color: var(--muted-2); font: 500 var(--fs-nano)/1.35 var(--mono); }
 
-.summary-action {
+/* An affordance inside the button, not a control of its own. */
+.summary-cue {
   flex: 0 0 auto;
-  min-height: var(--touch-target);
-  min-width: var(--touch-target);
-  padding: 0 var(--space-3);
-  color: var(--cyan);
-  background: transparent;
-  border: var(--border-1);
-  border-radius: var(--radius-1);
-  cursor: pointer;
+  color: var(--muted);
   font: 700 var(--fs-nano)/1 var(--mono);
   letter-spacing: .1em;
   text-transform: uppercase;
+  opacity: .6;
+  transition: color 120ms ease, opacity 120ms ease;
 }
-.summary-action:hover, .summary-action:focus-visible { border-color: var(--focus); color: var(--ink); }
+button.summary-row:hover .summary-cue,
+button.summary-row:focus-visible .summary-cue { color: var(--cyan); opacity: 1; }
 
 /* Reflow is automatic: as many columns as fit at 200px, no breakpoints. */
 .menu-nav {

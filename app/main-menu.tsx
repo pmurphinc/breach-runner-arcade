@@ -222,16 +222,21 @@ function useMirroredTouchActionsSetting() {
 export function HomeScreen({
   mode,
   difficulty,
+  ship,
   running,
   onLaunch,
   go,
   openSettings,
   close,
+  renderShip,
 }: MenuCallbacks & {
   mode: GameMode;
   difficulty: DifficultyId;
+  ship: ShipId;
   running: boolean;
   onLaunch: () => void;
+  /** The canvas silhouette, supplied by the shell so art stays in one place. */
+  renderShip: (id: ShipId, size: number) => React.ReactNode;
 }) {
   const network = mode !== "pve";
   // A challenge runs solo, so it rides on the PvE mode and replaces the labels
@@ -287,6 +292,17 @@ export function HomeScreen({
                 onAction={() => go("modes")}
               />
             )}
+            {/* The hull is always on screen. Ship choice moved into the lobby,
+                which left Home describing a run without saying what it would be
+                flown in -- the one part of the decision the player is most
+                likely to want to check before pressing Play. */}
+            <SummaryRow
+              label="Ship"
+              value={SHIP_PROFILES[ship].name}
+              detail={SHIP_PROFILES[ship].role}
+              media={renderShip(ship, 44)}
+              onAction={() => go("ships")}
+            />
           </div>
         </section>
 
