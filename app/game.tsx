@@ -120,6 +120,17 @@ import { admitsProjectile, applyScorched, detonateMissile, evolutionRadialHit, p
 import { clearInactiveFlameFx, flameDisplayTransform, refreshFlameFx, type RiftFlameFx } from "./rift-run/flame-fx";
 import { awardRiftEnergy, enemyKillEnergy, riftDamaged, riftEnergyRequiredForLevel } from "./rift-run/progression";
 import { hasEnemyAttackAuthority, hostileShotVelocity, nearestPilot } from "./coop-enemy-targeting.js";
+import {
+  beginPupClaim,
+  canDamagePilot,
+  createPupClaimTracker,
+  expirePupClaims,
+  isSharedArenaKind,
+  pupIdentity,
+  resetPupClaims,
+  serializePups,
+  settlePupClaim,
+} from "./shared-arena.js";
 import { applyRiftRunCannonDamage, applyRiftRunHullWeaponDamage, RIFT_RUN_BASE_INTEGRITY } from "./rift-run/rift-damage";
 import { breachRiftRun, tickRiftReform } from "./rift-run/breach";
 import { createRiftDanger, clearRiftDanger, resetRiftDangerForNewRift, type RiftDangerRuntime } from "./rift-run/danger";
@@ -454,6 +465,15 @@ type Bullet = {
   salvageLinked?: boolean;
   /** Extra barrage rounds share the center round's one logical shot budget. */
   supplemental?: boolean;
+  /**
+   * A teammate's round, shown in a shared arena but harmless in it.
+   *
+   * Nothing sets this yet — a teammate's fire is not currently placed in your
+   * arena at all. It exists so the no-friendly-fire rule in
+   * `app/shared-arena.js` is a property of the type rather than of the fact
+   * that the case has not come up.
+   */
+  ally?: boolean;
 };
 
 /**
@@ -471,7 +491,17 @@ type OverchargeBlastFx = {
   scrambleTicks: number;
   spec: OverchargeSpec;
 };
-type Pickup = { x: number; y: number; vx: number; vy: number; type: PickupId; life: number; phase: number };
+type Pickup = {
+  x: number; y: number; vx: number; vy: number; type: PickupId; life: number; phase: number;
+  /**
+   * Stable identity, assigned only in a shared arena.
+   *
+   * Solo and 1v1 PUPs never need one: nobody else can see them, so there is
+   * nothing to agree about. It is the two-pilots-one-rift case that has to be
+   * able to say "that one".
+   */
+  pupId?: number;
+};
 type PowerShot = { x: number; y: number; vx: number; vy: number; type: PowerId; life: number; homing: boolean };
 type Particle = { x: number; y: number; vx: number; vy: number; color: string; size: number; life: number; maxLife: number };
 type StickPosition = { active: boolean; x: number; y: number };
@@ -723,6 +753,12 @@ type Game = {
   pickups: Pickup[];
   enemies: Enemy[];
   nextEnemyId: number;
+  /** Stable ids for loose PUPs, so a shared arena can name the one being raced for. */
+  nextPupId: number;
+  /** PUP claims this pilot has sent and not yet had answered. */
+  pupClaims: ReturnType<typeof createPupClaimTracker>;
+  /** Round the pending claims belong to, so a new round starts a clean race. */
+  pupClaimRound: number;
   roundId: number;
   /** Last host world revision applied by a co-op guest. */
   lastWorldSeq?: number;
@@ -959,6 +995,9 @@ function createGame(
     pickups: [],
     enemies: [],
     nextEnemyId: 0,
+    nextPupId: 0,
+    pupClaims: createPupClaimTracker(),
+    pupClaimRound: 0,
     roundId: 0,
     powers: [],
     blasts: [],
@@ -5802,7 +5841,13 @@ export default function WormholeGame() {
           }
         }
         if (bullet.enemy) {
-          if (dist(bullet, player) < 13) { bullet.life = 0; damagePlayer(game, bullet.damage, "hostile_projectile"); }
+          // `canDamagePilot` is the shared arena's no-friendly-fire rule, asked
+          // at the one place a round can hurt a pilot. A teammate's round
+          // passes straight through, however it is flagged.
+          if (canDamagePilot(bullet) && dist(bullet, player) < 13) {
+            bullet.life = 0;
+            damagePlayer(game, bullet.damage, "hostile_projectile");
+          }
           return;
         }
         // Additional cannon/PUP contact only: combat checks below are intact
@@ -5986,6 +6031,28 @@ export default function WormholeGame() {
         }
       });
 
+      const coopNetwork = netRef.current?.state;
+      const coopIsHost = game.mode === "coop"
+        && Boolean(coopNetwork?.you?.id)
+        && coopNetwork?.you?.id === coopNetwork?.hostId;
+      /**
+       * Two pilots, one rift, one set of loose PUPs — so touching one is no
+       * longer the same thing as collecting it. In a shared arena a touch
+       * *claims* the PUP and the server says who got there first; see
+       * app/shared-arena.js. Solo and 1v1 arenas are untouched by any of this.
+       */
+      const sharedArena = isSharedArenaKind(game.mode) && Boolean(coopNetwork?.you?.id);
+      const netNow = Date.now();
+      if (sharedArena) {
+        if (game.pupClaimRound !== game.roundId) {
+          resetPupClaims(game.pupClaims);
+          game.pupClaimRound = game.roundId;
+        }
+        // Claims the referee never answered — a dropped frame, a host that
+        // went away — are released so the PUP can be flown at again.
+        expirePupClaims(game.pupClaims, netNow);
+      }
+
       game.pickups.forEach((pickup) => {
         // A loose PUP now belongs to the arena rather than drifting out of it:
         // `advancePup` carries the float it always had and bounces its whole
@@ -5995,15 +6062,41 @@ export default function WormholeGame() {
         }
         pickup.phase += PUP_SPIN;
         pickup.life -= 1;
-        if (pupCollected(pickup, player)) {
+        // The arena host names every PUP as it simulates it, so the id is
+        // already there when the snapshot goes out and when a claim is sent.
+        if (coopIsHost) pupIdentity(game, pickup);
+        if (!pupCollected(pickup, player)) return;
+        if (!sharedArena) {
           resolvePlayerPickup(game, pickup, "physical");
+          return;
+        }
+        // Deliberately no optimistic collect: payload inventory is a
+        // server-owned LIFO ledger, and awarding a payload we might have to
+        // take back would desynchronise it. The PUP stays on screen for about
+        // one round trip and then either arrives or is gone.
+        if (pickup.pupId && beginPupClaim(game.pupClaims, pickup.pupId, netNow) !== null) {
+          netRef.current?.claimPup(pickup.pupId);
         }
       });
 
-      const coopNetwork = netRef.current?.state;
-      const coopIsHost = game.mode === "coop"
-        && Boolean(coopNetwork?.you?.id)
-        && coopNetwork?.you?.id === coopNetwork?.hostId;
+      if (sharedArena) {
+        const selfId = coopNetwork?.you?.id ?? null;
+        for (const decision of netRef.current?.drainPupDecisions() ?? []) {
+          if (decision.roundId !== game.roundId) continue;
+          const verdict = settlePupClaim(game.pupClaims, decision.pupId, decision.by, selfId);
+          if (verdict === "released") continue;
+          const pickup = game.pickups.find((item) => item.pupId === decision.pupId && item.life > 0);
+          if (!pickup) continue;
+          if (verdict === "granted") resolvePlayerPickup(game, pickup, "physical");
+          else {
+            // The teammate won the race. Take it off this screen so both
+            // pilots stop seeing a PUP that one of them already has.
+            pickup.life = 0;
+            burst(game, pickup.x, pickup.y, POWER_COLORS[pickup.type], 6, 3);
+          }
+        }
+      }
+
       if (coopIsHost) {
         for (const hit of netRef.current?.drainEnemyHits() ?? []) {
           if (hit.roundId !== game.roundId) continue;
@@ -6025,6 +6118,11 @@ export default function WormholeGame() {
         game.portalAngle = world.portalAngle;
         game.enrageActive = world.enrageActive;
         game.enemies = world.enemies.map((enemy) => ({ ...enemy })) as unknown as Enemy[];
+        // Loose PUPs are host-owned in a shared arena. Both pilots have to be
+        // looking at the same power-ups in the same places for the race to
+        // them to mean anything, so the teammate takes the host's set whole
+        // rather than spawning its own alongside.
+        game.pickups = world.pups.map((pup) => ({ ...pup })) as unknown as Pickup[];
         const localShots = game.bullets.filter((bullet) => !bullet.enemy);
         game.bullets = localShots.concat(world.enemyBullets.map((bullet) => ({ ...bullet })) as unknown as Bullet[]);
       }
@@ -6065,6 +6163,9 @@ export default function WormholeGame() {
           enrageActive: game.enrageActive,
           enemies: game.enemies.slice(0, 128).map((enemy) => ({ ...enemy, enemyId: enemyIdentity(game, enemy) })),
           enemyBullets: game.bullets.filter((bullet) => bullet.enemy).slice(0, 256).map((bullet) => ({ ...bullet })),
+          // The PUPs both pilots are racing for, named so the referee and the
+          // teammate are talking about the same ones.
+          pups: serializePups(game, game.pickups),
         });
       }
       game.particles.forEach((particle) => {

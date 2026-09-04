@@ -10,7 +10,7 @@
  * `tests/pvp-protocol.test.mjs` asserts the two agree.
  */
 
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 
 /** WebSocket path. Shares the game's HTTP server and Railway's injected PORT. */
 export const PVP_PATH = "/pvp";
@@ -30,6 +30,7 @@ export const CLIENT_MESSAGES = [
   "world",
   "enemy_hit",
   "coop_world_action",
+  "pup_claim",
   "pong",
   "leave",
   "rematch",
@@ -48,6 +49,7 @@ export const SERVER_MESSAGES = [
   "world",
   "enemy_hit",
   "coop_world_action",
+  "pup_taken",
   "result",
   "opponent",
   "error",
@@ -72,6 +74,28 @@ export const SENDABLE_WEAPONS = [
   "ghost",
   "artillery",
 ];
+
+/**
+ * Everything that can exist as a loose PUP in the arena.
+ *
+ * Wider than SENDABLE_WEAPONS, which is only the attack payloads a pilot may
+ * transmit. A shared arena has to name the upgrade and recovery pickups too,
+ * because both pilots see and race for those as well. Mirrors `PickupId` in
+ * app/game-data.ts; `tests/shared-arena.test.mjs` asserts they agree.
+ */
+export const PICKUP_IDS = [
+  ...SENDABLE_WEAPONS,
+  "gun",
+  "thrust",
+  "retros",
+  "shield",
+  "clear",
+  "health",
+  "ricochet",
+];
+
+/** Bound on the shared-arena addition to a world snapshot. */
+export const MAX_SHARED_PUPS = 48;
 
 export const SESSION_KINDS = ["pvp", "coop"];
 export const DIFFICULTY_IDS = ["practice", "easy", "difficult", "hard"];
@@ -302,6 +326,14 @@ export function parseClientMessage(raw) {
       }
       return { ok: true, message: { type, seq: parsed.seq, roundId: parsed.roundId, action: parsed.action } };
     }
+    case "pup_claim": {
+      if (!Number.isInteger(parsed.seq) || parsed.seq < 0 || parsed.seq > 1_000_000_000
+        || !Number.isInteger(parsed.roundId) || parsed.roundId < 1
+        || !Number.isInteger(parsed.pupId) || parsed.pupId < 1 || parsed.pupId > 1_000_000_000) {
+        return { ok: false, code: ERRORS.BAD_MESSAGE, detail: "bad pup claim" };
+      }
+      return { ok: true, message: { type, seq: parsed.seq, roundId: parsed.roundId, pupId: parsed.pupId } };
+    }
     case "world": {
       if (!Number.isInteger(parsed.seq) || parsed.seq < 0 || parsed.seq > 1_000_000_000
         || !Number.isInteger(parsed.roundId) || parsed.roundId < 1) {
@@ -359,8 +391,34 @@ export function parseClientMessage(raw) {
           color: bullet.color.slice(0, 32),
         });
       }
+      // The shared-arena half of the snapshot. Optional so a world frame
+      // without them stays valid: solo-shaped hosts and the existing tests
+      // never send either, and an absent list means "none", not "unchanged".
+      const pups = [];
+      if (parsed.pups !== undefined) {
+        if (!Array.isArray(parsed.pups) || parsed.pups.length > MAX_SHARED_PUPS) {
+          return { ok: false, code: ERRORS.BAD_MESSAGE, detail: "bad pup snapshot" };
+        }
+        for (const pup of parsed.pups) {
+          if (!isPlainObject(pup) || !Number.isInteger(pup.pupId) || pup.pupId < 1
+            || !PICKUP_IDS.includes(pup.type)
+            || ![pup.x, pup.y, pup.vx, pup.vy, pup.life, pup.phase].every(isFiniteNumber)) {
+            return { ok: false, code: ERRORS.BAD_MESSAGE, detail: "bad pup snapshot" };
+          }
+          pups.push({
+            pupId: pup.pupId,
+            type: pup.type,
+            x: Math.max(-100, Math.min(1604, pup.x)),
+            y: Math.max(-100, Math.min(1040, pup.y)),
+            vx: Math.max(-25, Math.min(25, pup.vx)),
+            vy: Math.max(-25, Math.min(25, pup.vy)),
+            life: Math.max(0, Math.min(5_000, pup.life)),
+            phase: pup.phase,
+          });
+        }
+      }
       return { ok: true, message: {
-        type, seq: parsed.seq, roundId: parsed.roundId, enemies, enemyBullets,
+        type, seq: parsed.seq, roundId: parsed.roundId, enemies, enemyBullets, pups,
         portalX: Math.max(0, Math.min(1504, parsed.portalX)),
         portalY: Math.max(0, Math.min(940, parsed.portalY)),
         portalAngle: parsed.portalAngle,

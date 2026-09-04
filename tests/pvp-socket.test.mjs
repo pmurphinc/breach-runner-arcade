@@ -257,3 +257,142 @@ test("a malformed frame draws an error, not a crash", async () => {
     await harness.close();
   }
 });
+
+/**
+ * The shared arena, over a real socket.
+ *
+ * Two pilots in one co-op room, one rift, one set of loose PUPs. This is the
+ * part that cannot be proven by reading the source: that the host's PUPs
+ * actually reach the teammate, and that when both fly at the same one exactly
+ * one of them gets it.
+ */
+async function startCoopRoom(harness) {
+  const alpha = connect(harness.url);
+  const bravo = connect(harness.url);
+  await Promise.all([alpha.open(), bravo.open()]);
+  await Promise.all([alpha.waitFor("welcome"), bravo.waitFor("welcome")]);
+
+  alpha.send({ type: "queue", kind: "coop", difficulty: "easy" });
+  bravo.send({ type: "queue", kind: "coop", difficulty: "easy" });
+  const match = await alpha.waitFor("match", (m) => m.opponent);
+  await bravo.waitFor("match", (m) => m.opponent);
+
+  alpha.send({ type: "ready", ready: true });
+  bravo.send({ type: "ready", ready: true });
+  // Activation is the message that carries the round id both sides must quote.
+  const active = await alpha.waitFor("state", (m) => m.phase === "active", 25_000);
+  await bravo.waitFor("state", (m) => m.phase === "active", 25_000);
+
+  // The host is the first player in the room; both clients are told which.
+  const host = match.hostId === match.you.id ? alpha : bravo;
+  const guest = host === alpha ? bravo : alpha;
+  return { alpha, bravo, host, guest, roundId: active.roundId, hostId: match.hostId };
+}
+
+const worldWithPup = (roundId, pup) => ({
+  type: "world",
+  seq: 1,
+  roundId,
+  portalX: 700,
+  portalY: 400,
+  portalAngle: 0,
+  enemies: [],
+  enemyBullets: [],
+  pups: [pup],
+});
+
+test("the teammate sees the same loose PUP the host shed", async () => {
+  const harness = await startHarness();
+  try {
+    const { host, guest, roundId } = await startCoopRoom(harness);
+    host.send(worldWithPup(roundId, {
+      pupId: 11, type: "nuke", x: 700, y: 400, vx: 1, vy: 0, life: 800, phase: 0,
+    }));
+
+    const world = await guest.waitFor("world");
+    assert.equal(world.pups.length, 1, "the arena is only shared if the PUPs are");
+    assert.equal(world.pups[0].pupId, 11);
+    assert.equal(world.pups[0].type, "nuke");
+    assert.equal(world.pups[0].x, 700);
+    host.close();
+    guest.close();
+  } finally {
+    await harness.close();
+  }
+});
+
+test("both pilots race for one PUP and exactly one gets it", async () => {
+  const harness = await startHarness();
+  try {
+    const { host, guest, roundId } = await startCoopRoom(harness);
+    host.send(worldWithPup(roundId, {
+      pupId: 21, type: "beam", x: 700, y: 400, vx: 0, vy: 0, life: 800, phase: 0,
+    }));
+    await guest.waitFor("world");
+
+    // Both pilots fly onto it and both report touching it.
+    host.send({ type: "position", seq: 1, sentAt: 1, x: 700, y: 400, angle: 0 });
+    guest.send({ type: "position", seq: 1, sentAt: 1, x: 700, y: 400, angle: 0 });
+    host.send({ type: "pup_claim", seq: 1, roundId, pupId: 21 });
+    guest.send({ type: "pup_claim", seq: 1, roundId, pupId: 21 });
+
+    const hostVerdict = await host.waitFor("pup_taken", (m) => m.pupId === 21 && m.by !== null);
+    const guestVerdict = await guest.waitFor("pup_taken", (m) => m.pupId === 21 && m.by !== null);
+
+    // One winner, and both pilots are told the same thing — the loser has to
+    // clear the PUP from its arena rather than keep flying at a ghost.
+    assert.equal(hostVerdict.by, guestVerdict.by, "both pilots must agree who won");
+    assert.ok(hostVerdict.by, "somebody has to win the race");
+    host.close();
+    guest.close();
+  } finally {
+    await harness.close();
+  }
+});
+
+test("a PUP claimed from across the arena is refused and handed back", async () => {
+  const harness = await startHarness();
+  try {
+    const { host, guest, roundId } = await startCoopRoom(harness);
+    host.send(worldWithPup(roundId, {
+      pupId: 31, type: "nuke", x: 1400, y: 900, vx: 0, vy: 0, life: 800, phase: 0,
+    }));
+    await guest.waitFor("world");
+
+    guest.send({ type: "position", seq: 1, sentAt: 1, x: 40, y: 40, angle: 0 });
+    guest.send({ type: "pup_claim", seq: 1, roundId, pupId: 31 });
+
+    // Released rather than awarded: `by: null` puts it straight back on the
+    // claimant's screen instead of hiding it for the whole claim timeout.
+    const verdict = await guest.waitFor("pup_taken", (m) => m.pupId === 31);
+    assert.equal(verdict.by, null, "a claim from across the arena wins nothing");
+    host.close();
+    guest.close();
+  } finally {
+    await harness.close();
+  }
+});
+
+test("a 1v1 pilot cannot claim a PUP, because they are alone in their arena", async () => {
+  const harness = await startHarness();
+  try {
+    const alpha = connect(harness.url);
+    const bravo = connect(harness.url);
+    await Promise.all([alpha.open(), bravo.open()]);
+    await Promise.all([alpha.waitFor("welcome"), bravo.waitFor("welcome")]);
+    alpha.send({ type: "queue" });
+    bravo.send({ type: "queue" });
+    await alpha.waitFor("match", (m) => m.opponent);
+    alpha.send({ type: "ready", ready: true });
+    bravo.send({ type: "ready", ready: true });
+    await alpha.waitFor("state", (m) => m.phase === "active", 25_000);
+
+    alpha.send({ type: "pup_claim", seq: 1, roundId: 1, pupId: 1 });
+    const error = await alpha.waitFor("error");
+    assert.equal(error.code, "not_in_match", "1v1 arenas are never shared");
+    alpha.close();
+    bravo.close();
+  } finally {
+    await harness.close();
+  }
+});

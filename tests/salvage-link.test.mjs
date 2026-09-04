@@ -18,7 +18,10 @@ test("gameplay uses one pickup resolver and consumes a linked round after its fi
   const game = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
   assert.match(game, /type PickupCollectionSource = "physical" \| "salvage-link"/);
   assert.match(game, /const collected = resolvePlayerPickup\(game, pickup, "salvage-link"\);[\s\S]{0,220}bullet\.life = 0/);
-  assert.match(game, /if \(pupCollected\(pickup, player\)\) \{\s*resolvePlayerPickup\(game, pickup, "physical"\);/);
+  // Physical contact still resolves through the one resolver and nothing else.
+  // A shared arena routes the same contact through a server-refereed claim
+  // first, and lands back here on a win — see tests/shared-arena.test.mjs.
+  assert.match(game, /if \(!pupCollected\(pickup, player\)\) return;\s*if \(!sharedArena\) \{\s*resolvePlayerPickup\(game, pickup, "physical"\);/);
   assert.match(game, /reportInventory\("collect", type\)/);
   assert.doesNotMatch(game, /reportInventory\("collect", type,\s*game\.stock\.length/);
 });

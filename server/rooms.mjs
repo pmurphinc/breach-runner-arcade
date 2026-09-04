@@ -29,6 +29,13 @@ import {
 } from "./protocol.mjs";
 import { applyDamage, createCombatState, snapshot } from "./rules.mjs";
 import { PUP_INVENTORY_CAPACITY } from "../app/pup-inventory.js";
+import {
+  claimPup,
+  createPupLedger,
+  isSharedArenaKind,
+  resetPupLedger,
+  trackPupPositions,
+} from "../app/shared-arena.js";
 
 /** Hull by ship, mirroring app/game-data.ts. Asserted by the protocol test. */
 export const SHIP_HULL = {
@@ -83,6 +90,7 @@ export function createPlayer(send, { now = Date.now(), random = Math.random } = 
     lastTransmitSeq: -1,
     lastEnemyHitSeq: -1,
     lastWorldActionSeq: -1,
+    lastPupClaimSeq: -1,
     position: { seq: -1, sentAt: 0, x: 752, y: 470, angle: 270 },
     window: createRateWindow(),
   };
@@ -229,6 +237,9 @@ export class MatchServer {
       transmitSeq: 0,
       worldSeq: -1,
       lastWorldAt: 0,
+      // Who took which loose PUP. Shared-arena kinds only; a 1v1 room keeps
+      // its own arena and never consults it.
+      pupLedger: createPupLedger(),
       rematchVotes: new Set(),
       rematchExpiresAt: 0,
       lastResult: null,
@@ -279,6 +290,9 @@ export class MatchServer {
       transmitSeq: 0,
       worldSeq: -1,
       lastWorldAt: 0,
+      // Who took which loose PUP. Shared-arena kinds only; a 1v1 room keeps
+      // its own arena and never consults it.
+      pupLedger: createPupLedger(),
       rematchVotes: new Set(),
       rematchExpiresAt: 0,
       lastResult: null,
@@ -373,8 +387,12 @@ export class MatchServer {
       player.lastTransmitSeq = -1;
       player.lastEnemyHitSeq = -1;
       player.lastWorldActionSeq = -1;
+      player.lastPupClaimSeq = -1;
       player.position.seq = -1;
     }
+    // Last round's race results must not decide this round's PUPs. Ids restart
+    // from one on a fresh host, so a stale ledger would refuse every claim.
+    resetPupLedger(room.pupLedger);
     this.broadcast(room, { type: "state", phase: "active", serverNow: now, roundId: room.roundId });
     this.broadcastState(room, now);
   }
@@ -487,7 +505,7 @@ export class MatchServer {
 
   updatePosition(player, position, now = Date.now()) {
     const room = player.room;
-    if (!room || room.kind !== "coop" || room.phase !== PHASES.ACTIVE) return { ok: false, code: ERRORS.NOT_IN_MATCH };
+    if (!room || !isSharedArenaKind(room.kind) || room.phase !== PHASES.ACTIVE) return { ok: false, code: ERRORS.NOT_IN_MATCH };
     if (position.seq <= player.position.seq) return { ok: true, ignored: true };
     player.position = { seq: position.seq, sentAt: position.sentAt, x: position.x, y: position.y, angle: position.angle };
     room.touchedAt = now;
@@ -499,7 +517,7 @@ export class MatchServer {
 
   updateWorld(player, world, now = Date.now()) {
     const room = player.room;
-    if (!room || room.kind !== "coop" || room.phase !== PHASES.ACTIVE) {
+    if (!room || !isSharedArenaKind(room.kind) || room.phase !== PHASES.ACTIVE) {
       return { ok: false, code: ERRORS.NOT_IN_MATCH };
     }
     if (room.players[0]?.id !== player.id) return { ok: false, code: ERRORS.WRONG_PHASE };
@@ -509,13 +527,16 @@ export class MatchServer {
     room.worldSeq = world.seq;
     room.lastWorldAt = now;
     room.touchedAt = now;
+    // The host's snapshot is the only thing that brings a PUP into existence,
+    // so it is also the only thing that tells the referee where they are.
+    trackPupPositions(room.pupLedger, world.pups ?? []);
     this.sendTo(this.opponentOf(room, player), { type: "world", ...world, hostId: player.id });
     return { ok: true };
   }
 
   reportEnemyHit(player, hit, now = Date.now()) {
     const room = player.room;
-    if (!room || room.kind !== "coop" || room.phase !== PHASES.ACTIVE) return { ok: false, code: ERRORS.NOT_IN_MATCH };
+    if (!room || !isSharedArenaKind(room.kind) || room.phase !== PHASES.ACTIVE) return { ok: false, code: ERRORS.NOT_IN_MATCH };
     if (hit.roundId !== room.roundId || hit.seq <= player.lastEnemyHitSeq) return { ok: true, ignored: true };
     rollWindow(player.window, now);
     if (player.window.enemyHits >= MAX_ENEMY_HITS_PER_WINDOW) return { ok: false, code: ERRORS.RATE_LIMITED };
@@ -529,12 +550,50 @@ export class MatchServer {
 
   reportWorldAction(player, action) {
     const room = player.room;
-    if (!room || room.kind !== "coop" || room.phase !== PHASES.ACTIVE) return { ok: false, code: ERRORS.NOT_IN_MATCH };
+    if (!room || !isSharedArenaKind(room.kind) || room.phase !== PHASES.ACTIVE) return { ok: false, code: ERRORS.NOT_IN_MATCH };
     if (action.roundId !== room.roundId || action.seq <= player.lastWorldActionSeq) return { ok: true, ignored: true };
     player.lastWorldActionSeq = action.seq;
     const host = room.players[0];
     if (player !== host) this.sendTo(host, { type: "coop_world_action", ...action, from: player.id });
     return { ok: true };
+  }
+
+  /**
+   * The race for a loose PUP, settled in one place for both pilots.
+   *
+   * Either pilot may claim any PUP the host has published — this is the part
+   * the owner asked for, where both pilots see the same power-up and fight to
+   * collect it. First claim to reach the server wins and both are told the
+   * outcome, so the loser's arena removes it rather than quietly keeping a PUP
+   * that no longer exists on the other screen.
+   *
+   * Worth saying plainly: the host still has a real edge here, because it reads
+   * PUP positions with no delay while the teammate sees them on an
+   * interpolation delay. Refereeing centrally removes the *disagreement*, not
+   * that advantage.
+   */
+  claimSharedPup(player, { seq, roundId, pupId }, now = Date.now()) {
+    const room = player.room;
+    if (!room || !isSharedArenaKind(room.kind) || room.phase !== PHASES.ACTIVE) {
+      return { ok: false, code: ERRORS.NOT_IN_MATCH };
+    }
+    if (roundId !== room.roundId || seq <= player.lastPupClaimSeq) return { ok: true, ignored: true };
+    player.lastPupClaimSeq = seq;
+
+    const outcome = claimPup(room.pupLedger, pupId, player.id, player.position, now);
+    if (!outcome.winner) {
+      // Refused — most often a PUP the host has shed but not yet published.
+      // Tell the claimant so their arena hands it straight back instead of
+      // hiding it for the full claim timeout.
+      this.sendTo(player, { type: "pup_taken", pupId, by: null, roundId: room.roundId });
+      return { ok: false, reason: outcome.reason };
+    }
+
+    room.touchedAt = now;
+    // Both pilots hear every decision, including the one who lost. A claim that
+    // only reached its winner would leave the loser's arena holding a ghost.
+    this.broadcast(room, { type: "pup_taken", pupId, by: outcome.winner, roundId: room.roundId });
+    return { ok: true, winner: outcome.winner };
   }
 
   finishCoop(room, outcome, reason, now = Date.now(), eliminated = null, cause = "unknown", finalDamage = 0, finisher = null) {

@@ -273,6 +273,13 @@ function handle(matches, player, message, now, send) {
       if (!result.ok) send({ type: "error", code: result.code });
       return;
     }
+    case "pup_claim": {
+      // Losing a race is an ordinary outcome, not a protocol error: the
+      // referee's broadcast already told this client what happened.
+      const result = matches.claimSharedPup(player, message, now);
+      if (!result.ok && result.code) send({ type: "error", code: result.code });
+      return;
+    }
     case "rematch": {
       const result = matches.requestRematch(player, now, message.ship);
       if (!result.ok) send({ type: "error", code: result.code });
