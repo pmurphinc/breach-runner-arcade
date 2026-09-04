@@ -306,8 +306,10 @@ test("a claim is validated before any room logic sees it", () => {
 });
 
 test("the room relays PUPs and resets the ledger between rounds", () => {
-  assert.ok(rooms.includes("trackPupPositions(room.pupLedger, world.pups ?? [])"));
-  assert.ok(rooms.includes("resetPupLedger(room.pupLedger)"));
+  // One ledger per team, because a 2v2 room runs two arenas: the referee that
+  // settles one team's race must never see, or answer for, the other team's.
+  assert.ok(rooms.includes("trackPupPositions(this.pupLedgerFor(room, player), world.pups ?? [])"));
+  assert.ok(rooms.includes("for (const ledger of room.pupLedgers) resetPupLedger(ledger)"));
   // The gates that used to name co-op explicitly are the seam 2v2 slots into.
   assert.equal(rooms.includes('room.kind !== "coop"'), false, "shared-arena gates must not be co-op-only");
   assert.ok(rooms.includes("isSharedArenaKind(room.kind)"));
