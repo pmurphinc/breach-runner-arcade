@@ -125,7 +125,6 @@ import {
   canDamagePilot,
   createPupClaimTracker,
   expirePupClaims,
-  isPupClaimPending,
   isSharedArenaKind,
   pupIdentity,
   resetPupClaims,
