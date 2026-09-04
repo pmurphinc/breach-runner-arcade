@@ -54,13 +54,16 @@ export const RIFT_PUP_LIFE_TICKS = 900;
  * otherwise routinely shoot it back out of existence in the same breath, which
  * reads to the pilot as the drop never having happened.
  *
- * A full second at the 15ms tick. Twenty ticks -- a third of a second -- was
- * not enough: a pilot already firing at the rift when it bloomed destroyed the
- * drop before it had cleared the rift's own radius. A second is long enough to
- * stop firing and see what arrived, and still ends well before the PUP can be
- * flown to.
+ * About two seconds at the 15ms tick.
+ *
+ * Twenty ticks -- a third of a second -- let a pilot already firing at the rift
+ * destroy the drop before it had cleared the rift's own radius. A full second
+ * fixed that but still read as short in play: a drop ejected into a firefight
+ * lapsed while the pilot was still turning towards it. Two seconds covers the
+ * turn and the approach, and still ends before a PUP that has drifted clear can
+ * be reached, so shooting a settled power-up stays a real choice.
  */
-export const RIFT_PUP_GRACE_TICKS = 67;
+export const RIFT_PUP_GRACE_TICKS = 130;
 
 /** Speed range an ejected power-up leaves the rift at. */
 // Fast enough to be past the cannon's line of fire before it can hit them

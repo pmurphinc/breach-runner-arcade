@@ -165,10 +165,10 @@ test("an ejected power-up expires on a timer and is briefly indestructible", () 
   // A full second at the 15ms tick. Twenty ticks was a third of a second:
   // a pilot already firing at the rift when it bloomed destroyed the drop
   // before it had cleared the rift, which read as the drop never happening.
-  assert.equal(RIFT_PUP_GRACE_TICKS, 67);
+  assert.equal(RIFT_PUP_GRACE_TICKS, 130);
   assert.equal(riftPupIsShootable({ life: RIFT_PUP_LIFE_TICKS }), false, "untouchable on spawn");
-  assert.equal(riftPupIsShootable({ life: RIFT_PUP_LIFE_TICKS - 66 }), false, "still inside the grace");
-  assert.equal(riftPupIsShootable({ life: RIFT_PUP_LIFE_TICKS - 67 }), true, "shootable once the grace ends");
+  assert.equal(riftPupIsShootable({ life: RIFT_PUP_LIFE_TICKS - 129 }), false, "still inside the grace");
+  assert.equal(riftPupIsShootable({ life: RIFT_PUP_LIFE_TICKS - 130 }), true, "shootable once the grace ends");
   assert.equal(riftPupIsShootable({ life: 0 }), false, "an expired power-up is gone");
 });
 

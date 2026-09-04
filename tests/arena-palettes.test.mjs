@@ -70,6 +70,9 @@ test("accents are distinct, so three dark cards are tellable apart", () => {
 
 test("the card paints from the properties, and falls back without them", () => {
   assert.match(css, /--card-near, #051119/, "a card rendered without properties still has a background");
+  // Each stop is lifted towards the accent: the arena palettes are almost
+  // black by design and read as three grey panels on a card if used raw.
+  assert.ok(css.includes("color-mix(in srgb, var(--card-accent, var(--cyan)) 30%, var(--card-near, #051119))"));
   assert.match(css, /--card-accent, var\(--cyan\)/, "and still has an accent");
   // The selected card glows in its own colour rather than one shared cyan.
   assert.ok(css.includes("border-color: var(--card-accent, var(--cyan));"));
