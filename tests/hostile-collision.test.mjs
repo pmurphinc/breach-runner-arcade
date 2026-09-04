@@ -41,7 +41,10 @@ test("loose power-ups are shootable, but only after a spawn grace", () => {
   assert.match(game, /const PUP_LIFE_TICKS = RIFT_PUP_LIFE_TICKS;/);
   // A full second at the 15ms tick. A third of a second let a pilot already
   // firing at the rift destroy the drop before it had cleared the rift.
-  assert.equal(RIFT_PUP_GRACE_TICKS, 67);
+  // About two seconds at the 15ms tick. A full second still read as short:
+  // a drop ejected into a firefight lapsed while the pilot was still turning
+  // towards it. Two covers the turn and the approach.
+  assert.equal(RIFT_PUP_GRACE_TICKS, 130);
   assert.equal(RIFT_PUP_LIFE_TICKS, 900);
   // Shootability is now the inverse of one named guard, so every hazard can ask
   // the same question — see the spawn-shield test below.
