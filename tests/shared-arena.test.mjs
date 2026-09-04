@@ -326,8 +326,12 @@ test("touching a PUP in a shared arena claims it rather than collecting it", () 
 });
 
 test("solo and 1v1 collection is untouched", () => {
-  assert.ok(
-    source.includes("if (!sharedArena) {\n          resolvePlayerPickup(game, pickup, \"physical\");"),
+  // Matched with \s* rather than a literal newline: this repo is checked out
+  // CRLF on Windows and LF in CI, and a lone pilot's pickup path should not
+  // depend on which.
+  assert.match(
+    source,
+    /if \(!sharedArena\) \{\s*resolvePlayerPickup\(game, pickup, "physical"\);/,
     "a lone pilot still collects a PUP by flying over it",
   );
 });
