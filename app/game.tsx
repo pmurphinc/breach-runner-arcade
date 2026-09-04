@@ -3442,14 +3442,6 @@ export default function WormholeGame() {
   }, [mode, start]);
 
   /**
-   * Play opens the mode question, not the ship question.
-   *
-   * Menu -> Mode -> Lobby -> Ship/Ready. Ship choice belongs to the round's
-   * lobby now, so the only thing Play has to establish is what is being
-   * played; Rift Run's lobby then asks nothing about ships at all.
-   */
-  const beginPlayFlow = useCallback(() => setMenu(resetRoute("modes")), []);
-  /**
    * Confirm on the Ships screen returns where it was opened from.
    *
    * Ships is a browsing surface reached from Home (and from "end run and
@@ -8935,7 +8927,7 @@ export default function WormholeGame() {
           ship={shipId}
           renderShip={renderShip}
           running={launched && gameActive}
-          onLaunch={beginPlayFlow}
+          onLaunch={launchFromMenu}
           go={go}
           openSettings={openSettings}
           back={back}

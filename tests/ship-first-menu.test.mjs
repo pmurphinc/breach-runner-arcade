@@ -28,9 +28,26 @@ const routes = readFileSync(new URL("../app/menu-routes.ts", import.meta.url), "
 
 const screen = (name, next) => menu.slice(menu.indexOf(`export function ${name}`), menu.indexOf(`export function ${next}`));
 
-test("a session opens on Home, and Play asks what to play rather than what to fly", () => {
+/**
+ * A session opens on Home, and Play launches from it.
+ *
+ * Play used to open the mode picker, which meant Home displayed your mode,
+ * difficulty and ship and then Play asked you to choose a mode. A player put it
+ * exactly right: "it looks like you are meant to choose game options before
+ * pressing Play, but pressing Play shows you game options anyway." Home already
+ * carries the whole launch decision and every row on it opens the screen that
+ * changes it, so there is nothing left for a second pass to ask.
+ *
+ * A network mode still goes to its lobby — there it is waiting on other people,
+ * not re-asking questions Home already answered.
+ */
+test("a session opens on Home, and Play launches what Home is showing", () => {
   assert.match(routes, /INITIAL_STACK: MenuStack = \["home"\]/);
-  assert.match(game, /const beginPlayFlow = useCallback\(\(\) => setMenu\(resetRoute\("modes"\)\), \[\]\)/);
+  assert.ok(game.includes("onLaunch={launchFromMenu}"), "Home's Play is the launch");
+  assert.ok(!game.includes("const beginPlayFlow"), "the detour through the mode picker is gone");
+  // And the launch it calls is the one that already knew the difference.
+  assert.ok(game.includes("if (isOfflineMode(mode)) { start(); return; }"), "solo starts the run");
+  assert.ok(game.includes('setMenu(resetRoute("lobby"));'), "a network mode still waits in its lobby");
 });
 
 test("Ships is a browsing surface: confirming returns where it was opened from", () => {
