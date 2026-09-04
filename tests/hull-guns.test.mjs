@@ -211,7 +211,14 @@ test("the muzzle flash is what the quality scalar drops, never the gun", () => {
   assert.ok(!low.calls.some(([name, style]) => name === "fill" && style === HULL_GUN_PROFILES["pulse-cannon"].flash));
   const painted = full.calls.filter(([name]) => name === "fill" || name === "stroke");
   assert.ok(painted.every(([, , alpha]) => alpha >= 0 && alpha <= 1), "alpha stays legal");
-  assert.equal(painted.at(-1)[2], 1, "and the gun hands the canvas back fully opaque");
+  // The invariant is the state the canvas is handed back in, not the alpha of
+  // the last thing painted — the muzzle flash is legitimately the final mark and
+  // is legitimately translucent. Checked as state because the recording context
+  // does not model save/restore, so a gun that leaked a translucent alpha into
+  // whatever draws next would otherwise go unnoticed here.
+  for (const ctx of [full, low, bare]) {
+    assert.equal(ctx.globalAlpha, 1, "the gun hands the canvas back fully opaque");
+  }
 });
 
 test("rounds leave the barrel that is drawn", () => {
