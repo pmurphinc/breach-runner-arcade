@@ -303,6 +303,7 @@ import {
   type BackdropStar,
   type StarfieldBudget,
 } from "./starfield";
+import { TRACKER_LAUNCH_JITTER, steerTracker, trackerSpeed } from "./trackers";
 import {
   RAILGUN_FIRE_CUE,
   RAILGUN_IMPACT_CUE,
@@ -1188,40 +1189,6 @@ function bloomRadiusForHp(hp: number) {
 }
 
 /**
- * How a tracker swarm flies.
- *
- * Twelve trackers launched at one speed with one turn rate all converge on the
- * same heading within a few ticks and arrive as a single thick bullet -- there
- * is nothing to dodge, only something to absorb. The reference swarm fans out
- * and closes from several angles at once.
- *
- * Three changes produce that. They fly slower, so there is time to react. Each
- * one flies straight for a moment before it starts hunting, which spreads the
- * swarm across an arc first. And each gets its own turn rate, so even once
- * hunting they curve at different rates and stay spread instead of collapsing
- * onto one line.
- */
-const TRACKER_SPEED = 5;
-/** Ticks a tracker flies straight before it begins hunting. */
-const TRACKER_SCATTER_TICKS = 26;
-/** Per-tracker turn rate, in degrees per tick. Was a flat 16 for all of them. */
-const TRACKER_TURN_MIN_DEG = 5;
-const TRACKER_TURN_MAX_DEG = 10;
-/** Extra launch spread for a swarm, on top of its even distribution. */
-const TRACKER_LAUNCH_JITTER = 0.42;
-
-/**
- * A stable 0..1 for one tracker, derived from its launch angle.
- *
- * Deterministic rather than random so a tracker's turn rate is fixed for its
- * whole life: re-rolling each tick would average out to the old uniform swarm.
- */
-function trackerTurnRate(phase: number) {
-  const spread = (Math.sin(phase * 12.9898) + 1) / 2;
-  return (TRACKER_TURN_MIN_DEG + spread * (TRACKER_TURN_MAX_DEG - TRACKER_TURN_MIN_DEG)) * DEG;
-}
-
-/**
  * A launch velocity for a dropped power-up.
  *
  * An angle and a speed, not an independent vx and vy. Rolling the two axes
@@ -1240,7 +1207,9 @@ function makeEnemy(kind: PowerId, x: number, y: number, index: number, count: nu
   const stats = ENEMY_STATS[kind];
   const jitter = kind === "heatseeker" ? TRACKER_LAUNCH_JITTER : 0.18;
   const angle = (index / Math.max(1, count)) * Math.PI * 2 + range(-jitter, jitter);
-  let speed = kind === "mines" ? 6 : kind === "heatseeker" ? TRACKER_SPEED : range(0.8, 2.8);
+  // A tracker's speed is its own, derived from its launch angle, so a swarm
+  // strings out in time instead of arriving as one wall.
+  let speed = kind === "mines" ? 6 : kind === "heatseeker" ? trackerSpeed(angle) : range(0.8, 2.8);
   if (kind === "turret" || kind === "beam" || kind === "emp" || kind === "nuke") speed = 0;
   return {
     enemyId: 0,
@@ -5081,24 +5050,13 @@ export default function WormholeGame() {
       const d = Math.max(1, Math.hypot(dx, dy));
 
       if (enemy.kind === "heatseeker") {
-        // Straight first, so the swarm fans out across an arc before any of it
-        // turns toward the pilot. See TRACKER_SCATTER_TICKS.
-        if (enemy.age < TRACKER_SCATTER_TICKS) {
-          const heading = Math.atan2(enemy.vy, enemy.vx);
-          enemy.vx = Math.cos(heading) * TRACKER_SPEED;
-          enemy.vy = Math.sin(heading) * TRACKER_SPEED;
-        } else {
-          const desired = Math.atan2(dy, dx);
-          const current = Math.atan2(enemy.vy, enemy.vx);
-          let delta = desired - current;
-          while (delta > Math.PI) delta -= Math.PI * 2;
-          while (delta < -Math.PI) delta += Math.PI * 2;
-          // Each tracker's own rate, not one shared rate for the swarm.
-          const turn = trackerTurnRate(enemy.phase);
-          const angle = current + cap(delta, -turn, turn);
-          enemy.vx = Math.cos(angle) * TRACKER_SPEED;
-          enemy.vy = Math.sin(angle) * TRACKER_SPEED;
-        }
+        // The whole flight model lives in app/trackers.ts: its own speed, its
+        // own turn rate, and — the part that actually breaks the V — its own
+        // aim point offset from the pilot, so each tracker takes its own route
+        // and the swarm converges only at the end.
+        const steered = steerTracker(enemy, enemy.x + dx, enemy.y + dy);
+        enemy.vx = steered.vx;
+        enemy.vy = steered.vy;
       } else if (enemy.kind === "ufo") {
         enemy.vx += (dx / d) * 0.2;
         enemy.vy += (dy / d) * 0.2;
