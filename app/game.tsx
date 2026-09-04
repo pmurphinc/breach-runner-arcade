@@ -27,7 +27,7 @@ import {
   type WeaponMeta,
 } from "./game-data";
 import { DIRECTIONAL, drawPowerProjectile, drawWeaponGlyph } from "./weapon-art";
-import { drawShipModel, preloadShipModels, SHIP_MODEL_ASSETS, shipForwardVelocity, shipMuzzleWorldPoint, shipThrusterWorldPoints } from "./ship-models";
+import { drawShipModel, preloadShipModels, SHIP_MODEL_ASSETS, shipForwardVelocity, shipHardpointOffset, shipHardpointResolver, shipMuzzleWorldPoint, shipThrusterWorldPoints } from "./ship-models";
 import { unlockGameAudio } from "./game-audio";
 import { playerBeamMuzzle } from "./player-beam";
 import {
@@ -116,6 +116,7 @@ import { RIFT_WEAPON_BY_ID, RIFT_WEAPONS } from "./rift-run/weapons";
 import { createWeaponRuntime, tickWeaponRuntime, type WeaponRuntime } from "./rift-run/weapon-runtime";
 import { createRunAgainRiftRun, replayForCompletedRun, type RunReplay } from "./run-replay";
 import { processHardpointFire } from "./rift-run/weapon-fire";
+import { drawHullGun, hullGunFxFor, kickHullGun, pruneHullGunFx, tickHullGunFx, type HullGunFx } from "./rift-run/hull-gun-art";
 import { admitsProjectile, applyScorched, detonateMissile, evolutionRadialHit, penetrate, projectileFromShot, SCORCHED_DAMAGE, steerMissile, targetsInFlameCone, tickScorched, type EntityId, type RiftProjectile, type ScorchedState } from "./rift-run/weapon-projectiles";
 import { clearInactiveFlameFx, flameDisplayTransform, refreshFlameFx, type RiftFlameFx } from "./rift-run/flame-fx";
 import { awardRiftEnergy, enemyKillEnergy, riftDamaged, riftEnergyRequiredForLevel } from "./rift-run/progression";
@@ -746,6 +747,8 @@ type Game = {
   /** Rift-only entities stay out of standard cannon and its global shot budget. */
   riftProjectiles: RiftProjectile[];
   riftFlames: RiftFlameFx[];
+  /** Recoil/muzzle-flash state for the hull guns, one record per occupied socket. */
+  riftGunFx: HullGunFx[];
   /** Inferno-only damage-over-time state, keyed by stable enemy identity. */
   riftScorched: Map<EntityId, ScorchedState>;
   /** Rift Run-only invulnerability/reform countdown; zero in standard modes. */
@@ -990,6 +993,7 @@ function createGame(
     bullets: [],
     riftProjectiles: [],
     riftFlames: [],
+    riftGunFx: [],
     riftScorched: new Map(),
     riftReformTicks: 0,
     pickups: [],
@@ -5626,8 +5630,19 @@ export default function WormholeGame() {
           }
         }
         tickWeaponRuntime(riftWeaponRuntime.current);
-        const mountedShots = processHardpointFire(activeRiftRun.hardpoints, riftWeaponRuntime.current, Boolean(fire), shipMuzzleWorldPoint(game.ship.id, player, player.angle * DEG, 1.15), player.angle * DEG);
+        // Hull-gun recoil settles on the simulation tick and is kicked from the
+        // shot loop below rather than from a cadence guess, so the animation
+        // cannot drift out of step with the rounds that caused it.
+        tickHullGunFx(game.riftGunFx);
+        pruneHullGunFx(game.riftGunFx, new Set(activeRiftRun.hardpoints.map((socket) => socket.index)));
+        // Rounds leave the barrel that is drawn: the origin is the hull centre
+        // plus this ship's own authored mount, not a generic offset from the
+        // nose. Frames without authored mounts still fall back to the old
+        // logical layout inside `mountOrigin`.
+        const hullMounts = shipHardpointResolver(game.ship.id, 1.15);
+        const mountedShots = processHardpointFire(activeRiftRun.hardpoints, riftWeaponRuntime.current, Boolean(fire), player, player.angle * DEG, hullMounts);
         for (const mounted of mountedShots) {
+          kickHullGun(game.riftGunFx, mounted.hardpointIndex, mounted.weaponId as RiftWeaponId);
           if (mounted.kind === "flame") {
             refreshFlameFx(game.riftFlames, mounted, activeRiftRun.hardpoints.length, player.angle * DEG);
             const targets = game.enemies.filter((enemy) => enemy.hp > 0 && enemy.kind !== "ghost").map((enemy) => ({ id: enemyIdentity(game, enemy), x: enemy.x, y: enemy.y }));
@@ -7094,7 +7109,7 @@ export default function WormholeGame() {
         ctx.restore();
       }
       for (const flame of game.riftFlames) {
-        const display = flameDisplayTransform(flame, shipMuzzleWorldPoint(game.ship.id, player, player.angle * DEG, 1.15), player.angle * DEG);
+        const display = flameDisplayTransform(flame, player, player.angle * DEG, shipHardpointResolver(game.ship.id, 1.15));
         ctx.save(); ctx.translate(display.origin.x, display.origin.y); ctx.rotate(display.angle);
         const width = flame.range * Math.tan(flame.coneDegrees * Math.PI / 360);
         const gradient = ctx.createLinearGradient(0,0,flame.range,0); gradient.addColorStop(0,"rgba(255,245,135,.78)"); gradient.addColorStop(.45,"rgba(255,126,42,.48)"); gradient.addColorStop(1,"rgba(255,56,25,0)");
@@ -7180,6 +7195,24 @@ export default function WormholeGame() {
         if (profile.shadows) { ctx.shadowColor = "#62eaff"; ctx.shadowBlur = 10; }
         ctx.lineWidth = 2;
         drawShipModel(ctx, game.ship.id, 1.15);
+        // Hull guns are bolted on over the model, in the same transform, so
+        // they turn with the ship for free. An unlocked-but-empty socket still
+        // draws its mount: the pilot can see the hole a gun goes into, which is
+        // what makes earning the gun legible.
+        const hullGunRun = riftRunRef.current;
+        if (hullGunRun) {
+          ctx.save();
+          ctx.shadowBlur = 0;
+          for (const socket of hullGunRun.hardpoints) {
+            if (socket.status === "locked") continue;
+            const mount = shipHardpointOffset(game.ship.id, socket.index, 1.15);
+            if (!mount) continue;
+            const occupied = socket.status === "occupied";
+            drawHullGun(ctx, mount, occupied ? socket.weapon.weaponId : null,
+              occupied && !quiet ? hullGunFxFor(game.riftGunFx, socket.index) : null, detail);
+          }
+          ctx.restore();
+        }
         if (player.salvageLink > 0) {
           ctx.strokeStyle = "#75ffd0";
           ctx.globalAlpha = 0.42 + Math.sin(time * 0.012) * 0.18;
