@@ -43,14 +43,21 @@ test("saved Arcade Identity initials are sent as the preferred PvP name", () => 
   assert.deepEqual(hello, { type: "hello", name: "MUR" });
 });
 
-test("PvP and co-op share the same persisted identity resolution", () => {
+test("every network mode shares the same persisted identity resolution", () => {
   const pvp = helloFrom("pvp", "abc").hello;
   const coop = helloFrom("coop", "abc").hello;
+  const team = helloFrom("team", "abc").hello;
   assert.equal(pvp.name, "ABC");
   assert.equal(coop.name, pvp.name);
+  assert.equal(team.name, pvp.name, "a 2v2 pilot is the same pilot");
 
+  // The room kind is the mode: the server already knows "coop" and "team", so
+  // only genuinely-unknown modes fall back to a duel.
   const game = fs.readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
-  assert.match(game, /new PvpClient\(mode === "coop" \? "coop" : "pvp", difficulty\)[\s\S]*client\.connect\(resolveMultiplayerName\(settings\.playerInitials\)\)/);
+  assert.ok(game.includes('new PvpClient(mode === "coop" || mode === "team" ? mode : "pvp", difficulty)'));
+  const client = game.indexOf("new PvpClient(");
+  const connect = game.indexOf("client.connect(resolveMultiplayerName(settings.playerInitials))", client);
+  assert.ok(client > 0 && connect > client, "and one name resolution feeds all of them");
 });
 
 test("missing or invalid initials omit the name so the server keeps its guest fallback", () => {
