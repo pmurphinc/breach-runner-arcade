@@ -199,6 +199,7 @@ import {
   PUP_SPIN,
   advancePup,
   drawLooseArenaPup,
+  drawPupSpawnShield,
   drawPupFrame,
   pupFrameColor,
   pupCollected,
@@ -1158,7 +1159,26 @@ const PUP_LIFE_TICKS = RIFT_PUP_LIFE_TICKS;
 
 /** A loose power-up can be shot once its spawn grace has elapsed. */
 function pupIsShootable(pickup: Pickup) {
-  return pickup.life > 0 && pickup.life <= PUP_LIFE_TICKS - PUP_SHOOT_GRACE_TICKS;
+  return pickup.life > 0 && !pupIsProtected(pickup);
+}
+
+/**
+ * Whether a power-up is still inside its spawn shield.
+ *
+ * Every way a loose power-up can be destroyed has to ask this, not just cannon
+ * fire. It first guarded only the bullet path, which left a screen clear, a
+ * scavenger and the rift's beam all able to take a drop the instant it
+ * appeared -- so the protection read as not existing at all. A shield that
+ * three out of four hazards ignore is not a shield.
+ */
+function pupIsProtected(pickup: Pickup) {
+  return pickup.life > PUP_LIFE_TICKS - PUP_SHOOT_GRACE_TICKS;
+}
+
+/** 0 at the moment of spawn, 1 as the shield lapses. Drives the visual. */
+function pupShieldProgress(pickup: Pickup) {
+  const elapsed = PUP_LIFE_TICKS - pickup.life;
+  return Math.max(0, Math.min(1, elapsed / PUP_SHOOT_GRACE_TICKS));
 }
 
 /** World units a bloom grows per point of health. */
@@ -4899,6 +4919,10 @@ export default function WormholeGame() {
         // this runs on both sides.
         for (const loose of game.pickups) {
           if (loose === pickup || loose.life <= 0) continue;
+          // A drop still inside its spawn shield survives the clear. Without
+          // this a zap fired as the rift bloomed erased the very payload it
+          // had just paid out.
+          if (pupIsProtected(loose)) continue;
           loose.life = 0;
           burst(game, loose.x, loose.y, POWER_COLORS[loose.type], 8, 3.5);
         }
@@ -5101,7 +5125,10 @@ export default function WormholeGame() {
           const pd = Math.max(1, Math.hypot(pdx, pdy));
           enemy.vx += (pdx / pd) * 0.2;
           enemy.vy += (pdy / pd) * 0.2;
-          if (pd < 18) { pickup.life = 0; game.notice = "SCAVENGER STOLE A POWER-UP"; game.noticeLife = 70; }
+          // A scavenger loitering by the rift used to take every drop the
+          // instant it ejected, which is what made the spawn shield look like
+          // it was doing nothing.
+          if (pd < 18 && !pupIsProtected(pickup)) { pickup.life = 0; game.notice = "SCAVENGER STOLE A POWER-UP"; game.noticeLife = 70; }
         }
       } else if (enemy.kind === "wallcrawler") {
         if (enemy.x <= 12) { enemy.x = 12; enemy.vx = 0; enemy.vy = 4; }
@@ -5145,7 +5172,7 @@ export default function WormholeGame() {
           }
           for (const pickup of game.pickups) {
             if (
-              pickup.life > 0
+              pupIsShootable(pickup)
               && pointTouchesBeam(game.portalX, game.portalY, enemy.phase, pickup.x, pickup.y, BEAM_PICKUP_WIDTH)
             ) {
               pickup.life = 0;
@@ -6848,6 +6875,9 @@ export default function WormholeGame() {
           // the badge instead of rattling around inside a bigger hexagon.
           drawWeaponGlyph(ctx, pickup.type, PUP_GLYPH_RADIUS, time, { detail });
         });
+        // The spawn shield. Described in pup-world beside the badge itself,
+        // so this loop keeps making no raw canvas marks of its own.
+        if (pupIsProtected(pickup)) drawPupSpawnShield(ctx, pupShieldProgress(pickup));
         ctx.restore();
       }
 
