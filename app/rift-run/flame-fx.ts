@@ -1,4 +1,4 @@
-import { mountOrigin, type Point } from "./weapon-fire.ts";
+import { mountOrigin, type MountResolver, type Point } from "./weapon-fire.ts";
 
 /**
  * A flame is a bounded presentation record, not a damage entity. Its origin is
@@ -34,9 +34,16 @@ export function refreshFlameFx(flames: RiftFlameFx[], shot: FlameVisualShot, har
   else flames[existing] = next;
 }
 
-export function flameDisplayTransform(flame: RiftFlameFx, muzzle: Point, hullAngle: number) {
+/**
+ * Where the cone is drawn from, resolved fresh every frame.
+ *
+ * `center` is the hull centre and `resolve` the ship's own mount layout, so the
+ * cone leaves the nozzle actually drawn on the wing rather than a generic
+ * offset from the nose.
+ */
+export function flameDisplayTransform(flame: RiftFlameFx, center: Point, hullAngle: number, resolve?: MountResolver | null) {
   return {
-    origin: mountOrigin(muzzle, hullAngle, flame.hardpointCount, flame.hardpointIndex),
+    origin: mountOrigin(center, hullAngle, flame.hardpointCount, flame.hardpointIndex, resolve),
     angle: hullAngle + flame.angleOffset,
   };
 }
