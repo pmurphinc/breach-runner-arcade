@@ -261,6 +261,9 @@ import {
   victoryVisualState,
 } from "./victory-sequence";
 import { drawRiftLabel } from "./rift-label-fx";
+// The arena's colours are shared with the difficulty cards, so picking HARD
+// shows the red you are about to fly in. One table, two readers.
+import { ARENA_PALETTES } from "./arena-palettes";
 import {
   SURVIVAL_HOSTILE_CAP,
   SURVIVAL_PALETTES,
@@ -432,15 +435,6 @@ function finalEventLabel(run: RunResult) {
 }
 /** More than two nameplates at once is noise, not information. */
 const MAX_NAMEPLATES = 2;
-const ARENA_PALETTES: Record<DifficultyId, readonly [string, string, string]> = {
-  practice: ["#102033", "#06101d", "#020409"],
-  easy: ["#0b1d22", "#061016", "#020409"],
-  difficult: ["#171127", "#090917", "#020409"],
-  hard: ["#241014", "#0d080f", "#030305"],
-  // Survival repaints itself per stage from SURVIVAL_PALETTES; this is the
-  // opening one, and what the idle pre-run arena shows.
-  survival: SURVIVAL_PALETTES.stable,
-};
 
 type Bullet = {
   x: number; y: number; vx: number; vy: number; damage: number; life: number; enemy: boolean; color: string;

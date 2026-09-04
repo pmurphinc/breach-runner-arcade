@@ -2377,17 +2377,45 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
 .lobby-ship-summary b { color: var(--ink); }
 
 .difficulty-progression { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
+/* Each card wears the arena it launches: the background is that difficulty's
+   own palette and the accent is its identifying colour, both supplied as custom
+   properties by difficultyCardStyle(). Picking HARD should show the red you are
+   about to fly in. Falls back to the old flat panel if a card is rendered
+   without the properties. */
 .difficulty-card {
+  position: relative; overflow: hidden;
   min-height: var(--control-h); padding: var(--space-3); display: grid;
   grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "check label" "check hint" "check status";
-  gap: 2px var(--space-2); text-align: left; color: var(--ink); background: rgba(5, 17, 25, .82);
+  gap: 2px var(--space-2); text-align: left; color: var(--ink);
+  background:
+    linear-gradient(160deg,
+      color-mix(in srgb, var(--card-near, #051119) 88%, transparent) 0%,
+      var(--card-mid, #06101d) 58%,
+      var(--card-far, #020409) 100%);
   border: var(--border-1); border-radius: var(--radius-2); cursor: pointer;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
 }
+/* A stripe of the difficulty's accent down the leading edge — the fastest way
+   to tell three dark cards apart at a glance. */
+.difficulty-card::before {
+  content: ""; position: absolute; inset: 0 auto 0 0; width: 3px;
+  background: var(--card-accent, var(--cyan));
+  opacity: .9;
+}
+.difficulty-card b { color: color-mix(in srgb, var(--card-accent, var(--ink)) 55%, var(--ink)); }
 .difficulty-card .option-check { grid-area: check; }
 .difficulty-card b { grid-area: label; font: 800 var(--fs-sm)/1.2 var(--mono); text-transform: uppercase; }
 .difficulty-card small { grid-area: hint; color: var(--muted-2); }
 .difficulty-card em { grid-area: status; color: var(--lime); font-style: normal; }
-.difficulty-card.active { border-color: var(--cyan); box-shadow: var(--glow-active); }
+/* The selected card glows in its own colour rather than a single shared cyan,
+   so the selection and the identity agree. */
+.difficulty-card.active {
+  border-color: var(--card-accent, var(--cyan));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--card-accent, var(--cyan)) 55%, transparent),
+              0 0 18px color-mix(in srgb, var(--card-accent, var(--cyan)) 35%, transparent);
+}
+.difficulty-card.active::before { opacity: 1; width: 4px; }
+.difficulty-card:hover:not(.locked) { border-color: color-mix(in srgb, var(--card-accent, var(--cyan)) 60%, transparent); }
 .difficulty-card.locked { opacity: .62; cursor: not-allowed; filter: saturate(.45); }
 .difficulty-card.locked em { color: var(--red); }
 .simulation-option { margin-top: var(--space-2); max-width: 360px; }
