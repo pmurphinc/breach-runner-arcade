@@ -15,7 +15,7 @@ import { RemoteMotion } from "./network-motion.ts";
  */
 
 /** Must match server/protocol.mjs. `tests/pvp-protocol.test.mjs` asserts it. */
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 export const PVP_PATH = "/pvp";
 export const CODE_LENGTH = 4;
 export const COUNTDOWN_SECONDS = 3;
@@ -69,7 +69,23 @@ export type CoopWorld = {
   enrageActive: boolean;
   enemies: Array<Record<string, number | string | boolean | undefined>>;
   enemyBullets: Array<Record<string, number | string | boolean | undefined>>;
+  /** Loose PUPs, identified so both pilots can race for the same ones. */
+  pups: SharedPupSnapshot[];
+  /** The teammate's rounds. Painted only; they carry no damage. */
+  allyShots: AllyShotSnapshot[];
 };
+
+export type SharedPupSnapshot = {
+  pupId: number; type: string; x: number; y: number;
+  vx: number; vy: number; life: number; phase: number;
+};
+
+export type AllyShotSnapshot = {
+  x: number; y: number; vx: number; vy: number; life: number; color: string;
+};
+
+/** The referee's verdict on one PUP race. */
+export type PupDecision = { pupId: number; by: string; roundId: number };
 
 export type PvpSnapshot = {
   phase: PvpPhase;
@@ -169,6 +185,8 @@ export class PvpClient {
   private countdownTimer: ReturnType<typeof setInterval> | null = null;
   private enemyHitQueue: { roundId: number; enemyId: number; source: string; damage: number; from: string }[] = [];
   private worldActionQueue: { roundId: number; action: "clear" | "emp"; from: string }[] = [];
+  private pupClaimSeq = 0;
+  private pupDecisionQueue: PupDecision[] = [];
 
   constructor(kind: NetworkMode = "pvp", difficulty = "easy") {
     this.sessionKind = kind;
@@ -196,6 +214,8 @@ export class PvpClient {
 
   drainEnemyHits() { const hits = this.enemyHitQueue; this.enemyHitQueue = []; return hits; }
   drainWorldActions() { const actions = this.worldActionQueue; this.worldActionQueue = []; return actions; }
+  /** Settled PUP races since the last call. Both winner and loser see every one. */
+  drainPupDecisions() { const decisions = this.pupDecisionQueue; this.pupDecisionQueue = []; return decisions; }
 
   private stopCountdownTimer() {
     if (this.countdownTimer) clearInterval(this.countdownTimer);
@@ -401,6 +421,12 @@ export class PvpClient {
         this.enemyHitQueue.push(message as unknown as { roundId: number; enemyId: number; source: string; damage: number; from: string });
         return;
       }
+      case "pup_taken": {
+        const decision = message as unknown as PupDecision;
+        if (decision.roundId !== this.snapshot.roundId) return;
+        this.pupDecisionQueue.push(decision);
+        return;
+      }
       case "coop_world_action": {
         if (message.roundId !== this.snapshot.roundId) return;
         this.worldActionQueue.push(message as unknown as { roundId: number; action: "clear" | "emp"; from: string });
@@ -526,6 +552,19 @@ export class PvpClient {
     if (!Number.isInteger(enemyId) || enemyId < 1 || this.snapshot.roundId < 1) return false;
     this.enemyHitSeq += 1;
     return this.send({ type: "enemy_hit", seq: this.enemyHitSeq, roundId: this.snapshot.roundId, enemyId, source, damage });
+  }
+
+  /**
+   * Ask for a loose PUP. The server decides; `drainPupDecisions` carries the answer.
+   *
+   * The caller hides the PUP immediately for responsiveness but must not award
+   * the payload until the verdict arrives — inventory is a server-owned LIFO
+   * ledger, and handing out a payload that might be revoked would desync it.
+   */
+  claimPup(pupId: number) {
+    if (!Number.isInteger(pupId) || pupId < 1 || this.snapshot.roundId < 1) return false;
+    this.pupClaimSeq += 1;
+    return this.send({ type: "pup_claim", seq: this.pupClaimSeq, roundId: this.snapshot.roundId, pupId });
   }
 
   reportWorldAction(action: "clear" | "emp") {

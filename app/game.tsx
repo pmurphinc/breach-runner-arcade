@@ -120,6 +120,16 @@ import { admitsProjectile, applyScorched, detonateMissile, evolutionRadialHit, p
 import { clearInactiveFlameFx, flameDisplayTransform, refreshFlameFx, type RiftFlameFx } from "./rift-run/flame-fx";
 import { awardRiftEnergy, enemyKillEnergy, riftDamaged, riftEnergyRequiredForLevel } from "./rift-run/progression";
 import { hasEnemyAttackAuthority, hostileShotVelocity, nearestPilot } from "./coop-enemy-targeting.js";
+import {
+  beginPupClaim,
+  createPupClaimTracker,
+  expirePupClaims,
+  isPupClaimPending,
+  isSharedArenaKind,
+  resetPupClaims,
+  serializePups,
+  settlePupClaim,
+} from "./shared-arena.js";
 import { applyRiftRunCannonDamage, applyRiftRunHullWeaponDamage, RIFT_RUN_BASE_INTEGRITY } from "./rift-run/rift-damage";
 import { breachRiftRun, tickRiftReform } from "./rift-run/breach";
 import { createRiftDanger, clearRiftDanger, resetRiftDangerForNewRift, type RiftDangerRuntime } from "./rift-run/danger";
@@ -723,6 +733,8 @@ type Game = {
   pickups: Pickup[];
   enemies: Enemy[];
   nextEnemyId: number;
+  /** Stable ids for loose PUPs, so a shared arena can name the one being raced for. */
+  nextPupId: number;
   roundId: number;
   /** Last host world revision applied by a co-op guest. */
   lastWorldSeq?: number;
@@ -959,6 +971,7 @@ function createGame(
     pickups: [],
     enemies: [],
     nextEnemyId: 0,
+    nextPupId: 0,
     roundId: 0,
     powers: [],
     blasts: [],
