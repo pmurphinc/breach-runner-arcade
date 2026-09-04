@@ -94,9 +94,8 @@ export const PICKUP_IDS = [
   "ricochet",
 ];
 
-/** Bounds on the shared-arena additions to a world snapshot. */
+/** Bound on the shared-arena addition to a world snapshot. */
 export const MAX_SHARED_PUPS = 48;
-export const MAX_ALLY_SHOTS = 64;
 
 export const SESSION_KINDS = ["pvp", "coop"];
 export const DIFFICULTY_IDS = ["practice", "easy", "difficult", "hard"];
@@ -418,32 +417,8 @@ export function parseClientMessage(raw) {
           });
         }
       }
-      const allyShots = [];
-      if (parsed.allyShots !== undefined) {
-        if (!Array.isArray(parsed.allyShots) || parsed.allyShots.length > MAX_ALLY_SHOTS) {
-          return { ok: false, code: ERRORS.BAD_MESSAGE, detail: "bad ally shot snapshot" };
-        }
-        for (const shot of parsed.allyShots) {
-          if (!isPlainObject(shot)
-            || ![shot.x, shot.y, shot.vx, shot.vy, shot.life].every(isFiniteNumber)
-            || typeof shot.color !== "string") {
-            return { ok: false, code: ERRORS.BAD_MESSAGE, detail: "bad ally shot snapshot" };
-          }
-          // No damage field is accepted, let alone forwarded. An ally round is
-          // paint: the teammate's arena must not be able to describe a shot
-          // that hurts anyone, whatever it puts on the wire.
-          allyShots.push({
-            x: Math.max(-100, Math.min(1604, shot.x)),
-            y: Math.max(-100, Math.min(1040, shot.y)),
-            vx: Math.max(-30, Math.min(30, shot.vx)),
-            vy: Math.max(-30, Math.min(30, shot.vy)),
-            life: Math.max(0, Math.min(2000, shot.life)),
-            color: shot.color.slice(0, 32),
-          });
-        }
-      }
       return { ok: true, message: {
-        type, seq: parsed.seq, roundId: parsed.roundId, enemies, enemyBullets, pups, allyShots,
+        type, seq: parsed.seq, roundId: parsed.roundId, enemies, enemyBullets, pups,
         portalX: Math.max(0, Math.min(1504, parsed.portalX)),
         portalY: Math.max(0, Math.min(940, parsed.portalY)),
         portalAngle: parsed.portalAngle,

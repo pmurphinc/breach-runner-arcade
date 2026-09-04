@@ -289,88 +289,23 @@ export function resetPupClaims(tracker) {
   tracker.pending.clear();
 }
 
-// ------------------------------------------------------- ally fire (both) --
+// ------------------------------------------------------- friendly fire --
 
 /**
- * Rounds fired by the teammate, for the wire.
+ * Can this round damage a pilot? Never, if it belongs to a teammate.
  *
- * These exist so the shared arena actually looks shared — before this, a
- * teammate's cannon fire was invisible and the arena only agreed about
- * hostiles. They are visual: `ally` rounds carry no damage across the wire and
- * are never asked to.
+ * The owner's rule, stated once and enforced at the only place a round has
+ * ever been able to hurt a pilot. Today no teammate round is ever placed in
+ * your arena, so the rule holds by construction — this is what keeps it
+ * holding the moment one is. An `ally` round is paint and nothing else.
  *
- * @param {readonly any[]} bullets
- * @param {number} limit
- */
-export function serializeAllyShots(bullets, limit = 64) {
-  const out = [];
-  for (const bullet of bullets) {
-    if (out.length >= limit) break;
-    if (bullet.enemy || bullet.life <= 0) continue;
-    out.push({
-      x: bullet.x,
-      y: bullet.y,
-      vx: bullet.vx,
-      vy: bullet.vy,
-      life: bullet.life,
-      color: typeof bullet.color === "string" ? bullet.color : "#8ef",
-    });
-  }
-  return out;
-}
-
-/**
- * Turn a wire ally shot into a local bullet that cannot hurt anyone.
+ * The other half of the rule — that two pilots' rounds cannot cancel each
+ * other out — needs no code: the game has no shot-versus-shot collision at
+ * all. Rounds interact with hostiles, rifts and loose PUPs, never with other
+ * rounds, so there is nothing for a teammate's fire to interfere with.
  *
- * The three flags are the whole friendly-fire guarantee and they are set in
- * exactly one place on purpose. `enemy: false` keeps it off the incoming-fire
- * paths, `damage: 0` means even a missed guard costs nothing, and `ally: true`
- * is what every collision test below excludes.
- */
-export function allyShotToBullet(shot) {
-  return {
-    x: shot.x,
-    y: shot.y,
-    vx: shot.vx,
-    vy: shot.vy,
-    life: shot.life,
-    color: shot.color,
-    damage: 0,
-    enemy: false,
-    ally: true,
-  };
-}
-
-/**
- * Can this round damage a pilot?
- *
- * The owner's rule, stated once: a teammate's rounds pass straight through you.
- * Ally rounds are painted, and that is all they do.
+ * @param {{ ally?: boolean } | null | undefined} bullet
  */
 export function canDamagePilot(bullet) {
-  return !bullet?.ally;
-}
-
-/**
- * Can these two rounds cancel each other out?
- *
- * No — never, when either belongs to a teammate. Two pilots shooting the same
- * rift from opposite sides would otherwise spend the whole round shooting each
- * other's shots down, which is exactly the interference the design forbids.
- */
-export function shotsInterfere(a, b) {
-  if (a?.ally || b?.ally) return false;
-  // Beyond the ally rule this stays as it was: only hostile-versus-friendly
-  // rounds have ever interacted, and same-side rounds never have.
-  return Boolean(a?.enemy) !== Boolean(b?.enemy);
-}
-
-/** Ally rounds are decoration and must never enter the local shot budget. */
-export function countsTowardOwnShotBudget(bullet) {
-  return !bullet?.ally;
-}
-
-/** Ally rounds must not damage hostiles either — the host already scored them. */
-export function canDamageHostile(bullet) {
   return !bullet?.ally;
 }

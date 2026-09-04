@@ -71,8 +71,6 @@ export type CoopWorld = {
   enemyBullets: Array<Record<string, number | string | boolean | undefined>>;
   /** Loose PUPs, identified so both pilots can race for the same ones. */
   pups: SharedPupSnapshot[];
-  /** The teammate's rounds. Painted only; they carry no damage. */
-  allyShots: AllyShotSnapshot[];
 };
 
 export type SharedPupSnapshot = {
@@ -80,12 +78,8 @@ export type SharedPupSnapshot = {
   vx: number; vy: number; life: number; phase: number;
 };
 
-export type AllyShotSnapshot = {
-  x: number; y: number; vx: number; vy: number; life: number; color: string;
-};
-
 /** The referee's verdict on one PUP race. */
-export type PupDecision = { pupId: number; by: string; roundId: number };
+export type PupDecision = { pupId: number; by: string | null; roundId: number };
 
 export type PvpSnapshot = {
   phase: PvpPhase;
