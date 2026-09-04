@@ -27,13 +27,17 @@ export function secondsForTicks(ticks: number) {
 /**
  * Every mode a run can be flown in.
  *
+ * "team" is 2v2: four pilots in two teams of two, each team sharing one arena
+ * and one rift. It is a network mode like "coop" and "pvp", and like "pvp" it is
+ * always flown under Stable rules.
+ *
  * "classic" is a peer of the others rather than a difficulty: it pins its own
  * physics and drop table instead of scaling an existing ruleset, so there is
  * nothing for a difficulty selector to choose. The id is deliberately stable in
  * code, saves and network payloads — the player-facing name is one label in
  * MODE_INFO and can change at any point without a migration.
  */
-export type GameMode = "pve" | "coop" | "pvp" | "classic";
+export type GameMode = "pve" | "coop" | "team" | "pvp" | "classic";
 /**
  * Every ruleset a run can be flown under.
  *
@@ -398,7 +402,9 @@ export const CLASSIC_RULES: DifficultyRules = {
 };
 
 export function rulesFor(mode: GameMode, difficulty: DifficultyId): DifficultyRules {
-  if (mode === "pvp") return PVP_RULES;
+  // 2v2 is a duel with two pilots a side, so it flies the duel ruleset. The
+  // extra pilot is paid for by the shared-arena load scale, not by the rules.
+  if (mode === "pvp" || mode === "team") return PVP_RULES;
   // Classic pins its own rules, so the difficulty selector has nothing to say
   // about it — a Classic run flown from any difficulty is the same run.
   if (mode === "classic") return CLASSIC_RULES;

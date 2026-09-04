@@ -20,6 +20,8 @@
  * game loop.
  */
 
+import { teamSize } from "./team-rooms.js";
+
 /**
  * Session kinds that put a team inside one arena.
  *
@@ -308,4 +310,78 @@ export function resetPupClaims(tracker) {
  */
 export function canDamagePilot(bullet) {
   return !bullet?.ally;
+}
+
+// ----------------------------------------------------- shared-arena balance --
+
+/**
+ * How many pilots fly inside one arena.
+ *
+ * This is the number the PvE balance actually depends on, and naming it is the
+ * point. Co-op doubled the rift's integrity and every hostile wave not because
+ * it was called "co-op" but because two pilots were shooting one rift; a 2v2
+ * team is two pilots sharing one rift for exactly the same reason, so it earns
+ * exactly the same doubling by asking the same question. Solo, 1v1 and Classic
+ * all answer one and keep the balance they have always had.
+ *
+ * Deliberately derived from the roster in `team-rooms.js` rather than a second
+ * table here: `teamSize` already says how many pilots a team holds, and a
+ * shared arena holds exactly one team.
+ *
+ * @param {string | null | undefined} kind
+ */
+export function arenaPilotCount(kind) {
+  return teamSize(kind);
+}
+
+/**
+ * The PvE load multiplier for an arena: one rift, split N ways.
+ *
+ * Clamped at one so an unrecognised mode can only ever fall back to the solo
+ * balance, never to a rift with zero integrity.
+ *
+ * @param {string | null | undefined} kind
+ */
+export function arenaLoadScale(kind) {
+  return Math.max(1, arenaPilotCount(kind));
+}
+
+// ----------------------------------------------- shared-arena authority --
+
+/**
+ * The guest of a shared arena: the pilot who renders the world rather than
+ * simulating it, and therefore reports its actions to the host instead of
+ * applying them locally.
+ *
+ * Phrased as the exact comparison co-op has always made, generalised only in
+ * *which kinds* it applies to. That matters more than it looks: a stricter
+ * form — one that also demanded a non-empty pilot id — would flip the answer
+ * for a client with no lobby state and quietly change what co-op does when the
+ * socket is not up. Co-op keeps its behaviour to the character; 2v2 inherits
+ * it.
+ *
+ * @param {string | null | undefined} kind
+ * @param {string | null | undefined} pilotId
+ * @param {string | null | undefined} hostId
+ */
+export function isArenaGuest(kind, pilotId, hostId) {
+  if (!isSharedArenaKind(kind)) return false;
+  return pilotId !== hostId;
+}
+
+/**
+ * The host of a shared arena: the pilot who owns hostiles, loose PUPs and the
+ * world snapshot the teammate reads.
+ *
+ * Requires a known pilot id, because "I am the host" is a claim and an
+ * unidentified client has no standing to make it. `isArenaGuest` is
+ * deliberately *not* the negation of this — see its note.
+ *
+ * @param {string | null | undefined} kind
+ * @param {string | null | undefined} pilotId
+ * @param {string | null | undefined} hostId
+ */
+export function isArenaHostPilot(kind, pilotId, hostId) {
+  if (!isSharedArenaKind(kind)) return false;
+  return Boolean(pilotId) && pilotId === hostId;
 }

@@ -122,10 +122,13 @@ import { clearInactiveFlameFx, flameDisplayTransform, refreshFlameFx, type RiftF
 import { awardRiftEnergy, enemyKillEnergy, riftDamaged, riftEnergyRequiredForLevel } from "./rift-run/progression";
 import { hasEnemyAttackAuthority, hostileShotVelocity, nearestPilot } from "./coop-enemy-targeting.js";
 import {
+  arenaLoadScale,
   beginPupClaim,
   canDamagePilot,
   createPupClaimTracker,
   expirePupClaims,
+  isArenaGuest,
+  isArenaHostPilot,
   isSharedArenaKind,
   pupIdentity,
   resetPupClaims,
@@ -1010,8 +1013,11 @@ function createGame(
     pickupLabels: [],
     stock: [],
     score: 0,
-    rivalHealth: rules.rivalIntegrity * (mode === "coop" ? 2 : 1),
-    rivalMaxHealth: rules.rivalIntegrity * (mode === "coop" ? 2 : 1),
+    // One rift, split between however many pilots share this arena. Co-op and
+    // a 2v2 team are both two, so both get the doubled rift co-op has always
+    // had; solo and 1v1 are one and are unchanged.
+    rivalHealth: rules.rivalIntegrity * arenaLoadScale(mode),
+    rivalMaxHealth: rules.rivalIntegrity * arenaLoadScale(mode),
     cycles: 0,
     botTimer: 330,
     shotCycle: 0,
@@ -1906,7 +1912,7 @@ const shipPreference = createPreference<ShipId>(
 
 const modePreference = createPreference<GameMode>(
   "wormhole-arcade:mode",
-  ["pve", "coop", "pvp", "classic"],
+  ["pve", "coop", "team", "pvp", "classic"],
   "pve"
 );
 /**
