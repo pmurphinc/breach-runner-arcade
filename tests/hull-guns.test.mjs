@@ -6,7 +6,9 @@ import {
   HULL_GUN_MOUNT,
   HULL_GUN_PROFILES,
   HULL_GUN_SPIN_STEP,
+  REDUCED_MOTION_RECOIL,
   createHullGunFx,
+  dampHullGunFx,
   drawHullGun,
   hullGunBarrelOffsets,
   hullGunFlashIntensity,
@@ -274,9 +276,48 @@ test("the recoil animation is driven by the shots themselves", () => {
   const kick = game.indexOf("kickHullGun(game.riftGunFx");
   const shots = game.indexOf("for (const mounted of mountedShots)");
   assert.ok(shots >= 0 && kick > shots, "the kick lives inside the shot loop, not next to a cadence guess");
-  assert.ok(game.includes("occupied && !quiet ? hullGunFxFor(game.riftGunFx, socket.index) : null"),
-    "reduced motion gets a still gun rather than no gun");
+  assert.ok(game.includes("quiet ? dampHullGunFx(fx) : fx"),
+    "reduced motion damps the gun rather than freezing it");
   assert.ok(game.includes("riftGunFx: []"), "the state is part of a fresh game");
+});
+
+/**
+ * Reduced motion damps a hull gun; it does not switch it off.
+ *
+ * Suppressing the firing state entirely left the gun stone still as it fired —
+ * no feedback that the weapon had gone off at all, which reads as broken rather
+ * than as calm. A short mechanical kick is not the kind of movement reduced
+ * motion exists to prevent; a large bright muzzle flash is much closer to it.
+ * So the recoil survives at reduced amplitude and the flash is what goes.
+ */
+test("reduced motion keeps the kick and drops the flash", () => {
+  const fired = { hardpointIndex: 0, recoil: 10, flash: 6, spin: 0.4 };
+  const damped = dampHullGunFx(fired);
+
+  assert.ok(damped.recoil > 0, "the gun still moves when it fires");
+  assert.ok(damped.recoil < fired.recoil, "but less than it would otherwise");
+  assert.equal(damped.recoil, fired.recoil * REDUCED_MOTION_RECOIL);
+  assert.equal(damped.flash, 0, "the bright part is what reduced motion removes");
+  assert.equal(damped.hardpointIndex, fired.hardpointIndex, "it is still the same socket");
+  assert.equal(fired.recoil, 10, "and the live state is not mutated");
+
+  // A socket with no firing state stays absent rather than becoming a resting one.
+  assert.equal(dampHullGunFx(null), null);
+});
+
+test("a damped gun still paints, and still paints less than a loud one", () => {
+  const fired = { hardpointIndex: 0, recoil: 10, flash: 6, spin: 0 };
+  const loud = recordingContext();
+  drawHullGun(loud, { x: 0, y: 0 }, "railgun", fired, 1);
+  const quiet = recordingContext();
+  drawHullGun(quiet, { x: 0, y: 0 }, "railgun", dampHullGunFx(fired), 1);
+  const still = recordingContext();
+  drawHullGun(still, { x: 0, y: 0 }, "railgun", null, 1);
+
+  assert.ok(quiet.calls.length < loud.calls.length, "the flash is gone");
+  assert.equal(quiet.calls.length, still.calls.length, "the gun itself is all still there");
+  assert.ok(!quiet.calls.some(([name, style]) => name === "fill" && style === HULL_GUN_PROFILES.railgun.flash));
+  assert.equal(quiet.globalAlpha, 1, "and it hands the canvas back opaque");
 });
 
 test("hull guns stay within the frames the fleet actually flies", () => {

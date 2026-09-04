@@ -116,7 +116,7 @@ import { RIFT_WEAPON_BY_ID, RIFT_WEAPONS } from "./rift-run/weapons";
 import { createWeaponRuntime, tickWeaponRuntime, type WeaponRuntime } from "./rift-run/weapon-runtime";
 import { createRunAgainRiftRun, replayForCompletedRun, type RunReplay } from "./run-replay";
 import { processHardpointFire } from "./rift-run/weapon-fire";
-import { drawHullGun, hullGunFxFor, kickHullGun, pruneHullGunFx, tickHullGunFx, type HullGunFx } from "./rift-run/hull-gun-art";
+import { dampHullGunFx, drawHullGun, hullGunFxFor, kickHullGun, pruneHullGunFx, tickHullGunFx, type HullGunFx } from "./rift-run/hull-gun-art";
 import { admitsProjectile, applyScorched, detonateMissile, evolutionRadialHit, penetrate, projectileFromShot, SCORCHED_DAMAGE, steerMissile, targetsInFlameCone, tickScorched, type EntityId, type RiftProjectile, type ScorchedState } from "./rift-run/weapon-projectiles";
 import { clearInactiveFlameFx, flameDisplayTransform, refreshFlameFx, type RiftFlameFx } from "./rift-run/flame-fx";
 import { awardRiftEnergy, enemyKillEnergy, riftDamaged, riftEnergyRequiredForLevel } from "./rift-run/progression";
@@ -7208,8 +7208,12 @@ export default function WormholeGame() {
             const mount = shipHardpointOffset(game.ship.id, socket.index, 1.15);
             if (!mount) continue;
             const occupied = socket.status === "occupied";
+            // Reduced motion damps the kick and drops the flash rather than
+            // freezing the gun: a weapon that never moves when it fires reads
+            // as broken, not as calm.
+            const fx = occupied ? hullGunFxFor(game.riftGunFx, socket.index) : null;
             drawHullGun(ctx, mount, occupied ? socket.weapon.weaponId : null,
-              occupied && !quiet ? hullGunFxFor(game.riftGunFx, socket.index) : null, detail);
+              quiet ? dampHullGunFx(fx) : fx, detail);
           }
           ctx.restore();
         }
