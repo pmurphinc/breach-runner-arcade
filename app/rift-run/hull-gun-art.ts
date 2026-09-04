@@ -100,11 +100,11 @@ const BASE: Omit<HullGunProfile, "weaponId"> = {
   barrelHalfWidth: 1.15,
   breechLength: 4.2,
   breechHalfWidth: 1.9,
-  recoil: 1.8,
-  recoilTicks: 8,
-  flashTicks: 5,
-  flashLength: 5.2,
-  flashHalfWidth: 2.4,
+  recoil: 3.6,
+  recoilTicks: 11,
+  flashTicks: 7,
+  flashLength: 8.4,
+  flashHalfWidth: 3.6,
   rotary: false,
   launcher: false,
   flared: false,
@@ -136,11 +136,11 @@ export const HULL_GUN_PROFILES: Record<RiftWeaponId, HullGunProfile> = {
     // Light rounds at four times the cadence: a buzz, not a thump. Three ticks
     // is the minigun's whole cadence, so the slide is always home before the
     // next round rather than visibly stuck halfway back.
-    recoil: 0.85,
+    recoil: 1.9,
     recoilTicks: 3,
     flashTicks: 3,
-    flashLength: 3.6,
-    flashHalfWidth: 1.9,
+    flashLength: 5.8,
+    flashHalfWidth: 2.8,
     rotary: true,
     accent: "#ffe67b",
     flash: "#fff4c2",
@@ -154,11 +154,11 @@ export const HULL_GUN_PROFILES: Record<RiftWeaponId, HullGunProfile> = {
     breechHalfWidth: 2.3,
     // The heaviest kick in the set, and the slowest to settle: 55 ticks of
     // cadence means the slide has all the time in the world to come home.
-    recoil: 3.4,
-    recoilTicks: 16,
+    recoil: 6.2,
+    recoilTicks: 20,
     flashTicks: 8,
-    flashLength: 7.5,
-    flashHalfWidth: 2.2,
+    flashLength: 12.0,
+    flashHalfWidth: 3.4,
     railed: true,
     accent: RAILGUN_PALETTE.edge,
     barrel: "#2a2438",
@@ -174,8 +174,8 @@ export const HULL_GUN_PROFILES: Record<RiftWeaponId, HullGunProfile> = {
     breechLength: 4.4,
     breechHalfWidth: 3.0,
     // A tube launcher does not slide; it just shrugs.
-    recoil: 1.0,
-    recoilTicks: 10,
+    recoil: 2.2,
+    recoilTicks: 13,
     flashTicks: 6,
     flashLength: 4.2,
     flashHalfWidth: 2.8,
@@ -193,8 +193,8 @@ export const HULL_GUN_PROFILES: Record<RiftWeaponId, HullGunProfile> = {
     breechHalfWidth: 2.2,
     // Continuous burn: the nozzle trembles rather than recoils, and the cone
     // in `flame-fx.ts` is already doing the loud part of the job.
-    recoil: 0.45,
-    recoilTicks: 4,
+    recoil: 1.0,
+    recoilTicks: 5,
     flashTicks: 0,
     flashLength: 0,
     flashHalfWidth: 0,
@@ -254,6 +254,23 @@ export function hullGunFxFor(states: HullGunFx[], hardpointIndex: number): HullG
  * Called from the shot loop rather than from a cadence guess, which is the
  * whole point: no shot, no kick; every shot, exactly one kick.
  */
+/**
+ * The same firing state, damped for a pilot who asked for less motion.
+ *
+ * Reduced motion used to suppress a hull gun's animation entirely, which left
+ * the gun stone still as it fired -- no feedback that it had gone off at all.
+ * A short mechanical kick is not the kind of movement reduced motion exists to
+ * prevent; a large bright muzzle flash is closer to it. So the recoil survives,
+ * shortened, and the flash is what goes.
+ */
+export function dampHullGunFx(state: HullGunFx | null): HullGunFx | null {
+  if (!state) return null;
+  return { ...state, recoil: state.recoil * REDUCED_MOTION_RECOIL, flash: 0 };
+}
+
+/** How much of a gun's kick survives when the pilot has asked for less motion. */
+export const REDUCED_MOTION_RECOIL = 0.5;
+
 export function kickHullGun(states: HullGunFx[], hardpointIndex: number, weaponId: RiftWeaponId): HullGunFx {
   const profile = hullGunProfile(weaponId);
   const state = hullGunFxFor(states, hardpointIndex);
