@@ -249,3 +249,29 @@ export function pupCollected(
 ) {
   return Math.hypot(pup.x - ship.x, pup.y - ship.y) < reach;
 }
+
+/**
+ * The spawn shield, drawn around a power-up that cannot yet be destroyed.
+ *
+ * Invisible protection reads as no protection. A pilot firing at a fresh drop
+ * needs to see why nothing is happening to it, and needs to see the moment the
+ * shield lapses rather than discovering it by losing the drop.
+ *
+ * Lives here beside `drawLooseArenaPup` rather than in the render loop, because
+ * that loop is deliberately kept free of raw canvas calls — every mark a loose
+ * power-up makes on screen is described in one place.
+ *
+ * `progress` runs 0 at the moment of spawn to 1 as the shield lapses; the ring
+ * tightens and fades across that span.
+ */
+export function drawPupSpawnShield(ctx: CanvasRenderingContext2D, progress: number, radius = PUP_RADIUS) {
+  const t = Math.max(0, Math.min(1, progress));
+  ctx.save();
+  ctx.globalAlpha = 0.85 * (1 - t);
+  ctx.strokeStyle = "rgba(207,239,255,.95)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(0, 0, radius + 7 - t * 4, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}

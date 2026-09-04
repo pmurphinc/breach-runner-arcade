@@ -43,7 +43,9 @@ test("loose power-ups are shootable, but only after a spawn grace", () => {
   // firing at the rift destroy the drop before it had cleared the rift.
   assert.equal(RIFT_PUP_GRACE_TICKS, 67);
   assert.equal(RIFT_PUP_LIFE_TICKS, 900);
-  assert.match(game, /return pickup\.life > 0 && pickup\.life <= PUP_LIFE_TICKS - PUP_SHOOT_GRACE_TICKS;/);
+  // Shootability is now the inverse of one named guard, so every hazard can ask
+  // the same question — see the spawn-shield test below.
+  assert.ok(game.includes("return pickup.life > 0 && !pupIsProtected(pickup);"));
   assert.match(playerRound, /if \(!pupIsShootable\(loose\)\) continue/);
   // Hit radius comes from the canonical loose-PUP size, not a second constant.
   assert.match(playerRound, /dist\(bullet, loose\) < PUP_RADIUS \+ 4/);
@@ -128,4 +130,50 @@ test("hostile hulls match the reference values", () => {
   // Radii are this project's own and were never part of the drift.
   assert.equal(ENEMY_STATS.gunship.radius, 25);
   assert.equal(ENEMY_STATS.scarab.radius, 15);
+});
+
+/**
+ * The spawn shield has to hold against everything, not just cannon fire.
+ *
+ * It first guarded only the bullet path. A screen clear, a scavenger and the
+ * rift's own sweeping beam could all still take a drop the instant it appeared
+ * — and the rift is exactly where scavengers loiter and where the beam sweeps,
+ * so in practice the protection read as not existing at all. A shield that
+ * three hazards out of four ignore is not a shield.
+ */
+test("every way of destroying a power-up respects the spawn shield", () => {
+  // One guard, asked by name, rather than each site re-deriving the window.
+  assert.ok(game.includes("function pupIsProtected(pickup: Pickup)"));
+  assert.ok(game.includes("return pickup.life > PUP_LIFE_TICKS - PUP_SHOOT_GRACE_TICKS;"));
+  assert.ok(game.includes("return pickup.life > 0 && !pupIsProtected(pickup);"));
+
+  // The screen clear skips a protected drop instead of sweeping it up.
+  assert.ok(game.includes("if (pupIsProtected(loose)) continue;"));
+  // A scavenger cannot steal one out of its shield.
+  assert.ok(game.includes("if (pd < 18 && !pupIsProtected(pickup))"));
+  // Neither can the rift's beam, which sweeps exactly where drops appear.
+  // Asserted as two separate facts rather than one string spanning a line
+  // break: the file is CRLF, so matching across a newline is brittle for no
+  // benefit. The beam asks the guard, and its old raw life check is gone.
+  // Anchored on the call site, not the import of the same name.
+  const beamCall = game.indexOf("pointTouchesBeam(game.portalX");
+  assert.ok(beamCall > 0, "the beam's pickup sweep is still here");
+  const beamBlock = game.slice(beamCall - 300, beamCall + 200);
+  assert.ok(beamBlock.includes("pupIsShootable(pickup)"), "the beam asks the same guard");
+  assert.ok(!beamBlock.includes("pickup.life > 0"), "the beam's raw life check is gone");
+});
+
+test("the shield is visible, because invisible protection reads as none", () => {
+  // A pilot firing at a fresh drop has to be able to see why nothing is
+  // happening to it.
+  assert.ok(game.includes("if (pupIsProtected(pickup)) drawPupSpawnShield(ctx, pupShieldProgress(pickup));"));
+  assert.ok(game.includes("function pupShieldProgress(pickup: Pickup)"));
+  // Drawn from pup-world beside the badge itself, so the render loop keeps
+  // making no raw canvas marks of its own — see the loose-pickup loop test.
+  const world = readFileSync(new URL("../app/pup-world.ts", import.meta.url), "utf8");
+  assert.ok(world.includes("export function drawPupSpawnShield("));
+  // It tightens and fades as it lapses, so the moment it becomes shootable is
+  // readable rather than sudden.
+  assert.ok(world.includes("ctx.globalAlpha = 0.85 * (1 - t);"));
+  assert.ok(world.includes("ctx.arc(0, 0, radius + 7 - t * 4, 0, Math.PI * 2);"));
 });
