@@ -25,8 +25,8 @@ test("the mode id is stable in code, saves and payloads", () => {
   // The player-facing string is one label in MODE_INFO and can change without a
   // migration; the id must not. The engine still accepts it everywhere even
   // though the menu no longer offers it -- see the shelving test below.
-  assert.ok(game.includes("[\"pve\", \"coop\", \"pvp\", \"classic\"]"), "the remembered mode accepts it");
-  assert.ok(menu.includes("export const ALL_MODE_IDS: GameMode[] = [\"pve\", \"coop\", \"pvp\", \"classic\"];"));
+  assert.ok(game.includes("[\"pve\", \"coop\", \"team\", \"pvp\", \"classic\"]"), "the remembered mode accepts it");
+  assert.ok(menu.includes("export const ALL_MODE_IDS: GameMode[] = [\"pve\", \"coop\", \"pvp\", \"team\", \"classic\"];"));
   assert.ok(menu.includes("label: \"Classic Wormhole\""));
 });
 
@@ -44,7 +44,10 @@ test("the mode id is stable in code, saves and payloads", () => {
  * unreachable from the menu, fully intact underneath.
  */
 test("Classic is off the menu but intact underneath", () => {
-  assert.ok(menu.includes("export const MODE_ORDER: GameMode[] = [\"pve\", \"coop\", \"pvp\"];"), "not offered");
+  // 2v2 joined the menu after Classic left it; what matters here is that
+  // Classic is absent, not the exact length of the list.
+  assert.ok(menu.includes("export const MODE_ORDER: GameMode[] = [\"pve\", \"coop\", \"pvp\", \"team\"];"), "not offered");
+  assert.ok(!menu.match(/MODE_ORDER: GameMode[] = [[^]]*"classic"/), "and Classic specifically is not in it");
   const pveScreen = menu.slice(menu.indexOf("export function PveModesScreen"), menu.indexOf("Roster selection inside a lobby"));
   assert.ok(pveScreen.includes("Classic Wormhole is shelved -- see MODE_ORDER"), "the card is commented out, with the reason");
   assert.ok(pveScreen.indexOf("{/* Classic Wormhole is shelved") < pveScreen.indexOf("data-mode=\"classic\""), "the card sits inside that comment, not beside it");

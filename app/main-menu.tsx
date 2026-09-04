@@ -40,6 +40,7 @@ export const MODE_INFO: Record<GameMode, { label: string; blurb: string }> = {
   pve: { label: "Solo PvE", blurb: "One pilot against the rift. Scores count on the global board." },
   coop: { label: "PvE Co-op", blurb: "Two pilots, one objective. Tougher rift, shared win." },
   pvp: { label: "PvP 1v1", blurb: "Real-time duel under Stable rules. No sign-in needed." },
+  team: { label: "PvP 2v2", blurb: "You and an ally share one rift, against a rival pair sharing theirs." },
   classic: {
     label: "Classic Wormhole",
     blurb: "The original loop. Orbiting portals, real payloads, no safety nets.",
@@ -60,10 +61,10 @@ export const MODE_INFO: Record<GameMode, { label: string; blurb: string }> = {
  * To bring it back: add "classic" here and restore the card in
  * `PveModesScreen`. Nothing else needs to change.
  */
-export const MODE_ORDER: GameMode[] = ["pve", "coop", "pvp"];
+export const MODE_ORDER: GameMode[] = ["pve", "coop", "pvp", "team"];
 
 /** Every mode the engine knows, shelved ones included. Used by tests. */
-export const ALL_MODE_IDS: GameMode[] = ["pve", "coop", "pvp", "classic"];
+export const ALL_MODE_IDS: GameMode[] = ["pve", "coop", "pvp", "team", "classic"];
 
 /**
  * Challenges.
@@ -348,9 +349,12 @@ export function GameTypeScreen({ go, back, openSettings }: MenuCallbacks) {
   </MenuScreen>;
 }
 
-export function PvpModesScreen({ onSelect, back, openSettings }: MenuCallbacks & { onSelect: () => void }) {
+export function PvpModesScreen({ onSelect, back, openSettings }: MenuCallbacks & { onSelect: (mode: "pvp" | "team") => void }) {
   return <MenuScreen route="pvp-modes" onOpenSettings={openSettings} title="Select PvP Mode" onBack={back}>
-    <div className="mode-grid"><button type="button" className="mode-card" data-mode="pvp" onClick={onSelect}><b>1v1</b><small>Matchmaking or private match</small></button></div>
+    <div className="mode-grid">
+      <button type="button" className="mode-card" data-mode="pvp" onClick={() => onSelect("pvp")}><b>1v1</b><small>Matchmaking or private match</small></button>
+      <button type="button" className="mode-card" data-mode="team" onClick={() => onSelect("team")}><b>2v2</b><small>Two pilots a side, one rift each team</small></button>
+    </div>
   </MenuScreen>;
 }
 

@@ -159,8 +159,11 @@ test("an off-screen ally produces a marker on the edge toward the ally", () => {
   assert.equal(level.y, 320);
 });
 
-test("the ally marker is co-op only — never solo PvE, Survival, or a PvP rival", () => {
-  assert.match(game, /game\.mode === "coop" \? netRef\.current\?\.renderedTeammate\(time\) : null/);
+test("the ally marker is shared-arena only — never solo PvE, Survival, or a PvP rival", () => {
+  // An ally is someone flying in *your* arena, which is exactly what a shared
+  // arena means: co-op and a 2v2 team each have one. A 1v1 rival is in their
+  // own arena and there is nothing of theirs to mark.
+  assert.ok(game.includes("isSharedArenaKind(game.mode) ? netRef.current?.renderedTeammate(time) : null"));
   const block = renderBlock();
   assert.doesNotMatch(block, /opponentCombat|game\.rival|game\.survival|mode === "pvp"/);
   // A missing ally renders nothing at all.

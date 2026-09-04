@@ -10,6 +10,7 @@ export type RunReplay =
   | { kind: "survival" }
   | { kind: "coop" }
   | { kind: "pvp" }
+  | { kind: "team" }
   | { kind: "classic" };
 
 /** Capture what actually ran; the underlying PvE mode cannot identify Rift Run. */
