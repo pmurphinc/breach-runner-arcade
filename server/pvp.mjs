@@ -215,16 +215,9 @@ function handle(matches, player, message, now, send) {
       return;
     }
     case "cancel": {
-      matches.leaveQueue(player);
-      const room = player.room;
-      if (room && room.phase !== "active") {
-        const opponent = matches.opponentOf(room, player);
-        matches.removeRoom(room);
-        if (opponent) {
-          opponent.ready = false;
-          matches.sendTo(opponent, { type: "lobby", state: "idle", reason: "opponent_left" });
-        }
-      }
+      // Backing out of a queue or an unstarted room. The room decides what that
+      // means for everyone else — a four-pilot lobby just reopens the seat.
+      matches.cancelLobby(player);
       send({ type: "lobby", state: "idle" });
       return;
     }

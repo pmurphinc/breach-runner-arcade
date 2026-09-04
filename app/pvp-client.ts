@@ -15,7 +15,7 @@ import { RemoteMotion } from "./network-motion.ts";
  */
 
 /** Must match server/protocol.mjs. `tests/pvp-protocol.test.mjs` asserts it. */
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 8;
 export const PVP_PATH = "/pvp";
 export const CODE_LENGTH = 4;
 export const COUNTDOWN_SECONDS = 3;
@@ -48,9 +48,25 @@ export type PvpOpponent = {
   ship: string;
   ready: boolean;
   connected: boolean;
+  /** Which side of the room they fly for. 0 and 1; co-op only ever has 0. */
+  team?: number;
 };
 
-export type NetworkMode = "pvp" | "coop";
+/**
+ * Session kinds.
+ *
+ * "team" is 2v2: four pilots, two teams, and one shared arena per team. It is
+ * PvP-shaped — the server owns the rules — and reuses every shared-arena
+ * mechanism co-op already has, because `app/shared-arena.js` never knew which
+ * of the two it was serving. 1v1 remains one pilot per arena and shares nothing.
+ */
+export type NetworkMode = "pvp" | "coop" | "team";
+
+const NETWORK_MODES: NetworkMode[] = ["pvp", "coop", "team"];
+
+function asNetworkMode(value: unknown, fallback: NetworkMode): NetworkMode {
+  return NETWORK_MODES.includes(value as NetworkMode) ? (value as NetworkMode) : fallback;
+}
 export type TeammatePosition = { id: string; name: string; roundId: number; seq: number; sentAt: number; x: number; y: number; angle: number };
 export const POSITION_SEND_INTERVAL_MS = 33;
 export type CoopRival = { hull: number; maxHull: number; score: number };
@@ -95,6 +111,22 @@ export type PvpSnapshot = {
   you: { id: string; ready: boolean; ship: string } | null;
   hostId: string | null;
   roundId: number;
+  /** Which team you fly for, and how many pilots a full room holds. */
+  team: number;
+  capacity: number;
+  /** How full the room or queue is while it is still filling up. */
+  queue: { players: number; needed: number } | null;
+  /**
+   * The other pilots, named by relationship rather than by "the other one".
+   *
+   * `teammates` share your arena and your rift; `rivals` are the team you send
+   * payloads at. In 1v1 `teammates` is empty by construction and in co-op
+   * `rivals` is, which is why 2v2 is the only case that needs both.
+   */
+  teammates: PvpOpponent[];
+  rivals: PvpOpponent[];
+  /** Pilots shot down this round. A team loses only when all of its are here. */
+  down: string[];
   opponent: PvpOpponent | null;
   yourCombat: PvpCombat | null;
   opponentCombat: PvpCombat | null;
@@ -123,6 +155,12 @@ const EMPTY: PvpSnapshot = {
   you: null,
   hostId: null,
   roundId: 0,
+  team: 0,
+  capacity: 2,
+  queue: null,
+  teammates: [],
+  rivals: [],
+  down: [],
   opponent: null,
   yourCombat: null,
   opponentCombat: null,
@@ -316,11 +354,21 @@ export class PvpClient {
       case "lobby": {
         this.teammateMotion.reset();
         const state = message.state;
+        const needed = typeof message.needed === "number" ? message.needed : this.snapshot.capacity;
+        const seated = typeof message.players === "number" ? message.players : 0;
         this.update({
           phase: state === "searching" ? "searching" : state === "waiting" ? "waiting" : "idle",
           code: typeof message.code === "string" ? message.code : null,
           name: typeof message.name === "string" ? message.name : this.snapshot.name,
+          // A 2v2 lobby fills one seat at a time, so it can say how many pilots
+          // are in rather than spinning with no idea how close it is.
+          capacity: needed,
+          queue: state === "idle" ? null : { players: seated, needed },
+          team: typeof message.team === "number" ? message.team : 0,
           opponent: null,
+          teammates: [],
+          rivals: [],
+          down: [],
           you: null,
           rival: null,
           teammate: null,
@@ -328,7 +376,7 @@ export class PvpClient {
           opponentCombat: null,
           result: null,
           rematch: null,
-          error: message.reason === "opponent_left" ? "Your opponent left." : null,
+          error: message.reason === "opponent_left" ? "A pilot left the lobby." : null,
         });
         return;
       }
@@ -336,12 +384,17 @@ export class PvpClient {
         const you = message.you as { id?: string; ship?: string; ready?: boolean } | undefined;
         this.update({
           phase: this.snapshot.phase === "active" ? "active" : "select",
-          kind: message.kind === "coop" ? "coop" : "pvp",
+          kind: asNetworkMode(message.kind, "pvp"),
           difficulty: typeof message.difficulty === "string" ? message.difficulty : this.difficulty,
           code: typeof message.code === "string" ? message.code : null,
           you: { id: you?.id ?? "", ship: you?.ship ?? "wing", ready: Boolean(you?.ready) },
           hostId: typeof message.hostId === "string" ? message.hostId : null,
           roundId: typeof message.roundId === "number" ? message.roundId : this.snapshot.roundId,
+          team: typeof message.team === "number" ? message.team : 0,
+          capacity: typeof message.capacity === "number" ? message.capacity : this.snapshot.capacity,
+          queue: null,
+          teammates: (message.teammates as PvpOpponent[] | undefined) ?? [],
+          rivals: (message.rivals as PvpOpponent[] | undefined) ?? [],
           opponent: (message.opponent as PvpOpponent | null) ?? null,
           result: message.lastResult ? this.parseResult(message.lastResult as Record<string, unknown>) : null,
           rematch: this.snapshot.rematch,
@@ -352,14 +405,19 @@ export class PvpClient {
       case "ready": {
         const states = message.states as { id: string; ready: boolean }[] | undefined;
         if (!states) return;
+        // Matched by id rather than by "not the opponent": with four pilots in
+        // the room everyone else is somebody, so picking yourself by exclusion
+        // would read another pilot's readiness as your own.
+        const readyOf = (id: string | undefined) =>
+          states.find((entry) => entry.id === id)?.ready ?? false;
         const opponent = this.snapshot.opponent;
         this.update({
           you: this.snapshot.you
-            ? { ...this.snapshot.you, ready: states.find((s) => s.id !== opponent?.id)?.ready ?? false }
+            ? { ...this.snapshot.you, ready: readyOf(this.snapshot.you.id) }
             : this.snapshot.you,
-          opponent: opponent
-            ? { ...opponent, ready: states.find((s) => s.id === opponent.id)?.ready ?? false }
-            : opponent,
+          opponent: opponent ? { ...opponent, ready: readyOf(opponent.id) } : opponent,
+          teammates: this.snapshot.teammates.map((entry) => ({ ...entry, ready: readyOf(entry.id) })),
+          rivals: this.snapshot.rivals.map((entry) => ({ ...entry, ready: readyOf(entry.id) })),
         });
         return;
       }
@@ -389,6 +447,9 @@ export class PvpClient {
         if (message.you) patch.yourCombat = message.you as PvpCombat;
         if (message.opponent) patch.opponentCombat = message.opponent as PvpCombat;
         if (message.rival) patch.rival = message.rival as CoopRival;
+        // 2v2 only: who is out of the round so far. A team is beaten when all
+        // of its pilots are listed, not when the first one is.
+        if (Array.isArray(message.down)) patch.down = message.down as string[];
         this.update(patch);
         return;
       }
@@ -434,7 +495,11 @@ export class PvpClient {
         if (eventId) this.seenIncoming.add(eventId);
         const weapon = String(message.weapon ?? "");
         const from = String(message.from ?? "OPPONENT");
-        this.incomingQueue.push({ weapon, from });
+        // In a shared arena only the host may spawn the attack; the other pilot
+        // is told so it can show the warning, and will see the hostile arrive in
+        // the host's world snapshot. Two spawns would be two hostiles for one
+        // payload. An absent flag means "spawn it", which is what 1v1 sends.
+        if (message.spawn !== false) this.incomingQueue.push({ weapon, from });
         // Expiry lives here rather than in the component: a render must not
         // read the clock to decide whether a warning is still current.
         if (this.warningTimer) clearTimeout(this.warningTimer);
@@ -447,10 +512,17 @@ export class PvpClient {
       }
       case "opponent": {
         const opponent = this.snapshot.opponent;
-        if (message.state === "reconnected") this.teammateMotion.reset();
+        const connected = message.state === "reconnected";
+        // The server names who it means, because in a four-pilot room "the
+        // opponent" is three different people.
+        const id = typeof message.id === "string" ? message.id : opponent?.id;
+        const mark = (entry: PvpOpponent) => (entry.id === id ? { ...entry, connected } : entry);
+        if (connected) this.teammateMotion.reset();
         this.update({
-          ...(message.state === "reconnected" ? { teammate: null } : {}),
-          opponent: opponent ? { ...opponent, connected: message.state === "reconnected" } : opponent,
+          ...(connected ? { teammate: null } : {}),
+          opponent: opponent && opponent.id === id ? { ...opponent, connected } : opponent,
+          teammates: this.snapshot.teammates.map(mark),
+          rivals: this.snapshot.rivals.map(mark),
         });
         return;
       }
@@ -574,7 +646,7 @@ export class PvpClient {
 
   leave() {
     this.send({ type: "leave" });
-    this.update({ phase: "idle", opponent: null, result: null, rematch: null, yourCombat: null, opponentCombat: null });
+    this.update({ phase: "idle", opponent: null, teammates: [], rivals: [], down: [], queue: null, result: null, rematch: null, yourCombat: null, opponentCombat: null });
   }
 
   disconnect() {

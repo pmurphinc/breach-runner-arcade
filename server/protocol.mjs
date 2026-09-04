@@ -10,7 +10,7 @@
  * `tests/pvp-protocol.test.mjs` asserts the two agree.
  */
 
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 8;
 
 /** WebSocket path. Shares the game's HTTP server and Railway's injected PORT. */
 export const PVP_PATH = "/pvp";
@@ -97,7 +97,17 @@ export const PICKUP_IDS = [
 /** Bound on the shared-arena addition to a world snapshot. */
 export const MAX_SHARED_PUPS = 48;
 
-export const SESSION_KINDS = ["pvp", "coop"];
+/**
+ * Session kinds a client may ask for.
+ *
+ * "team" is 2v2: four pilots, two teams, two shared arenas with one rift each.
+ * It is PvP-shaped rather than PvE-shaped, so like "pvp" it never lets a client
+ * choose the rules. `app/team-rooms.js` owns what each kind's roster looks like.
+ */
+export const SESSION_KINDS = ["pvp", "coop", "team"];
+
+/** Kinds whose rules are server-owned and never client-selectable. */
+export const SERVER_RULED_KINDS = ["pvp", "team"];
 export const DIFFICULTY_IDS = ["practice", "easy", "difficult", "hard"];
 
 export const SHIP_IDS = [
@@ -225,9 +235,10 @@ export function parseClientMessage(raw) {
     case "queue":
     case "create": {
       const kind = SESSION_KINDS.includes(parsed.kind) ? parsed.kind : "pvp";
-      // PvP rules are server-owned. Accept legacy/arbitrary client difficulty
-      // payloads, but never let them select rules or a matchmaking partition.
-      const difficulty = kind === "pvp"
+      // PvP and 2v2 rules are server-owned. Accept legacy/arbitrary client
+      // difficulty payloads, but never let them select rules or a matchmaking
+      // partition. Co-op keeps its difficulty-specific public queues.
+      const difficulty = SERVER_RULED_KINDS.includes(kind)
         ? "easy"
         : (DIFFICULTY_IDS.includes(parsed.difficulty) ? parsed.difficulty : "easy");
       return { ok: true, message: { type, kind, difficulty } };
