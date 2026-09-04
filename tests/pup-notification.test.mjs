@@ -78,7 +78,12 @@ test("plate identity is stable so the HUD only re-renders on a real change", () 
 
 test("temporary notice content is excluded from arena resize observation", () => {
   const observerStart = game.indexOf("const observer = new ResizeObserver(measure)");
-  const observerEnd = game.indexOf("return () => observer.disconnect()", observerStart);
+  // Anchored on the disconnect call itself rather than a whole return
+  // statement: adding a second observer to this effect changes the shape of the
+  // cleanup, and a stricter anchor silently widened this slice to the rest of
+  // the file instead of failing honestly.
+  const observerEnd = game.indexOf("observer.disconnect()", observerStart);
+  assert.ok(observerStart > 0 && observerEnd > observerStart, "the observer and its cleanup are both here");
   const observedGeometry = game.slice(observerStart, observerEnd);
   assert.doesNotMatch(observedGeometry, /pup-notice-stack/);
   assert.match(observedGeometry, /touch-powerup-hud/,

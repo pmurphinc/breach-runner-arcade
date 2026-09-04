@@ -196,7 +196,14 @@ test('view profiles separate input capabilities from the canonical modern HUD', 
 
 test('phone portrait reserves measured HUD and control rows around a flexible arena', () => {
   assert.match(game, /phonePortrait[\s\S]*bottomOf\("\.touch-powerup-hud"\)/);
-  const geometryObserver = game.slice(game.indexOf('const observer = new ResizeObserver(measure)'), game.indexOf('return () => observer.disconnect()', game.indexOf('const observer = new ResizeObserver(measure)')));
+  // Bounded by the effect's own cleanup. Anchored on `observer.disconnect()`
+  // rather than a whole return statement so that adding another observer to the
+  // same effect does not silently widen this slice to the rest of the file —
+  // which is what a stricter anchor did when the swap watcher landed.
+  const observerAt = game.indexOf('const observer = new ResizeObserver(measure)');
+  const cleanupAt = game.indexOf('observer.disconnect()', observerAt);
+  assert.ok(observerAt > 0 && cleanupAt > observerAt, 'the geometry observer and its cleanup are both here');
+  const geometryObserver = game.slice(observerAt, cleanupAt);
   assert.doesNotMatch(geometryObserver, /pup-notice-stack/,
     'temporary notices must not participate in HUD measurement or renderer resize');
   assert.match(arenaHudCss, /--portrait-control-deck:[^;]*var\(--stick\)[^;]*var\(--touch-lift/);
@@ -458,4 +465,39 @@ test('Restart Run is solo-only, because the server owns a live match', () => {
   assert.match(pause, /\{network \? null : \([\s\S]*?Restart Run[\s\S]*?\)\}/);
   // Leaving is named for what it does in each mode.
   assert.match(pause, /network \? "Leave Match" : "Quit to Main Menu"/);
+});
+
+/**
+ * The measured HUD bands must survive the rail being *replaced*, not just resized.
+ *
+ * `--rules-bottom` is measured from `.difficulty-badge` and the health bars hang
+ * off it. Those elements were observed exactly once, when the layout effect ran,
+ * which held only as long as the same element stayed in the DOM. Rift Run
+ * renders its own rules rail — a different element from the one every other mode
+ * uses — so entering a run swapped the rail out from under the ResizeObserver.
+ * Nothing was left watching the element the band is derived from, the value went
+ * stale, and on a 375px screen the health bars sat on top of a rail that had
+ * since wrapped to several lines, hiding DEPTH behind the HULL bar.
+ *
+ * A ResizeObserver cannot see a swap, so this needs a DOM-mutation watcher. The
+ * assertions below are about that: re-attach on change, and re-measure.
+ */
+test('a swapped rules rail re-attaches the observers and re-measures', () => {
+  // Two rails exist, and they are different elements — this is the condition
+  // that made a one-shot attach wrong in the first place.
+  assert.match(game, /className="difficulty-badge rift-run-badge"/, 'Rift Run has its own rail');
+  assert.match(game, /className=\{`difficulty-badge \$\{contactActive \? "hazard" : ""\}`\}/, 'every other mode has another');
+
+  assert.ok(game.includes('const swaps = new MutationObserver(() => { attach(); measure(); });'),
+    'a swap re-attaches and re-measures');
+  assert.ok(game.includes('swaps.observe(wrap, { childList: true, subtree: true });'),
+    'and it watches the whole HUD subtree, since the rail is nested');
+  assert.ok(game.includes('swaps.disconnect()'), 'and it is torn down with the effect');
+
+  // Attachment is a function that re-queries, not a one-shot loop, so it can be
+  // called again after a swap.
+  assert.ok(game.includes('const attach = () => {'), 'attachment is repeatable');
+  const attachAt = game.indexOf('const attach = () => {');
+  const swapsAt = game.indexOf('const swaps = new MutationObserver');
+  assert.ok(attachAt > 0 && swapsAt > attachAt, 'defined before the watcher that calls it');
 });

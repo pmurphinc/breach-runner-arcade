@@ -2694,15 +2694,40 @@ export default function WormholeGame() {
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(wrap);
-    for (const selector of [".difficulty-badge", ".pilot-rail", ".pilot-rail small", ".rival-rail", ".touch-powerup-hud"]) {
-      const element = wrap.querySelector(selector);
-      if (element) observer.observe(element);
-    }
+
+    const MEASURED = [".difficulty-badge", ".pilot-rail", ".pilot-rail small", ".rival-rail", ".touch-powerup-hud"];
+    /**
+     * Attach to whichever of the measured elements exist *right now*.
+     *
+     * These used to be observed exactly once, when the effect ran, which broke
+     * the moment one of them was replaced rather than resized. Rift Run renders
+     * its own rules rail — a different element from the one every other mode
+     * uses — so entering a run swapped the rail out from under the observer.
+     * Nothing was then watching the element `--rules-bottom` is derived from,
+     * the value went stale, and on a narrow screen the health bars sat on top of
+     * a rail that had since wrapped to several lines.
+     *
+     * Re-querying is cheap and idempotent: observing an element the same
+     * observer already watches is a no-op.
+     */
+    const attach = () => {
+      for (const selector of MEASURED) {
+        const element = wrap.querySelector(selector);
+        if (element) observer.observe(element);
+      }
+    };
+    attach();
+
+    // The rail is swapped, not resized, so no ResizeObserver can catch it: it
+    // takes a DOM change to re-attach and re-measure.
+    const swaps = new MutationObserver(() => { attach(); measure(); });
+    swaps.observe(wrap, { childList: true, subtree: true });
+
     // Fixed, so outside the wrap — but its width changes when the Fullscreen
     // label does, and the rail has to re-inset when it happens.
     const systemControlsEl = document.querySelector(".system-controls");
     if (systemControlsEl) observer.observe(systemControlsEl);
-    return () => observer.disconnect();
+    return () => { observer.disconnect(); swaps.disconnect(); };
   }, [immersive, layout.arena, layout.form, layout.orientation, layout.preset, layout.sticks, mode, net?.phase, viewProfile.modernHud]);
 
   useEffect(() => {
