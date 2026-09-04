@@ -14,6 +14,7 @@ import { MenuScreen, MenuSection, OptionRow, SummaryRow, Toggle } from "./ui-sys
 import { MenuSectionNav } from "./menu-nav";
 import { WEAPONS, type PickupId, type PupClass, type ShipId } from "./game-data";
 import { SHIP_ORDER, SHIP_PROFILES } from "./ship-data";
+import { difficultyCardStyle } from "./arena-palettes";
 import { DIFFICULTIES, DIFFICULTY_ORDER, type DifficultyId, type GameMode } from "./difficulty";
 import { PRODUCT_TAGLINE, PRODUCT_TITLE } from "./product";
 import type { MenuRoute } from "./menu-routes";
@@ -422,9 +423,9 @@ export function DifficultyScreen({ ship, mode, difficulty, progression, onDiffic
     <LobbyShipPicker ship={ship} onSelectShip={onSelectShip} renderShip={renderShip} />
     <MenuSection title="Difficulty" hint="Complete each tier to unlock the next.">
       <div className="difficulty-progression" role="radiogroup" aria-label="PvE difficulty">
-        {PROGRESSION_DIFFICULTIES.map((id) => { const unlocked=isDifficultyUnlocked(id, progression); const prerequisite=id === "difficult" ? "STABLE" : "VOLATILE"; return <button key={id} type="button" role="radio" aria-checked={difficulty===id} disabled={!unlocked} aria-disabled={!unlocked} className={`difficulty-card ${difficulty===id ? "active" : ""} ${unlocked ? "unlocked" : "locked"}`} onClick={() => onDifficulty(id)}><span className="option-check" aria-hidden="true">{difficulty===id ? "✓" : !unlocked ? "🔒" : ""}</span><b>{difficultyLabel(id)}</b><small>{unlocked ? difficultyBlurb(id) : `Complete ${prerequisite} to unlock`}</small><em>{progression.completedDifficulties.includes(id) ? "Completed" : unlocked ? "Available" : `Complete ${prerequisite} to unlock`}</em></button>; })}
+        {PROGRESSION_DIFFICULTIES.map((id) => { const unlocked=isDifficultyUnlocked(id, progression); const prerequisite=id === "difficult" ? "STABLE" : "VOLATILE"; return <button key={id} type="button" role="radio" aria-checked={difficulty===id} disabled={!unlocked} aria-disabled={!unlocked} className={`difficulty-card ${difficulty===id ? "active" : ""} ${unlocked ? "unlocked" : "locked"}`} style={difficultyCardStyle(id) as React.CSSProperties} onClick={() => onDifficulty(id)}><span className="option-check" aria-hidden="true">{difficulty===id ? "✓" : !unlocked ? "🔒" : ""}</span><b>{difficultyLabel(id)}</b><small>{unlocked ? difficultyBlurb(id) : `Complete ${prerequisite} to unlock`}</small><em>{progression.completedDifficulties.includes(id) ? "Completed" : unlocked ? "Available" : `Complete ${prerequisite} to unlock`}</em></button>; })}
       </div>
-      <div className="simulation-option"><button type="button" role="radio" aria-checked={difficulty==="practice"} className={`difficulty-card ${difficulty==="practice" ? "active" : ""}`} onClick={() => onDifficulty("practice")}><span className="option-check">{difficulty==="practice" ? "✓" : ""}</span><b>{difficultyLabel("practice")}</b><small>Practice / unscored</small><em>Training</em></button></div>
+      <div className="simulation-option"><button type="button" role="radio" aria-checked={difficulty==="practice"} className={`difficulty-card ${difficulty==="practice" ? "active" : ""}`} style={difficultyCardStyle("practice") as React.CSSProperties} onClick={() => onDifficulty("practice")}><span className="option-check">{difficulty==="practice" ? "✓" : ""}</span><b>{difficultyLabel("practice")}</b><small>Practice / unscored</small><em>Training</em></button></div>
     </MenuSection>
   </MenuScreen>;
 }
