@@ -11,6 +11,13 @@
  * `tests/difficulty.test.mjs`) without standing up a canvas or a game loop.
  */
 
+import {
+  CRITICAL_PRESSURE_ZONE,
+  NO_PRESSURE_ZONE,
+  VOLATILE_PRESSURE_ZONE,
+  type PressureZoneRules,
+} from "./pressure-zone.ts";
+
 /** Fixed simulation step, shared with the game loop. */
 export const TICK_MS = 15;
 
@@ -144,6 +151,14 @@ export type DifficultyRules = {
   /** Starting rival integrity for this difficulty. Standard integrity is 100. */
   rivalIntegrity: number;
   wormholeEnrage: WormholeEnrageRules;
+  /**
+   * Whether camping the rift builds pressure, and how hard.
+   *
+   * Off for the two gentlest rulesets and for Survival, which escalates on
+   * its own clock and would be running two pressure systems at once. See
+   * `pressure-zone.ts`.
+   */
+  pressureZone: PressureZoneRules;
 };
 
 /** Wormhole orbit used by DIFFICULT and HARD MODE — the game's existing motion. */
@@ -193,6 +208,7 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyRules> = {
     wall: STANDARD_WALL,
     rivalIntegrity: 100,
     wormholeEnrage: { enabled: false },
+    pressureZone: NO_PRESSURE_ZONE,
   },
   easy: {
     id: "easy",
@@ -211,6 +227,7 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyRules> = {
     wall: STANDARD_WALL,
     rivalIntegrity: 100,
     wormholeEnrage: { enabled: false },
+    pressureZone: NO_PRESSURE_ZONE,
   },
   difficult: {
     id: "difficult",
@@ -224,6 +241,7 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyRules> = {
     unlimitedHull: false,
     wall: STANDARD_WALL,
     rivalIntegrity: 200,
+    pressureZone: VOLATILE_PRESSURE_ZONE,
     wormholeEnrage: {
       enabled: true,
       thresholdFraction: 0.15,
@@ -253,6 +271,7 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyRules> = {
     unlimitedHull: false,
     wall: STANDARD_WALL,
     rivalIntegrity: 350,
+    pressureZone: CRITICAL_PRESSURE_ZONE,
     wormholeEnrage: {
       enabled: true,
       thresholdFraction: 0.3,
@@ -295,6 +314,7 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyRules> = {
     unlimitedHull: false,
     wall: STANDARD_WALL,
     rivalIntegrity: 150,
+    pressureZone: NO_PRESSURE_ZONE,
     wormholeEnrage: { enabled: false },
   },
 };
@@ -399,6 +419,9 @@ export const CLASSIC_RULES: DifficultyRules = {
   wall: { bounce: -0.5, damage: 0 },
   rivalIntegrity: 100,
   wormholeEnrage: { enabled: false },
+  // No pressure zone: the original had no anti-camp system, and Classic is
+  // fidelity to it rather than a difficulty of its own.
+  pressureZone: NO_PRESSURE_ZONE,
 };
 
 export function rulesFor(mode: GameMode, difficulty: DifficultyId): DifficultyRules {

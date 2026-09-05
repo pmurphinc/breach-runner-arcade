@@ -23,10 +23,22 @@ import {
 } from "./rift-pressure.ts";
 
 export type RiftDangerRuntime = {
-  /** What this rift has left to shed. Replaced outright when a rift reforms. */
-  budget: RiftPupBudget;
+  /**
+   * What this rift has left to shed. Replaced outright when a rift reforms.
+   *
+   * Null outside Rift Run. PvE's rift pays power-ups per point of damage
+   * taken rather than out of a per-rift allocation, so there is nothing to
+   * budget -- and its absence is what the loop reads to tell the two apart.
+   */
+  budget: RiftPupBudget | null;
   pressure: RiftPressureState;
-  hazards: RiftHazardScheduler;
+  /**
+   * The environmental hazard scheduler. Null outside Rift Run.
+   *
+   * Hazards are gated on breach depth and pilot level, neither of which
+   * exists in an ordinary PvE round.
+   */
+  hazards: RiftHazardScheduler | null;
   /** Rings in flight. Each is created by a landed shockwave retaliation. */
   shockwaves: RiftShockwave[];
   /** Rotating arms in flight. At most one, but a list keeps the loop uniform. */
@@ -47,6 +59,30 @@ export function createRiftDanger(): RiftDangerRuntime {
 }
 
 /**
+ * The same rift danger, minus the two systems that belong to Rift Run.
+ *
+ * A PvE rift on VOLATILE or CRITICAL builds pressure and retaliates exactly
+ * as a Rift Run's does -- that is the whole point of sharing the runtime
+ * rather than growing a second one -- but it sheds power-ups on damage
+ * instead of out of a budget, and it schedules no environmental hazards.
+ */
+export function createPressureZoneDanger(): RiftDangerRuntime {
+  return {
+    budget: null,
+    pressure: createRiftPressure(),
+    hazards: null,
+    shockwaves: [],
+    sweeps: [],
+    phaseId: RIFT_PHASES[0].id,
+  };
+}
+
+/** True when this runtime belongs to a Rift Run rather than a PvE round. */
+export function isRiftRunDanger(runtime: RiftDangerRuntime): boolean {
+  return runtime.budget !== null;
+}
+
+/**
  * A fresh rift has arrived.
  *
  * The budget starts over — that is the whole point of a per-rift allocation —
@@ -60,7 +96,9 @@ export function createRiftDanger(): RiftDangerRuntime {
  * arena went quiet exactly when the run got harder.
  */
 export function resetRiftDangerForNewRift(runtime: RiftDangerRuntime): void {
-  runtime.budget = createRiftPupBudget();
+  // A PvE rift has no budget to replace, and giving it one here would turn
+  // it into a Rift Run rift on the next breach.
+  if (runtime.budget) runtime.budget = createRiftPupBudget();
   resetRiftPressure(runtime.pressure);
   runtime.shockwaves = [];
   runtime.sweeps = [];
@@ -70,5 +108,5 @@ export function resetRiftDangerForNewRift(runtime: RiftDangerRuntime): void {
 /** Wipes everything, including hazards. For a run ending or being abandoned. */
 export function clearRiftDanger(runtime: RiftDangerRuntime): void {
   resetRiftDangerForNewRift(runtime);
-  clearRiftHazards(runtime.hazards);
+  if (runtime.hazards) clearRiftHazards(runtime.hazards);
 }

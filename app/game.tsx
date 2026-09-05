@@ -135,7 +135,7 @@ import {
 } from "./shared-arena.js";
 import { applyRiftRunCannonDamage, applyRiftRunHullWeaponDamage, RIFT_RUN_BASE_INTEGRITY } from "./rift-run/rift-damage";
 import { breachRiftRun, tickRiftReform } from "./rift-run/breach";
-import { createRiftDanger, clearRiftDanger, resetRiftDangerForNewRift, type RiftDangerRuntime } from "./rift-run/danger";
+import { createRiftDanger, createPressureZoneDanger, clearRiftDanger, resetRiftDangerForNewRift, type RiftDangerRuntime } from "./rift-run/danger";
 import { creditRiftPupBudget, ejectRiftPup, RIFT_PUP_GRACE_TICKS, RIFT_PUP_LIFE_TICKS, riftPupBudgetRemaining } from "./rift-run/pup-budget";
 import { riftPhaseForIntegrity, riftPhaseNotice, riftPhaseSpawn } from "./rift-run/rift-phases";
 import {
@@ -251,6 +251,7 @@ import {
   recordRiftRun,
   type RiftRunEntry,
 } from "./rift-run-board";
+import { pressureZonePhase } from "./pressure-zone";
 import { formatRunTime, normalizeInitials, settleScore } from "./run-scoring";
 import { suppressionBarrageRounds } from "./suppression-barrage";
 import {
@@ -894,7 +895,7 @@ function coachLine(game: Game) {
   // Rift Run's rift pays a budget at integrity thresholds, so telling a Rift
   // Run pilot how much more damage buys a power-up would be a lie: inside a
   // band the answer is "no amount".
-  if (game.riftDanger) {
+  if (game.riftDanger?.budget) {
     const left = riftPupBudgetRemaining(game.riftDanger.budget);
     return left > 0
       ? `BREAK THE RIFT DOWN // ${left} PAYLOAD${left === 1 ? "" : "S"} LEFT IN IT`
@@ -995,7 +996,14 @@ function createGame(
     survival: isSurvival(rules) ? createSurvivalState() : null,
     // Rift Run arms this in `start`, where the run itself is created.
     riftEscalation: null,
-    riftDanger: riftRun ? createRiftDanger() : null,
+    // Rift Run gets the full set. VOLATILE and CRITICAL get the pressure
+    // zone alone -- same meter, same retaliations, none of Rift Run's
+    // per-rift payload budget and none of its depth-gated hazards.
+    riftDanger: riftRun
+      ? createRiftDanger()
+      : rules.pressureZone.enabled
+        ? createPressureZoneDanger()
+        : null,
     victorySequence: 0,
     victoryExplosionFired: false,
     enrageActive: false,
@@ -1086,7 +1094,7 @@ function hudFrom(game: Game): Hud {
     riftStage: game.survival?.escalation.stage.name ?? "",
     breaches: game.survival?.breaches ?? 0,
     riftPressure: Math.round(game.riftDanger?.pressure.pressure ?? 0),
-    riftPupBudget: game.riftDanger ? riftPupBudgetRemaining(game.riftDanger.budget) : 0,
+    riftPupBudget: game.riftDanger?.budget ? riftPupBudgetRemaining(game.riftDanger.budget) : 0,
   };
 }
 
@@ -2125,7 +2133,7 @@ function DifficultyBadge({
     : "";
   const status = activeMode === "classic"
     ? `CLASSIC | KILLS ${live ? hud.kills : 0} | RIFT ${wormhole}${upgrades ? ` | ${upgrades}` : ""}`
-    : `${gameMode} · ${difficulty}${riftLevel > 0 ? ` | RIFT LEVEL ${riftLevel} · ${riftStage}` : ""} | RIFT ${wormhole} | ${shieldText} | CONTACT ${contact}${live && hud.enrageActive ? " | ENRAGED" : ""}`;
+    : `${gameMode} · ${difficulty}${riftLevel > 0 ? ` | RIFT LEVEL ${riftLevel} · ${riftStage}` : ""} | RIFT ${wormhole} | ${shieldText} | CONTACT ${contact}${hud.riftPressure > 2 ? ` | RIFT PRESSURE ${hud.riftPressure}%` : ""}${live && hud.enrageActive ? " | ENRAGED" : ""}`;
   const context = live && hud.enrageActive
     ? "ENRAGED"
     : recharge > 0
@@ -2191,6 +2199,11 @@ function DifficultyBadge({
           <span className="rule-mode">{gameMode} · {difficulty}</span>
           {riftLevel > 0 ? <span className="rule-rift-level">LEVEL {riftLevel} · {riftStage}</span> : null}
           <span className="rule-rift">RIFT {wormhole}</span>
+          {hud.riftPressure > 2 ? (
+            <span className={hud.riftPressure >= 70 ? "rule-rift-pressure hot" : "rule-rift-pressure"}>
+              PRESSURE {hud.riftPressure}%
+            </span>
+          ) : null}
         <span className={`rule-shield ${charge !== null && charge <= 0 ? "warn" : ""}`}>{shieldText}</span>
         <span className={`rule-contact ${hazardArmed ? "warn" : ""}`}>CONTACT {contact}</span>
           {live && hud.enrageActive ? <span className="rule-enraged warn">ENRAGED</span> : null}
@@ -4805,7 +4818,9 @@ export default function WormholeGame() {
      */
     const releaseRiftBudget = (game: Game) => {
       const danger = game.riftDanger;
-      if (!danger || game.rivalMaxHealth <= 0) return;
+      // No budget means a PvE rift, which sheds power-ups per point of damage
+      // taken instead of out of an allocation.
+      if (!danger?.budget || game.rivalMaxHealth <= 0) return;
       const owed = creditRiftPupBudget(danger.budget, game.rivalHealth / game.rivalMaxHealth);
       if (owed <= 0) return;
       for (let index = 0; index < owed; index += 1) {
@@ -4839,14 +4854,25 @@ export default function WormholeGame() {
      */
     const tickRiftDanger = (game: Game) => {
       const danger = game.riftDanger;
-      const run = riftRunRef.current;
-      if (!danger || !run || game.result || game.riftReformTicks > 0) return;
+      // A Rift Run has one; a PvE round with a pressure zone does not, and
+      // that is the only difference between them here.
+      const run = danger?.budget ? riftRunRef.current : null;
+      if (!danger || game.result || game.riftReformTicks > 0) return;
       const player = game.player;
 
       // 1. Phase. Announced once per transition, never per tick.
       const fraction = game.rivalMaxHealth > 0 ? game.rivalHealth / game.rivalMaxHealth : 1;
-      const phase = riftPhaseForIntegrity(fraction);
-      if (phase.id !== danger.phaseId) {
+      // The zone rescales the phase rather than the pressure system learning
+      // about difficulty. A Rift Run has no zone, so its phase is unchanged.
+      const phase = pressureZonePhase(riftPhaseForIntegrity(fraction), game.rules.pressureZone);
+      // Announced in Rift Run only. PvE already names a rift state of its
+      // own -- ENRAGED -- on its own threshold, and the two do not line up:
+      // CRITICAL enrages at 30% integrity while COLLAPSING starts at 18%, so
+      // announcing both would put two different words for the rift's
+      // condition on screen at once. There the ring and the retaliation
+      // telegraph are the feedback, and they are enough: a meter that fills
+      // faster is visible without being told.
+      if (phase.id !== danger.phaseId && run) {
         danger.phaseId = phase.id;
         game.notice = riftPhaseNotice(phase);
         game.noticeLife = 120;
@@ -4864,7 +4890,7 @@ export default function WormholeGame() {
         riftX: game.portalX,
         riftY: game.portalY,
         phase,
-        hazardBusy: lethalHazardActive(danger.hazards),
+        hazardBusy: danger.hazards ? lethalHazardActive(danger.hazards) : false,
       });
 
       if (pressure.telegraphed) {
@@ -4923,6 +4949,7 @@ export default function WormholeGame() {
       // 4. Environmental hazards. Depth is the primary gate, pilot level the
       // secondary floor, and the scheduler refuses to open a lethal event
       // while the rift is mid-retaliation.
+      if (!danger.hazards || !run) return;
       const hazards = tickRiftHazards(danger.hazards, {
         depth: run.riftBreaches,
         level: run.level,
@@ -5829,7 +5856,7 @@ export default function WormholeGame() {
       // toward the rift, and stacks with the depth well above: it is pressure,
       // not lethality, and its job is to make every other danger harder to
       // answer rather than to kill anyone by itself.
-      const well = game.riftDanger ? riftHazardGravity(game.riftDanger.hazards) : null;
+      const well = game.riftDanger?.hazards ? riftHazardGravity(game.riftDanger.hazards) : null;
       if (well) {
         const dx = well.x - player.x;
         const dy = well.y - player.y;
@@ -6147,8 +6174,8 @@ export default function WormholeGame() {
           // meter there. It still lands, at a small integrity trickle, so a
           // pilot out of PUPs and without a hull weapon still has a way to
           // make progress. Every other mode is untouched.
-          if (struck.id === 0 && !game.riftDanger) chargeRiftPup(game, bullet.damage);
-          else if (struck.id === 0 && game.riftDanger) hitRiftWithCannonInRiftRun(game, bullet.damage);
+          if (struck.id === 0 && !game.riftDanger?.budget) chargeRiftPup(game, bullet.damage);
+          else if (struck.id === 0) hitRiftWithCannonInRiftRun(game, bullet.damage);
           else {
             // A rival's portal banks its own damage and sheds at its own
             // threshold. It is not this pilot's rift, so it does not feed the
@@ -6801,7 +6828,7 @@ export default function WormholeGame() {
         ctx.restore();
       }
 
-      for (const event of danger.hazards.active) {
+      for (const event of danger.hazards?.active ?? []) {
         for (const impact of event.impacts) {
           const warning = impact.warningTicks > 0;
           if (!warning && impact.liveTicks <= 0) continue;
