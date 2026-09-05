@@ -405,7 +405,8 @@ test("survival is launched from Challenges, not from the difficulty list", () =>
   // The roadmap rules out Survival Easy / Survival Hard menu entries, so the
   // difficulty selector must not offer it at all.
   assert.ok(!DIFFICULTIES.survival.unlimitedHull);
-  assert.match(menu, /title="Select PvE Mode"/);
+  // One list now, rather than a PvE branch of its own.
+  assert.match(menu, /title="Select Game Mode"/);
   assert.match(menu, /data-mode="survival"/);
   assert.match(menu, /onClick=\{onSurvival\}/);
   // Survival owns its launch and never enters the standard Difficulty screen.

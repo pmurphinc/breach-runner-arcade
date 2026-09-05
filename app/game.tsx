@@ -91,8 +91,6 @@ import {
   HomeScreen,
   InfoScreen,
   GameTypeScreen,
-  PvpModesScreen,
-  PveModesScreen,
   DifficultyScreen,
   PauseScreen,
   RiftRunSetupScreen,
@@ -8977,19 +8975,20 @@ export default function WormholeGame() {
       ) : null}
 
       {route === "modes" ? (
-        <GameTypeScreen go={go} openSettings={openSettings} back={back} close={resumeOrClose} />
-      ) : null}
-
-      {route === "pvp-modes" ? (
-        <PvpModesScreen onSelect={(kind) => { chooseMode(kind); setMenu(["modes", "pvp-modes", "lobby"]); }} go={go} openSettings={openSettings} back={back} close={resumeOrClose} />
-      ) : null}
-
-      {route === "pve-modes" ? (
-        <PveModesScreen onMode={(next) => {
-          chooseMode(next);
-          if (next === "classic") start(undefined, "classic");
-          else setMenu(["modes", "pve-modes", "difficulty"]);
-        }} onSurvival={() => { chooseSurvival(); start(undefined, "pve", "survival"); }} onRiftRun={() => go("rift-run")} go={go} openSettings={openSettings} back={back} close={resumeOrClose} />
+        <GameTypeScreen
+          onMode={(next) => {
+            chooseMode(next);
+            if (next === "classic") start(undefined, "classic");
+            else setMenu(["modes", "difficulty"]);
+          }}
+          onSurvival={() => { chooseSurvival(); start(undefined, "pve", "survival"); }}
+          onRiftRun={() => go("rift-run")}
+          onVersus={(kind) => { chooseMode(kind); setMenu(["modes", "lobby"]); }}
+          go={go}
+          openSettings={openSettings}
+          back={back}
+          close={resumeOrClose}
+        />
       ) : null}
 
       {route === "difficulty" ? (
