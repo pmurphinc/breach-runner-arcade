@@ -14,6 +14,12 @@ import { MenuScreen, MenuSection, OptionRow, SummaryRow, Toggle } from "./ui-sys
 import { MenuSectionNav } from "./menu-nav";
 import { WEAPONS, type PickupId, type PupClass, type ShipId } from "./game-data";
 import { SHIP_ORDER, SHIP_PROFILES } from "./ship-data";
+import {
+  FLIGHT_SCHEMES,
+  FLIGHT_SCHEME_HINTS,
+  FLIGHT_SCHEME_LABELS,
+  type FlightScheme,
+} from "./flight-controls";
 import { difficultyCardStyle } from "./arena-palettes";
 import { DIFFICULTIES, DIFFICULTY_ORDER, type DifficultyId, type GameMode } from "./difficulty";
 import { PRODUCT_TAGLINE, PRODUCT_TITLE } from "./product";
@@ -638,6 +644,8 @@ export function SettingsScreen({
   onAimGuide,
   compactHud,
   onCompactHud,
+  flightScheme,
+  onFlightScheme,
   touchProfile,
   onTouchProfile,
   onEditTouchLayout,
@@ -669,6 +677,8 @@ export function SettingsScreen({
   onAimGuide: (next: AimGuide) => void;
   compactHud: boolean;
   onCompactHud: (next: boolean) => void;
+  flightScheme: FlightScheme;
+  onFlightScheme: (next: FlightScheme) => void;
   touchProfile: TouchProfileId;
   onTouchProfile: (next: TouchProfileId) => void;
   onEditTouchLayout: () => void;
@@ -756,6 +766,19 @@ export function SettingsScreen({
             { id: "hybrid", label: "Both" },
           ]}
           onChange={(next) => onViewMode(next === "auto" ? null : (next as ViewMode))}
+        />
+        {/* Above the layout, because it decides what the sticks *do*; the
+            layout only decides where they sit. */}
+        <OptionRow
+          label="Flight controls"
+          value={flightScheme}
+          disabled={viewMode === "pc"}
+          options={FLIGHT_SCHEMES.map((id) => ({
+            id,
+            label: FLIGHT_SCHEME_LABELS[id],
+            hint: FLIGHT_SCHEME_HINTS[id],
+          }))}
+          onChange={(next) => onFlightScheme(next as FlightScheme)}
         />
         <OptionRow
           label="Touch profile"

@@ -1,3 +1,4 @@
+import { isFlightScheme, type FlightScheme } from "./flight-controls.ts";
 import {
   type CustomTouchLayout,
   type TouchProfileId,
@@ -40,6 +41,20 @@ export type DeviceSettings = {
   aimGuide: AimGuide;
   thumbsticks: boolean;
   /**
+   * What the sticks mean.
+   *
+   * "classic" is the original Wormhole arrangement and the default: the left
+   * stick turns the hull and, past its deadzone, opens the throttle, while the
+   * right-hand control is a trigger that fires along the heading the ship
+   * already holds. "twin-stick" is this game's own scheme, where the left stick
+   * is thrust in a direction and the right aims independently.
+   *
+   * Classic leads because the players most likely to find this game are the
+   * ones who already know Wormhole, and landing in unfamiliar controls is the
+   * fastest way to lose them.
+   */
+  flightScheme: FlightScheme;
+  /**
    * Which named touch layout is in force.
    *
    * "m-sticks" is the responsive twin-stick layout the game has always had, and
@@ -81,6 +96,7 @@ export const DEFAULT_SETTINGS: DeviceSettings = {
   cannonHitSound: true,
   aimGuide: "off",
   thumbsticks: true,
+  flightScheme: "classic",
   touchProfile: "m-sticks",
   customTouchLayout: defaultCustomTouchLayout(),
   touchControlSize: "medium",
@@ -134,6 +150,9 @@ export function migrateSettings(value: unknown): DeviceSettings {
     cannonHitSound: typeof candidate.cannonHitSound === "boolean" ? candidate.cannonHitSound : true,
     aimGuide: isAimGuide(candidate.aimGuide) ? candidate.aimGuide : "off",
     thumbsticks: typeof candidate.thumbsticks === "boolean" ? candidate.thumbsticks : true,
+    // An unknown scheme falls back to Classic, which is also what a player who
+    // has never opened the setting gets.
+    flightScheme: isFlightScheme(candidate.flightScheme) ? candidate.flightScheme : "classic",
     // An unknown profile id falls back to M-Sticks rather than leaving the
     // player with controls the shipped stylesheet cannot place.
     touchProfile: isTouchProfileId(candidate.touchProfile) ? candidate.touchProfile : "m-sticks",

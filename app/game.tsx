@@ -189,6 +189,7 @@ import { cannonPlaybackRate, playCombatHaptics } from "./combat-feedback";
 import { PUP_INVENTORY_CAPACITY, consumeLoadedPup, pupInventoryLayout } from "./pup-inventory";
 import { TouchLayoutEditor } from "./touch-layout-editor";
 import { customTouchLayoutVariables, touchElementEdge } from "./touch-profiles";
+import { classicDeadzone, rightControlAims, stickFlight } from "./flight-controls";
 import { salvageLinkHitsPup } from "./salvage-link";
 import { inventoryPayloadIconLayout, inventoryPupVisual } from "./pup-inventory-visual";
 import { pupPickupSoundProfile, type PupPickupSoundProfile } from "./pup-audio";
@@ -2357,6 +2358,8 @@ export default function WormholeGame() {
   const aimStickPointer = useRef<number | null>(null);
   const moveHeading = useRef<number | null>(null);
   const aimHeading = useRef<number | null>(null);
+  /** How hard the flight stick is pushed. Zero inside Classic's deadzone. */
+  const moveThrottle = useRef(1);
   /** Isolated from keyboard, mouse and touch; disconnect clears only this ref. */
   const controllerInput = useRef<GamepadActions>(EMPTY_GAMEPAD);
   const shipId = useSyncExternalStore(
@@ -2538,6 +2541,14 @@ export default function WormholeGame() {
   const zoomRef = useRef<ZoomLevel>("standard");
   const qualityRef = useRef<QualityMode>("auto");
   const reducedMotionRef = useRef(false);
+  /**
+   * Settings, readable from callbacks that must not re-create on every change.
+   *
+   * `updateStick` runs on every pointer move and is memoised against the
+   * handlers it needs; rebuilding it whenever any unrelated setting changed
+   * would tear down a live pointer capture mid-drag.
+   */
+  const settingsRef = useRef(settings);
   const viewProfileRef = useRef(viewProfile);
   /**
    * How far down the canvas HUD must start on each side to clear the DOM
@@ -2589,6 +2600,7 @@ export default function WormholeGame() {
   useEffect(() => { zoomRef.current = settings.zoom; }, [settings.zoom]);
   useEffect(() => { qualityRef.current = quality; }, [quality]);
   useEffect(() => { reducedMotionRef.current = reducedMotion; }, [reducedMotion]);
+  useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { viewProfileRef.current = viewProfile; }, [viewProfile]);
 
   const gameActive = hud.running && !hud.result;
@@ -3557,6 +3569,9 @@ export default function WormholeGame() {
     pointer.current = null;
     if (kind === "move") {
       moveHeading.current = null;
+      // Back to full commitment, so a released stick cannot leave the next
+      // keyboard or controller press flying at a stale throttle.
+      moveThrottle.current = 1;
       setControl("ArrowUp", false);
       setMoveStickPosition({ active: false, x: 0, y: 0 });
     } else {
@@ -3580,13 +3595,32 @@ export default function WormholeGame() {
       y *= clamp;
     }
 
-    if (distance > maxTravel * 0.08) {
-      if (kind === "move") moveHeading.current = Math.atan2(y, x) / DEG;
-      else aimHeading.current = Math.atan2(y, x) / DEG;
+    const scheme = settingsRef.current.flightScheme;
+    if (kind === "move") {
+      // Classic separates turning from burning: the hull follows the stick at
+      // any travel, and the engine only lights past the deadzone. The reading
+      // lives in flight-controls so both schemes are one decision.
+      const authored = settingsRef.current.touchProfile === "custom"
+        ? settingsRef.current.customTouchLayout.elements.move
+        : null;
+      const flight = stickFlight(scheme, x, y, maxTravel, classicDeadzone(maxTravel, authored));
+      if (flight.heading !== null) moveHeading.current = flight.heading;
+      moveThrottle.current = flight.throttle;
+      // The key still says "a direction is held" -- the throttle is what the
+      // magnitude carries, so a turn inside the ring is an active intent that
+      // does not accelerate.
+      setControl("ArrowUp", true);
+      setMoveStickPosition({ active: true, x, y });
+      return;
     }
-    setControl(kind === "move" ? "ArrowUp" : "Space", true);
-    if (kind === "move") setMoveStickPosition({ active: true, x, y });
-    else setAimStickPosition({ active: true, x, y });
+
+    // Classic's right-hand control is a trigger: shots leave along the heading
+    // the hull already holds, so nothing here aims.
+    if (rightControlAims(scheme) && distance > maxTravel * 0.08) {
+      aimHeading.current = Math.atan2(y, x) / DEG;
+    }
+    setControl("Space", true);
+    setAimStickPosition({ active: true, x, y });
   }, [setControl]);
 
   const engageStick = useCallback((kind: StickKind, event: React.PointerEvent<HTMLDivElement>) => {
@@ -3595,7 +3629,7 @@ export default function WormholeGame() {
     if (pointer.current !== null) return;
     pointer.current = event.pointerId;
     if (kind === "move") moveHeading.current = gameRef.current.player.angle;
-    else aimHeading.current = gameRef.current.player.angle;
+    else if (rightControlAims(settingsRef.current.flightScheme)) aimHeading.current = gameRef.current.player.angle;
     setControl(kind === "move" ? "ArrowUp" : "Space", true);
     event.currentTarget.setPointerCapture(event.pointerId);
     if (!reducedMotionRef.current && typeof navigator !== "undefined" && "vibrate" in navigator) navigator.vibrate(8);
@@ -5561,7 +5595,7 @@ export default function WormholeGame() {
 
       // Resolve the input source before combining it. Stick and keys feed one
       // intent and one flight model, so Touch, PC and Hybrid fly identically.
-      const stickIntent = intentFromStick(moveHeading.current);
+      const stickIntent = intentFromStick(moveHeading.current, moveThrottle.current);
       const keyboardIntent = intentFromKeys(keysFrom(keys.current));
       const controllerIntent = intentFromStick(controllerMoveHeading);
       let intent = resolveIntent(controllerIntent, resolveIntent(stickIntent, keyboardIntent));
@@ -9043,6 +9077,8 @@ export default function WormholeGame() {
           compactHud={settings.compactHud}
           onCompactHud={(next) => setSetting("compactHud", next)}
           touchProfile={settings.touchProfile}
+          flightScheme={settings.flightScheme}
+          onFlightScheme={(next) => setSetting("flightScheme", next)}
           onTouchProfile={(next) => setSetting("touchProfile", next)}
           onEditTouchLayout={() => setTouchEditorOpen(true)}
           cameraLock={cameraLocked}
