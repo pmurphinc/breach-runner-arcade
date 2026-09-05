@@ -1858,7 +1858,14 @@ function Leaderboard({ onClose, initialBoard = "arcade" }: { onClose: () => void
   );
 }
 
-function createPreference<T extends string>(key: string, allowed: readonly T[], fallback: T) {
+/**
+ * A remembered setting.
+ *
+ * `persist` is what decides whether it outlives the tab. Most settings should:
+ * a pilot who picked large thumbsticks wants them again tomorrow. The game mode
+ * deliberately should not -- see `modePreference`.
+ */
+function createPreference<T extends string>(key: string, allowed: readonly T[], fallback: T, persist = true) {
   let cached: T | null = null;
   const listeners = new Set<() => void>();
 
@@ -1870,6 +1877,7 @@ function createPreference<T extends string>(key: string, allowed: readonly T[], 
     /** Cached so repeated reads are referentially stable, as the hook requires. */
     get(): T {
       if (cached === null) {
+        if (!persist) return (cached = fallback);
         try {
           const stored = window.localStorage.getItem(key) as T | null;
           cached = stored && allowed.includes(stored) ? stored : fallback;
@@ -1884,10 +1892,12 @@ function createPreference<T extends string>(key: string, allowed: readonly T[], 
     },
     set(value: T) {
       cached = value;
-      try {
-        window.localStorage.setItem(key, value);
-      } catch {
-        // Preferences are a convenience; losing them costs the player nothing.
+      if (persist) {
+        try {
+          window.localStorage.setItem(key, value);
+        } catch {
+          // Preferences are a convenience; losing them costs the player nothing.
+        }
       }
       listeners.forEach((listener) => listener());
     },
@@ -1910,10 +1920,21 @@ const shipPreference = createPreference<ShipId>(
   "wing"
 );
 
+/**
+ * The game mode, which deliberately does not survive a reload.
+ *
+ * Every other preference is remembered because a returning pilot wants what
+ * they had. The mode is the exception: remembering it meant someone who tried
+ * a duel once opened the game days later already committed to a mode they had
+ * to notice and undo before they could just fly. Solo PvE is the mode the game
+ * can always deliver -- no lobby, no second player, no waiting -- so that is
+ * where a session starts. It is still free to change within the session.
+ */
 const modePreference = createPreference<GameMode>(
   "wormhole-arcade:mode",
   ["pve", "coop", "team", "pvp", "classic"],
-  "pve"
+  "pve",
+  false
 );
 /**
  * The remembered solo ruleset. PvP is always Easy rules and never reads this.

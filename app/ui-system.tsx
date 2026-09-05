@@ -337,6 +337,11 @@ export function Toggle({
  * `media` takes an optional visual (a ship silhouette, say) shown ahead of the
  * text, so a row can carry the thing it is describing rather than only naming
  * it.
+ *
+ * `actionLabel` is spoken, not shown. A visible "CHANGE" on every row made the
+ * screen read as a form to fill in before playing rather than a summary of what
+ * is about to happen -- which is exactly how a player described it. The row is
+ * still the button, and still says so to a screen reader.
  */
 export function SummaryRow({
   label,
@@ -366,8 +371,6 @@ export function SummaryRow({
         <b>{value}</b>
         {detail ? <small>{detail}</small> : null}
       </span>
-      {/* An affordance, not a second target: it is inside the button. */}
-      <span className="summary-cue" aria-hidden="true">{actionLabel}</span>
     </button>
   );
 }
