@@ -3532,7 +3532,7 @@ button.summary-row:hover, button.summary-row:focus-visible,
    menu container only establishes `inline-size`, so a height query here never
    matched in browsers and left short laptop/landscape layouts uncompressed. */
 @media (max-height: 900px) {
-  .menu-screen[data-route="home"] {
+  .menu-screen[data-route="home"] .menu-panel {
     padding-top: calc(max(var(--space-2), var(--safe-top)) + var(--touch-target) + var(--space-1));
     padding-right: max(var(--space-3), var(--safe-right));
     padding-bottom: max(var(--space-2), var(--safe-bottom));
@@ -3725,6 +3725,152 @@ button.summary-row:hover, button.summary-row:focus-visible,
   .menu-screen[data-route="home"] .launch-briefing { gap: var(--space-1); }
   .menu-screen[data-route="home"] .launch-summary-grid button.summary-row { min-height: var(--touch-target); padding-block: 4px; }
   .menu-screen[data-route="home"] .launch-command { min-height: var(--touch-target); }
+}
+
+/* -------------------------------------------------------------------------
+   Launch Deck constraint model
+
+   Home has exactly one block-size owner: the safe-area-adjusted screen. The
+   panel then allocates header / remaining content / utility rows, and the
+   remaining row allocates branding / intrinsic mission content. Density is
+   derived continuously from the smaller viewport axis. A size-container
+   query changes composition only when block space is genuinely scarce; it is
+   not tied to a device or named resolution.
+   ------------------------------------------------------------------------- */
+.menu-screen[data-route="home"] {
+  --launch-edge: clamp(2px, min(1.2dvw, 1.2dvh), 14px);
+  --launch-section-gap: clamp(2px, min(1.25dvw, 1.25dvh), 18px);
+  --launch-panel-padding: clamp(5px, min(1.7dvw, 1.7dvh), 20px);
+  --launch-control-height: max(var(--touch-target), clamp(44px, 6.5dvh, 64px));
+  --launch-logo-size: clamp(52px, min(42cqw, 28dvh), 510px);
+  --launch-heading-size: clamp(12px, calc(9px + .9vmin), 24px);
+  --launch-body-size: clamp(10px, calc(8px + .45vmin), 13px);
+  --launch-header-height: var(--touch-target);
+  height: 100dvh;
+  padding: var(--launch-edge);
+  container: launch-screen / size;
+  overflow: visible;
+}
+
+.menu-screen[data-route="home"] .menu-panel {
+  width: min(1100px, 100%);
+  height: 100%;
+  max-height: none;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  container: launch-panel / size;
+}
+
+.menu-screen[data-route="home"] .menu-header {
+  min-height: var(--launch-header-height);
+  padding: 2px max(104px, calc(var(--safe-right) + 96px)) 2px var(--launch-panel-padding);
+}
+
+.menu-screen[data-route="home"] .menu-content {
+  min-height: 0;
+  padding: var(--launch-edge) var(--launch-panel-padding);
+  overflow: visible;
+}
+
+.menu-screen[data-route="home"] .main-menu-stage {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: var(--launch-section-gap);
+  align-content: stretch;
+}
+
+.menu-screen[data-route="home"] .main-menu-brand-lockup {
+  min-height: 0;
+  align-content: center;
+  gap: clamp(1px, .7dvh, 8px);
+}
+.menu-screen[data-route="home"] .main-menu-brand-lockup .launch-brand-logo {
+  width: var(--launch-logo-size);
+  min-width: 0;
+}
+.menu-screen[data-route="home"] .main-menu-brand-lockup p,
+.menu-screen[data-route="home"] .launch-briefing > p {
+  font-size: var(--launch-body-size);
+}
+
+.menu-screen[data-route="home"] .launch-console {
+  min-width: 0;
+  min-height: min-content;
+  padding: var(--launch-panel-padding);
+  gap: var(--launch-section-gap);
+  grid-template-rows: auto auto var(--launch-control-height);
+  overflow: visible;
+}
+.menu-screen[data-route="home"] .launch-console-header h3,
+.menu-screen[data-route="home"] .launch-briefing h4 { font-size: var(--launch-heading-size); }
+.menu-screen[data-route="home"] .launch-briefing { gap: clamp(1px, .65dvh, 8px); }
+.menu-screen[data-route="home"] .launch-briefing > p { margin: 0; line-height: 1.25; }
+.menu-screen[data-route="home"] .launch-summary-grid button.summary-row {
+  min-height: var(--launch-control-height);
+  padding-block: 3px;
+}
+.menu-screen[data-route="home"] .launch-command { min-height: var(--launch-control-height); }
+
+.menu-screen[data-route="home"] .menu-footer {
+  min-width: 0;
+  padding: var(--launch-edge) var(--launch-panel-padding);
+}
+.menu-screen[data-route="home"] .home-command-deck {
+  min-width: 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(2px, .8dvw, 8px);
+}
+.menu-screen[data-route="home"] .home-command-deck .menu-action {
+  min-width: 0;
+  min-height: var(--launch-control-height);
+  padding-block: 2px;
+}
+
+/* Below the composition's intrinsic stacked budget, width becomes the relief
+   axis. Branding forms one shallow row and Play receives a dedicated mission
+   column. No content is removed or truncated. */
+@container launch-panel (max-height: 500px) {
+  .menu-screen[data-route="home"] .menu-content,
+  .menu-screen[data-route="home"] .menu-footer {
+    --launch-section-gap: clamp(2px, .7dvh, 5px);
+    --launch-panel-padding: clamp(4px, 1dvh, 7px);
+    --launch-logo-size: clamp(52px, min(22cqw, 16dvh), 150px);
+    --launch-heading-size: clamp(11px, calc(8px + .75vmin), 16px);
+    --launch-body-size: clamp(9px, calc(7px + .5vmin), 11px);
+  }
+  .menu-screen[data-route="home"] .main-menu-brand-lockup {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+    justify-items: center;
+  }
+  .menu-screen[data-route="home"] .main-menu-brand-lockup .menu-stage-kicker { justify-self: end; text-align: right; }
+  .menu-screen[data-route="home"] .main-menu-brand-lockup p { justify-self: start; text-align: left; }
+  .menu-screen[data-route="home"] .launch-console {
+    grid-template-columns: minmax(0, 1fr) minmax(110px, .62fr);
+    grid-template-rows: auto auto;
+  }
+  .menu-screen[data-route="home"] .launch-console-header { grid-column: 1; }
+  .menu-screen[data-route="home"] .launch-console-body { grid-column: 1; }
+  .menu-screen[data-route="home"] .launch-command { grid-column: 2; grid-row: 1 / -1; align-self: stretch; }
+  .menu-screen[data-route="home"] .launch-status-cluster { gap: 1px; }
+  .menu-screen[data-route="home"] .launch-summary-grid button.summary-row { padding: 2px 5px; }
+  .menu-screen[data-route="home"] .home-command-deck .menu-action {
+    grid-template-columns: minmax(0, 1fr);
+    place-items: center;
+    padding-inline: 2px;
+    text-align: center;
+  }
+  .menu-screen[data-route="home"] .home-command-deck .menu-action-icon,
+  .menu-screen[data-route="home"] .home-command-deck .menu-action-arrow,
+  .menu-screen[data-route="home"] .home-command-deck .menu-action-copy small { display: none; }
+  .menu-screen[data-route="home"] .home-command-deck .menu-action-copy b {
+    font-size: var(--fs-nano);
+    letter-spacing: 0;
+    white-space: normal;
+  }
 }
 
 /* Dialogs outside MenuScreen share the same viewport and safe-area contract. */
