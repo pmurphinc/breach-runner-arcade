@@ -195,8 +195,11 @@ test("every portal is shootable, not just the pilot's own", () => {
   // The pilot's own rift keeps the scoring path; a rival's banks its own charge
   // and sheds at its own threshold without feeding rift-damage score.
   // Rift Run is the one exception: its rift pays a bounded per-rift budget at
-  // integrity thresholds, so cannon fire into it charges nothing at all.
-  assert.match(game, /if \(struck\.id === 0 && !game\.riftDanger\) chargeRiftPup\(game, bullet\.damage\)/);
+  // integrity thresholds, so cannon fire into it charges nothing at all. The
+  // question is the *budget*, not the danger runtime -- a PvE round on VOLATILE
+  // or CRITICAL now carries one of those too, for its pressure zone, and must
+  // keep charging its meter normally.
+  assert.ok(game.includes("if (struck.id === 0 && !game.riftDanger?.budget) chargeRiftPup(game, bullet.damage);"));
   assert.match(game, /const banked = chargePortal\(struck, bullet\.damage\)/);
   assert.doesNotMatch(game, /dist\(bullet, \{ x: game\.portalX, y: game\.portalY \}\) < 43/);
 });
