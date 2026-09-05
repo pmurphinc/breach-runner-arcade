@@ -3456,21 +3456,25 @@ button.summary-row:hover, button.summary-row:focus-visible,
 @media (prefers-reduced-motion: reduce) { .multiplayer-lobby-signal i { animation: none; } }
 
 
-/* Main Menu compact-layout hardening: difficulty and ship are selected later. */
+/* Main Menu compact-layout hardening: difficulty and ship are selected later.
+   Home is a game launch deck, not a document: unlike content-heavy routes its
+   middle row must compose itself inside the space it receives and never turn
+   into a scrollport. */
 .menu-screen[data-route="home"] .menu-content {
   min-height: 0;
   overflow-x: hidden;
-  overflow-y: auto;
-  align-content: start;
+  overflow-y: hidden;
+  align-content: stretch;
 }
+.menu-screen[data-route="home"] .menu-panel { height: 100%; }
 .menu-screen[data-route="home"] .main-menu-stage {
-  min-height: min-content;
-  grid-template-rows: auto auto;
-  align-content: start;
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: stretch;
 }
 .menu-screen[data-route="home"] .launch-console {
-  min-height: min-content;
-  overflow: visible;
+  min-height: 0;
 }
 .launch-console-body-simple { grid-template-columns: minmax(0, 1fr); }
 .launch-briefing-wide { width: 100%; }
@@ -3480,7 +3484,17 @@ button.summary-row:hover, button.summary-row:focus-visible,
   min-width: 0;
   padding: var(--space-3) clamp(var(--space-3), 3cqw, var(--space-5));
 }
-.menu-screen[data-route="home"] .home-command-deck { min-width: 0; }
+.menu-screen[data-route="home"] .home-command-deck {
+  min-width: 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* The artwork is deliberately bounded by viewport height as well as panel
+   width. Width-only sizing made its 2.5:1 image consume the same tall block on
+   a 600px laptop as on a 1080px monitor. */
+.menu-screen[data-route="home"] .main-menu-brand-lockup .launch-brand-logo {
+  width: clamp(120px, min(42cqw, 48dvh), 510px);
+}
 
 @container menu (max-width: 720px) {
   .main-menu-stage { gap: var(--space-3); }
@@ -3497,27 +3511,81 @@ button.summary-row:hover, button.summary-row:focus-visible,
   .launch-console-header h3 { font-size: var(--fs-md); }
   .launch-status-cluster { font-size: 9px; }
   .launch-briefing h4 { font-size: var(--fs-md); }
-  .home-command-deck { grid-template-columns: 1fr; }
+  .menu-screen[data-route="home"] .home-command-deck { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .menu-screen[data-route="home"] .home-command-deck .menu-action {
+    padding-inline: 4px;
+    grid-template-columns: minmax(0, 1fr);
+    place-items: center;
+    text-align: center;
+  }
+  .menu-screen[data-route="home"] .home-command-deck .menu-action-icon,
+  .menu-screen[data-route="home"] .home-command-deck .menu-action-arrow,
+  .menu-screen[data-route="home"] .home-command-deck .menu-action-copy small { display: none; }
+  .menu-screen[data-route="home"] .home-command-deck .menu-action-copy b {
+    font-size: var(--fs-nano);
+    letter-spacing: .03em;
+    white-space: normal;
+  }
 }
 
 /* Height is a viewport constraint, not an inline container constraint. The
    menu container only establishes `inline-size`, so a height query here never
    matched in browsers and left short laptop/landscape layouts uncompressed. */
-@media (max-height: 620px) {
-  .menu-screen[data-route="home"] .main-menu-stage { gap: var(--space-2); padding-block: 0; }
-  .menu-screen[data-route="home"] .main-menu-brand-lockup .launch-brand-logo { width: clamp(180px, 28cqw, 320px); }
-  .menu-screen[data-route="home"] .main-menu-brand-lockup p { font-size: 10px; }
-  .menu-screen[data-route="home"] .launch-console { padding: var(--space-2) var(--space-3); }
-  .menu-screen[data-route="home"] .launch-console-body-simple { margin-block: 0; }
+@media (max-height: 900px) {
+  .menu-screen[data-route="home"] {
+    padding-top: calc(max(var(--space-2), var(--safe-top)) + var(--touch-target) + var(--space-1));
+    padding-right: max(var(--space-3), var(--safe-right));
+    padding-bottom: max(var(--space-2), var(--safe-bottom));
+    padding-left: max(var(--space-3), var(--safe-left));
+  }
+  .menu-screen[data-route="home"] .menu-header { min-height: 60px; padding-block: var(--space-2); }
+  .menu-screen[data-route="home"] .menu-content { padding-block: var(--space-3); }
+  .menu-screen[data-route="home"] .menu-footer { padding-block: var(--space-2); }
+  .menu-screen[data-route="home"] .main-menu-stage { gap: var(--space-3); padding-block: var(--space-2); }
+  .menu-screen[data-route="home"] .main-menu-brand-lockup { gap: var(--space-1); }
+  .menu-screen[data-route="home"] .main-menu-brand-lockup .launch-brand-logo { width: clamp(120px, min(38cqw, 38dvh), 420px); }
+  .menu-screen[data-route="home"] .launch-console { gap: var(--space-2); padding: var(--space-3); }
+  .menu-screen[data-route="home"] .launch-briefing { gap: var(--space-1); }
+  .menu-screen[data-route="home"] .launch-briefing > p { margin-bottom: 0; }
   .menu-screen[data-route="home"] .launch-command { min-height: 56px; }
-  .menu-screen[data-route="home"] .home-command-deck .menu-action { min-height: 52px; }
+  .menu-screen[data-route="home"] .home-command-deck .menu-action { min-height: 56px; }
+}
+
+@media (max-height: 620px) {
+  .menu-screen[data-route="home"] {
+    padding-top: calc(max(var(--space-1), var(--safe-top)) + var(--touch-target));
+    padding-right: max(var(--space-2), var(--safe-right));
+    padding-bottom: max(var(--space-1), var(--safe-bottom));
+    padding-left: max(var(--space-2), var(--safe-left));
+  }
+  .menu-screen[data-route="home"] .menu-header { min-height: var(--touch-target); padding: var(--space-1) var(--space-3); }
+  .menu-screen[data-route="home"] .menu-content { padding: var(--space-2); }
+  .menu-screen[data-route="home"] .menu-footer { padding: var(--space-1) var(--space-3); }
+  .menu-screen[data-route="home"] .main-menu-stage { gap: var(--space-2); padding-block: 0; }
+  .menu-screen[data-route="home"] .main-menu-brand-lockup { gap: var(--space-1); }
+  .menu-screen[data-route="home"] .main-menu-brand-lockup .launch-brand-logo { width: clamp(100px, min(28cqw, 34dvh), 320px); }
+  .menu-screen[data-route="home"] .main-menu-brand-lockup p { font-size: 10px; }
+  .menu-screen[data-route="home"] .launch-console { gap: var(--space-2); padding: var(--space-2) var(--space-3); }
+  .menu-screen[data-route="home"] .launch-briefing { gap: var(--space-1); }
+  .menu-screen[data-route="home"] .launch-briefing > p {
+    margin-bottom: 0;
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+  .menu-screen[data-route="home"] .launch-summary-grid button.summary-row { min-height: 48px; padding-block: 5px; }
+  .menu-screen[data-route="home"] .launch-console-body-simple { margin-block: 0; }
+  .menu-screen[data-route="home"] .launch-command { min-height: 52px; }
+  .menu-screen[data-route="home"] .home-command-deck .menu-action { min-height: var(--touch-target); padding-block: 5px; }
 }
 
 @media (orientation: landscape) and (max-height: 560px) {
-  .menu-screen[data-route="home"] .main-menu-stage { grid-template-rows: auto auto; }
-  .menu-screen[data-route="home"] .main-menu-brand-lockup { grid-template-columns: auto 1fr; }
-  .menu-screen[data-route="home"] .main-menu-brand-lockup .menu-stage-kicker { grid-column: 1 / -1; }
-  .menu-screen[data-route="home"] .main-menu-brand-lockup .launch-brand-logo { width: clamp(150px, 22cqw, 260px); }
+  .menu-screen[data-route="home"] .main-menu-stage { grid-template-rows: auto minmax(0, 1fr); gap: var(--space-1); }
+  .menu-screen[data-route="home"] .main-menu-brand-lockup { display: flex; justify-content: center; }
+  .menu-screen[data-route="home"] .main-menu-brand-lockup .menu-stage-kicker,
+  .menu-screen[data-route="home"] .main-menu-brand-lockup p { display: none; }
+  .menu-screen[data-route="home"] .main-menu-brand-lockup .launch-brand-logo { width: clamp(76px, min(22cqw, 22dvh), 230px); }
   .menu-screen[data-route="home"] .launch-console-header { gap: var(--space-2); }
   .menu-screen[data-route="home"] .launch-console-body-simple { padding-block: 0; }
   .menu-screen[data-route="home"] .home-command-deck { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -3633,6 +3701,30 @@ button.summary-row:hover, button.summary-row:focus-visible,
   .settings-nav-icon, .settings-nav small, .settings-nav i { display: none; }
   .settings-workspace-header { padding-bottom: var(--space-1); }
   .settings-workspace-header h3 { font-size: var(--fs-md); }
+}
+
+/* Launch Deck no-scroll contract. Keep this after the shared responsive menu
+   rules: other routes retain their intentional scroll regions, while Home's
+   four rows are a single bounded game-menu composition. */
+.menu-screen[data-route="home"] .menu-content {
+  overflow: hidden;
+  scrollbar-gutter: auto;
+  touch-action: manipulation;
+}
+
+@media (orientation: landscape) and (max-height: 560px) {
+  .menu-screen[data-route="home"] .main-menu-brand-lockup .launch-brand-logo {
+    width: clamp(76px, min(22cqw, 22dvh), 230px);
+  }
+  .menu-screen[data-route="home"] .launch-console {
+    gap: var(--space-1);
+    padding: var(--space-1) var(--space-2);
+  }
+  .menu-screen[data-route="home"] .launch-console-header h3 { margin-top: 2px; font-size: var(--fs-md); }
+  .menu-screen[data-route="home"] .launch-status-cluster { gap: 2px; }
+  .menu-screen[data-route="home"] .launch-briefing { gap: var(--space-1); }
+  .menu-screen[data-route="home"] .launch-summary-grid button.summary-row { min-height: var(--touch-target); padding-block: 4px; }
+  .menu-screen[data-route="home"] .launch-command { min-height: var(--touch-target); }
 }
 
 /* Dialogs outside MenuScreen share the same viewport and safe-area contract. */
