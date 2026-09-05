@@ -9,7 +9,7 @@
  * one-off rule, because screens do not own their own chrome.
  */
 
-import { useCallback, useEffect, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 
 /** Focusable things, for the trap and for roving focus. */
 const FOCUSABLE =
@@ -187,6 +187,36 @@ export function MenuSection({
       {hint ? <p className="menu-section-hint">{hint}</p> : null}
       {children}
     </section>
+  );
+}
+
+/** A reusable game-menu action with a label, supporting detail, and icon rail. */
+export function MenuActionButton({
+  label,
+  detail,
+  icon,
+  tone = "secondary",
+  className = "",
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  label: ReactNode;
+  detail?: ReactNode;
+  icon?: ReactNode;
+  tone?: "primary" | "secondary" | "quiet";
+}) {
+  return (
+    <button
+      {...props}
+      type="button"
+      className={`menu-action menu-action-${tone}${className ? ` ${className}` : ""}`}
+    >
+      <span className="menu-action-icon" aria-hidden="true">{icon}</span>
+      <span className="menu-action-copy">
+        <b>{label}</b>
+        {detail ? <small>{detail}</small> : null}
+      </span>
+      <span className="menu-action-arrow" aria-hidden="true">↗</span>
+    </button>
   );
 }
 

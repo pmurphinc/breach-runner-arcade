@@ -10,8 +10,7 @@
  */
 
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
-import { MenuScreen, MenuSection, OptionRow, SummaryRow, Toggle } from "./ui-system";
-import { MenuSectionNav } from "./menu-nav";
+import { MenuActionButton, MenuScreen, MenuSection, OptionRow, SummaryRow, Toggle } from "./ui-system";
 import { WEAPONS, type PickupId, type PupClass, type ShipId } from "./game-data";
 import { SHIP_ORDER, SHIP_PROFILES } from "./ship-data";
 import {
@@ -238,107 +237,96 @@ function useMirroredTouchActionsSetting() {
 /**
  * The main menu.
  *
- * Play dominates and carries the whole launch decision inline: mode,
- * difficulty and ship are shown as their remembered values with a way to
- * change each. A returning player presses one button. A new player sees
- * exactly what they are about to fly before they commit, without being walked
- * through three full-screen steps to get there.
+ * Play dominates the launch screen and carries the mode decision inline.
+ * Difficulty and ship selection intentionally live on the following setup
+ * screens, so the launch action stays visible at every viewport size. A
+ * returning player presses one button; a new player can configure the rest
+ * after choosing a mode.
  */
 export function HomeScreen({
   mode,
-  difficulty,
-  ship,
   running,
   onLaunch,
   go,
   openSettings,
   close,
-  renderShip,
 }: MenuCallbacks & {
   mode: GameMode;
-  difficulty: DifficultyId;
-  ship: ShipId;
   running: boolean;
   onLaunch: () => void;
-  /** The canvas silhouette, supplied by the shell so art stays in one place. */
-  renderShip: (id: ShipId, size: number) => React.ReactNode;
 }) {
   const network = mode !== "pve";
-  // A challenge runs solo, so it rides on the PvE mode and replaces the labels
-  // rather than adding a fourth mode nothing else in the shell knows about.
-  const survival = difficulty === "survival";
+  const modeLabel = MODE_INFO[mode].label;
+  const modeBlurb = MODE_INFO[mode].blurb;
 
   return (
     <MenuScreen
       route="home"
       onOpenSettings={openSettings}
-      title={
-        <img
-          className="launch-brand-logo"
-          src="/branding/breach_runner_logo.webp"
-          alt={PRODUCT_TITLE}
-          width={800}
-          height={320}
-        />
-      }
-      eyebrow={PRODUCT_TAGLINE}
+      title=""
+      eyebrow="SYSTEM READY // LAUNCH DECK"
       onBack={close}
       backLabel="Resume"
-      // With no run behind it, Home is the root: there is nothing to go back
-      // to, and the global Menu button already closes the menu.
       hideBack={!running}
       wide
-      // Pinned rather than in the scrolling region, so the primary action is on
-      // screen at every height — a landscape phone included.
-      footer={
-        <button type="button" className="play-button" onClick={onLaunch}>
-          {network ? "Find a Match" : "Play"}
-        </button>
-      }
     >
-      <div className="home-layout">
-        <section className="play-panel" aria-labelledby="play-heading">
-          <h3 id="play-heading" className="sr-only">
-            Launch a run
-          </h3>
+      <div className="main-menu-stage">
+        <header className="main-menu-brand-lockup">
+          <span className="menu-stage-kicker">BREACH RUNNER // ARCADE COMMAND</span>
+          <img
+            className="launch-brand-logo"
+            src="/branding/breach_runner_logo.webp"
+            alt={PRODUCT_TITLE}
+            width={800}
+            height={320}
+          />
+          <p>{PRODUCT_TAGLINE}</p>
+        </header>
 
-          <div className="play-summary">
-            <SummaryRow
-              label="Mode"
-              value={survival ? CHALLENGE_INFO.survival.label : MODE_INFO[mode].label}
-              detail={survival ? CHALLENGE_INFO.survival.blurb : MODE_INFO[mode].blurb}
-              onAction={() => go("modes")}
-            />
-            {mode === "pvp" || survival ? null : (
-              <SummaryRow
-                label="Difficulty"
-                value={difficultyLabel(difficulty)}
-                detail={difficultyBlurb(difficulty)}
-                onAction={() => go("modes")}
-              />
-            )}
-            {/* The hull is always on screen. Ship choice moved into the lobby,
-                which left Home describing a run without saying what it would be
-                flown in -- the one part of the decision the player is most
-                likely to want to check before pressing Play. */}
-            <SummaryRow
-              label="Ship"
-              value={SHIP_PROFILES[ship].name}
-              detail={SHIP_PROFILES[ship].role}
-              media={renderShip(ship, 44)}
-              onAction={() => go("ships")}
-            />
+        <section className="launch-console" aria-labelledby="launch-console-title">
+          <div className="launch-console-scanline" aria-hidden="true" />
+          <div className="launch-console-header">
+            <div>
+              <span className="menu-stage-kicker">CURRENT MISSION</span>
+              <h3 id="launch-console-title">Prepare to Breach</h3>
+            </div>
+            <div className="launch-status-cluster" aria-label="Run status">
+              <span><i aria-hidden="true" />{network ? "NETWORK" : "SOLO"}</span>
+              <span>{running ? "RUN ACTIVE" : "READY"}</span>
+            </div>
           </div>
+
+          <div className="launch-console-body launch-console-body-simple">
+            <div className="launch-briefing launch-briefing-wide">
+              <span className="menu-stage-kicker">MISSION PROFILE</span>
+              <h4>{modeLabel}</h4>
+              <p>{modeBlurb}</p>
+              <div className="launch-summary-grid">
+                <SummaryRow
+                  label="Mode"
+                  value={modeLabel}
+                  detail="Choose difficulty and ship after selecting a mode"
+                  onAction={() => go("modes")}
+                />
+              </div>
+            </div>
+          </div>
+
+          <MenuActionButton
+            className="launch-command"
+            tone="primary"
+            icon="▶"
+            label={network ? "Find a Match" : "Play"}
+            detail={running ? "Resume the current sortie" : "Enter the rift and begin the run"}
+            onClick={onLaunch}
+          />
         </section>
 
-        <MenuSectionNav
-          items={[
-            { route: "ships", label: "Ships", hint: "Compare the fleet" },
-            { route: "leaderboard", label: "Leaderboard", hint: "Global high scores" },
-            { route: "info", label: "Game Info", hint: "How to play" },
-          ]}
-          onSelect={go}
-        />
+        <nav className="home-command-deck" aria-label="Command deck">
+          <MenuActionButton icon="✦" label="Ships" detail="Choose your hull" onClick={() => go("ships")} />
+          <MenuActionButton icon="↗" label="Leaderboard" detail="Review high scores" onClick={() => go("leaderboard")} />
+          <MenuActionButton icon="?" label="Game Info" detail="Controls and codex" onClick={() => go("info")} />
+        </nav>
       </div>
     </MenuScreen>
   );
@@ -360,26 +348,78 @@ export function HomeScreen({
  * what most sessions stay in. The grouping needs no caption of its own: every
  * label in MODE_INFO already names the shape it belongs to.
  */
-export function GameTypeScreen({ onMode, onSurvival, onRiftRun, onVersus, back, openSettings }: MenuCallbacks & {
+export function GameTypeScreen({ onMode, onSurvival, onRiftRun, onVersus, back, openSettings, currentMode }: MenuCallbacks & {
   onMode: (mode: "pve" | "coop" | "classic") => void;
   onSurvival: () => void;
   onRiftRun: () => void;
   onVersus: (mode: "pvp" | "team") => void;
+  currentMode?: GameMode;
 }) {
-  return <MenuScreen route="modes" onOpenSettings={openSettings} title="Select Game Mode" onBack={back}>
-    <div className="mode-grid pve-mode-grid" aria-label="Game modes">
-      <button type="button" className="mode-card" data-mode="pve" onClick={() => onMode("pve")}><b>{MODE_INFO.pve.label}</b><small>One pilot against the rift</small></button>
-      <button type="button" className="mode-card" data-mode="rift-run" onClick={onRiftRun}><b>{RIFT_RUN_TITLE}</b><small>{RIFT_RUN_TAGLINE}</small></button>
-      <button type="button" className="mode-card" data-mode="survival" onClick={onSurvival}><b>Rift Survival</b><small>Endless escalating challenge</small></button>
-      <button type="button" className="mode-card" data-mode="coop" onClick={() => onMode("coop")}><b>{MODE_INFO.coop.label}</b><small>Two pilots, shared objective</small></button>
-      <button type="button" className="mode-card" data-mode="pvp" onClick={() => onVersus("pvp")}><b>{MODE_INFO.pvp.label}</b><small>Matchmaking or private match</small></button>
-      <button type="button" className="mode-card" data-mode="team" onClick={() => onVersus("team")}><b>{MODE_INFO.team.label}</b><small>Two pilots a side, one rift each team</small></button>
-      {/* Classic Wormhole is shelved -- see MODE_ORDER. The card is commented
-          out rather than deleted so bringing it back is a one-line change:
-          <button type="button" className="mode-card" data-mode="classic" onClick={() => onMode("classic")}><b>{MODE_INFO.classic.label}</b><small>{MODE_INFO.classic.blurb}</small></button>
-      */}
-    </div>
-  </MenuScreen>;
+  const defaultSelection = currentMode === "coop" || currentMode === "pvp" || currentMode === "team" ? currentMode : "pve";
+  const [selected, setSelected] = useState<"pve" | "rift-run" | "survival" | "coop" | "pvp" | "team">(defaultSelection);
+
+  const activate = (id: typeof selected) => {
+    setSelected(id);
+    if (id === "rift-run") onRiftRun();
+    else if (id === "survival") onSurvival();
+    else if (id === "pvp" || id === "team") onVersus(id);
+    else onMode(id);
+  };
+
+  const cards = [
+    { id: "pve" as const, label: MODE_INFO.pve.label, detail: MODE_INFO.pve.blurb, tag: "SOLO // STANDARD", accent: "cyan" },
+    { id: "rift-run" as const, label: RIFT_RUN_TITLE, detail: RIFT_RUN_TAGLINE, tag: "ROGUELITE // DEPTH", accent: "pink" },
+    { id: "survival" as const, label: "Rift Survival", detail: "Endless escalating challenge", tag: "ENDLESS // SCORE", accent: "amber" },
+    { id: "coop" as const, label: MODE_INFO.coop.label, detail: MODE_INFO.coop.blurb, tag: "CO-OP // SHARED", accent: "lime" },
+    { id: "pvp" as const, label: MODE_INFO.pvp.label, detail: MODE_INFO.pvp.blurb, tag: "VERSUS // DUEL", accent: "pink" },
+    { id: "team" as const, label: MODE_INFO.team.label, detail: MODE_INFO.team.blurb, tag: "VERSUS // TEAM", accent: "purple" },
+  ];
+  const selectedCard = cards.find((card) => card.id === selected) ?? cards[0];
+
+  return (
+    <MenuScreen route="modes" onOpenSettings={openSettings} title="Mode Select" eyebrow="MISSION ARCHIVE // CHOOSE YOUR RUN" onBack={back} wide>
+      <div className="mode-command-layout">
+        <aside className="mode-selection-console" aria-live="polite">
+          <span className="menu-stage-kicker">SELECTED PROTOCOL</span>
+          <div className={`mode-selection-sigil accent-${selectedCard.accent}`} aria-hidden="true">
+            <span>{selectedCard.id === "rift-run" ? "R" : selectedCard.id === "survival" ? "∞" : selectedCard.id === "pve" ? "1" : "2"}</span>
+          </div>
+          <p className="mode-selection-tag">{selectedCard.tag}</p>
+          <h3>{selectedCard.label}</h3>
+          <p>{selectedCard.detail}</p>
+          <div className="mode-selection-footer"><span>STATUS</span><b>READY TO DEPLOY</b></div>
+        </aside>
+
+        <section className="mode-catalog" aria-label="Available game modes">
+          <div className="mode-catalog-header">
+            <div><span className="menu-stage-kicker">AVAILABLE RUNS</span><h3>Choose your breach vector</h3></div>
+            <span className="mode-count">{cards.length.toString().padStart(2, "0")} MODES</span>
+          </div>
+          <div className="mode-card-matrix">
+            {cards.map((card, index) => (
+              <button
+                key={card.id}
+                type="button"
+                className={`mode-launch-card ${selected === card.id ? "selected" : ""} accent-${card.accent}`}
+                data-mode={card.id}
+                onClick={() => activate(card.id)}
+                style={{ "--mode-index": index } as React.CSSProperties}
+              >
+                <span className="mode-card-index">0{index + 1}</span>
+                <span className="mode-card-orbit" aria-hidden="true"><i /></span>
+                <span className="mode-card-copy"><small>{card.tag}</small><b>{card.label}</b><em>{card.detail}</em></span>
+                <span className="mode-card-enter" aria-hidden="true">ENTER ↗</span>
+              </button>
+            ))}
+          </div>
+          <div className="mode-catalog-footer">
+            <MenuActionButton className="mode-deploy-button" tone="primary" icon="▶" label="Deploy selected mode" detail={`${selectedCard.label} // press to enter`} onClick={() => activate(selected)} />
+            <span className="menu-footnote">Arrow keys / controller to navigate · Enter to select · Esc to return</span>
+          </div>
+        </section>
+      </div>
+    </MenuScreen>
+  );
 }
 
 /**
@@ -620,6 +660,14 @@ export const SETTINGS_TABS = [
 
 type SettingsTab = (typeof SETTINGS_TABS)[number]["id"];
 
+const SETTINGS_TAB_META: Record<SettingsTab, { icon: string; hint: string }> = {
+  controls: { icon: "⌁", hint: "Input and pilot identity" },
+  audio: { icon: "◖", hint: "Sound and feedback" },
+  video: { icon: "◫", hint: "Perspective and zoom" },
+  hud: { icon: "◇", hint: "Combat readouts" },
+  gameInfo: { icon: "?", hint: "Rules and reference" },
+};
+
 export function SettingsScreen({
   back,
   openSettings,
@@ -713,31 +761,44 @@ export function SettingsScreen({
   };
 
   return (
-    <MenuScreen route="settings" title="Settings" onBack={back} onOpenSettings={openSettings}>
-      <div className="settings-tabs" role="tablist" aria-label="Settings categories">
-        {SETTINGS_TABS.map((tab) => (
-          <button
-            key={tab.id}
-            id={`${tabsId}-tab-${tab.id}`}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === tab.id}
-            aria-controls={`${tabsId}-panel-${tab.id}`}
-            tabIndex={activeTab === tab.id ? 0 : -1}
-            onClick={() => setActiveTab(tab.id)}
-            onKeyDown={(event) => onTabKeyDown(event, tab.id)}
+    <MenuScreen route="settings" title="Settings" eyebrow="SYSTEM CONFIG // PILOT PREFERENCES" onBack={back} onOpenSettings={openSettings} wide>
+      <div className="settings-console">
+        <aside className="settings-rail">
+          <span className="menu-stage-kicker">CONFIGURATION</span>
+          <h3>Ship systems</h3>
+          <p>Adjust the interface around the way you fly.</p>
+          <div className="settings-nav" role="tablist" aria-label="Settings categories">
+            {SETTINGS_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                id={`${tabsId}-tab-${tab.id}`}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === tab.id}
+                aria-controls={`${tabsId}-panel-${tab.id}`}
+                tabIndex={activeTab === tab.id ? 0 : -1}
+                onClick={() => setActiveTab(tab.id)}
+                onKeyDown={(event) => onTabKeyDown(event, tab.id)}
+              >
+                <span className="settings-nav-icon" aria-hidden="true">{SETTINGS_TAB_META[tab.id].icon}</span>
+                <span><b>{tab.label}</b><small>{SETTINGS_TAB_META[tab.id].hint}</small></span>
+                <i aria-hidden="true">›</i>
+              </button>
+            ))}
+          </div>
+          <div className="settings-rail-tip"><span>TIP</span><p>Changes apply immediately. Use the same panel with keyboard, controller, mouse, or touch.</p></div>
+        </aside>
+        <section className="settings-workspace">
+          <header className="settings-workspace-header">
+            <div><span className="menu-stage-kicker">ACTIVE MODULE</span><h3>{SETTINGS_TABS.find((tab) => tab.id === activeTab)?.label}</h3></div>
+            <span className="settings-module-code">CFG // {activeTab.toUpperCase()}</span>
+          </header>
+          <div
+            className="settings-tab-panel"
+            id={`${tabsId}-panel-${activeTab}`}
+            role="tabpanel"
+            aria-labelledby={`${tabsId}-tab-${activeTab}`}
           >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      <div
-        className="settings-tab-panel"
-        id={`${tabsId}-panel-${activeTab}`}
-        role="tabpanel"
-        aria-labelledby={`${tabsId}-tab-${activeTab}`}
-      >
       {activeTab === "controls" ? <>
       <MenuSection title="Arcade identity" hint="Used automatically for future scores.">
         <div className="initials-field">
@@ -941,6 +1002,8 @@ export function SettingsScreen({
         <GameInfoContent viewMode={viewMode} />
       </MenuSection> : null}
 
+          </div>
+        </section>
       </div>
     </MenuScreen>
   );

@@ -57,23 +57,21 @@ test("Ships is a browsing surface: confirming returns where it was opened from",
   assert.match(game, /const confirmShip = useCallback\(\s*\(\) => setMenu\(\(stack\) => \(stack\.length > 1 \? popRoute\(stack\) : resetRoute\("home"\)\)\)/);
   assert.match(game, /<ShipsScreen[\s\S]*onLaunch=\{confirmShip\}/);
   // Home still offers it, as a place to compare the fleet.
-  assert.match(menu, /\{ route: "ships", label: "Ships", hint: "Compare the fleet" \}/);
+  assert.match(menu, /<MenuActionButton icon="✦" label="Ships" detail="Choose your hull" onClick=\{\(\) => go\("ships"\)\} \/>/);
 });
 
-test("Home shows the hull it will fly; the mode screens still do not", () => {
-  // Ship *selection* moved into the round lobby, and the mode screens stay out
-  // of it. Home is the exception, by explicit request: it summarises the whole
-  // launch decision, and a summary that names the mode and the difficulty but
-  // not the hull leaves out the part a returning pilot most wants to check
-  // before pressing Play. It is a summary row like the other two -- reading it
-  // costs nothing, and pressing it opens the same browsing surface.
+test("Home keeps setup choices available without showing them inline", () => {
+  // Home is intentionally compact: setup choices are reachable later, but no
+  // longer compete with Play for vertical space on short or narrow screens.
   assert.ok(!menu.includes("SelectedShipPreview"), "not the old bespoke preview card");
   assert.ok(!css.includes("selected-ship-preview"));
 
   const home = screen("HomeScreen", "GameTypeScreen");
-  assert.ok(home.includes("label=\"Ship\""), "Home names the hull");
-  assert.ok(home.includes("media={renderShip(ship, 44)}"), "and draws it");
-  assert.ok(home.includes("onAction={() => go(\"ships\")}"), "pressing it opens the browsing surface");
+  assert.doesNotMatch(home, /label=\"Difficulty\"|label=\"Ship\"/, "Home does not inline setup choices");
+  assert.doesNotMatch(home, /renderShip\(ship/, "Home does not inline ship art");
+  assert.ok(home.includes("detail=\"Choose difficulty and ship after selecting a mode\""), "Home points to later setup");
+  assert.ok(home.includes("label=\"Ships\""), "the Ships destination remains on the command deck");
+  assert.ok(home.includes("onClick={() => go(\"ships\")}"), "Ships remains reachable");
 
   // The mode list is still not a place to think about hulls. It is one screen
   // now, so there is one to check.
@@ -177,18 +175,13 @@ test("one screen offers every mode, in one tap", () => {
   // Identified by the modes it offers rather than the copy it renders, since
   // the labels come from MODE_INFO.
   for (const mode of ["pve", "rift-run", "survival", "coop", "pvp", "team"]) {
-    assert.match(root, new RegExp(`data-mode="${mode}"`), `the mode list must offer ${mode}`);
+    assert.match(root, new RegExp(`id: "${mode}"`), `the mode catalog must define ${mode}`);
   }
   assert.match(root, /MODE_INFO\.pve\.label/);
   assert.match(root, /MODE_INFO\.coop\.label/);
   assert.match(root, /RIFT_RUN_TITLE/);
-
-  // Six live cards. Counted before the shelving comment, because Classic's card
-  // still exists inside it and would otherwise be counted as offered.
-  assert.ok(root.includes("Classic Wormhole is shelved"), "Classic is parked, not offered");
-  const live = root.slice(0, root.indexOf("Classic Wormhole is shelved"));
-  assert.equal((live.match(/className="mode-card"/g) ?? []).length, 6);
-  assert.ok(!live.includes('data-mode="classic"'), "and is not among them");
+  assert.equal((root.match(/className=\{`mode-launch-card/g) ?? []).length, 1, "the six cards are rendered by one structured catalog");
+  assert.ok(!root.includes('data-mode="classic"'), "Classic is parked, not offered");
 
   // The fork screens are gone, not merely bypassed.
   assert.ok(!menu.includes("export function PvpModesScreen"), "no PvP branch screen");
