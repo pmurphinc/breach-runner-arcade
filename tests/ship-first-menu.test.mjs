@@ -81,18 +81,51 @@ test("Home shows the hull it will fly; the mode screens still do not", () => {
   }
 });
 
-test("every launch summary row is itself the button", () => {
-  // No standing CHANGE control sits beside a card that already looks
-  // pressable. One target, not two: the row is the button and the cue is
-  // inside it.
+test("every launch summary row is itself the button, and says nothing about it", () => {
+  // No standing CHANGE control sits beside a card that already looks pressable
+  // — and no visible CHANGE label inside one either. A row per setting, each
+  // captioned "CHANGE", made the screen read as a form to fill in before
+  // playing rather than a summary of what is about to happen; that is exactly
+  // how a player described it. The row is still the button, and still says so
+  // to a screen reader through its aria-label.
   const ui = readFileSync(new URL("../app/ui-system.tsx", import.meta.url), "utf8");
   const at = ui.indexOf("export function SummaryRow");
   const row = ui.slice(at, at + 2000);
   assert.ok(row.includes("className=\"summary-row\""), "the row itself is the button");
-  assert.ok(row.includes("className=\"summary-cue\""), "the cue is inside it");
+  assert.ok(!row.includes("className=\"summary-cue\""), "and paints no CHANGE caption");
+  assert.ok(row.includes("aria-label={`${label}: ${value}. ${actionLabel}.`}"), "but still announces itself");
   assert.ok(!row.includes("className=\"summary-action\""), "the standalone action button is gone");
   assert.ok(!css.includes(".summary-action {"), "and so is its styling");
   assert.ok(css.includes("button.summary-row {"), "styled as a button");
+});
+
+/**
+ * A session opens on Solo PvE, whatever was played last.
+ *
+ * Every other preference is remembered because a returning pilot wants what
+ * they had. The mode is the exception: remembering it meant someone who tried a
+ * duel once opened the game days later already committed to a mode they had to
+ * notice and undo before they could just fly. Solo PvE is the one mode the game
+ * can always deliver — no lobby, no second player, no waiting.
+ */
+test("the game mode does not survive a reload", () => {
+  // Sliced rather than matched across newlines: the file is CRLF, and a
+  // literal spanning line breaks is brittle for no benefit.
+  const modeAt = game.indexOf("const modePreference = createPreference");
+  assert.ok(modeAt > 0, "the mode preference is still here");
+  const modePref = game.slice(modeAt, modeAt + 220);
+  assert.ok(modePref.includes('"pve",'), "it falls back to Solo PvE");
+  assert.ok(modePref.includes("false"), "and opts out of persistence");
+
+  // The opt-out is real on both sides: nothing is read back, nothing is written.
+  assert.ok(game.includes("if (!persist) return (cached = fallback);"), "a fresh session ignores storage");
+  assert.ok(game.includes("if (persist) {"), "and never writes the mode back");
+
+  // Everything else still persists, so this is a deliberate exception rather
+  // than preferences quietly becoming session-only across the board.
+  const shipAt = game.indexOf("const shipPreference = createPreference");
+  const shipPref = game.slice(shipAt, shipAt + 220);
+  assert.ok(!shipPref.includes("false"), "the ship is still remembered");
 });
 
 test("solo and co-op choose their hull in the round lobby, in place", () => {
