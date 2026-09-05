@@ -75,10 +75,10 @@ test("Home shows the hull it will fly; the mode screens still do not", () => {
   assert.ok(home.includes("media={renderShip(ship, 44)}"), "and draws it");
   assert.ok(home.includes("onAction={() => go(\"ships\")}"), "pressing it opens the browsing surface");
 
-  // The mode screens are still not a place to think about hulls.
-  for (const [name, next] of [["GameTypeScreen", "PvpModesScreen"], ["PvpModesScreen", "PveModesScreen"], ["PveModesScreen", "LobbyShipPicker"]]) {
-    assert.doesNotMatch(screen(name, next), /ship={|go("ships")/, `${name} must not ask about ships`);
-  }
+  // The mode list is still not a place to think about hulls. It is one screen
+  // now, so there is one to check.
+  assert.doesNotMatch(screen("GameTypeScreen", "LobbyShipPicker"), /ship={|go\("ships"\)/,
+    "the mode list must not ask about ships");
 });
 
 test("every launch summary row is itself the button, and says nothing about it", () => {
@@ -162,26 +162,39 @@ test("the Rift Run lobby has no ship control of any kind", () => {
   assert.doesNotMatch(mounted, /ship=|onSelect=/);
 });
 
-test("root selection contains only PvP and PvE categories", () => {
-  const root = screen("GameTypeScreen", "PvpModesScreen");
-  assert.equal((root.match(/className="mode-card"/g) ?? []).length, 2);
-  assert.match(root, />PvP</); assert.match(root, />PvE</);
-  for (const forbidden of ["Solo PvE", "PvE Co-op", "Rift Survival", "Rift Run"]) assert.doesNotMatch(root, new RegExp(forbidden));
-});
+/**
+ * Every mode is on one screen.
+ *
+ * Choosing used to take two taps: a PvP-or-PvE fork, then a list inside the
+ * branch. The first tap asked something nobody is thinking in — you sit down
+ * wanting Rift Run, or a duel, not "PvE" — and Home had already shown the mode,
+ * so pressing it opened a screen asking a broader question than the one being
+ * answered. One list answers it in one tap.
+ */
+test("one screen offers every mode, in one tap", () => {
+  const root = screen("GameTypeScreen", "LobbyShipPicker");
 
-test("PvP and PvE branches expose only their own modes", () => {
-  const pvp = screen("PvpModesScreen", "PveModesScreen");
-  assert.match(pvp, />1v1</); assert.doesNotMatch(pvp, /Solo PvE|Co-op|Survival|RIFT_RUN_TITLE/);
-  const pve = screen("PveModesScreen", "LobbyShipPicker");
-  // The labels come from MODE_INFO, so the screen is identified by the modes it
-  // actually offers rather than by the copy it renders.
-  for (const mode of ["pve", "coop", "survival", "rift-run", "classic"]) {
-    assert.match(pve, new RegExp(`data-mode="${mode}"`), `PvE must offer ${mode}`);
+  // Identified by the modes it offers rather than the copy it renders, since
+  // the labels come from MODE_INFO.
+  for (const mode of ["pve", "rift-run", "survival", "coop", "pvp", "team"]) {
+    assert.match(root, new RegExp(`data-mode="${mode}"`), `the mode list must offer ${mode}`);
   }
-  assert.match(pve, /MODE_INFO\.pve\.label/);
-  assert.match(pve, /MODE_INFO\.coop\.label/);
-  assert.match(pve, /RIFT_RUN_TITLE/);
-  assert.doesNotMatch(pve, />PvP</);
+  assert.match(root, /MODE_INFO\.pve\.label/);
+  assert.match(root, /MODE_INFO\.coop\.label/);
+  assert.match(root, /RIFT_RUN_TITLE/);
+
+  // Six live cards. Counted before the shelving comment, because Classic's card
+  // still exists inside it and would otherwise be counted as offered.
+  assert.ok(root.includes("Classic Wormhole is shelved"), "Classic is parked, not offered");
+  const live = root.slice(0, root.indexOf("Classic Wormhole is shelved"));
+  assert.equal((live.match(/className="mode-card"/g) ?? []).length, 6);
+  assert.ok(!live.includes('data-mode="classic"'), "and is not among them");
+
+  // The fork screens are gone, not merely bypassed.
+  assert.ok(!menu.includes("export function PvpModesScreen"), "no PvP branch screen");
+  assert.ok(!menu.includes("export function PveModesScreen"), "no PvE branch screen");
+  assert.ok(!game.includes("PvpModesScreen"), "and nothing renders them");
+  assert.ok(!game.includes("PveModesScreen"));
 });
 
 test("canonical preview animates, honors reduced motion, and cleans up", () => {

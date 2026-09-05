@@ -340,33 +340,34 @@ export function HomeScreen({
 
 /* ----------------------------------------------------------------- modes -- */
 
-export function GameTypeScreen({ go, back, openSettings }: MenuCallbacks) {
-  return <MenuScreen route="modes" onOpenSettings={openSettings} title="Select Game Mode" onBack={back}>
-    <div className="mode-grid launch-choice-grid" aria-label="Game type">
-      <button type="button" className="mode-card" data-mode="pvp" onClick={() => go("pvp-modes")}><b>PvP</b><small>Competitive multiplayer</small></button>
-      <button type="button" className="mode-card" data-mode="pve" onClick={() => go("pve-modes")}><b>PvE</b><small>Rift missions and challenge modes</small></button>
-    </div>
-  </MenuScreen>;
-}
-
-export function PvpModesScreen({ onSelect, back, openSettings }: MenuCallbacks & { onSelect: (mode: "pvp" | "team") => void }) {
-  return <MenuScreen route="pvp-modes" onOpenSettings={openSettings} title="Select PvP Mode" onBack={back}>
-    <div className="mode-grid">
-      <button type="button" className="mode-card" data-mode="pvp" onClick={() => onSelect("pvp")}><b>1v1</b><small>Matchmaking or private match</small></button>
-      <button type="button" className="mode-card" data-mode="team" onClick={() => onSelect("team")}><b>2v2</b><small>Two pilots a side, one rift each team</small></button>
-    </div>
-  </MenuScreen>;
-}
-
-export function PveModesScreen({ onMode, onSurvival, onRiftRun, back, openSettings }: MenuCallbacks & {
-  onMode: (mode: "pve" | "coop" | "classic") => void; onSurvival: () => void; onRiftRun: () => void;
+/**
+ * Every mode, on one screen.
+ *
+ * This used to be three: a PvP-or-PvE fork, then a list inside whichever branch
+ * you picked. Two taps to answer one question, and the first tap asked
+ * something the player was not thinking in -- nobody sits down wanting "PvE",
+ * they want Rift Run, or a duel. Worse, Home already showed the mode, so
+ * pressing it opened a screen that asked a broader question than the one being
+ * answered.
+ *
+ * Six cards, ordered solo-first because that is what a session opens in and
+ * what most sessions stay in. The grouping needs no caption of its own: every
+ * label in MODE_INFO already names the shape it belongs to.
+ */
+export function GameTypeScreen({ onMode, onSurvival, onRiftRun, onVersus, back, openSettings }: MenuCallbacks & {
+  onMode: (mode: "pve" | "coop" | "classic") => void;
+  onSurvival: () => void;
+  onRiftRun: () => void;
+  onVersus: (mode: "pvp" | "team") => void;
 }) {
-  return <MenuScreen route="pve-modes" onOpenSettings={openSettings} title="Select PvE Mode" onBack={back}>
-    <div className="mode-grid pve-mode-grid">
+  return <MenuScreen route="modes" onOpenSettings={openSettings} title="Select Game Mode" onBack={back}>
+    <div className="mode-grid pve-mode-grid" aria-label="Game modes">
       <button type="button" className="mode-card" data-mode="pve" onClick={() => onMode("pve")}><b>{MODE_INFO.pve.label}</b><small>One pilot against the rift</small></button>
-      <button type="button" className="mode-card" data-mode="coop" onClick={() => onMode("coop")}><b>{MODE_INFO.coop.label}</b><small>Two pilots, shared objective</small></button>
-      <button type="button" className="mode-card" data-mode="survival" onClick={onSurvival}><b>Rift Survival</b><small>Endless escalating challenge</small></button>
       <button type="button" className="mode-card" data-mode="rift-run" onClick={onRiftRun}><b>{RIFT_RUN_TITLE}</b><small>{RIFT_RUN_TAGLINE}</small></button>
+      <button type="button" className="mode-card" data-mode="survival" onClick={onSurvival}><b>Rift Survival</b><small>Endless escalating challenge</small></button>
+      <button type="button" className="mode-card" data-mode="coop" onClick={() => onMode("coop")}><b>{MODE_INFO.coop.label}</b><small>Two pilots, shared objective</small></button>
+      <button type="button" className="mode-card" data-mode="pvp" onClick={() => onVersus("pvp")}><b>{MODE_INFO.pvp.label}</b><small>Matchmaking or private match</small></button>
+      <button type="button" className="mode-card" data-mode="team" onClick={() => onVersus("team")}><b>{MODE_INFO.team.label}</b><small>Two pilots a side, one rift each team</small></button>
       {/* Classic Wormhole is shelved -- see MODE_ORDER. The card is commented
           out rather than deleted so bringing it back is a one-line change:
           <button type="button" className="mode-card" data-mode="classic" onClick={() => onMode("classic")}><b>{MODE_INFO.classic.label}</b><small>{MODE_INFO.classic.blurb}</small></button>

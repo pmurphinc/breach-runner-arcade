@@ -48,7 +48,8 @@ test("Classic is off the menu but intact underneath", () => {
   // Classic is absent, not the exact length of the list.
   assert.ok(menu.includes("export const MODE_ORDER: GameMode[] = [\"pve\", \"coop\", \"pvp\", \"team\"];"), "not offered");
   assert.ok(!menu.match(/MODE_ORDER: GameMode[] = [[^]]*"classic"/), "and Classic specifically is not in it");
-  const pveScreen = menu.slice(menu.indexOf("export function PveModesScreen"), menu.indexOf("Roster selection inside a lobby"));
+  // The three mode screens collapsed into one list; Classic is parked inside it.
+  const pveScreen = menu.slice(menu.indexOf("export function GameTypeScreen"), menu.indexOf("Roster selection inside a lobby"));
   assert.ok(pveScreen.includes("Classic Wormhole is shelved -- see MODE_ORDER"), "the card is commented out, with the reason");
   assert.ok(pveScreen.indexOf("{/* Classic Wormhole is shelved") < pveScreen.indexOf("data-mode=\"classic\""), "the card sits inside that comment, not beside it");
   // Still reachable in code: the ruleset, the drop table and the ships all
