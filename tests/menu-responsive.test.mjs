@@ -4,11 +4,19 @@ import test from "node:test";
 
 const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
 const ui = readFileSync(new URL("../app/ui-system.tsx", import.meta.url), "utf8");
+const mainMenu = readFileSync(new URL("../app/main-menu.tsx", import.meta.url), "utf8");
 
 test("shared menu owns the viewport and the single outer scroll region", () => {
   assert.match(css, /\.menu-screen \{ width: 100%; height: 100%; height: 100dvh; overflow: hidden; \}/);
   assert.match(css, /\.menu-content \{ overflow-x: hidden; scrollbar-gutter: stable; touch-action: pan-y; \}/);
   assert.match(ui, /grid-template-rows: auto minmax\(0, 1fr\) auto/);
+});
+
+test("home utility navigation occupies the panel footer outside the scroll region", () => {
+  const home = mainMenu.slice(mainMenu.indexOf("export function HomeScreen"), mainMenu.indexOf("/* ----------------------------------------------------------------- modes -- */"));
+  assert.match(home, /footer=\{[\s\S]*?<nav className="home-command-deck"/);
+  assert.doesNotMatch(home, /<div className="main-menu-stage">[\s\S]*?<nav className="home-command-deck"/);
+  assert.match(css, /\.menu-screen\[data-route="home"\] \.menu-footer \{[\s\S]*?padding:/);
 });
 
 test("menu layout responds independently to narrow and short viewports", () => {

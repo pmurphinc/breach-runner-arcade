@@ -269,6 +269,13 @@ export function HomeScreen({
       backLabel="Resume"
       hideBack={!running}
       wide
+      footer={
+        <nav className="home-command-deck" aria-label="Command deck">
+          <MenuActionButton icon="✦" label="Ships" detail="Choose your hull" onClick={() => go("ships")} />
+          <MenuActionButton icon="↗" label="Leaderboard" detail="Review high scores" onClick={() => go("leaderboard")} />
+          <MenuActionButton icon="?" label="Game Info" detail="Controls and codex" onClick={() => go("info")} />
+        </nav>
+      }
     >
       <div className="main-menu-stage">
         <header className="main-menu-brand-lockup">
@@ -321,12 +328,6 @@ export function HomeScreen({
             onClick={onLaunch}
           />
         </section>
-
-        <nav className="home-command-deck" aria-label="Command deck">
-          <MenuActionButton icon="✦" label="Ships" detail="Choose your hull" onClick={() => go("ships")} />
-          <MenuActionButton icon="↗" label="Leaderboard" detail="Review high scores" onClick={() => go("leaderboard")} />
-          <MenuActionButton icon="?" label="Game Info" detail="Controls and codex" onClick={() => go("info")} />
-        </nav>
       </div>
     </MenuScreen>
   );
