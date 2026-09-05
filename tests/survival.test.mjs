@@ -419,7 +419,9 @@ test("survival is launched from Challenges, not from the difficulty list", () =>
 });
 
 test("the result card reports what survival actually asked of the player", () => {
-  assert.match(gameCode, /riftLevel: survivalRun \? hud\.riftLevel : undefined/);
+  // Rift Run shares this field but fills it from its own run state, so the
+  // branch is pinned rather than the whole line.
+  assert.ok(gameCode.includes("riftLevel: survivalRun ? hud.riftLevel :"));
   assert.match(gameCode, /breaches: survivalRun \? hud\.breaches : undefined/);
   // Time, not score, and its own device board rather than the arcade record.
   // The board's own rules are covered in `survival-board.test.mjs`.

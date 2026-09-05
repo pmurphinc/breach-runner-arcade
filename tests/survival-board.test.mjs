@@ -238,14 +238,21 @@ test("the shell records, names and ranks a Survival run in that order", () => {
 });
 
 test("each result card links to the board its run is ranked on", () => {
-  assert.match(gameCode, /setBoardKind\(summary\.run\.difficulty === "survival" \? "survival" : "arcade"\)/);
+  // Three boards now, ranking three different things, and sending a run to
+  // the wrong one sends the player to look for a result that was never
+  // submitted there. Pinned as the choice this card makes rather than as the
+  // shape of the whole ternary, so a fourth board cannot fail it on syntax.
+  assert.ok(gameCode.includes('summary.run.difficulty === "survival" ? "survival" : "arcade"'));
+  assert.ok(gameCode.includes("setBoardKind("));
   assert.match(gameCode, /summary\.run\.difficulty === "survival" \? "SURVIVAL BOARD" : "GLOBAL BOARD"/);
 });
 
-test("the leaderboard screen keeps the two boards apart", () => {
-  // Two components, because they rank different things in different orders.
+test("the leaderboard screen keeps the boards apart", () => {
+  // One component each, because they rank different things in different
+  // orders. Rift Run's own rules live in `rift-run-board.test.mjs`.
   assert.match(gameCode, /function SurvivalBoard\(\)/);
   assert.match(gameCode, /function ArcadeBoard\(\)/);
+  assert.match(gameCode, /function RiftRunBoard\(\)/);
   assert.match(gameCode, /initialBoard\?: BoardKind/);
   // The device board is always shown, so an unavailable global board still
   // leaves the player something to beat.

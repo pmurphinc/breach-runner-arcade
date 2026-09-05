@@ -33,10 +33,25 @@ export type RunResult = {
   finalCause?: string;
   finalDamage?: number;
   finalReason?: string;
-  /** Highest Rift Level reached. Survival runs only. */
+  /**
+   * Highest level reached. Survival runs and Rift Runs.
+   *
+   * Both modes count a level and both mean the same thing by it -- how far
+   * the pilot got up their own curve -- so they share the field rather than
+   * each adding a near-identical one.
+   */
   riftLevel?: number;
   /** Times the rift was collapsed and reformed. Survival runs only. */
   breaches?: number;
+  /**
+   * Rifts broken through. Rift Runs only, and the metric its board ranks on.
+   *
+   * Kept separate from `breaches` even though both count rifts, because they
+   * are counted under different rules: Survival's rift reforms on a timer and
+   * `breaches` is a side effect of surviving, while a Rift Run's depth is the
+   * run's whole progression and is what its escalation is driven by.
+   */
+  depth?: number;
 };
 
 export type LocalBest = {
@@ -335,6 +350,112 @@ export async function saveScoreToMurph(run: RunResult): Promise<SaveScoreResult>
     return {
       status: "failed",
       message: "The global board could not be reached. Your device score is safe.",
+    };
+  }
+}
+
+/**
+ * One row of the public Rift Run board.
+ *
+ * Ranked on `depth` — rifts broken through — with score as the tie-break. That
+ * is a third ordering, distinct from the arcade board's settled score and the
+ * Survival board's time survived, which is why it is a third endpoint rather
+ * than a mode column on either of the others. See `app/rift-run-board.ts` for
+ * why depth is the metric, and note there is no `ship`: every Rift Run flies
+ * the same issued starter frame.
+ */
+export type RiftRunLeaderboardEntry = {
+  id: number;
+  rank: number;
+  initials: string;
+  depth: number;
+  level: number;
+  score: number;
+  durationSeconds: number;
+  achievedAt: string;
+};
+
+function isRiftRunRow(value: unknown): value is RiftRunLeaderboardEntry {
+  if (typeof value !== "object" || value === null) return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.depth === "number" && typeof row.initials === "string";
+}
+
+/**
+ * Reads the public Rift Run board.
+ *
+ * Returns null for every failure — unreachable, non-JSON, or an endpoint that
+ * does not exist yet — because the caller's job is the same in all three
+ * cases: show the device board and say the global one is unavailable. The Rift
+ * Run endpoints are not live on the score service yet, so today this returns
+ * null in production, and that is a supported state rather than a bug. See
+ * `docs/RIFT_RUN_LEADERBOARD_API.md` for the contract it expects.
+ */
+export async function fetchRiftRunLeaderboard(
+  limit = 25
+): Promise<RiftRunLeaderboardEntry[] | null> {
+  try {
+    const query = new URLSearchParams({ limit: String(limit) });
+    const response = await murphFetch(`/api/arcade/rift-run-leaderboard?${query}`, {
+      cache: "no-store",
+    });
+    if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) {
+      return null;
+    }
+    const body = (await response.json()) as { entries?: unknown };
+    if (!Array.isArray(body.entries)) return null;
+    return body.entries.filter(isRiftRunRow);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Submits one completed Rift Run to the public board.
+ *
+ * Deliberately not routed through `saveScoreToMurph`: that endpoint ranks a
+ * settled score for a victory, and a Rift Run is endless, so it has no
+ * victory and no settled score to rank.
+ */
+export async function saveRiftRunScoreToMurph(run: RunResult): Promise<SaveScoreResult> {
+  if (
+    typeof run.depth !== "number" ||
+    !Number.isFinite(run.depth) ||
+    run.practice ||
+    !run.initials ||
+    !/^[A-Z0-9]{3}$/.test(run.initials)
+  ) {
+    return { status: "failed", message: "Only a completed Rift Run can be ranked." };
+  }
+
+  try {
+    const response = await murphFetch("/api/arcade/rift-run-scores", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        runId: run.runId,
+        initials: run.initials,
+        depth: Math.max(0, Math.floor(run.depth)),
+        level: Math.max(1, Math.floor(run.riftLevel ?? 1)),
+        score: Math.max(0, Math.floor(run.score)),
+        durationSeconds: Math.max(0, Math.floor(run.durationSeconds)),
+      }),
+    });
+
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as { error?: string } | null;
+      return {
+        status: "failed",
+        message: body?.error ?? "That run could not be added to the Rift Run board.",
+      };
+    }
+
+    const body = (await response.json()) as { rank?: number | null };
+    return { status: "saved", rank: body.rank ?? null };
+  } catch {
+    return {
+      status: "failed",
+      message: "The Rift Run board could not be reached. Your device board is safe.",
     };
   }
 }
