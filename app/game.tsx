@@ -3789,12 +3789,12 @@ export default function WormholeGame() {
       y *= clamp;
     }
 
-    const scheme = settingsRef.current.flightScheme;
+    const scheme = settingsRef.current.controlProfile;
     if (kind === "move") {
       // Classic separates turning from burning: the hull follows the stick at
       // any travel, and the engine only lights past the deadzone. The reading
       // lives in flight-controls so both schemes are one decision.
-      const authored = settingsRef.current.touchProfile === "custom"
+      const authored = settingsRef.current.controlProfile === "classic"
         ? settingsRef.current.customTouchLayout.elements.move
         : null;
       const flight = stickFlight(scheme, x, y, maxTravel, classicDeadzone(maxTravel, authored));
@@ -3823,7 +3823,7 @@ export default function WormholeGame() {
     if (pointer.current !== null) return;
     pointer.current = event.pointerId;
     if (kind === "move") moveHeading.current = gameRef.current.player.angle;
-    else if (rightControlAims(settingsRef.current.flightScheme)) aimHeading.current = gameRef.current.player.angle;
+    else if (rightControlAims(settingsRef.current.controlProfile)) aimHeading.current = gameRef.current.player.angle;
     setControl(kind === "move" ? "ArrowUp" : "Space", true);
     event.currentTarget.setPointerCapture(event.pointerId);
     if (!reducedMotionRef.current && typeof navigator !== "undefined" && "vibrate" in navigator) navigator.vibrate(8);
@@ -8488,7 +8488,7 @@ export default function WormholeGame() {
       data-panels={layout.panels}
       data-touch-controls={layout.showTouchControls ? "on" : "off"}
       data-touch-height={settings.touchControlHeight}
-      data-touch-profile={settings.touchProfile}
+      data-control-profile={settings.controlProfile}
       /* The anchored edge rides on the shell rather than in the variables so the
          stylesheet can switch between left: and right: — a custom property
          cannot select a property name. */
@@ -8499,7 +8499,7 @@ export default function WormholeGame() {
         // CSS never has to guess and cannot disagree with the shell.
         "--arena-size": `${layout.arena}px`,
         "--stick": `${layout.stick}px`,
-        // Only meaningful under the Custom profile; M-Sticks ignores them.
+        // Only meaningful under Classic; Twin Stick keeps its responsive geometry.
         ...customTouchLayoutVariables(settings.customTouchLayout),
         "--touch-base-stick": `${layout.stick}px`,
         "--touch-control-scale": layout.form === "phone"
@@ -9317,10 +9317,8 @@ export default function WormholeGame() {
           onAimGuide={(next) => setSetting("aimGuide", next)}
           compactHud={settings.compactHud}
           onCompactHud={(next) => setSetting("compactHud", next)}
-          touchProfile={settings.touchProfile}
-          flightScheme={settings.flightScheme}
-          onFlightScheme={(next) => setSetting("flightScheme", next)}
-          onTouchProfile={(next) => setSetting("touchProfile", next)}
+          controlProfile={settings.controlProfile}
+          onControlProfile={(next) => setSetting("controlProfile", next)}
           onEditTouchLayout={() => setTouchEditorOpen(true)}
           cameraLock={cameraLocked}
           onCameraLock={(next) => setSetting("cameraLock", next)}

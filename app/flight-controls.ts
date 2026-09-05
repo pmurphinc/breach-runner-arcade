@@ -23,22 +23,22 @@
  * of zero.
  */
 
-export type FlightScheme = "classic" | "twin-stick";
+export type ControlProfile = "classic" | "twinStick";
 
-export const FLIGHT_SCHEMES: readonly FlightScheme[] = ["classic", "twin-stick"];
+export const CONTROL_PROFILES: readonly ControlProfile[] = ["classic", "twinStick"];
 
-export const FLIGHT_SCHEME_LABELS: Record<FlightScheme, string> = {
-  classic: "Classic",
-  "twin-stick": "Twin-stick",
+export const CONTROL_PROFILE_LABELS: Record<ControlProfile, string> = {
+  classic: "CLASSIC",
+  twinStick: "TWIN STICK",
 };
 
-export const FLIGHT_SCHEME_HINTS: Record<FlightScheme, string> = {
+export const CONTROL_PROFILE_HINTS: Record<ControlProfile, string> = {
   classic: "Left stick turns; push past the ring to burn. Right pad fires ahead.",
-  "twin-stick": "Left stick flies, right stick aims and fires independently.",
+  twinStick: "Left stick flies, right stick aims and fires independently.",
 };
 
-export function isFlightScheme(value: unknown): value is FlightScheme {
-  return typeof value === "string" && (FLIGHT_SCHEMES as readonly string[]).includes(value);
+export function isControlProfile(value: unknown): value is ControlProfile {
+  return typeof value === "string" && (CONTROL_PROFILES as readonly string[]).includes(value);
 }
 
 /**
@@ -100,7 +100,7 @@ export function twinStickFlight(x: number, y: number, maxTravel: number): StickF
 
 /** The reading for whichever scheme is in force. */
 export function stickFlight(
-  scheme: FlightScheme,
+  scheme: ControlProfile,
   x: number,
   y: number,
   maxTravel: number,
@@ -117,16 +117,16 @@ export function stickFlight(
  * Classic shoots along the hull's own heading, so there is nothing for a second
  * stick to point at and the control is a trigger. Twin-stick aims with it.
  */
-export function rightControlAims(scheme: FlightScheme): boolean {
-  return scheme === "twin-stick";
+export function rightControlAims(scheme: ControlProfile): boolean {
+  return scheme === "twinStick";
 }
 
 /**
  * The deadzone to use, in stick pixels.
  *
- * Only the Custom layout authors a deadzone, and it does so against its own
+ * The adjustable Classic layout authors a deadzone, and it does so against its own
  * stick size rather than against the measured one — a 132px stick with a 20px
- * ring. M-Sticks is responsive and authors nothing. So the authored value is
+ * ring. Twin Stick is responsive and authors nothing. So the authored value is
  * read as a *proportion* of the stick it was drawn on and re-applied to the
  * stick actually on screen, which keeps the editor meaningful at any size and
  * still gives every other layout a sensible ring.

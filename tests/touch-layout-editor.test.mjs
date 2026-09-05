@@ -1,5 +1,5 @@
 /**
- * The Custom layout editor and the wiring that makes the profile real.
+ * The Classic layout editor and its profile wiring.
  *
  * Source-level: the editor is React over a pure model, and the model's own
  * behaviour is covered in touch-profiles.test.mjs. What these hold is the part
@@ -75,35 +75,35 @@ test("import cannot break the layout, and export is readable", () => {
 });
 
 test("the shell publishes the geometry the stylesheet reads", () => {
-  assert.match(game, /data-touch-profile=\{settings\.touchProfile\}/);
+  assert.match(game, /data-control-profile=\{settings\.controlProfile\}/);
   assert.match(game, /\.\.\.customTouchLayoutVariables\(settings\.customTouchLayout\)/);
   // A custom property cannot select a property name, so the anchored edge has
   // to be an attribute for the stylesheet to switch left: against right:.
   assert.match(game, /data-touch-move-edge=\{touchElementEdge\("move", settings\.customTouchLayout\.handed\)\}/);
   assert.match(game, /data-touch-aim-edge=\{touchElementEdge\("aim", settings\.customTouchLayout\.handed\)\}/);
-  assert.match(css, /\[data-touch-profile="custom"\]\[data-immersive="true"\] \.touch-flight/);
+  assert.match(css, /\[data-control-profile="classic"\]\[data-immersive="true"\] \.touch-flight/);
   assert.match(css, /\[data-touch-move-edge="right"\] \.touch-flight \{ left: auto; right: var\(--touch-move-x\); \}/);
 });
 
-test("M-Sticks is untouched by any custom rule", () => {
-  // Every custom positioning rule is gated on the profile attribute, so the
+test("Twin Stick is untouched by any Classic geometry rule", () => {
+  // Every custom positioning rule is gated on the Classic profile, so the
   // responsive data-sticks layout keeps working exactly as before.
-  const customBlock = css.slice(css.indexOf("Custom profile"));
+  const customBlock = css.slice(css.indexOf("Classic profile"));
   for (const line of customBlock.split("\n")) {
     const selector = line.trim();
-    if (!selector.startsWith("[data-touch-profile")) continue;
-    assert.match(selector, /^\[data-touch-profile="custom"\]/, `unscoped custom rule: ${selector}`);
+    if (!selector.startsWith("[data-control-profile")) continue;
+    assert.match(selector, /^\[data-control-profile="classic"\]/, `unscoped Classic rule: ${selector}`);
   }
-  assert.doesNotMatch(css, /\[data-touch-profile="m-sticks"\]/, "M-Sticks needs no rules of its own");
+  assert.doesNotMatch(css, /\[data-control-profile="twinStick"\]/, "Twin Stick needs no rules of its own");
 });
 
-test("the profile selector sits in the Controls tab and gates the editor", () => {
+test("the two-profile selector sits in the Controls tab and gates the editor", () => {
   const controls = menu.slice(menu.indexOf('activeTab === "controls"'), menu.indexOf('activeTab === "audio"'));
-  assert.match(controls, /label="Touch profile"/);
-  assert.match(controls, /value=\{touchProfile\}/);
-  assert.match(controls, /touchProfile === "custom" \?/, "the editor is only offered for the profile it edits");
+  assert.match(controls, /label="Control profile"/);
+  assert.match(controls, /value=\{controlProfile\}/);
+  assert.match(controls, /controlProfile === "classic" \?/, "the editor is only offered for Classic");
   assert.match(controls, /onClick=\{onEditTouchLayout\}/);
-  assert.match(game, /onTouchProfile=\{\(next\) => setSetting\("touchProfile", next\)\}/);
+  assert.match(game, /onControlProfile=\{\(next\) => setSetting\("controlProfile", next\)\}/);
 });
 
 test("the editor claims the screen, so there are not two Close buttons", () => {

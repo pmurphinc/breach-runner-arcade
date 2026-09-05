@@ -14,10 +14,10 @@ import { MenuActionButton, MenuScreen, MenuSection, OptionRow, SummaryRow, Toggl
 import { WEAPONS, type PickupId, type PupClass, type ShipId } from "./game-data";
 import { SHIP_ORDER, SHIP_PROFILES } from "./ship-data";
 import {
-  FLIGHT_SCHEMES,
-  FLIGHT_SCHEME_HINTS,
-  FLIGHT_SCHEME_LABELS,
-  type FlightScheme,
+  CONTROL_PROFILES,
+  CONTROL_PROFILE_HINTS,
+  CONTROL_PROFILE_LABELS,
+  type ControlProfile,
 } from "./flight-controls";
 import { difficultyCardStyle } from "./arena-palettes";
 import { DIFFICULTIES, DIFFICULTY_ORDER, type DifficultyId, type GameMode } from "./difficulty";
@@ -29,12 +29,6 @@ import { RIFT_RUN_DESCRIPTION, RIFT_RUN_TAGLINE, RIFT_RUN_TITLE } from "./rift-r
 import { RIFT_RUN_ARCHETYPES } from "./rift-run/ships";
 import { RIFT_RUN_STARTER_HULL, RIFT_RUN_STARTER_SHIP } from "./rift-run/starter-ship";
 import { RIFT_RUN_MAX_PAYLOAD_SLOTS, RIFT_RUN_MAX_SOCKETS, RIFT_RUN_STARTING_PAYLOAD_SLOTS } from "./rift-run/loadout";
-import {
-  TOUCH_PROFILE_HINTS,
-  TOUCH_PROFILE_IDS,
-  TOUCH_PROFILE_LABELS,
-  type TouchProfileId,
-} from "./touch-profiles";
 import type { PilotProgression } from "./pilot-progression";
 import { isDifficultyUnlocked, PROGRESSION_DIFFICULTIES } from "./pilot-progression";
 import { drawShipModel } from "./ship-models";
@@ -694,10 +688,8 @@ export function SettingsScreen({
   onAimGuide,
   compactHud,
   onCompactHud,
-  flightScheme,
-  onFlightScheme,
-  touchProfile,
-  onTouchProfile,
+  controlProfile,
+  onControlProfile,
   onEditTouchLayout,
   cameraLock,
   onCameraLock,
@@ -727,10 +719,8 @@ export function SettingsScreen({
   onAimGuide: (next: AimGuide) => void;
   compactHud: boolean;
   onCompactHud: (next: boolean) => void;
-  flightScheme: FlightScheme;
-  onFlightScheme: (next: FlightScheme) => void;
-  touchProfile: TouchProfileId;
-  onTouchProfile: (next: TouchProfileId) => void;
+  controlProfile: ControlProfile;
+  onControlProfile: (next: ControlProfile) => void;
   onEditTouchLayout: () => void;
   cameraLock: boolean;
   onCameraLock: (next: boolean) => void;
@@ -830,34 +820,21 @@ export function SettingsScreen({
           ]}
           onChange={(next) => onViewMode(next === "auto" ? null : (next as ViewMode))}
         />
-        {/* Above the layout, because it decides what the sticks *do*; the
-            layout only decides where they sit. */}
         <OptionRow
-          label="Flight controls"
-          value={flightScheme}
+          label="Control profile"
+          value={controlProfile}
           disabled={viewMode === "pc"}
-          options={FLIGHT_SCHEMES.map((id) => ({
+          options={CONTROL_PROFILES.map((id) => ({
             id,
-            label: FLIGHT_SCHEME_LABELS[id],
-            hint: FLIGHT_SCHEME_HINTS[id],
+            label: CONTROL_PROFILE_LABELS[id],
+            hint: CONTROL_PROFILE_HINTS[id],
           }))}
-          onChange={(next) => onFlightScheme(next as FlightScheme)}
+          onChange={(next) => onControlProfile(next as ControlProfile)}
         />
-        <OptionRow
-          label="Touch profile"
-          value={touchProfile}
-          disabled={viewMode === "pc"}
-          options={TOUCH_PROFILE_IDS.map((id) => ({
-            id,
-            label: TOUCH_PROFILE_LABELS[id],
-            hint: TOUCH_PROFILE_HINTS[id],
-          }))}
-          onChange={onTouchProfile}
-        />
-        {touchProfile === "custom" ? (
+        {controlProfile === "classic" ? (
           <div className="simulation-option">
             <button type="button" className="difficulty-card" onClick={onEditTouchLayout}>
-              <b>Edit Custom layout</b>
+              <b>Customize Classic layout</b>
               <small>Drag each control to place and size it</small>
             </button>
           </div>
