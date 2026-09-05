@@ -46,8 +46,8 @@ test("one controller surface query covers complete interactive dialogs", () => {
   for (const control of ["button", "input", "select", "a[href]"]) assert.ok(CONTROLLER_FOCUSABLE.includes(control));
   assert.match(ui, /className="menu-panel"[\s\S]*data-controller-surface/);
   assert.match(game, /className="codex board"[\s\S]*data-controller-surface/);
-  assert.match(game, /className="codex lobby"[\s\S]*data-controller-surface/);
-  assert.match(game, /className="run-summary" data-controller-surface/);
+  assert.match(game, /className="codex lobby[^"\n]*"[\s\S]*data-controller-surface/);
+  assert.match(game, /className="run-summary[^"\n]*" data-controller-surface/);
 });
 
 test("Settings moves from the gameplay controls into every menu controller surface", () => {
