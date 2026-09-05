@@ -271,14 +271,14 @@ export function HomeScreen({
       wide
       footer={
         <nav className="home-command-deck" aria-label="Command deck">
-          <MenuActionButton icon="✦" label="Ships" detail="Choose your hull" onClick={() => go("ships")} />
-          <MenuActionButton icon="↗" label="Leaderboard" detail="Review high scores" onClick={() => go("leaderboard")} />
-          <MenuActionButton icon="?" label="Game Info" detail="Controls and codex" onClick={() => go("info")} />
+          <MenuActionButton className="launch-utility-ships" icon="✦" label="Ships" detail="Choose your hull" onClick={() => go("ships")} />
+          <MenuActionButton className="launch-utility-leaderboard" icon="↗" label="Leaderboard" detail="Review high scores" onClick={() => go("leaderboard")} />
+          <MenuActionButton className="launch-utility-info" icon="?" label="Game Info" detail="Controls and codex" onClick={() => go("info")} />
         </nav>
       }
     >
-      <div className="main-menu-stage">
-        <header className="main-menu-brand-lockup">
+      <div className="main-menu-stage" data-launch-region="content">
+        <header className="main-menu-brand-lockup" data-launch-region="branding">
           <span className="menu-stage-kicker">BREACH RUNNER // ARCADE COMMAND</span>
           <img
             className="launch-brand-logo"
@@ -290,7 +290,7 @@ export function HomeScreen({
           <p>{PRODUCT_TAGLINE}</p>
         </header>
 
-        <section className="launch-console" aria-labelledby="launch-console-title">
+        <section className="launch-console" data-launch-region="mission" aria-labelledby="launch-console-title">
           <div className="launch-console-scanline" aria-hidden="true" />
           <div className="launch-console-header">
             <div>
@@ -308,7 +308,7 @@ export function HomeScreen({
               <span className="menu-stage-kicker">MISSION PROFILE</span>
               <h4>{modeLabel}</h4>
               <p>{modeBlurb}</p>
-              <div className="launch-summary-grid">
+              <div className="launch-summary-grid" data-launch-region="mode">
                 <SummaryRow
                   label="Mode"
                   value={modeLabel}
@@ -321,6 +321,7 @@ export function HomeScreen({
 
           <MenuActionButton
             className="launch-command"
+            data-launch-control="play"
             tone="primary"
             icon="▶"
             label={network ? "Find a Match" : "Play"}

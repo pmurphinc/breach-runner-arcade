@@ -17,7 +17,8 @@
     "test:pvp": "node --test tests/multiplayer-identity.test.mjs tests/coop-client-sync.test.mjs tests/coop-enemy-targeting.test.mjs tests/shared-arena.test.mjs tests/team-rooms.test.mjs tests/team-client.test.mjs tests/team-server.test.mjs tests/team-socket.test.mjs tests/network-motion.test.mjs tests/coop-server.test.mjs tests/pvp-protocol.test.mjs tests/pvp-server.test.mjs tests/pvp-socket.test.mjs tests/pvp-gameplay.test.mjs",
     "test:preflight": "node --test --test-concurrency=1 tests/preflight.test.mjs",
     "test:browser": "node --test --test-concurrency=1 tests/gameplay.test.mjs tests/preflight.test.mjs tests/overcharge-gameplay.test.mjs tests/survival-gameplay.test.mjs tests/rift-run-gameplay.test.mjs tests/offscreen-render.test.mjs",
-    "test:menu-responsive": "node --test tests/menu-responsive.test.mjs"
+    "test:menu-responsive": "node --test tests/menu-responsive.test.mjs",
+    "test:menu-responsive:fuzz": "node scripts/menu-responsive-fuzz.mjs"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",

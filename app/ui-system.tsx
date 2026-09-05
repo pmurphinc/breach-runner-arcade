@@ -165,7 +165,7 @@ export function MenuScreen({
 
         <div className="menu-content">{children}</div>
 
-        {footer ? <footer className="menu-footer">{footer}</footer> : null}
+        {footer ? <footer className="menu-footer" data-launch-region={route === "home" ? "utility" : undefined}>{footer}</footer> : null}
       </div>
     </div>
   );

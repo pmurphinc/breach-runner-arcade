@@ -5,54 +5,51 @@ import test from "node:test";
 const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
 const ui = readFileSync(new URL("../app/ui-system.tsx", import.meta.url), "utf8");
 const mainMenu = readFileSync(new URL("../app/main-menu.tsx", import.meta.url), "utf8");
+const fuzz = readFileSync(new URL("../scripts/menu-responsive-fuzz.mjs", import.meta.url), "utf8");
+const architecture = css.slice(css.indexOf("Launch Deck constraint model"), css.indexOf("Dialogs outside MenuScreen"));
 
-test("shared menu owns the viewport and the single outer scroll region", () => {
-  assert.match(css, /\.menu-screen \{ width: 100%; height: 100%; height: 100dvh; overflow: hidden; \}/);
-  assert.match(css, /\.menu-content \{ overflow-x: hidden; scrollbar-gutter: stable; touch-action: pan-y; \}/);
+test("Launch Deck has one viewport owner and three negotiated panel rows", () => {
+  assert.match(architecture, /height: 100dvh;[\s\S]*?container: launch-screen \/ size/);
+  assert.match(architecture, /\.menu-screen\[data-route="home"\] \.menu-panel \{[\s\S]*?height: 100%;[\s\S]*?grid-template-rows: auto minmax\(0, 1fr\) auto/);
   assert.match(ui, /grid-template-rows: auto minmax\(0, 1fr\) auto/);
 });
 
-test("home utility navigation occupies the panel footer outside the scroll region", () => {
-  const home = mainMenu.slice(mainMenu.indexOf("export function HomeScreen"), mainMenu.indexOf("/* ----------------------------------------------------------------- modes -- */"));
-  assert.match(home, /footer=\{[\s\S]*?<nav className="home-command-deck"/);
-  assert.doesNotMatch(home, /<div className="main-menu-stage">[\s\S]*?<nav className="home-command-deck"/);
-  assert.match(css, /\.menu-screen\[data-route="home"\] \.menu-footer \{[\s\S]*?padding:/);
+test("Home content is normal-flow, intrinsic and not an overflow band-aid", () => {
+  assert.match(architecture, /\.menu-screen\[data-route="home"\] \.menu-content \{[\s\S]*?overflow: visible/);
+  assert.match(architecture, /\.main-menu-stage \{[\s\S]*?grid-template-rows: minmax\(0, 1fr\) auto/);
+  assert.match(architecture, /\.launch-console \{[\s\S]*?min-height: min-content;[\s\S]*?overflow: visible/);
+  assert.doesNotMatch(architecture, /line-clamp|overflow-y:\s*auto/);
 });
 
-test("launch deck is a bounded no-scroll composition with every primary control", () => {
-  const home = mainMenu.slice(mainMenu.indexOf("export function HomeScreen"), mainMenu.indexOf("/* ----------------------------------------------------------------- modes -- */"));
-
-  // Assert the rendered composition, not merely the presence of an overflow
-  // declaration: Home fills the panel's remaining row, its stage consumes that
-  // definite height, and its functional controls all remain in normal flow.
-  assert.match(css, /\.menu-screen\[data-route="home"\] \.menu-panel \{ height: 100%; \}/);
-  assert.match(css, /\.menu-screen\[data-route="home"\] \.main-menu-stage \{[\s\S]*?height: 100%;[\s\S]*?grid-template-rows: auto minmax\(0, 1fr\)/);
-  assert.match(css, /Launch Deck no-scroll contract[\s\S]*?\.menu-screen\[data-route="home"\] \.menu-content \{[\s\S]*?overflow: hidden;/);
-  assert.match(css, /\.menu-screen\[data-route="home"\] \.home-command-deck \{[\s\S]*?grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
-  assert.match(home, /aria-label="Open settings"|onOpenSettings=\{openSettings\}/);
-  assert.match(home, /className="launch-command"/);
-  for (const label of ["Ships", "Leaderboard", "Game Info"]) assert.match(home, new RegExp(`label="${label}"`));
-});
-
-test("launch branding and spacing spend viewport height progressively", () => {
-  assert.match(css, /\.menu-screen\[data-route="home"\] \.main-menu-brand-lockup \.launch-brand-logo \{\s*width: clamp\(120px, min\(42cqw, 48dvh\), 510px\)/);
-  assert.match(css, /@media \(max-height: 620px\)[\s\S]*?width: clamp\(100px, min\(28cqw, 34dvh\), 320px\)/);
-  assert.match(css, /@media \(orientation: landscape\) and \(max-height: 560px\)[\s\S]*?width: clamp\(76px, min\(22cqw, 22dvh\), 230px\)/);
-  assert.match(css, /@media \(max-height: 620px\)[\s\S]*?\.launch-console \{ gap: var\(--space-2\); padding: var\(--space-2\) var\(--space-3\); \}/);
-  assert.match(css, /Launch Deck no-scroll contract[\s\S]*?@media \(orientation: landscape\) and \(max-height: 560px\)[\s\S]*?\.launch-command \{ min-height: var\(--touch-target\); \}/);
-});
-
-test("menu layout responds independently to narrow and short viewports", () => {
-  assert.match(css, /@container menu \(max-width: 720px\)[\s\S]*?\.settings-console \{ height: 100%; grid-template-rows: auto minmax\(0, 1fr\)/);
-  assert.match(css, /@media \(orientation: landscape\) and \(max-height: 560px\)[\s\S]*?\.mode-card-matrix \{ grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
-  assert.doesNotMatch(css, /@container menu \(max-height:/);
-  assert.doesNotMatch(css, /@container menu[^}]*\.menu-screen/s);
-});
-
-test("menu and shared dialogs reserve all safe-area insets", () => {
-  for (const side of ["top", "right", "bottom", "left"]) {
-    assert.match(css, new RegExp(`padding-${side}: max\\(var\\(--space-2\\), var\\(--safe-${side}\\)\\)`));
+test("responsive density is fluid in width and height", () => {
+  for (const property of ["edge", "section-gap", "panel-padding", "control-height", "logo-size", "heading-size", "body-size", "header-height"]) {
+    assert.match(architecture, new RegExp(`--launch-${property}:`));
   }
-  assert.match(css, /\.codex, \.multiplayer-lobby-panel \{ max-width: 100%; max-height: 100%; \}/);
-  assert.match(css, /\.result-command-panel \{ max-height: 100%; overflow-y: auto;/);
+  assert.match(architecture, /min\(1\.2dvw, 1\.2dvh\)/);
+  assert.match(architecture, /min\(42cqw, 28dvh\)/);
+});
+
+test("scarce block space reflows branding and Play onto the width axis", () => {
+  assert.match(architecture, /@container launch-panel \(max-height: 500px\)/);
+  assert.match(architecture, /grid-template-columns: minmax\(0, 1fr\) auto minmax\(0, 1fr\)/);
+  assert.match(architecture, /\.launch-command \{ grid-column: 2; grid-row: 1 \/ -1/);
+  assert.doesNotMatch(architecture, /orientation: landscape/);
+});
+
+test("all required Launch Deck geometry has stable automation hooks", () => {
+  for (const hook of ["branding", "mission", "mode", "play"]) assert.match(mainMenu, new RegExp(`data-launch-(?:region|control)="${hook}"`));
+  for (const hook of ["ships", "leaderboard", "info"]) assert.match(mainMenu, new RegExp(`launch-utility-${hook}`));
+  assert.match(ui, /data-launch-region=\{route === "home" \? "utility"/);
+  assert.match(mainMenu, /onOpenSettings=\{openSettings\}/);
+});
+
+test("browser fuzz tool covers hundreds of grids, a continuous sweep, clipping, hit-testing and screenshots", () => {
+  assert.match(fuzz, /widths\.flatMap/);
+  assert.match(fuzz, /Array\.from\(\{ length: 81 \}/);
+  assert.match(fuzz, /clippedByAncestor/);
+  assert.match(fuzz, /elementFromPoint/);
+  assert.match(fuzz, /scrollWidth > width/);
+  assert.match(fuzz, /intersects/);
+  assert.match(fuzz, /launch-fail-\$\{viewport\.width\}x\$\{viewport\.height\}\.png/);
+  assert.ok(26 * 12 + 81 > 300);
 });
