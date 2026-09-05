@@ -333,6 +333,23 @@ button.selected-ship-button:focus-visible .selected-ship-cta {
 .reticle.bl { bottom: 7px; left: 7px; border-bottom: 2px solid var(--cyan); border-left: 2px solid var(--cyan); }
 .reticle.br { bottom: 7px; right: 7px; border-bottom: 2px solid var(--cyan); border-right: 2px solid var(--cyan); }
 
+/* The perimeter is presentation chrome rather than world ink. Keeping it in
+   the DOM makes all four edges follow the visible canvas viewport even when
+   the square world is cropped or stretched by a touch layout. The inset glow
+   remains visible inside overflow-clipped phone arenas, while the existing
+   corner reticles provide the heavier arcade bracket treatment. */
+.arena-boundary {
+  position: absolute;
+  z-index: 8;
+  inset: 0;
+  box-sizing: border-box;
+  border: 2px solid rgba(101, 232, 255, .72);
+  box-shadow:
+    inset 0 0 10px rgba(101, 232, 255, .16),
+    inset 0 0 2px rgba(225, 251, 255, .46);
+  pointer-events: none;
+}
+
 .mobile-preflight { display: none; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 10px; align-items: center; margin-bottom: 8px; padding: 9px; border: 1px solid var(--line); background: linear-gradient(180deg, var(--panel-2), var(--panel)); }
 .mobile-preflight label { min-width: 0; }
 .mobile-preflight label > span { display: block; margin-bottom: 5px; color: #86b0bb; font: 800 var(--fs-nano)/1 var(--mono); letter-spacing: .13em; }
@@ -1665,6 +1682,9 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
   transform: translateX(-50%);
   border-top: 2px solid rgba(101, 232, 255, .48);
   box-sizing: border-box;
+}
+.modern-hud[data-immersive="true"] .arena-boundary {
+  top: var(--arena-playfield-top, 0);
 }
 .modern-hud .reticle.tl,
 .modern-hud .reticle.tr {

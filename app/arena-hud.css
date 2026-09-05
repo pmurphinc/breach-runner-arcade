@@ -151,6 +151,9 @@
 .touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"] .canvas-wrap {
   --portrait-arena-top: calc(var(--arena-playfield-top, 142px) + 6px);
 }
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"] .arena-boundary {
+  top: var(--portrait-arena-top);
+}
 /* canvas-wrap has to be the whole viewport for the deck arithmetic below to
    mean anything. The docked padding-bottom rule further down globals.css was
    shortening it by an entire control stack, so the arena was already boxed
