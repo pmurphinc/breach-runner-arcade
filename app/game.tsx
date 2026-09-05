@@ -1908,7 +1908,7 @@ function Leaderboard({ onClose, initialBoard = "arcade" }: { onClose: () => void
   }, [onClose]);
 
   return (
-    <div className="codex-backdrop" role="presentation" onClick={onClose}>
+    <div className="codex-backdrop multiplayer-lobby-backdrop" role="presentation" onClick={onClose}>
       <div
         className="codex board"
         data-controller-surface
@@ -2277,28 +2277,35 @@ function MultiplayerLobby({
     : `${result?.eliminatedName ?? "A PILOT"} WAS ELIMINATED BY ${finalCause} · ${result?.finisherName ?? "OPPONENT"} WON`;
 
   return (
-    <div className="codex-backdrop" role="presentation" onClick={onClose}>
+    <div className="codex-backdrop multiplayer-lobby-backdrop" role="presentation" onClick={onClose}>
       <div
-        className="codex lobby"
+        className="codex lobby multiplayer-lobby-panel"
         data-controller-surface
         role="dialog"
         aria-modal="true"
         aria-labelledby="lobby-heading"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="codex-head">
-          <h2 id="lobby-heading">{net?.kind === "coop" && readyRoom ? `PVE CO-OP // ${net?.difficulty.toUpperCase()}` : net?.kind === "team" && readyRoom ? "PVP 2V2" : "MULTIPLAYER LOBBY"}</h2>
-          <p>{net?.kind === "coop"
-            ? "Two pilots share one PvE objective and win or lose together."
-            : net?.kind === "team"
-              ? "Two pilots a side. You and your ally share one rift; the rival pair share theirs."
-              : "Real-time 1v1 under Easy rules."} No sign-in — guests get a callsign.</p>
+        <header className="codex-head multiplayer-lobby-header">
+          <div className="multiplayer-lobby-title">
+            <span className="menu-stage-kicker">NETWORK COMMAND // {net?.kind ? net.kind.toUpperCase() : "MATCHMAKING"}</span>
+            <h2 id="lobby-heading">{net?.kind === "coop" && readyRoom ? `PVE CO-OP // ${net?.difficulty.toUpperCase()}` : net?.kind === "team" && readyRoom ? "PVP 2V2" : "MULTIPLAYER LOBBY"}</h2>
+            <p>{net?.kind === "coop"
+              ? "Two pilots share one PvE objective and win or lose together."
+              : net?.kind === "team"
+                ? "Two pilots a side. You and your ally share one rift; the rival pair share theirs."
+                : "Real-time 1v1 under Easy rules."} No sign-in — guests get a callsign.</p>
+          </div>
+          <div className="multiplayer-lobby-signal" aria-label={offline ? "Match service offline" : busy ? "Match service busy" : "Match service ready"}>
+            <i aria-hidden="true" />
+            <span>{offline ? "OFFLINE" : busy ? "LINK ACTIVE" : "LINK READY"}</span>
+          </div>
           <button ref={closeRef} type="button" className="codex-close" onClick={onClose} aria-label="Close lobby">✕</button>
-        </div>
+        </header>
 
-        <div className="lobby-body">
+        <div className="lobby-body multiplayer-lobby-body">
           {net?.opponent ? (
-            <div className="lobby-match" data-round-id={net.roundId}>
+            <div className="lobby-match lobby-command-center" data-round-id={net.roundId}>
               {readyRoom && result ? (
                 <section className="last-round" aria-label="Last round result">
                   <strong data-outcome={result.outcome}>LAST ROUND // {result.outcome.toUpperCase()}</strong>
@@ -2307,8 +2314,8 @@ function MultiplayerLobby({
                 </section>
               ) : null}
               {net.phase === "countdown" ? <div className="launch-countdown" aria-live="assertive"><span>LAUNCHING IN</span><strong>{countdownLabel(net.countdownMs)}</strong></div> : <p className="lobby-status" aria-live="polite">{net?.kind === "coop" ? "ALLY FOUND — CHOOSE YOUR SHIP" : net?.kind === "team" ? "TEAMS SET — CHOOSE YOUR SHIP" : "OPPONENT FOUND — CHOOSE YOUR SHIP"}</p>}
-              <div className="lobby-versus">
-                <div className="ready-player own">
+              <div className="lobby-versus lobby-versus-deck">
+                <div className="ready-player own lobby-pilot-card">
                   <span>YOU</span>
                   <b>{net.name}</b>
                   <MenuShip id={ownShip.id} size={88} />
@@ -2321,7 +2328,7 @@ function MultiplayerLobby({
                   <i className={net.you?.ready ? "ok" : ""}>{net.you?.ready ? "READY ✓" : "NOT READY"}</i>
                 </div>
                 <em aria-hidden="true">{net?.kind === "coop" ? "+" : "VS"}</em>
-                <div className="ready-player ally">
+                <div className="ready-player ally lobby-pilot-card">
                   <span>{net?.kind === "coop" ? "ALLY" : net?.kind === "team" ? "RIVAL TEAM" : "OPPONENT"}</span>
                   <b>{net.opponent.name}</b>
                   <MenuShip id={allyShip.id} size={88} />
@@ -2395,7 +2402,7 @@ function MultiplayerLobby({
             </p>
           ) : null}
 
-          <div className="lobby-actions">
+          <div className="lobby-actions lobby-action-deck">
             <button type="button" className="primary" disabled={offline || busy} onClick={onQuickMatch}>
               QUICK MATCH
             </button>
@@ -2405,7 +2412,7 @@ function MultiplayerLobby({
           </div>
 
           <form
-            className="lobby-join"
+            className="lobby-join lobby-code-console"
             onSubmit={(event) => { event.preventDefault(); if (code.trim()) onJoinCode(code.trim().toUpperCase()); }}
           >
             <label htmlFor="lobby-code-input">JOIN WITH CODE</label>
@@ -8787,9 +8794,14 @@ export default function WormholeGame() {
                 </section></div>
               ) : null}
               {summary ? (
-                <div className="run-summary-layer">
-                  <section className="run-summary" data-controller-surface aria-live="polite" aria-label="Run result">
+                <div className="run-summary-layer result-command-layer">
+                  <section className="run-summary result-command-panel" data-controller-surface aria-live="polite" aria-label="Run result">
                     {!summary.awaitingInitials ? <button className="run-close" type="button" onClick={() => setSummary(null)} aria-label="Dismiss run summary">✕</button> : null}
+                    <header className="result-screen-header">
+                      <span className="menu-stage-kicker">MISSION DEBRIEF // {summary.replay.kind.toUpperCase()}</span>
+                      <h2>{summary.run.outcome === "victory" ? "RIFT BREACHED" : summary.run.difficulty === "survival" ? "SURVIVAL ENDED" : summary.replay.kind === "rift-run" ? "RUN TERMINATED" : "SHIP LOST"}</h2>
+                      <p>{summary.run.outcome === "victory" ? "The rival signal has collapsed. Review the sortie and choose your next deployment." : "The sortie is complete. Review the telemetry before choosing your next deployment."}</p>
+                    </header>
                     {/*
                       Two groups, one markup. Everywhere but phone landscape
                       they are `display: contents`, so the card reads as the
@@ -8798,7 +8810,7 @@ export default function WormholeGame() {
                       continuation controls, which is the only way the whole
                       menu fits a 390px-tall viewport without scrolling.
                     */}
-                    <div className="run-report">
+                    <div className="run-report result-report-column">
                       <p className="run-outcome" data-outcome={summary.run.outcome}>
                         {summary.restored ? "LAST RUN"
                           : summary.replay.kind === "rift-run" ? `DEPTH ${summary.run.depth ?? 0} REACHED`
@@ -8886,7 +8898,7 @@ export default function WormholeGame() {
                       </div>
                     </div>
 
-                    <div className="run-continue">
+                    <div className="run-continue result-command-column">
                       {summary.awaitingInitials ? (
                         <form
                           className="initials-entry"
@@ -9180,9 +9192,6 @@ export default function WormholeGame() {
       {route === "home" ? (
         <HomeScreen
           mode={mode}
-          difficulty={difficulty}
-          ship={shipId}
-          renderShip={renderShip}
           running={launched && gameActive}
           onLaunch={launchFromMenu}
           go={go}
@@ -9222,6 +9231,7 @@ export default function WormholeGame() {
           onSurvival={() => { chooseSurvival(); start(undefined, "pve", "survival"); }}
           onRiftRun={() => go("rift-run")}
           onVersus={(kind) => { chooseMode(kind); setMenu(["modes", "lobby"]); }}
+          currentMode={mode}
           go={go}
           openSettings={openSettings}
           back={back}
