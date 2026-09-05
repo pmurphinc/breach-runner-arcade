@@ -2741,21 +2741,21 @@ button.summary-row:focus-visible .summary-cue { color: var(--cyan); opacity: 1; 
 @container menu (max-width: 680px) {
   .ships-layout { grid-template-columns: 1fr; gap: var(--space-2); }
   .ship-grid { gap: 4px; }
-  .menu-screen[data-route="ships"] .ship-card { min-height: 64px; }
-  .menu-screen[data-route="ships"] .ship-card-art { height: 30px; }
-  .menu-screen[data-route="ships"] .ship-card-art img { max-height: 30px; }
-  .menu-screen[data-route="ships"] .ship-card small { display: none; }
-  .menu-screen[data-route="ships"] .ship-detail { grid-template-columns: auto 1fr; align-items: center; }
-  .menu-screen[data-route="ships"] .ship-detail-art { display: none; }
-  .menu-screen[data-route="ships"] .ship-stats, .menu-screen[data-route="ships"] .ship-special { grid-column: 1 / -1; }
-  .menu-screen[data-route="ships"] .ship-special p { display: none; }
+  .ships-layout .ship-card { min-height: 64px; }
+  .ships-layout .ship-card-art { height: 30px; }
+  .ships-layout .ship-card-art img { max-height: 30px; }
+  .ships-layout .ship-card small { display: none; }
+  .ships-layout .ship-detail { grid-template-columns: auto 1fr; align-items: center; }
+  .ships-layout .ship-detail-art { display: none; }
+  .ships-layout .ship-stats, .ships-layout .ship-special { grid-column: 1 / -1; }
+  .ships-layout .ship-special p { display: none; }
 }
 
 @container menu (max-width: 390px) {
   .ship-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .menu-screen[data-route="ships"] .ship-card { min-height: 48px; grid-template-columns: 28px minmax(0,1fr); text-align: left; justify-items: start; align-items: center; }
-  .menu-screen[data-route="ships"] .ship-card-art { height: 26px; }
-  .menu-screen[data-route="ships"] .ship-detail { display: none; }
+  .ships-layout .ship-card { min-height: var(--touch-target); grid-template-columns: 28px minmax(0,1fr); text-align: left; justify-items: start; align-items: center; }
+  .ships-layout .ship-card-art { height: 26px; }
+  .ships-layout .ship-detail { display: none; }
 }
 .ship-card > * { min-width: 0; max-width: 100%; }
 .ship-card b { font: 800 var(--fs-xs)/1.2 var(--mono); letter-spacing: .06em; overflow-wrap: anywhere; word-break: normal; }
@@ -3479,24 +3479,27 @@ button.summary-row:hover, button.summary-row:focus-visible,
 .menu-screen[data-route="home"] .home-command-deck { min-width: 0; }
 
 @container menu (max-width: 720px) {
-  .menu-screen[data-route="home"] .main-menu-stage { gap: var(--space-3); }
-  .menu-screen[data-route="home"] .launch-console { padding: var(--space-3); }
-  .menu-screen[data-route="home"] .launch-console-header { align-items: center; }
-  .menu-screen[data-route="home"] .launch-console-body-simple { display: block; }
-  .menu-screen[data-route="home"] .launch-briefing-wide { display: grid; gap: var(--space-2); }
+  .main-menu-stage { gap: var(--space-3); }
+  .launch-console { padding: var(--space-3); }
+  .launch-console-header { align-items: center; }
+  .launch-console-body-simple { display: block; }
+  .launch-briefing-wide { display: grid; gap: var(--space-2); }
 }
 
 @container menu (max-width: 480px) {
-  .menu-screen[data-route="home"] .main-menu-brand-lockup { gap: var(--space-1); }
-  .menu-screen[data-route="home"] .main-menu-brand-lockup .menu-stage-kicker { font-size: 9px; letter-spacing: .14em; }
-  .menu-screen[data-route="home"] .main-menu-brand-lockup p { font-size: 10px; }
-  .menu-screen[data-route="home"] .launch-console-header h3 { font-size: var(--fs-md); }
-  .menu-screen[data-route="home"] .launch-status-cluster { font-size: 9px; }
-  .menu-screen[data-route="home"] .launch-briefing h4 { font-size: var(--fs-md); }
-  .menu-screen[data-route="home"] .home-command-deck { grid-template-columns: 1fr; }
+  .main-menu-brand-lockup { gap: var(--space-1); }
+  .main-menu-brand-lockup .menu-stage-kicker { font-size: 9px; letter-spacing: .14em; }
+  .main-menu-brand-lockup p { font-size: 10px; }
+  .launch-console-header h3 { font-size: var(--fs-md); }
+  .launch-status-cluster { font-size: 9px; }
+  .launch-briefing h4 { font-size: var(--fs-md); }
+  .home-command-deck { grid-template-columns: 1fr; }
 }
 
-@container menu (max-height: 620px) {
+/* Height is a viewport constraint, not an inline container constraint. The
+   menu container only establishes `inline-size`, so a height query here never
+   matched in browsers and left short laptop/landscape layouts uncompressed. */
+@media (max-height: 620px) {
   .menu-screen[data-route="home"] .main-menu-stage { gap: var(--space-2); padding-block: 0; }
   .menu-screen[data-route="home"] .main-menu-brand-lockup .launch-brand-logo { width: clamp(180px, 28cqw, 320px); }
   .menu-screen[data-route="home"] .main-menu-brand-lockup p { font-size: 10px; }
@@ -3514,4 +3517,144 @@ button.summary-row:hover, button.summary-row:focus-visible,
   .menu-screen[data-route="home"] .launch-console-header { gap: var(--space-2); }
   .menu-screen[data-route="home"] .launch-console-body-simple { padding-block: 0; }
   .menu-screen[data-route="home"] .home-command-deck { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+/* ---------------------------------------------------------------------------
+   Responsive menu QA hardening
+
+   Width determines reflow; usable height determines density and which single
+   content region scrolls. These overrides deliberately retain the refreshed
+   visual treatment and never reduce an interactive target below 44px.
+   --------------------------------------------------------------------------- */
+
+/* Grid and flex descendants must be allowed to surrender both axes. Without
+   these constraints, long mode/ship/settings copy can silently widen the
+   panel and very short screens can push its last row beyond the scrollport. */
+.menu-screen,
+.menu-panel,
+.menu-content,
+.main-menu-stage,
+.mode-command-layout,
+.mode-catalog,
+.settings-console,
+.settings-rail,
+.settings-workspace,
+.multiplayer-lobby-panel,
+.multiplayer-lobby-body,
+.result-command-panel { min-width: 0; min-height: 0; }
+
+.menu-screen { width: 100%; height: 100%; height: 100dvh; overflow: hidden; }
+.menu-panel { max-width: 100%; }
+.menu-content { overflow-x: hidden; scrollbar-gutter: stable; touch-action: pan-y; }
+
+/* On narrow panels the settings rail becomes a compact, fixed tab strip. The
+   active panel receives the remaining height and is the only nested scroller;
+   the outer menu content is intentionally stationary for this route. */
+@container menu (max-width: 720px) {
+  .menu-content:has(> .settings-console) { padding: var(--space-2); }
+  .settings-console { height: 100%; grid-template-rows: auto minmax(0, 1fr); gap: var(--space-2); }
+  .settings-rail { display: block; padding: 2px; }
+  .settings-rail > :not(.settings-nav) { display: none; }
+  .settings-nav { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px; }
+  .settings-nav button { min-height: var(--touch-target); padding: 4px 2px; grid-template-columns: minmax(0, 1fr); place-items: center; text-align: center; }
+  .settings-nav-icon, .settings-nav small, .settings-nav i { display: none; }
+  .settings-nav b { max-width: 100%; overflow-wrap: anywhere; font-size: var(--fs-nano); letter-spacing: 0; }
+  .settings-workspace { gap: var(--space-2); }
+}
+
+/* Portrait phones keep labels readable without turning the command deck or
+   headers into horizontal overflow sources. */
+@container menu (max-width: 480px) {
+  .menu-header { gap: var(--space-2); }
+  .menu-heading { overflow: hidden; }
+  .menu-header h2, .menu-eyebrow { overflow-wrap: anywhere; }
+  .menu-back { padding-inline: var(--space-2); }
+  .settings-nav { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .settings-nav button { min-height: var(--touch-target); }
+  .launch-console-header, .mode-catalog-header, .settings-workspace-header { flex-wrap: wrap; }
+  .launch-status-cluster { justify-items: start; }
+  .menu-action-copy b, .menu-action-copy small { white-space: normal; overflow-wrap: anywhere; }
+  .mode-card-copy b, .mode-card-copy em { overflow-wrap: anywhere; }
+  .summary-cue { display: none; }
+}
+
+/* Short viewports get an intentional landscape composition. Decoration is
+   condensed, never the options or controls; one outer menu scroller remains
+   available when browser zoom or translated copy needs additional room. */
+@media (orientation: landscape) and (max-height: 560px) {
+  .menu-screen {
+    padding-top: calc(max(var(--space-1), var(--safe-top)) + var(--touch-target));
+    padding-right: max(var(--space-2), var(--safe-right));
+    padding-bottom: max(var(--space-1), var(--safe-bottom));
+    padding-left: max(var(--space-2), var(--safe-left));
+  }
+  .menu-panel { border-radius: 12px; }
+  .menu-header { min-height: var(--touch-target); padding: var(--space-1) var(--space-3); }
+  .menu-content { padding: var(--space-2); }
+  .menu-footer { padding: var(--space-2) var(--space-3); }
+
+  .menu-screen[data-route="home"] .main-menu-brand-lockup { display: flex; justify-content: center; }
+  .menu-screen[data-route="home"] .main-menu-brand-lockup .menu-stage-kicker,
+  .menu-screen[data-route="home"] .main-menu-brand-lockup p { display: none; }
+  .menu-screen[data-route="home"] .main-menu-brand-lockup .launch-brand-logo { width: clamp(150px, 22cqw, 230px); }
+  .menu-screen[data-route="home"] .launch-console {
+    grid-template-columns: minmax(0, 1fr) minmax(190px, .55fr);
+    gap: var(--space-2);
+    padding: var(--space-2);
+  }
+  .menu-screen[data-route="home"] .launch-console-header { grid-column: 1 / -1; }
+  .menu-screen[data-route="home"] .launch-briefing > p { display: none; }
+  .menu-screen[data-route="home"] .launch-command { min-height: var(--touch-target); align-self: stretch; }
+  .menu-screen[data-route="home"] .home-command-deck .menu-action { min-height: var(--touch-target); padding-block: 5px; }
+
+  .mode-command-layout { grid-template-columns: minmax(150px, .42fr) minmax(0, 1.58fr); gap: var(--space-2); }
+  .mode-selection-console { min-height: 0; padding: var(--space-2); }
+  .mode-selection-sigil { width: 54px; margin: 2px auto; box-shadow: 0 0 18px color-mix(in srgb, currentColor 20%, transparent); }
+  .mode-selection-sigil::before, .mode-selection-console::after,
+  .mode-selection-console > p:not(.mode-selection-tag), .mode-selection-footer { display: none; }
+  .mode-selection-console h3 { font-size: var(--fs-md); overflow-wrap: anywhere; }
+  .mode-catalog { gap: var(--space-1); }
+  .mode-catalog-header h3, .menu-footnote { display: none; }
+  .mode-card-matrix { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+  .mode-launch-card { min-height: 72px; padding: 6px; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "index copy" ". copy"; }
+  .mode-card-orbit, .mode-card-enter, .mode-card-copy em { display: none; }
+  .mode-card-copy b { font-size: var(--fs-xs); }
+  .mode-catalog-footer .menu-action { min-height: var(--touch-target); }
+
+  .settings-console { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); gap: var(--space-2); }
+  .settings-rail { display: block; padding: 2px; }
+  .settings-rail > :not(.settings-nav) { display: none; }
+  .settings-nav { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px; }
+  .settings-nav button { min-height: var(--touch-target); padding: 3px; grid-template-columns: minmax(0, 1fr); place-items: center; text-align: center; }
+  .settings-nav-icon, .settings-nav small, .settings-nav i { display: none; }
+  .settings-workspace-header { padding-bottom: var(--space-1); }
+  .settings-workspace-header h3 { font-size: var(--fs-md); }
+}
+
+/* Dialogs outside MenuScreen share the same viewport and safe-area contract. */
+.codex-backdrop {
+  width: 100%; height: 100%; height: 100dvh;
+  overflow: hidden;
+  padding-top: max(var(--space-2), var(--safe-top));
+  padding-right: max(var(--space-2), var(--safe-right));
+  padding-bottom: max(var(--space-2), var(--safe-bottom));
+  padding-left: max(var(--space-2), var(--safe-left));
+}
+.codex, .multiplayer-lobby-panel { max-width: 100%; max-height: 100%; }
+.result-command-layer {
+  padding-top: max(var(--space-2), var(--safe-top));
+  padding-right: max(var(--space-2), var(--safe-right));
+  padding-bottom: max(var(--space-2), var(--safe-bottom));
+  padding-left: max(var(--space-2), var(--safe-left));
+}
+.result-command-panel { max-height: 100%; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; }
+
+@media (orientation: landscape) and (max-height: 560px) {
+  .multiplayer-lobby-header { min-height: 0; padding: var(--space-2) var(--space-3); }
+  .multiplayer-lobby-title p { display: none; }
+  .lobby-pilot-card canvas { width: 64px; height: 64px; }
+  .lobby-pilot-card small { min-height: 0; }
+  .result-command-panel { grid-template-columns: minmax(0, 1.15fr) minmax(220px, .85fr); gap: var(--space-2); padding: var(--space-3); }
+  .result-screen-header { padding-bottom: var(--space-2); }
+  .result-screen-header h2 { font-size: var(--fs-xl); }
 }
