@@ -232,6 +232,9 @@ import {
   type LocalBest,
   type RunResult,
   type SurvivalLeaderboardEntry,
+  fetchRiftRunLeaderboard,
+  saveRiftRunScoreToMurph,
+  type RiftRunLeaderboardEntry,
 } from "./arcade-scores";
 import {
   loadSurvivalBoard,
@@ -241,6 +244,13 @@ import {
   survivalEntriesForShip,
   type SurvivalEntry,
 } from "./survival-board";
+import {
+  deepestRiftRun,
+  loadRiftRunBoard,
+  nameRiftRun,
+  recordRiftRun,
+  type RiftRunEntry,
+} from "./rift-run-board";
 import { formatRunTime, normalizeInitials, settleScore } from "./run-scoring";
 import { suppressionBarrageRounds } from "./suppression-barrage";
 import {
@@ -1535,6 +1545,14 @@ type RunSummary = {
   survivalRank?: number | null;
   /** The device Survival board after the run, for the result card's context. */
   survivalBoard?: SurvivalEntry[];
+  /**
+   * Where this run landed on the device Rift Run board, or null when it did
+   * not place. Ranked on depth, so it shares neither `best` nor
+   * `survivalRank`: all three measure something different.
+   */
+  riftRank?: number | null;
+  /** The device Rift Run board after the run, for the result card. */
+  riftBoard?: RiftRunEntry[];
 };
 
 type SaveState =
@@ -1564,7 +1582,7 @@ function finishInitialsEditing() {
  * never a dependency of the game.
  */
 /** Which board the leaderboard screen is showing. */
-type BoardKind = "arcade" | "survival";
+type BoardKind = "arcade" | "survival" | "rift-run";
 
 const SURVIVAL_ALL_SHIPS = "";
 
@@ -1692,6 +1710,85 @@ function SurvivalBoard() {
   );
 }
 
+/**
+ * The Rift Run board.
+ *
+ * Two sources, one list, in priority order: the public board when it answers,
+ * and this device's board either way -- the same shape as the Survival board
+ * beside it. The public Rift Run endpoint is not live on the score service yet
+ * (see `docs/RIFT_RUN_LEADERBOARD_API.md`), so the unavailable path is the
+ * ordinary one today and is worded as a status rather than a failure.
+ *
+ * No ship filter, unlike Survival: every Rift Run launches on the same issued
+ * starter frame, so the filter would offer exactly one option and the column
+ * would print one value on every row.
+ */
+function RiftRunBoard() {
+  const [rows, setRows] = useState<RiftRunLeaderboardEntry[] | null>(null);
+  const [globalMissing, setGlobalMissing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [board, setBoard] = useState<RiftRunEntry[]>([]);
+
+  // Storage is read in an effect rather than during render: the server has no
+  // localStorage, and reading it while rendering would hydrate to a different
+  // list than the one the server sent.
+  useEffect(() => {
+    const stored = loadRiftRunBoard();
+    queueMicrotask(() => setBoard(stored));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchRiftRunLeaderboard(25).then((entries) => {
+      if (cancelled) return;
+      setLoading(false);
+      if (entries) setRows(entries);
+      else { setRows(null); setGlobalMissing(true); }
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  return (
+    <>
+      {loading ? <p className="board-note">Loading the Rift Run board…</p> : null}
+      {globalMissing && !loading ? (
+        <p className="board-note">The global Rift Run board is not open yet. Your device board is below.</p>
+      ) : null}
+
+      {rows !== null && rows.length > 0 ? (
+        <ol className="board-list">
+          {rows.map((entry) => (
+            <li key={entry.id}>
+              <span className="board-rank">{entry.rank}</span>
+              <span className="board-name">{entry.initials}</span>
+              <span className="board-runs">{entry.score.toLocaleString()} · LVL {entry.level}</span>
+              <b>DEPTH {entry.depth}</b>
+            </li>
+          ))}
+        </ol>
+      ) : null}
+
+      <p className="board-section">THIS DEVICE</p>
+      {board.length === 0 ? (
+        <p className="board-note">No Rift Runs yet. Break a rift and the depth counts itself.</p>
+      ) : (
+        <ol className="board-list">
+          {board.map((entry, index) => (
+            <li key={entry.runId || `${entry.achievedAt}-${index}`}>
+              <span className="board-rank">{index + 1}</span>
+              <span className="board-name">{entry.initials || "—"}</span>
+              {/* Score first: it is the tie-break, and depth ties are common. */}
+              <span className="board-runs">
+                {entry.score.toLocaleString()} · LVL {entry.level} · {boardTime(entry.durationSeconds)}
+              </span>
+              <b>DEPTH {entry.depth}</b>
+            </li>
+          ))}
+        </ol>
+      )}
+    </>
+  );
+}
 /** The arcade board: settled scores from completed PvE victories. */
 function ArcadeBoard() {
   const [entries, setEntries] = useState<LeaderboardEntry[] | null>(null);
@@ -1825,7 +1922,9 @@ function Leaderboard({ onClose, initialBoard = "arcade" }: { onClose: () => void
           <p>
             {kind === "survival"
               ? "Rift Survival, ranked by time survived. No account or login required."
-              : "Classic arcade high scores. No account or login required."}
+              : kind === "rift-run"
+                ? "Rift Run, ranked by how deep you got. No account or login required."
+                : "Classic arcade high scores. No account or login required."}
           </p>
           <button ref={closeRef} type="button" className="codex-close" onClick={onClose} aria-label="Close leaderboard">✕</button>
         </div>
@@ -1848,9 +1947,18 @@ function Leaderboard({ onClose, initialBoard = "arcade" }: { onClose: () => void
           >
             SURVIVAL
           </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={kind === "rift-run"}
+            className={kind === "rift-run" ? "active" : ""}
+            onClick={() => setKind("rift-run")}
+          >
+            RIFT RUN
+          </button>
         </div>
         <div className="board-body">
-          {kind === "survival" ? <SurvivalBoard /> : <ArcadeBoard />}
+          {kind === "survival" ? <SurvivalBoard /> : kind === "rift-run" ? <RiftRunBoard /> : <ArcadeBoard />}
         </div>
       </div>
     </div>
@@ -3086,6 +3194,19 @@ export default function WormholeGame() {
     setSaveState({ status: "error", message: result.message });
   }, []);
 
+  /** Same shape again, and a third board for the same reason: a third ordering. */
+  const saveRiftRunToBoard = useCallback(async (run: RunResult) => {
+    setSaveState({ status: "saving" });
+    const result = await saveRiftRunScoreToMurph(run);
+
+    if (result.status === "saved") {
+      setSaveState({ status: "saved", rank: result.rank });
+      return;
+    }
+
+    setSaveState({ status: "error", message: result.message });
+  }, []);
+
   // Network modes share the proven WebSocket lobby. Offline modes never open a
   // socket — solo Classic included, which otherwise dials one it cannot use.
   useEffect(() => {
@@ -3141,6 +3262,9 @@ export default function WormholeGame() {
     // "the normal PvE time penalty does not apply" needs no exception here.
     const survivalRun = hud.difficulty === "survival";
     const replay = replayForCompletedRun(hud.mode, hud.difficulty, riftRunRef.current);
+    // Held once rather than re-read: the branch below, the run record and the
+    // board entry must all describe the same finished run.
+    const riftRun = replay.kind === "rift-run" ? riftRunRef.current : null;
     const run: RunResult = {
       runId: createArcadeRunId(),
       score: settlement.finalScore,
@@ -3170,14 +3294,38 @@ export default function WormholeGame() {
         ? hud.result === "victory" ? hud.rivalFinalDamage : hud.deathDamage
         : netResult?.finalDamage ?? 0,
       finalReason: hud.mode === "pve" ? (hud.result === "victory" ? "rival" : "pilot_hull") : netResult?.reason,
-      riftLevel: survivalRun ? hud.riftLevel : undefined,
+      riftLevel: survivalRun ? hud.riftLevel : riftRun ? riftRun.level : undefined,
       breaches: survivalRun ? hud.breaches : undefined,
+      // Depth is read off the run state rather than the HUD: `hud.riftLevel`
+      // and `hud.breaches` are fed by the Survival subsystem, which a Rift
+      // Run does not use.
+      depth: riftRun ? riftRun.riftBreaches : undefined,
     };
 
     const storedInitials = settings.playerInitials;
     const identifiedRun = storedInitials ? { ...run, initials: storedInitials } : run;
     setInitialsEntry(storedInitials);
-    if (survivalRun) {
+    if (riftRun) {
+      // Rift Run keeps its own device board and stays out of the arcade one.
+      // The arcade record is a single best score from a completed victory,
+      // which an endless mode can never produce -- so before this branch a
+      // Rift Run's score was competing for a record that does not describe
+      // it, and could take it from a real arcade win.
+      const placement = recordRiftRun(identifiedRun);
+      setSummary({
+        run: identifiedRun,
+        replay,
+        best: null,
+        isBest: placement.rank === 1,
+        runs: 0,
+        restored: false,
+        // A run that placed is worth signing, exactly as a Survival run is.
+        awaitingInitials: placement.rank !== null && !storedInitials,
+        deathCause: hud.deathCause,
+        riftRank: placement.rank,
+        riftBoard: placement.board,
+      });
+    } else if (survivalRun) {
       // Survival keeps its own device board and stays out of the arcade one.
       const placement = recordSurvivalRun(identifiedRun);
       setSummary({
@@ -3245,6 +3393,23 @@ export default function WormholeGame() {
     autoSavedRun.current = summary.run;
     void saveSurvivalRunToBoard(summary.run);
   }, [saveSurvivalRunToBoard, summary]);
+
+  // And every initials-tagged Rift Run joins the public Rift Run board. A
+  // third effect for a third board: the arcade submitter rejects a run with
+  // no victory to settle, and the Survival one ranks on a metric this mode
+  // does not produce.
+  useEffect(() => {
+    if (
+      !summary ||
+      summary.awaitingInitials ||
+      summary.replay.kind !== "rift-run" ||
+      !summary.run.initials ||
+      summary.riftRank === null ||
+      autoSavedRun.current === summary.run
+    ) return;
+    autoSavedRun.current = summary.run;
+    void saveRiftRunToBoard(summary.run);
+  }, [saveRiftRunToBoard, summary]);
 
   // Before a run, keep the idle arena matching the selection so the preview
   // shows exactly what START will produce (EASY re-centres the wormhole at
@@ -3383,6 +3548,15 @@ export default function WormholeGame() {
 
     const run = { ...summary.run, initials };
     setSetting("playerInitials", initials);
+
+    if (summary.replay.kind === "rift-run") {
+      // Already on the board, recorded before the pilot had a name. Re-stamp
+      // that row rather than adding a second copy of it.
+      const placement = nameRiftRun(run.runId, initials);
+      setSummary({ ...summary, run, awaitingInitials: false, riftRank: placement.rank, riftBoard: placement.board });
+      (document.activeElement as HTMLElement | null)?.blur();
+      return;
+    }
 
     if (run.difficulty === "survival") {
       // The run is already on the board; it was recorded before the pilot had
@@ -8627,7 +8801,8 @@ export default function WormholeGame() {
                     <div className="run-report">
                       <p className="run-outcome" data-outcome={summary.run.outcome}>
                         {summary.restored ? "LAST RUN"
-                          : summary.run.difficulty === "survival" ? `RIFT LEVEL ${summary.run.riftLevel ?? 1} REACHED`
+                          : summary.replay.kind === "rift-run" ? `DEPTH ${summary.run.depth ?? 0} REACHED`
+                            : summary.run.difficulty === "survival" ? `RIFT LEVEL ${summary.run.riftLevel ?? 1} REACHED`
                             : summary.run.practice ? "PRACTICE COMPLETE"
                               : summary.run.outcome === "victory" ? "RIVAL ELIMINATED" : "SHIP DESTROYED"}
                       </p>
@@ -8636,7 +8811,36 @@ export default function WormholeGame() {
                         leads with. The base/penalty settlement below it belongs
                         to the arcade modes and would only ever read as zero here.
                       */}
-                      {summary.run.difficulty === "survival" ? (
+                      {/*
+                        Rift Run leads with depth for the same reason Survival
+                        leads with time: it is what the mode is ranked on. The
+                        base/penalty settlement below belongs to the arcade
+                        modes -- an endless run has no victory to charge time
+                        against, so it would only ever read as zero here.
+                      */}
+                      {summary.replay.kind === "rift-run" ? (
+                        <>
+                          <p className="run-score"><span>DEPTH REACHED</span><b>{summary.run.depth ?? 0}</b></p>
+                          <div className="score-settlement">
+                            <span>LEVEL <b>{summary.run.riftLevel ?? 1}</b></span>
+                            <span>SCORE <b>{summary.run.score.toLocaleString()}</b></span>
+                            <span>TIME <b>{formatRunTime(summary.run.durationSeconds)}</b></span>
+                          </div>
+                          <p className="run-meta">
+                            {summary.riftRank === 1
+                              ? "NEW DEVICE BEST"
+                              : summary.riftRank
+                                ? `DEVICE RANK #${summary.riftRank}${
+                                    deepestRiftRun(summary.riftBoard ?? [])
+                                      ? ` · BEST DEPTH ${deepestRiftRun(summary.riftBoard ?? [])?.depth}`
+                                      : ""
+                                  }`
+                                : deepestRiftRun(summary.riftBoard ?? [])
+                                  ? `OFF THE BOARD · BEST DEPTH ${deepestRiftRun(summary.riftBoard ?? [])?.depth}`
+                                  : "FIRST RIFT RUN ON THIS DEVICE"}
+                          </p>
+                        </>
+                      ) : summary.run.difficulty === "survival" ? (
                         <>
                           <p className="run-score"><span>SURVIVED</span><b>{formatRunTime(summary.run.durationSeconds)}</b></p>
                           <div className="score-settlement">
@@ -8807,11 +9011,11 @@ export default function WormholeGame() {
                             className="run-board-link"
                             disabled={summary.awaitingInitials}
                             onClick={() => {
-                              setBoardKind(summary.run.difficulty === "survival" ? "survival" : "arcade");
+                              setBoardKind(summary.replay.kind === "rift-run" ? "rift-run" : summary.run.difficulty === "survival" ? "survival" : "arcade");
                               go("leaderboard");
                             }}
                           >
-                            {summary.run.difficulty === "survival" ? "SURVIVAL BOARD" : "GLOBAL BOARD"}
+                            {summary.replay.kind === "rift-run" ? "RIFT RUN BOARD" : summary.run.difficulty === "survival" ? "SURVIVAL BOARD" : "GLOBAL BOARD"}
                           </button>
                         ) : null}
                       </div>
