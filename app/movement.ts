@@ -51,10 +51,18 @@ export function intentFromKeys(keys: MovementKeys): MovementIntent {
   return { active: true, heading, magnitude: 1 };
 }
 
-/** The touch stick already reports a heading; wrap it in the same shape. */
-export function intentFromStick(heading: number | null): MovementIntent {
+/**
+ * The touch stick already reports a heading; wrap it in the same shape.
+ *
+ * `throttle` is how hard the stick is pushed, and it is the whole of Classic's
+ * deadzone: an intent that is active, carries a heading, and has a magnitude of
+ * zero turns the hull without lighting the engine, because `facingFor` reads
+ * the heading while acceleration scales by the magnitude. Twin-stick passes 1
+ * and behaves exactly as it always has.
+ */
+export function intentFromStick(heading: number | null, throttle = 1): MovementIntent {
   if (heading === null) return NO_INTENT;
-  return { active: true, heading, magnitude: 1 };
+  return { active: true, heading, magnitude: Math.max(0, Math.min(1, throttle)) };
 }
 
 /**
