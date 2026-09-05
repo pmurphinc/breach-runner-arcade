@@ -8358,11 +8358,6 @@ export default function WormholeGame() {
         ctx.fillText(fit(hint, W - 24), W / 2, W / 2 + fs(13.5) * 2.4);
       }
 
-      if (!viewProfileRef.current.touch) {
-        ctx.strokeStyle = "rgba(101,232,255,.32)";
-        ctx.lineWidth = 2;
-        ctx.strokeRect(1, 1, W - 2, W - 2);
-      }
     };
 
     const loop = (now: number) => {
@@ -8801,6 +8796,7 @@ export default function WormholeGame() {
               <DifficultyBadge hud={hud} pending={pendingRules} pendingMode={mode} live={badgeLive} riftRun={riftRun} />
               <i className="reticle tl" aria-hidden="true" /><i className="reticle tr" aria-hidden="true" />
               <i className="reticle bl" aria-hidden="true" /><i className="reticle br" aria-hidden="true" />
+              <div className="arena-boundary" aria-hidden="true" />
               {specialChoicePending ? (
                 <div className="rift-upgrade-layer"><section className="rift-upgrade-dialog" data-controller-surface role="dialog" aria-modal="true" aria-label="Select special ability">
                   <header><p>SPECIAL ABILITY INSTALLED</p><h2>CHOOSE YOUR SPECIAL</h2></header>
