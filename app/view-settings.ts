@@ -1,9 +1,7 @@
-import { isFlightScheme, type FlightScheme } from "./flight-controls.ts";
+import { isControlProfile, type ControlProfile } from "./flight-controls.ts";
 import {
   type CustomTouchLayout,
-  type TouchProfileId,
   defaultCustomTouchLayout,
-  isTouchProfileId,
   normalizeCustomTouchLayout,
 } from "./touch-profiles.ts";
 
@@ -53,16 +51,8 @@ export type DeviceSettings = {
    * ones who already know Wormhole, and landing in unfamiliar controls is the
    * fastest way to lose them.
    */
-  flightScheme: FlightScheme;
-  /**
-   * Which named touch layout is in force.
-   *
-   * "m-sticks" is the responsive twin-stick layout the game has always had, and
-   * remains the default; touchControlSize and touchControlHeight only apply to
-   * it. "custom" ignores both and reads geometry from customTouchLayout.
-   */
-  touchProfile: TouchProfileId;
-  /** Per-element geometry for the Custom profile. Ignored by M-Sticks. */
+  controlProfile: ControlProfile;
+  /** Per-element geometry for Classic. Twin Stick uses responsive geometry. */
   customTouchLayout: CustomTouchLayout;
   touchControlSize: TouchControlSize;
   /** Shared vertical placement for the mirrored touch-stick pair. */
@@ -96,8 +86,7 @@ export const DEFAULT_SETTINGS: DeviceSettings = {
   cannonHitSound: true,
   aimGuide: "off",
   thumbsticks: true,
-  flightScheme: "classic",
-  touchProfile: "m-sticks",
+  controlProfile: "classic",
   customTouchLayout: defaultCustomTouchLayout(),
   touchControlSize: "medium",
   touchControlHeight: "middle",
@@ -138,7 +127,26 @@ export function resolveMultiplayerName(value: unknown): string | undefined {
 
 export function migrateSettings(value: unknown): DeviceSettings {
   if (!value || typeof value !== "object") return DEFAULT_SETTINGS;
-  const candidate = value as Partial<DeviceSettings>;
+  const candidate = value as Omit<Partial<DeviceSettings>, "controlProfile"> & {
+    controlProfile?: unknown;
+    /** Compatibility-only identifiers written before profiles were unified. */
+    flightScheme?: unknown;
+    touchProfile?: unknown;
+  };
+  const legacyProfile = candidate.touchProfile === "custom"
+    ? "classic"
+    : candidate.touchProfile === "mstick" || candidate.touchProfile === "m-sticks"
+      ? "twinStick"
+      : candidate.flightScheme === "twin-stick"
+        ? "twinStick"
+        : candidate.flightScheme === "classic"
+          ? "classic"
+          : null;
+  const storedProfile = candidate.controlProfile === "custom"
+    ? "classic"
+    : candidate.controlProfile === "mstick" || candidate.controlProfile === "m-sticks" || candidate.controlProfile === "twin-stick"
+      ? "twinStick"
+      : candidate.controlProfile;
   return {
     version: SETTINGS_VERSION,
     viewMode: isViewMode(candidate.viewMode) ? candidate.viewMode : null,
@@ -150,12 +158,9 @@ export function migrateSettings(value: unknown): DeviceSettings {
     cannonHitSound: typeof candidate.cannonHitSound === "boolean" ? candidate.cannonHitSound : true,
     aimGuide: isAimGuide(candidate.aimGuide) ? candidate.aimGuide : "off",
     thumbsticks: typeof candidate.thumbsticks === "boolean" ? candidate.thumbsticks : true,
-    // An unknown scheme falls back to Classic, which is also what a player who
-    // has never opened the setting gets.
-    flightScheme: isFlightScheme(candidate.flightScheme) ? candidate.flightScheme : "classic",
-    // An unknown profile id falls back to M-Sticks rather than leaving the
-    // player with controls the shipped stylesheet cannot place.
-    touchProfile: isTouchProfileId(candidate.touchProfile) ? candidate.touchProfile : "m-sticks",
+    controlProfile: isControlProfile(storedProfile)
+      ? storedProfile
+      : legacyProfile ?? "classic",
     customTouchLayout: normalizeCustomTouchLayout(candidate.customTouchLayout),
     touchControlSize: isSize(candidate.touchControlSize) ? candidate.touchControlSize : "medium",
     touchControlHeight: isHeight(candidate.touchControlHeight) ? candidate.touchControlHeight : "middle",
@@ -170,7 +175,12 @@ const listeners = new Set<() => void>();
 
 function read(): DeviceSettings {
   if (cached) return cached;
-  try { cached = migrateSettings(JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null")); }
+  try {
+    cached = migrateSettings(JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null"));
+    // Write the canonical shape back so compatibility aliases are consumed
+    // once, without disturbing any unrelated preference.
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(cached));
+  }
   catch { cached = DEFAULT_SETTINGS; }
   return cached;
 }

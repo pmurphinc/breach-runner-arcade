@@ -6,39 +6,39 @@ html[data-mirror-touch-actions="on"] .touch-capable[data-touch-controls="on"] .t
   display: block !important;
 }
 
-/* --------------------------------------------------------- Custom profile --
-   When the Custom profile is active the responsive data-sticks rules stop
+/* -------------------------------------------------------- Classic profile --
+   Classic uses player-adjustable geometry; the responsive data-sticks rules stop
    placing the sticks and the layout comes from the numbers the player set.
    Each element anchors to its own edge, which is what makes the handedness
    swap a single flag rather than an arithmetic pass over every coordinate.
 
-   M-Sticks is untouched by everything in this block. */
-[data-touch-profile="custom"][data-immersive="true"] .touch-flight,
-[data-touch-profile="custom"][data-immersive="true"] .touch-action {
+   Twin Stick is untouched by everything in this block. */
+[data-control-profile="classic"][data-immersive="true"] .touch-flight,
+[data-control-profile="classic"][data-immersive="true"] .touch-action {
   position: absolute;
   right: auto;
   bottom: auto;
   transform: none;
 }
 
-[data-touch-profile="custom"][data-immersive="true"] .touch-flight {
+[data-control-profile="classic"][data-immersive="true"] .touch-flight {
   width: var(--touch-move-size);
   top: calc(50% + var(--touch-move-y));
   margin-top: calc(var(--touch-move-size) / -2);
 }
-[data-touch-profile="custom"][data-immersive="true"][data-touch-move-edge="left"] .touch-flight { left: var(--touch-move-x); }
-[data-touch-profile="custom"][data-immersive="true"][data-touch-move-edge="right"] .touch-flight { left: auto; right: var(--touch-move-x); }
+[data-control-profile="classic"][data-immersive="true"][data-touch-move-edge="left"] .touch-flight { left: var(--touch-move-x); }
+[data-control-profile="classic"][data-immersive="true"][data-touch-move-edge="right"] .touch-flight { left: auto; right: var(--touch-move-x); }
 
-[data-touch-profile="custom"][data-immersive="true"] .touch-action {
+[data-control-profile="classic"][data-immersive="true"] .touch-action {
   width: var(--touch-aim-size);
   top: calc(50% + var(--touch-aim-y));
   margin-top: calc(var(--touch-aim-size) / -2);
 }
-[data-touch-profile="custom"][data-immersive="true"][data-touch-aim-edge="left"] .touch-action { left: var(--touch-aim-x); }
-[data-touch-profile="custom"][data-immersive="true"][data-touch-aim-edge="right"] .touch-action { left: auto; right: var(--touch-aim-x); }
+[data-control-profile="classic"][data-immersive="true"][data-touch-aim-edge="left"] .touch-action { left: var(--touch-aim-x); }
+[data-control-profile="classic"][data-immersive="true"][data-touch-aim-edge="right"] .touch-action { left: auto; right: var(--touch-aim-x); }
 
-[data-touch-profile="custom"][data-immersive="true"] .touch-flight .virtual-stick { width: var(--touch-move-size); }
-[data-touch-profile="custom"][data-immersive="true"] .touch-action .virtual-stick { width: var(--touch-aim-size); }
+[data-control-profile="classic"][data-immersive="true"] .touch-flight .virtual-stick { width: var(--touch-move-size); }
+[data-control-profile="classic"][data-immersive="true"] .touch-action .virtual-stick { width: var(--touch-aim-size); }
 
 /* ------------------------------------------------------------- the editor -- */
 /* Above the system controls, which are hidden while it is open: they sit at the

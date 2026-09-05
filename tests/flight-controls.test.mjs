@@ -16,13 +16,13 @@ import { readFileSync } from "node:fs";
 
 import {
   CLASSIC_DEADZONE_FRACTION,
-  FLIGHT_SCHEMES,
-  FLIGHT_SCHEME_HINTS,
-  FLIGHT_SCHEME_LABELS,
+  CONTROL_PROFILES,
+  CONTROL_PROFILE_HINTS,
+  CONTROL_PROFILE_LABELS,
   STICK_CENTRE_FRACTION,
   classicDeadzone,
   classicStickFlight,
-  isFlightScheme,
+  isControlProfile,
   rightControlAims,
   stickFlight,
   twinStickFlight,
@@ -118,23 +118,23 @@ test("the deadzone follows the layout the pilot authored", () => {
 
 test("Classic fires ahead; twin-stick aims", () => {
   assert.equal(rightControlAims("classic"), false, "the right control is a trigger");
-  assert.equal(rightControlAims("twin-stick"), true, "and a second stick when asked for");
+  assert.equal(rightControlAims("twinStick"), true, "and a second stick when asked for");
 });
 
 test("the scheme vocabulary is complete and guarded", () => {
-  for (const id of FLIGHT_SCHEMES) {
-    assert.ok(FLIGHT_SCHEME_LABELS[id], `${id} needs a label`);
-    assert.ok(FLIGHT_SCHEME_HINTS[id], `${id} needs a hint`);
-    assert.ok(isFlightScheme(id));
+  for (const id of CONTROL_PROFILES) {
+    assert.ok(CONTROL_PROFILE_LABELS[id], `${id} needs a label`);
+    assert.ok(CONTROL_PROFILE_HINTS[id], `${id} needs a hint`);
+    assert.ok(isControlProfile(id));
   }
-  assert.ok(!isFlightScheme("twin"), "a near-miss is not a scheme");
-  assert.ok(!isFlightScheme(null));
+  assert.ok(!isControlProfile("twin"), "a near-miss is not a scheme");
+  assert.ok(!isControlProfile(null));
   assert.equal(stickFlight("classic", ...push(RING - 4), TRAVEL, RING).throttle, 0);
-  assert.equal(stickFlight("twin-stick", ...push(RING - 4), TRAVEL, RING).throttle, 1);
+  assert.equal(stickFlight("twinStick", ...push(RING - 4), TRAVEL, RING).throttle, 1);
 });
 
 test("Classic is the default, because Classic players are who will arrive", () => {
-  assert.equal(DEFAULT_SETTINGS.flightScheme, "classic");
+  assert.equal(DEFAULT_SETTINGS.controlProfile, "classic");
 });
 
 test("the loop reads the throttle the stick reported", () => {

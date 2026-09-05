@@ -1,14 +1,6 @@
 /**
- * Named touch-control layouts.
- *
- * Two profiles, and the split matters:
- *
- * - **M-Sticks** is exactly what the game has always done — a twin-stick pair
- *   positioned by the responsive `data-sticks` rules (docked, overlay, gutter)
- *   and sized by a three-step preset. It is untouched by anything here, and it
- *   stays the default. Nothing in this module is allowed to change it.
- * - **Custom** replaces those rules with explicit per-element geometry the
- *   player sets by hand, for pilots whose thumbs do not agree with the presets.
+ * Customisable geometry used by the Classic control profile. Twin Stick keeps
+ * the game's responsive `data-sticks` layout unchanged.
  *
  * Everything is pure and serialisable, so a layout can be validated, clamped,
  * mirrored, exported and re-imported without a DOM.
@@ -26,20 +18,6 @@
  *
  * Sizes and offsets are CSS pixels.
  */
-
-export type TouchProfileId = "m-sticks" | "custom";
-
-export const TOUCH_PROFILE_IDS = ["m-sticks", "custom"] as const;
-
-export const TOUCH_PROFILE_LABELS: Record<TouchProfileId, string> = {
-  "m-sticks": "M-Sticks",
-  custom: "Custom",
-};
-
-export const TOUCH_PROFILE_HINTS: Record<TouchProfileId, string> = {
-  "m-sticks": "The standard twin-stick layout. Size and height follow the presets.",
-  custom: "Place and size every control yourself.",
-};
 
 /** Every control a Custom layout can place. */
 export type TouchElementId = "move" | "aim" | "pup" | "spec" | "pause";
@@ -155,11 +133,11 @@ export function clampTouchElement(id: TouchElementId, geometry: TouchElementGeom
 }
 
 /**
- * The starting Custom layout.
+ * The starting adjustable Classic layout.
  *
  * Chosen to land close to where the overlay preset already puts things, so
- * switching to Custom is not a jarring jump before the player has moved
- * anything. It is a starting point, not a copy of M-Sticks — M-Sticks is
+ * selecting Classic is not a jarring jump before the player has moved
+ * anything. It is a starting point, not a copy of Twin Stick — Twin Stick is
  * responsive and this is not, so the two cannot agree at every viewport.
  */
 export function defaultCustomTouchLayout(): CustomTouchLayout {
@@ -219,10 +197,6 @@ export function normalizeCustomTouchLayout(value: unknown): CustomTouchLayout {
     handed: candidate.handed === "left" ? "left" : "right",
     elements,
   };
-}
-
-export function isTouchProfileId(value: unknown): value is TouchProfileId {
-  return value === "m-sticks" || value === "custom";
 }
 
 /** Export payload. Pretty-printed because a player may well read or edit it. */

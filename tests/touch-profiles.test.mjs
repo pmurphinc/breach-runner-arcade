@@ -14,11 +14,9 @@ import {
   CUSTOM_TOUCH_LAYOUT_VERSION,
   TOUCH_ELEMENT_IDS,
   TOUCH_ELEMENT_RANGES,
-  TOUCH_PROFILE_IDS,
   clampTouchElement,
   customTouchLayoutVariables,
   defaultCustomTouchLayout,
-  isTouchProfileId,
   isTouchStick,
   mirrorCustomTouchLayout,
   normalizeCustomTouchLayout,
@@ -28,20 +26,21 @@ import {
 } from "../app/touch-profiles.ts";
 import { DEFAULT_SETTINGS, migrateSettings } from "../app/view-settings.ts";
 
-test("M-Sticks is the default and stays the shipped behaviour", () => {
-  assert.deepEqual([...TOUCH_PROFILE_IDS], ["m-sticks", "custom"]);
-  assert.equal(DEFAULT_SETTINGS.touchProfile, "m-sticks");
-  // The size and height presets belong to M-Sticks and are untouched.
+test("the canonical profile model has only Classic and Twin Stick", () => {
+  assert.equal(DEFAULT_SETTINGS.controlProfile, "classic");
+  // The size and height customization settings remain available.
   assert.equal(DEFAULT_SETTINGS.touchControlSize, "medium");
   assert.equal(DEFAULT_SETTINGS.touchControlHeight, "middle");
 });
 
-test("an unknown profile id falls back rather than stranding the player", () => {
-  assert.equal(migrateSettings({ touchProfile: "custom" }).touchProfile, "custom");
-  assert.equal(migrateSettings({ touchProfile: "cszz" }).touchProfile, "m-sticks");
-  assert.equal(migrateSettings({}).touchProfile, "m-sticks");
-  assert.ok(isTouchProfileId("custom"));
-  assert.ok(!isTouchProfileId("CUSTOM"));
+test("legacy profile identifiers migrate without resetting other settings", () => {
+  assert.equal(migrateSettings({ controlProfile: "classic" }).controlProfile, "classic");
+  assert.equal(migrateSettings({ controlProfile: "twinStick" }).controlProfile, "twinStick");
+  assert.equal(migrateSettings({ touchProfile: "custom", sound: false }).controlProfile, "classic");
+  assert.equal(migrateSettings({ touchProfile: "custom", sound: false }).sound, false);
+  assert.equal(migrateSettings({ touchProfile: "m-sticks" }).controlProfile, "twinStick");
+  assert.equal(migrateSettings({ touchProfile: "mstick" }).controlProfile, "twinStick");
+  assert.equal(migrateSettings({ controlProfile: "cszz" }).controlProfile, "classic");
 });
 
 test("every element is clamped into its own range", () => {
