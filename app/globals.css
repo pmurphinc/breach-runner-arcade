@@ -3465,7 +3465,7 @@ button.summary-row:hover, button.summary-row:focus-visible,
 }
 .menu-screen[data-route="home"] .main-menu-stage {
   min-height: min-content;
-  grid-template-rows: auto auto auto;
+  grid-template-rows: auto auto;
   align-content: start;
 }
 .menu-screen[data-route="home"] .launch-console {
@@ -3476,6 +3476,10 @@ button.summary-row:hover, button.summary-row:focus-visible,
 .launch-briefing-wide { width: 100%; }
 .launch-briefing-wide .launch-summary-grid { max-width: none; }
 .launch-briefing-wide .summary-row { min-height: 58px; }
+.menu-screen[data-route="home"] .menu-footer {
+  min-width: 0;
+  padding: var(--space-3) clamp(var(--space-3), 3cqw, var(--space-5));
+}
 .menu-screen[data-route="home"] .home-command-deck { min-width: 0; }
 
 @container menu (max-width: 720px) {
@@ -3510,7 +3514,7 @@ button.summary-row:hover, button.summary-row:focus-visible,
 }
 
 @media (orientation: landscape) and (max-height: 560px) {
-  .menu-screen[data-route="home"] .main-menu-stage { grid-template-rows: auto auto auto; }
+  .menu-screen[data-route="home"] .main-menu-stage { grid-template-rows: auto auto; }
   .menu-screen[data-route="home"] .main-menu-brand-lockup { grid-template-columns: auto 1fr; }
   .menu-screen[data-route="home"] .main-menu-brand-lockup .menu-stage-kicker { grid-column: 1 / -1; }
   .menu-screen[data-route="home"] .main-menu-brand-lockup .launch-brand-logo { width: clamp(150px, 22cqw, 260px); }
