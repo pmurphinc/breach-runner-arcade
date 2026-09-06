@@ -28,9 +28,17 @@ import {
   twinStickFlight,
 } from "../app/flight-controls.ts";
 import { intentFromStick } from "../app/movement.ts";
+import { classicDeadzoneShare } from "../app/flight-controls.ts";
+import {
+  customTouchLayoutVariables,
+  defaultCustomTouchLayout,
+  isTouchStick,
+} from "../app/touch-profiles.ts";
 import { DEFAULT_SETTINGS } from "../app/view-settings.ts";
 
 const game = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
+const editor = readFileSync(new URL("../app/touch-layout-editor.tsx", import.meta.url), "utf8");
+const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
 
 const TRAVEL = 100;
 const RING = classicDeadzone(TRAVEL, null); // 34px at the default fraction.
@@ -148,4 +156,99 @@ test("the loop reads the throttle the stick reported", () => {
   assert.ok(game.includes("moveThrottle.current = 1;"));
   // And the right control only aims when the scheme says it should.
   assert.ok(game.includes("if (rightControlAims(scheme) && distance > maxTravel * 0.08)"));
+});
+
+/* ------------------------------------------- what the profiles look like -- */
+
+test("the ring the pilot sees is the ring the game flies", () => {
+  // These disagreed by a factor of two. The authored value is a *radius*, and
+  // the loop read it as one, but the editor drew it as a diameter -- so a pilot
+  // who set their deadzone against the picture was lighting the engine well
+  // inside the ring they could see, with nothing on screen to explain why.
+  //
+  // One exported share is now the only source, and this is the test that keeps
+  // it that way.
+  const authored = { deadzone: 20, size: 132 };
+  const share = classicDeadzoneShare(authored);
+
+  // The loop: pixels of travel.
+  assert.equal(classicDeadzone(200, authored), 200 * share);
+
+  // The stylesheet: a percentage of the stick's width. The ring's diameter is
+  // twice its radius and the travel is half the width, so the twos cancel and
+  // the share is the width percentage directly.
+  const variables = customTouchLayoutVariables({
+    ...defaultCustomTouchLayout(),
+    elements: { ...defaultCustomTouchLayout().elements, move: { ...authored, x: 0, y: 0 } },
+  });
+  assert.equal(variables["--touch-move-deadzone-share"], `${(share * 100).toFixed(2)}%`);
+
+  // The editor preview: the same share of the same size.
+  assert.ok(editor.includes("width: classicDeadzoneShare(element) * element.size"));
+  assert.ok(!editor.includes("style={{ width: element.deadzone, height: element.deadzone }}"),
+    "the half-size drawing is gone");
+});
+
+test("an unauthored layout still gets the default ring, drawn and flown", () => {
+  assert.equal(classicDeadzoneShare(null), CLASSIC_DEADZONE_FRACTION);
+  assert.equal(classicDeadzone(200, null), 200 * CLASSIC_DEADZONE_FRACTION);
+  // The stylesheet falls back to the same number rather than to nothing.
+  assert.ok(css.includes("var(--touch-move-deadzone-share, 34%)"));
+});
+
+test("a ring dragged to the far edge cannot be drawn bigger than it is flown", () => {
+  // `classicDeadzoneShare` clamps at 0.9, so the drawn ring clamps with it
+  // rather than showing a boundary the game will not honour.
+  const enormous = classicDeadzoneShare({ deadzone: 5000, size: 132 });
+  assert.equal(enormous, 0.9);
+  assert.equal(classicDeadzone(200, { deadzone: 5000, size: 132 }), 180);
+});
+
+test("Classic's right-hand control is drawn as the button it is", () => {
+  // It fires along the hull's own heading, so there is nothing to aim and
+  // nothing to drag. Drawing it as a stick -- axes, a knob chasing the thumb,
+  // an AIM label -- promised a thing it does not do.
+  assert.ok(game.includes("const classicFire = !rightControlAims(settings.controlProfile);"));
+  assert.ok(game.includes('${classicFire ? " fire-button" : ""}'), "the control says which it is");
+  assert.ok(css.includes(".virtual-stick.fire-button {"), "and is styled as a button");
+
+  // The knob and axes live only in the Twin Stick arm of the branch.
+  const aimAt = game.indexOf("knob that chases the thumb");
+  assert.ok(aimAt > 0, "the branch is where it says it is");
+  const branch = game.slice(aimAt, aimAt + 2200);
+  assert.ok(branch.includes("{classicFire ? ("));
+  const classicArm = branch.slice(branch.indexOf("{classicFire ? ("), branch.indexOf(") : ("));
+  assert.ok(!classicArm.includes("stick-knob"), "no knob to drag");
+  assert.ok(!classicArm.includes("stick-axis"), "and no axes to aim along");
+  assert.ok(!classicArm.includes("AIM"), "and it does not claim to aim");
+});
+
+test("Twin Stick keeps its second stick, untouched", () => {
+  // The whole point of two profiles: changing how Classic is drawn must not
+  // reach M-Sticks, which still aims and fires directionally with the right
+  // stick.
+  assert.equal(rightControlAims("twinStick"), true);
+  const aimAt = game.indexOf("knob that chases the thumb");
+  const branch = game.slice(aimAt, aimAt + 2200);
+  const twinArm = branch.slice(branch.indexOf(") : ("));
+  assert.ok(twinArm.includes("stick-knob"), "the knob is still there");
+  assert.ok(twinArm.includes("stick-axis-x"), "and the axes");
+  assert.ok(twinArm.includes(">AIM<"), "and it still says it aims");
+});
+
+test("the deadzone ring is drawn on the move stick, and only under Classic", () => {
+  // Twin Stick thrusts at any travel, so it has no boundary to show and a ring
+  // there would mark a rule it does not have.
+  assert.ok(game.includes('{classicFire ? <span className="stick-deadzone" aria-hidden="true" /> : null}'));
+  assert.ok(css.includes(".stick-deadzone {"));
+});
+
+test("the adjustable layout offers a ring for the stick and nothing else", () => {
+  // The layout belongs to Classic, where only the left control is a stick.
+  assert.ok(isTouchStick("move"));
+  assert.ok(!isTouchStick("aim"));
+  const variables = customTouchLayoutVariables(defaultCustomTouchLayout());
+  assert.ok(variables["--touch-move-deadzone-share"]);
+  assert.equal(variables["--touch-aim-deadzone-share"], undefined);
+  assert.equal(variables["--touch-aim-deadzone"], undefined);
 });

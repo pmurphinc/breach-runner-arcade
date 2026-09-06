@@ -34,7 +34,11 @@ test("every control is editable and only sticks offer a dead zone", () => {
     assert.match(editor, new RegExp(`TOUCH_ELEMENT_LABELS\\[`), `${id} comes from the shared label map`);
   }
   assert.match(editor, /return isTouchStick\(element\) \? \["size", "deadzone", "x", "y"\] : \["size", "x", "y"\]/);
-  assert.equal(TOUCH_ELEMENT_IDS.filter(isTouchStick).length, 2);
+  // One stick, not two. This geometry is Classic's alone, and Classic's
+  // right-hand control is a button -- it is pressed, not pushed, so it has no
+  // travel for a dead zone to sit inside. Offering it one described the other
+  // profile's control.
+  assert.deepEqual(TOUCH_ELEMENT_IDS.filter(isTouchStick), ["move"]);
 });
 
 test("each field shows its own valid range, as the reference layout does", () => {

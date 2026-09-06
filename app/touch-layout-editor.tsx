@@ -20,6 +20,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { classicDeadzoneShare } from "./flight-controls";
+
 import {
   type CustomTouchLayout,
   type TouchElementId,
@@ -41,7 +43,7 @@ const FIELD_LABELS: Record<FieldId, string> = {
   size: "⌀",
   x: "x →centre",
   y: "y ↓",
-  deadzone: "dead ⌀",
+  deadzone: "dead radius",
 };
 
 function fieldRange(element: TouchElementId, field: FieldId): readonly [number, number] {
@@ -248,7 +250,10 @@ export function TouchLayoutEditor({
               {isTouchStick(id) && element.deadzone > 0 ? (
                 <span
                   className="touch-editor-deadzone"
-                  style={{ width: element.deadzone, height: element.deadzone }}
+                  style={{
+                    width: classicDeadzoneShare(element) * element.size,
+                    height: classicDeadzoneShare(element) * element.size,
+                  }}
                   aria-hidden="true"
                 />
               ) : null}

@@ -59,7 +59,11 @@ test("a dead zone can never swallow its own stick", () => {
   // leave a control with no live travel at all.
   const tight = clampTouchElement("move", { size: 88, x: 0, y: 0, deadzone: 96 });
   assert.ok(tight.deadzone < tight.size, "dead zone must stay inside the stick");
-  assert.equal(tight.deadzone, Math.floor(88 * 0.6));
+  // 0.45 of the size, because the value is a *radius*: that leaves a ring
+  // covering nine tenths of the stick, which is the same ceiling
+  // `classicDeadzoneShare` clamps the flown value to. A ceiling of 0.6 read it
+  // as a diameter and let the authored ring exceed what the game would honour.
+  assert.equal(tight.deadzone, Math.floor(88 * 0.45));
   const roomy = clampTouchElement("move", { size: 300, x: 0, y: 0, deadzone: 96 });
   assert.equal(roomy.deadzone, 96, "a large stick still honours the absolute ceiling");
 });

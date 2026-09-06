@@ -1,3 +1,5 @@
+import { classicDeadzoneShare } from "./flight-controls.ts";
+
 /**
  * Customisable geometry used by the Classic control profile. Twin Stick keeps
  * the game's responsive `data-sticks` layout unchanged.
@@ -26,17 +28,27 @@ export const TOUCH_ELEMENT_IDS = ["move", "aim", "pup", "spec", "pause"] as cons
 
 export const TOUCH_ELEMENT_LABELS: Record<TouchElementId, string> = {
   move: "Move",
-  aim: "Aim",
+  // Not "Aim": this layout belongs to Classic, and Classic's right-hand
+  // control is a trigger that fires along the heading the hull already
+  // holds. Calling it Aim described the other profile's control.
+  aim: "Fire",
   pup: "PUP",
   spec: "SPEC",
   pause: "Pause",
 };
 
-/** Which controls are sticks. Only these carry a dead zone. */
-export const TOUCH_STICK_IDS = ["move", "aim"] as const;
+/**
+ * Which controls are sticks. Only these carry a dead zone.
+ *
+ * Just the one. This geometry is Classic's alone, and in Classic the
+ * right-hand control is a button -- it is pressed, not pushed, so it has no
+ * travel for a dead zone to sit inside and nothing to draw one around.
+ * Twin Stick's second stick is responsive and authors no geometry at all.
+ */
+export const TOUCH_STICK_IDS = ["move"] as const;
 
 export function isTouchStick(id: TouchElementId): id is (typeof TOUCH_STICK_IDS)[number] {
-  return id === "move" || id === "aim";
+  return id === "move";
 }
 
 /**
@@ -121,7 +133,10 @@ function sizeRange(id: TouchElementId): readonly [number, number] {
  */
 export function clampTouchElement(id: TouchElementId, geometry: TouchElementGeometry): TouchElementGeometry {
   const size = Math.round(clampTo(geometry.size, sizeRange(id)));
-  const deadzoneCeiling = Math.floor(size * 0.6);
+  // A radius, so the ceiling is against the stick's own radius rather than
+  // its diameter: 0.45 of the size leaves a ring covering nine tenths of the
+  // stick, which is the same ceiling `classicDeadzoneShare` clamps to.
+  const deadzoneCeiling = Math.floor(size * 0.45);
   return {
     size,
     x: Math.round(clampTo(geometry.x, TOUCH_ELEMENT_RANGES.x)),
@@ -230,7 +245,14 @@ export function customTouchLayoutVariables(layout: CustomTouchLayout): Record<st
     variables[`--touch-${id}-x`] = `${geometry.x}px`;
     variables[`--touch-${id}-y`] = `${geometry.y}px`;
     variables[`--touch-${id}-edge`] = touchElementEdge(id, normalized.handed);
-    if (isTouchStick(id)) variables[`--touch-${id}-deadzone`] = `${geometry.deadzone}px`;
+    if (isTouchStick(id)) {
+      variables[`--touch-${id}-deadzone`] = `${geometry.deadzone}px`;
+      // As a percentage of the stick's width. The ring's *diameter* is twice
+      // its radius and the travel is half the width, so the two twos cancel
+      // and the share is the width percentage directly.
+      variables[`--touch-${id}-deadzone-share`] =
+        `${(classicDeadzoneShare(geometry) * 100).toFixed(2)}%`;
+    }
   }
   return variables;
 }

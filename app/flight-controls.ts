@@ -136,13 +136,29 @@ export function rightControlAims(scheme: ControlProfile): boolean {
  */
 export const CLASSIC_DEADZONE_FRACTION = 0.34;
 
+/**
+ * The ring as a share of the stick's travel, 0 to 0.9.
+ *
+ * Split out and exported because two places need it and they must agree:
+ * the loop, which turns it into pixels to decide when the engine lights,
+ * and the drawn ring the player aims with. They did not agree before this --
+ * the editor drew the deadzone at half its real size, so a pilot lining up
+ * against the picture was burning the engine well inside it.
+ *
+ * The authored value is a *radius* on a stick of `size`. Its share of that
+ * stick's own travel is what transfers to whatever size is really on screen,
+ * which is what keeps an authored layout meaningful at any viewport.
+ */
+export function classicDeadzoneShare(
+  authored: { deadzone: number; size: number } | null,
+): number {
+  if (!authored || authored.size <= 0) return CLASSIC_DEADZONE_FRACTION;
+  return Math.max(0, Math.min(0.9, authored.deadzone / (authored.size / 2)));
+}
+
 export function classicDeadzone(
   maxTravel: number,
   authored: { deadzone: number; size: number } | null,
 ): number {
-  if (!authored || authored.size <= 0) return maxTravel * CLASSIC_DEADZONE_FRACTION;
-  // The authored ring is a radius on a stick of `size`, so its share of that
-  // stick's own travel is what transfers.
-  const share = authored.deadzone / (authored.size / 2);
-  return maxTravel * Math.max(0, Math.min(0.9, share));
+  return maxTravel * classicDeadzoneShare(authored);
 }

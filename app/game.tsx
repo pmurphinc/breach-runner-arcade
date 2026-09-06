@@ -8486,6 +8486,16 @@ export default function WormholeGame() {
   // renders on the first frame instead of blocking behind a question the
   // browser can answer itself.
 
+  /**
+   * True when the right-hand control is a trigger rather than a second stick.
+   *
+   * The one question that separates how the two profiles are *drawn*. Classic
+   * fires along the hull's own heading, so its right-hand control has nothing
+   * to point at, and its left stick has a ring that decides whether the engine
+   * lights. Twin Stick has neither, and keeps its directional fire.
+   */
+  const classicFire = !rightControlAims(settings.controlProfile);
+
   return (
     <main
       ref={shellRef}
@@ -9090,7 +9100,9 @@ export default function WormholeGame() {
                   ref={moveStickRef}
                   className={`virtual-stick move-stick ${moveStickPosition.active ? "active" : ""}`}
                   role="application"
-                  aria-label="Movement thumbstick. Press to thrust and aim in any direction to fly that way. Release to coast."
+                  aria-label={classicFire
+                    ? "Movement thumbstick. Turn inside the ring without accelerating; push past it to burn."
+                    : "Movement thumbstick. Press to thrust and aim in any direction to fly that way. Release to coast."}
                   onPointerDown={(event) => engageStick("move", event)}
                   onPointerMove={(event) => moveStick("move", event)}
                   onPointerUp={(event) => releaseStick("move", event.pointerId)}
@@ -9099,6 +9111,11 @@ export default function WormholeGame() {
                 >
                   <span className="stick-axis stick-axis-x" aria-hidden="true" />
                   <span className="stick-axis stick-axis-y" aria-hidden="true" />
+                  {/* The boundary between turning and burning. Drawn only under
+                      Classic, where it is the whole point of the stick -- Twin
+                      Stick thrusts at any travel and has no ring to show. Its
+                      size comes from the same share the loop flies. */}
+                  {classicFire ? <span className="stick-deadzone" aria-hidden="true" /> : null}
                   <span className="stick-label stick-label-up" aria-hidden="true">MOVE</span>
                   <span className="stick-label stick-label-side" aria-hidden="true">DRIVE</span>
                   <span className="stick-knob" style={{ transform: `translate(calc(-50% + ${moveStickPosition.x}px), calc(-50% + ${moveStickPosition.y}px))` }} aria-hidden="true"><i /></span>
@@ -9108,20 +9125,33 @@ export default function WormholeGame() {
               <div className="touch-action">
                 <div
                   ref={aimStickRef}
-                  className={`virtual-stick aim-stick ${aimStickPosition.active ? "active" : ""}`}
+                  className={`virtual-stick aim-stick ${aimStickPosition.active ? "active" : ""}${classicFire ? " fire-button" : ""}`}
                   role="application"
-                  aria-label="Weapon thumbstick. Press and aim in any direction to fire the pulse cannon continuously."
+                  aria-label={classicFire
+                    ? "Fire button. Hold to fire the pulse cannon along the ship's heading."
+                    : "Weapon thumbstick. Press and aim in any direction to fire the pulse cannon continuously."}
                   onPointerDown={(event) => engageStick("aim", event)}
                   onPointerMove={(event) => moveStick("aim", event)}
                   onPointerUp={(event) => releaseStick("aim", event.pointerId)}
                   onPointerCancel={(event) => releaseStick("aim", event.pointerId)}
                   onLostPointerCapture={(event) => releaseStick("aim", event.pointerId)}
                 >
-                  <span className="stick-axis stick-axis-x" aria-hidden="true" />
-                  <span className="stick-axis stick-axis-y" aria-hidden="true" />
-                  <span className="stick-label stick-label-up" aria-hidden="true">FIRE</span>
-                  <span className="stick-label stick-label-side" aria-hidden="true">AIM</span>
-                  <span className="stick-knob" style={{ transform: `translate(calc(-50% + ${aimStickPosition.x}px), calc(-50% + ${aimStickPosition.y}px))` }} aria-hidden="true"><i /></span>
+                  {/* Classic's right-hand control is a trigger: shots leave along
+                      the heading the hull already holds, so there is nothing to
+                      aim and nothing to drag. Drawing it as a stick -- axes, a
+                      knob that chases the thumb, an AIM label -- promised a thing
+                      it does not do. Twin Stick keeps all of it. */}
+                  {classicFire ? (
+                    <span className="stick-label stick-label-up" aria-hidden="true">FIRE</span>
+                  ) : (
+                    <>
+                      <span className="stick-axis stick-axis-x" aria-hidden="true" />
+                      <span className="stick-axis stick-axis-y" aria-hidden="true" />
+                      <span className="stick-label stick-label-up" aria-hidden="true">FIRE</span>
+                      <span className="stick-label stick-label-side" aria-hidden="true">AIM</span>
+                      <span className="stick-knob" style={{ transform: `translate(calc(-50% + ${aimStickPosition.x}px), calc(-50% + ${aimStickPosition.y}px))` }} aria-hidden="true"><i /></span>
+                    </>
+                  )}
                 </div>
                 {touchUtility()}
               </div>

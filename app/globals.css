@@ -990,6 +990,28 @@ button.mission-line-button:focus-visible em {
 .stick-label-side { right: 6px; top: 50%; transform: translateY(-50%) rotate(90deg); }
 .stick-knob { position: absolute; top: 50%; left: 50%; z-index: 2; width: 56px; height: 56px; display: grid; place-items: center; border: 1px solid rgba(212, 250, 255, .65); border-radius: 50%; background: radial-gradient(circle at 38% 32%, #285160, #102b37 52%, #07151e 70%); box-shadow: inset 0 1px 3px rgba(255, 255, 255, .16), inset 0 -7px 14px rgba(0, 0, 0, .3), 0 5px 10px rgba(0, 0, 0, .45), 0 0 0 3px rgba(100, 234, 255, .08); pointer-events: none; will-change: transform; }
 .stick-knob i { width: 15px; height: 15px; border: 1px solid rgba(100, 234, 255, .42); border-radius: 50%; box-shadow: inset 0 0 8px rgba(100, 234, 255, .18); }
+
+/* The Classic deadzone, drawn.
+
+   Inside this ring the stick turns the hull and the engine stays cold; past it
+   the throttle opens. That is the whole feel of the profile, and until now it
+   was invisible -- the pilot had to find the boundary by ear and by exhaust.
+
+   Sized from --touch-move-deadzone-share, which `customTouchLayoutVariables`
+   publishes from the same `classicDeadzoneShare` the loop flies, so the ring
+   drawn here cannot disagree with the ring being enforced. Falls back to the
+   default share for any layout that authors nothing. */
+.stick-deadzone { position: absolute; top: 50%; left: 50%; z-index: 1; width: var(--touch-move-deadzone-share, 34%); aspect-ratio: 1; border: 1px dashed rgba(100, 234, 255, .34); border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; }
+.virtual-stick.active .stick-deadzone { border-color: rgba(100, 234, 255, .6); border-style: solid; }
+
+/* Classic's right-hand control is a trigger, so it is drawn as one: no axes,
+   no travelling knob, and a face that presses rather than a ring a thumb is
+   invited to drag around. Twin Stick keeps the stick it needs. */
+.virtual-stick.fire-button { cursor: pointer; background: radial-gradient(circle at 50% 42%, rgba(168, 255, 82, .16) 0 34%, rgba(30, 46, 25, .86) 35% 68%, rgba(4, 15, 23, .94) 69%); }
+.virtual-stick.fire-button .stick-label-up { top: 50%; transform: translate(-50%, -50%); font-size: var(--fs-micro); letter-spacing: .18em; }
+.virtual-stick.fire-button.active { cursor: pointer; transform: scale(.97); background: radial-gradient(circle at 50% 42%, rgba(168, 255, 82, .3) 0 36%, rgba(46, 70, 36, .9) 37% 68%, rgba(6, 20, 30, .95) 69%); }
+.virtual-stick.fire-button.active .stick-label-up { color: #eaffd6; }
+@media (prefers-reduced-motion: reduce) { .virtual-stick.fire-button.active { transform: none; } }
 .virtual-stick.active .stick-knob { border-color: var(--cyan); box-shadow: inset 0 1px 3px rgba(255, 255, 255, .2), inset 0 -7px 14px rgba(0, 0, 0, .3), 0 5px 12px rgba(0, 0, 0, .5), 0 0 0 4px rgba(100, 234, 255, .12), 0 0 18px rgba(100, 234, 255, .22); }
 .aim-stick { border-color: rgba(168, 255, 82, .38); background: radial-gradient(circle at 50% 50%, rgba(168, 255, 82, .08) 0 19%, transparent 20%), radial-gradient(circle at 50% 50%, rgba(3, 12, 19, .9) 0 56%, rgba(30, 46, 25, .82) 57% 69%, rgba(4, 15, 23, .94) 70%); box-shadow: inset 0 0 0 6px rgba(168, 255, 82, .025), inset 0 0 24px rgba(168, 255, 82, .08), 0 8px 24px rgba(0, 0, 0, .3); }
 .aim-stick.active { border-color: rgba(168, 255, 82, .78); box-shadow: inset 0 0 0 6px rgba(168, 255, 82, .04), inset 0 0 30px rgba(168, 255, 82, .14), 0 0 20px rgba(168, 255, 82, .13), 0 8px 24px rgba(0, 0, 0, .34); }
