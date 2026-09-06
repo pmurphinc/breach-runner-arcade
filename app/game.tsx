@@ -252,6 +252,7 @@ import {
   type RiftRunEntry,
 } from "./rift-run-board";
 import { pressureZonePhase } from "./pressure-zone";
+import { capturePayloadVelocity } from "./payload-capture";
 import { formatRunTime, normalizeInitials, settleScore } from "./run-scoring";
 import { suppressionBarrageRounds } from "./suppression-barrage";
 import {
@@ -6250,6 +6251,14 @@ export default function WormholeGame() {
           const guided = steerHomingVelocity(power.x, power.y, power.vx, power.vy, game.portalX, game.portalY);
           power.vx = guided.vx;
           power.vy = guided.vy;
+        } else {
+          // The rift draws a near miss in. Only a near miss: the funnel is
+          // range- and angle-gated and turns at well under half the rate Viper
+          // guidance does, so the Rabbit's special stays the special. Skipped
+          // entirely for a guided payload, which already turns harder.
+          const drawn = capturePayloadVelocity(power.x, power.y, power.vx, power.vy, game.portalX, game.portalY);
+          power.vx = drawn.vx;
+          power.vy = drawn.vy;
         }
         power.x += power.vx;
         power.y += power.vy;
