@@ -312,7 +312,15 @@ button.selected-ship-button:focus-visible .selected-ship-cta {
 .coach-strip.alert span { color: var(--amber); }
 
 .arena-stage { position: relative; width: min(100%, max(320px, calc(100dvh - 380px))); margin-inline: auto; }
-.canvas-wrap { position: relative; width: 100%; background: #02050a; box-shadow: 0 18px 48px rgba(0, 0, 0, .38); }
+.canvas-wrap {
+  --arena-frame-inset: clamp(12px, 1.5vmin, 20px);
+  position: relative;
+  width: 100%;
+  padding: var(--arena-frame-inset);
+  box-sizing: border-box;
+  background: #02050a;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .38);
+}
 .canvas-wrap:focus { outline: none; }
 .canvas-wrap:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 /* The fallback is Breach Runner's own 16:10 board; --arena-aspect is measured
@@ -328,25 +336,27 @@ button.selected-ship-button:focus-visible .selected-ship-cta {
 .pilot-health span b { color: white; }
 .pilot-health .meter { height: 9px; }
 .reticle { position: absolute; width: 18px; height: 18px; pointer-events: none; }
-.reticle.tl { top: 7px; left: 7px; border-top: 2px solid var(--cyan); border-left: 2px solid var(--cyan); }
-.reticle.tr { top: 7px; right: 7px; border-top: 2px solid var(--cyan); border-right: 2px solid var(--cyan); }
-.reticle.bl { bottom: 7px; left: 7px; border-bottom: 2px solid var(--cyan); border-left: 2px solid var(--cyan); }
-.reticle.br { bottom: 7px; right: 7px; border-bottom: 2px solid var(--cyan); border-right: 2px solid var(--cyan); }
+.reticle.tl { top: var(--arena-frame-inset); left: var(--arena-frame-inset); border-top: 3px solid #c8f9ff; border-left: 3px solid #c8f9ff; }
+.reticle.tr { top: var(--arena-frame-inset); right: var(--arena-frame-inset); border-top: 3px solid #c8f9ff; border-right: 3px solid #c8f9ff; }
+.reticle.bl { bottom: var(--arena-frame-inset); left: var(--arena-frame-inset); border-bottom: 3px solid #c8f9ff; border-left: 3px solid #c8f9ff; }
+.reticle.br { bottom: var(--arena-frame-inset); right: var(--arena-frame-inset); border-bottom: 3px solid #c8f9ff; border-right: 3px solid #c8f9ff; }
 
-/* The perimeter is presentation chrome rather than world ink. Keeping it in
-   the DOM makes all four edges follow the visible canvas viewport even when
-   the square world is cropped or stretched by a touch layout. The inset glow
-   remains visible inside overflow-clipped phone arenas, while the existing
-   corner reticles provide the heavier arcade bracket treatment. */
+/* This is the viewport frame; the canvas also draws the true world wall at the
+   simulation coordinates. Insetting both the canvas and this frame creates a
+   dark isolation gutter, so the top edge cannot masquerade as another HUD
+   rule. The brighter corner brackets connect directly to this perimeter. */
 .arena-boundary {
   position: absolute;
   z-index: 8;
-  inset: 0;
+  inset: var(--arena-frame-inset);
   box-sizing: border-box;
-  border: 2px solid rgba(101, 232, 255, .72);
+  border: 3px solid rgba(137, 241, 255, .94);
+  outline: 1px solid rgba(137, 241, 255, .38);
+  outline-offset: 4px;
   box-shadow:
-    inset 0 0 10px rgba(101, 232, 255, .16),
-    inset 0 0 2px rgba(225, 251, 255, .46);
+    0 0 16px rgba(74, 220, 255, .38),
+    inset 0 0 14px rgba(101, 232, 255, .22),
+    inset 0 0 3px rgba(235, 253, 255, .72);
   pointer-events: none;
 }
 
@@ -1244,7 +1254,11 @@ button.mission-line-button:focus-visible em {
 
 /* Landscape is one edge-to-edge playfield. All UI floats in safe thumb zones. */
 .touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .canvas-wrap > canvas {
-  top: 0; width: 100%; height: 100%; border: 0;
+  top: var(--arena-frame-inset);
+  left: var(--arena-frame-inset);
+  width: calc(100% - 2 * var(--arena-frame-inset));
+  height: calc(100% - 2 * var(--arena-frame-inset));
+  border: 0;
 }
 .touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .touch-controls {
   position: fixed; inset: 0; z-index: 12;
@@ -1659,6 +1673,7 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
   overflow: hidden;
   border: 2px solid rgba(101, 232, 255, .32);
   box-sizing: border-box;
+  padding: 0;
   background-color: #02050a;
   background-image:
     linear-gradient(rgba(80, 190, 215, .055) 1px, transparent 1px),
@@ -1672,23 +1687,23 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
    world objects can never travel behind the rules or health UI. */
 .modern-hud[data-immersive="true"] .canvas-wrap > canvas {
   position: absolute;
-  top: var(--arena-playfield-top, 0);
-  bottom: 0;
-  left: 50%;
-  width: auto;
-  min-width: 100%;
-  height: calc(100% - var(--arena-playfield-top, 0px));
+  top: calc(var(--arena-playfield-top, 0px) + var(--arena-frame-inset));
+  bottom: var(--arena-frame-inset);
+  left: var(--arena-frame-inset);
+  width: calc(100% - 2 * var(--arena-frame-inset));
+  min-width: 0;
+  height: calc(100% - var(--arena-playfield-top, 0px) - 2 * var(--arena-frame-inset));
   margin: 0;
-  transform: translateX(-50%);
-  border-top: 2px solid rgba(101, 232, 255, .48);
+  transform: none;
+  border: 0;
   box-sizing: border-box;
 }
 .modern-hud[data-immersive="true"] .arena-boundary {
-  top: var(--arena-playfield-top, 0);
+  top: calc(var(--arena-playfield-top, 0px) + var(--arena-frame-inset));
 }
 .modern-hud .reticle.tl,
 .modern-hud .reticle.tr {
-  top: calc(var(--arena-playfield-top, 0px) + 7px);
+  top: calc(var(--arena-playfield-top, 0px) + var(--arena-frame-inset));
 }
 
 /* Fighting-game bars attach directly beneath the measured rules rail. */
