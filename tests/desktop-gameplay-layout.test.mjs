@@ -74,14 +74,15 @@ test("no desktop cap re-crops the arena into a centred column", () => {
   assert.doesNotMatch(stage[1], /--arena-size/);
 });
 
-test("the PC canvas takes the viewport's aspect, and the world is never stretched", () => {
+test("the PC canvas takes the inset viewport's aspect, and the world is never stretched", () => {
   // The base rule pins the presentation to the world's own proportions.
   assert.match(globals, /\.canvas-wrap > canvas\s*\{[^}]*aspect-ratio:\s*var\(--arena-aspect, 1504\/940\)/s);
 
   const canvas = desktopGameplay.match(pcRule("\\.canvas-wrap > canvas"));
   assert.ok(canvas, "PC needs its own canvas sizing rule");
-  assert.match(canvas[1], /width:\s*100%/);
-  assert.match(canvas[1], /height:\s*100%/);
+  assert.match(canvas[1], /left:\s*var\(--arena-frame-inset\)/);
+  assert.match(canvas[1], /width:\s*calc\(100% - 2 \* var\(--arena-frame-inset\)\)/);
+  assert.match(canvas[1], /height:\s*calc\(100% - 2 \* var\(--arena-frame-inset\)\)/);
   assert.match(canvas[1], /aspect-ratio:\s*auto/);
 
   // Safe only because the backing store and the camera both follow the

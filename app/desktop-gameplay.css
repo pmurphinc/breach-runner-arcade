@@ -40,11 +40,11 @@
 }
 
 .app-shell[data-view-mode="pc"].modern-hud[data-immersive="true"] .canvas-wrap > canvas {
-  top: 0;
-  left: 0;
-  width: 100%;
+  top: var(--arena-frame-inset);
+  left: var(--arena-frame-inset);
+  width: calc(100% - 2 * var(--arena-frame-inset));
   min-width: 0;
-  height: 100%;
+  height: calc(100% - 2 * var(--arena-frame-inset));
   aspect-ratio: auto;
   transform: none;
 }

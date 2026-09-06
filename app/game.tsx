@@ -7190,6 +7190,22 @@ export default function WormholeGame() {
       ctx.translate(camX + shakeX, camY + shakeY);
       ctx.scale(camScale, camScale);
 
+      // The DOM perimeter frames the visible playfield, while this line is the
+      // honest simulation wall used by player, enemy, pickup, and projectile
+      // bounds. It shares their world transform, so it stays aligned in Full
+      // Arena and scrolls into view at the real wall in follow-camera modes.
+      ctx.save();
+      ctx.strokeStyle = "rgba(172, 247, 255, .92)";
+      ctx.shadowColor = "rgba(75, 225, 255, .85)";
+      ctx.shadowBlur = 12 / camScale;
+      ctx.lineWidth = 3 / camScale;
+      ctx.strokeRect(0, 0, game.worldWidth, game.worldHeight);
+      ctx.setLineDash([12 / camScale, 7 / camScale]);
+      ctx.strokeStyle = "rgba(101, 232, 255, .48)";
+      ctx.lineWidth = 1 / camScale;
+      ctx.strokeRect(6 / camScale, 6 / camScale, game.worldWidth - 12 / camScale, game.worldHeight - 12 / camScale);
+      ctx.restore();
+
       for (const rock of backgroundRocks) {
         if (!visible(rock.x, rock.y, rock.radius + 20)) continue;
         ctx.save();

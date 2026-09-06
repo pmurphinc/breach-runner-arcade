@@ -152,7 +152,14 @@
   --portrait-arena-top: calc(var(--arena-playfield-top, 142px) + 6px);
 }
 .touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"] .arena-boundary {
-  top: var(--portrait-arena-top);
+  top: calc(var(--portrait-arena-top) + var(--arena-frame-inset));
+  bottom: calc(var(--portrait-control-deck) + var(--arena-frame-inset));
+}
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"] :is(.reticle.tl, .reticle.tr) {
+  top: calc(var(--portrait-arena-top) + var(--arena-frame-inset));
+}
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"] :is(.reticle.bl, .reticle.br) {
+  bottom: calc(var(--portrait-control-deck) + var(--arena-frame-inset));
 }
 /* canvas-wrap has to be the whole viewport for the deck arithmetic below to
    mean anything. The docked padding-bottom rule further down globals.css was
@@ -173,8 +180,8 @@
   bottom: calc(max(8px, var(--safe-bottom)) + var(--touch-lift, 0px));
 }
 .touch-capable[data-immersive="true"][data-form="phone"][data-orientation="portrait"] .canvas-wrap > canvas {
-  top: var(--portrait-arena-top);
-  right: 0;
+  top: calc(var(--portrait-arena-top) + var(--arena-frame-inset));
+  right: var(--arena-frame-inset);
   /* A canvas is a replaced element with an intrinsic ratio, so `top` + `bottom`
      with `height: auto` does not stretch it: the ratio wins and `bottom` is
      dropped as over-constrained. That is what left the dead strip between the
@@ -183,10 +190,10 @@
      canvas-sizing.ts), so a taller-than-world viewport shows more world rather
      than a distorted one. */
   bottom: auto;
-  left: 0;
-  width: 100%;
+  left: var(--arena-frame-inset);
+  width: calc(100% - 2 * var(--arena-frame-inset));
   min-width: 0;
-  height: calc(100% - var(--portrait-arena-top) - var(--portrait-control-deck));
+  height: calc(100% - var(--portrait-arena-top) - var(--portrait-control-deck) - 2 * var(--arena-frame-inset));
   aspect-ratio: auto;
   margin: 0;
   transform: none;
