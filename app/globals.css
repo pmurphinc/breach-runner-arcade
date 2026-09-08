@@ -1292,8 +1292,13 @@ button.mission-line-button:focus-visible em {
 .touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .touch-controls {
   position: fixed; inset: 0; z-index: 12;
 }
+/* The lift is a real position here too. This pinned the sticks to the bottom
+   inset alone, so Low/Middle/High changed nothing at all in landscape -- the
+   same defect portrait had, fixed there and left here. It outranks the generic
+   overlay rule that does read the lift, so the setting was silently dead on
+   every phone held sideways. */
 .touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] :is(.touch-flight,.touch-action) {
-  top: auto; bottom: max(8px, var(--safe-bottom)); transform: none;
+  top: auto; bottom: calc(max(8px, var(--safe-bottom)) + var(--touch-lift, 0px)); transform: none;
 }
 .touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .touch-flight { left: max(8px, var(--safe-left)); }
 .touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .touch-action { right: max(8px, var(--safe-right)); left: auto; }
