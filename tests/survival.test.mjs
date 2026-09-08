@@ -504,10 +504,14 @@ test("rift damage is paid on top of the score sources survival already had", () 
 });
 
 test("the loop pays for rift damage where it is applied, not where it is fired", () => {
-  // One award site per place the rift actually takes damage, and both of them
+  // One award site per place the rift actually takes damage, and all of them
   // go through the same helper — which is what makes the conversion editable
   // in one place and impossible to double up by accident.
-  assert.equal((gameCode.match(/awardRiftDamage\(game, /g) ?? []).length, 2);
+  //
+  // Three sites: cannon fire, a launched payload landing, and a core bomb the
+  // pilot shoved into the rift. The third is a delivery of the same warhead by
+  // hand, so it is paid for the same way and from the same helper.
+  assert.equal((gameCode.match(/awardRiftDamage\(game, /g) ?? []).length, 3);
   assert.match(gameCode, /const awardRiftDamage = \(game: Game, damage: number\)/);
   assert.match(gameCode, /game\.score \+= scoreRiftDamage\(survival, damage\)/);
 

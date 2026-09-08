@@ -254,8 +254,8 @@ export const WEAPONS: Record<PickupId, WeaponMeta> = {
     id: "nuke", name: "CORE BOMB", short: "CORE BOMB", abbr: "CB", color: "#ffe066",
     category: "hazard", pupClass: "payload", sendable: true, threat: 3,
     summary: "Armoured warhead built around a visible pulsing core.",
-    behavior: "Sits still and counts down, then throws an expanding blast ring.",
-    role: "Heavily armoured. Destroy it before the timer, or leave the ring's path.",
+    behavior: "Drifts while it counts down, then throws an expanding blast ring.",
+    role: "Shoot it to shove it: a bomb you have hit goes off on any rift it reaches.",
   },
   wallcrawler: {
     id: "wallcrawler", name: "RIM CRAWLER", short: "CRAWLER", abbr: "RC", color: "#ff8a70",
@@ -367,10 +367,10 @@ export const ENEMY_COUNTS: Record<PowerId, number> = {
  * That reach is the whole test, and it is read off the hostiles' current
  * behaviour rather than off their threat rating:
  *
- * - `nuke` (CORE BOMB) sits still, counts down, and then throws a blast ring
- *   that grows to a 1000-unit radius. Nothing about being off screen protects
- *   the pilot from it, and the only answers — kill it before the timer or be
- *   somewhere else — both need to start before it is visible.
+ * - `nuke` (CORE BOMB) drifts, counts down, and then throws a blast ring that
+ *   grows to a 1000-unit radius. Nothing about being off screen protects the
+ *   pilot from it, and every answer — kill it before the timer, be somewhere
+ *   else, or shove it into a rift — needs to start before it is visible.
  * - `beam` (SWEEP BEAM) anchors to the rival portal and sweeps a continuous
  *   damage line clean across the arena. The line reaches the pilot long before
  *   the emitter does, and the emitter is the thing worth flying at.

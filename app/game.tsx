@@ -316,6 +316,12 @@ import { ThrusterAudioManager } from "./thruster-audio";
 import { type ArenaSize, DEFAULT_ARENA } from "./arena";
 import { sweptHit } from "./sweep";
 import {
+  CORE_BOMB_DRIFT_MAX,
+  CORE_BOMB_DRIFT_MIN,
+  coreBombRift,
+  shoveCoreBomb,
+} from "./core-bomb";
+import {
   NEBULA_ALPHA,
   PARALLAX_DEPTH,
   STAR_TINTS,
@@ -589,6 +595,13 @@ type Enemy = {
   armed?: boolean;
   countdown?: number;
   blastRadius?: number;
+  /**
+   * A core bomb that has taken a round, and so can go off on a rift.
+   *
+   * Gated on being hit so the arena cannot hand a pilot a rift strike they
+   * did not aim: an untouched bomb drifts past a rift harmlessly.
+   */
+  shoved?: boolean;
   /** Ticks left flying backwards and unable to fire, from a scrambler pulse. */
   scrambled?: number;
 };
@@ -1293,7 +1306,10 @@ function makeEnemy(kind: PowerId, x: number, y: number, index: number, count: nu
   // A tracker's speed is its own, derived from its launch angle, so a swarm
   // strings out in time instead of arriving as one wall.
   let speed = kind === "mines" ? 6 : kind === "heatseeker" ? trackerSpeed(angle) : range(0.8, 2.8);
-  if (kind === "turret" || kind === "beam" || kind === "emp" || kind === "nuke") speed = 0;
+  // A core bomb drifts slowly: it is the one hostile the pilot is meant to
+  // push around, and it cannot be aimed if it cannot move.
+  if (kind === "nuke") speed = range(CORE_BOMB_DRIFT_MIN, CORE_BOMB_DRIFT_MAX);
+  if (kind === "turret" || kind === "beam" || kind === "emp") speed = 0;
   return {
     enemyId: 0,
     x: x + range(-15, 15),
@@ -4902,6 +4918,53 @@ export default function WormholeGame() {
       game.portalPulse = 1;
     };
 
+    /**
+     * A core bomb the pilot shoved into the rift, going off on it.
+     *
+     * The rift takes exactly what a launched core bomb takes off it, because
+     * that is what this is — the same warhead delivered by hand instead of
+     * through the portal, and it should not be worth more or less for having
+     * been pushed there. The enrage shield gets its say first, and only the
+     * integrity actually removed is scored or booked against the rift's
+     * budget, matching the payload path.
+     *
+     * The blast itself is not fired here. The bomb detonates where it stands
+     * and its expanding ring does what it always does, which is what makes
+     * delivering one next to the rift dangerous for the pilot too.
+     *
+     * Branches exactly as a launched payload does, and for the same reason: a
+     * rift with an opposing pilot behind it is attacked by sending the warhead
+     * through, while a PvE rift has nobody to send it to and takes the damage
+     * as a number. Delivering by hand must not become a way to hit a local
+     * integrity bar that the mode does not use to decide anything.
+     */
+    const detonateOnRift = (game: Game) => {
+      if (game.mode !== "pve") {
+        netRef.current?.transmit("nuke");
+        game.notice = game.mode === "coop"
+          ? "CORE BOMB DELIVERED // TEAM HIT"
+          : game.mode === "team"
+            ? "CORE BOMB DELIVERED TO RIVAL TEAM"
+            : "CORE BOMB DELIVERED TO OPPONENT";
+      } else {
+        const damage = rivalDamageFor("nuke");
+        const hit = absorbEnrageShield(game.enrageRecovery, damage);
+        game.lastRivalCause = "nuke";
+        game.lastRivalDamage = Math.min(game.rivalHealth, hit.toIntegrity);
+        game.rivalHealth -= hit.toIntegrity;
+        game.score += 750 + damage * 10;
+        awardRiftDamage(game, game.lastRivalDamage);
+        if (game.lastRivalDamage > 0) releaseRiftBudget(game);
+        game.notice = hit.absorbed > 0
+          ? `CORE BOMB DELIVERED // RIFT SHIELD −${Math.round(hit.absorbed)}${hit.toIntegrity > 0 ? ` // RIFT −${Math.round(hit.toIntegrity)}` : ""}`
+          : `CORE BOMB DELIVERED // RIFT −${damage}`;
+      }
+      game.noticeLife = 115;
+      game.portalPulse = 1;
+      burst(game, game.portalX, game.portalY, POWER_COLORS.nuke, 38, 11);
+      play("magic", 0.32);
+    };
+
 
     /**
      * One tick of every Rift Run danger system.
@@ -5562,6 +5625,18 @@ export default function WormholeGame() {
         }
         if (enemy.age >= 365) enemy.hp = 0;
       } else if (enemy.kind === "nuke") {
+        // Delivery beats the timer: a bomb the pilot has shot into a rift
+        // goes off there and now, rather than finishing its countdown
+        // wherever it happened to drift.
+        if (enemy.shoved && (enemy.countdown ?? 0) > 0) {
+          const struck = coreBombRift(enemy, game.portals);
+          if (struck) {
+            enemy.countdown = 0;
+            enemy.x = struck.x;
+            enemy.y = struck.y;
+            detonateOnRift(game);
+          }
+        }
         enemy.countdown = (enemy.countdown ?? 0) - 1;
         if ((enemy.countdown ?? 0) <= 0) {
           const previousRadius = enemy.blastRadius ?? 10;
@@ -5571,7 +5646,7 @@ export default function WormholeGame() {
         }
       }
 
-      const anchored = enemy.kind === "turret" || enemy.kind === "beam" || enemy.kind === "emp" || enemy.kind === "nuke";
+      const anchored = enemy.kind === "turret" || enemy.kind === "beam" || enemy.kind === "emp";
       if (!anchored) {
         enemy.x += enemy.vx;
         enemy.y += enemy.vy;
@@ -6316,6 +6391,15 @@ export default function WormholeGame() {
             const coopGuest = isArenaGuest(game.mode, netRef.current?.state.you?.id, netRef.current?.state.hostId);
             if (coopGuest) netRef.current?.reportEnemyHit(enemyIdentity(game, enemy), bullet.damage, bullet.special ? "overcharge" : "cannon");
             else damageEnemy(game, enemy, bullet.damage);
+            // A core bomb is shoved by what hits it, so the cannon aims it as
+            // well as damages it. Only while it survives: a round that finished
+            // it off has destroyed the delivery rather than steering it.
+            if (enemy.kind === "nuke" && enemy.hp > 0) {
+              const shoved = shoveCoreBomb(enemy, bullet);
+              enemy.vx = shoved.vx;
+              enemy.vy = shoved.vy;
+              enemy.shoved = true;
+            }
             burst(game, bullet.x, bullet.y, POWER_COLORS[enemy.kind], 4, 2.5);
             cannonImpactFeedback(game, bullet);
           }

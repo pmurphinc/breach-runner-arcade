@@ -124,7 +124,15 @@ test("PvP already delivers sent payloads as real hostiles", () => {
   assert.match(pvp, /addIncoming\(game, attack\.weapon as PowerId\)/);
   assert.doesNotMatch(pvp, /rivalDamageFor/);
   // rivalDamageFor survives for PvE and the codex readout, and nowhere else.
-  assert.equal((game.match(/rivalDamageFor\(/g) ?? []).length, 2);
+  // Three sites now: the codex row, a landed payload, and a core bomb shoved
+  // into the rift — and the last two both branch on the mode first, so an
+  // opposing pilot is still sent the real wave rather than a number.
+  assert.equal((game.match(/rivalDamageFor\(/g) ?? []).length, 3);
+  assert.match(
+    game,
+    /const detonateOnRift = \(game: Game\) => \{\s*\n\s*if \(game\.mode !== "pve"\) \{\s*\n\s*netRef\.current\?\.transmit\("nuke"\);/,
+    "a bomb delivered in PvP must transmit, not touch local integrity"
+  );
 });
 
 test("hostile hulls match the reference values", () => {
