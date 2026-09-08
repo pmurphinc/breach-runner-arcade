@@ -108,7 +108,12 @@ html[data-touch-editor="open"] .system-controls { display: none; }
 .touch-editor-ghost.button { border-radius: 999px; }
 .touch-editor-ghost.active { border-color: var(--lime); background: rgba(28, 62, 40, .6); cursor: grabbing; }
 .touch-editor-ghost-name { color: var(--ink); font: 800 var(--fs-nano)/1 var(--mono); letter-spacing: .08em; }
-.touch-editor-deadzone { position: absolute; border: 1px solid rgba(255, 255, 255, .5); border-radius: 999px; }
+.touch-editor-deadzone { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); border: 1px solid rgba(255, 255, 255, .5); border-radius: 999px; }
+/* Selected: the ring reads as the thing it is -- the boundary between turning
+   and burning -- and carries a handle you pull to set it. */
+.touch-editor-deadzone.adjustable { border-color: rgba(100, 234, 255, .8); border-style: dashed; }
+.touch-editor-deadzone-handle { position: absolute; top: 50%; right: 0; width: 18px; height: 18px; transform: translate(50%, -50%); border: 1px solid rgba(100, 234, 255, .9); border-radius: 50%; background: rgba(4, 16, 24, .95); cursor: ew-resize; touch-action: none; }
+.touch-editor-deadzone-handle:hover, .touch-editor-deadzone-handle:focus-visible { border-color: #eafcff; background: rgba(100, 234, 255, .35); outline: none; }
 .touch-editor-handle {
   position: absolute;
   top: 50%;

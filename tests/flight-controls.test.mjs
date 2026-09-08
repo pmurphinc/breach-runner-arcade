@@ -30,6 +30,11 @@ import {
 import { intentFromStick } from "../app/movement.ts";
 import { classicDeadzoneShare } from "../app/flight-controls.ts";
 import {
+  CLASSIC_TURN_DEGREES_PER_TICK,
+  classicKeyboardFlight,
+  pointerAims,
+} from "../app/flight-controls.ts";
+import {
   customTouchLayoutVariables,
   defaultCustomTouchLayout,
   isTouchStick,
@@ -251,4 +256,109 @@ test("the adjustable layout offers a ring for the stick and nothing else", () =>
   assert.ok(variables["--touch-move-deadzone-share"]);
   assert.equal(variables["--touch-aim-deadzone-share"], undefined);
   assert.equal(variables["--touch-aim-deadzone"], undefined);
+});
+
+/* -------------------------------------------- Classic on a keyboard ------ */
+
+/** No keys held. */
+const NO_KEYS = { up: false, down: false, left: false, right: false };
+const held = (...names) => ({ ...NO_KEYS, ...Object.fromEntries(names.map((n) => [n, true])) });
+
+test("A and D turn the hull without moving the ship", () => {
+  // The same mechanism the stick's deadzone uses: an active intent carrying a
+  // heading and a magnitude of zero. If this ever returns an inactive intent
+  // the hull stops turning; if it returns magnitude 1 the ship drives off
+  // while the pilot is only trying to line up.
+  const right = classicKeyboardFlight(held("right"), 0);
+  assert.equal(right.heading, CLASSIC_TURN_DEGREES_PER_TICK, "D turns one tick's worth");
+  assert.equal(right.intent.active, true, "active, so the hull follows");
+  assert.equal(right.intent.magnitude, 0, "but the engine stays cold");
+  assert.equal(right.intent.heading, right.heading, "and the intent agrees with the hull");
+
+  const left = classicKeyboardFlight(held("left"), 0);
+  assert.equal(left.heading, -CLASSIC_TURN_DEGREES_PER_TICK, "A turns the other way");
+});
+
+test("W drives the ship along its own nose, wherever that points", () => {
+  for (const heading of [0, 90, -90, 137.5, -212]) {
+    const flight = classicKeyboardFlight(held("up"), heading);
+    assert.equal(flight.heading, heading, "thrust alone does not turn the hull");
+    assert.equal(flight.intent.magnitude, 1, "full throttle");
+    assert.equal(flight.intent.heading, heading, "along the nose, not up-screen");
+  }
+});
+
+test("turning and thrusting together is a curve", () => {
+  // Holding W and D should come round while still driving -- the single most
+  // common thing a pilot does in this scheme.
+  const flight = classicKeyboardFlight(held("up", "right"), 10);
+  assert.equal(flight.heading, 10 + CLASSIC_TURN_DEGREES_PER_TICK);
+  assert.equal(flight.intent.magnitude, 1);
+  assert.equal(flight.intent.heading, flight.heading);
+});
+
+test("opposing turn keys cancel, and nothing held holds the heading", () => {
+  const both = classicKeyboardFlight(held("left", "right"), 42);
+  assert.equal(both.heading, 42, "A and D together do not drift");
+  assert.equal(both.intent.active, false);
+
+  const idle = classicKeyboardFlight(NO_KEYS, 42);
+  assert.equal(idle.heading, 42, "the hull keeps pointing where it was left");
+  assert.equal(idle.intent.active, false, "and coasts rather than braking");
+});
+
+test("S does nothing, deliberately", () => {
+  // The original had no reverse, and a thrust vector opposite the nose would
+  // fight `facingFor` -- the hull turns to whatever the intent points at, so
+  // the ship would flip rather than back up. Reverse is the retros upgrade.
+  const flight = classicKeyboardFlight(held("down"), 33);
+  assert.equal(flight.heading, 33);
+  assert.equal(flight.intent.active, false);
+});
+
+test("a turn rate that is steering, not selecting a direction", () => {
+  // At the 15ms tick, a full turn should take somewhere around a second and a
+  // bit: fast enough to bring the nose onto something shooting at you, slow
+  // enough that steering is a thing you do. Pinned as a band so it can be
+  // tuned without rewriting the test.
+  const secondsPerTurn = 360 / (CLASSIC_TURN_DEGREES_PER_TICK * (1000 / 15));
+  assert.ok(secondsPerTurn > 0.8, `${secondsPerTurn.toFixed(2)}s per turn -- too twitchy`);
+  assert.ok(secondsPerTurn < 2.2, `${secondsPerTurn.toFixed(2)}s per turn -- too sluggish`);
+});
+
+test("a nonsense heading cannot leave the hull pointing nowhere", () => {
+  for (const bad of [Number.NaN, Infinity, -Infinity]) {
+    const flight = classicKeyboardFlight(held("right"), bad);
+    assert.ok(Number.isFinite(flight.heading), `${bad} produced ${flight.heading}`);
+  }
+});
+
+test("the mouse stops steering under Classic, and still steers under Twin Stick", () => {
+  // `facingFor` gives an aim heading priority over everything, so a mouse that
+  // kept setting one would pin the nose to the cursor and make A and D do
+  // nothing at all. The two cannot both own the heading.
+  assert.equal(pointerAims("classic"), false);
+  assert.equal(pointerAims("twinStick"), true);
+  assert.ok(game.includes("if (!pointerAims(settingsRef.current.controlProfile)) return;"));
+});
+
+test("the loop reads the keyboard through the profile", () => {
+  // If this reverts to calling intentFromKeys unconditionally, Classic silently
+  // goes back to absolute-direction WASD and nothing else here would notice.
+  assert.ok(game.includes("const flight = classicKeyboardFlight(heldKeys, player.angle);"));
+  assert.ok(game.includes("player.angle = flight.heading;"), "the turned heading reaches the hull");
+  assert.ok(game.includes("const classicKeys = !rightControlAims(settingsRef.current.controlProfile);"));
+  // Twin Stick keeps the scheme it always had.
+  assert.ok(game.includes("keyboardIntent = intentFromKeys(heldKeys);"));
+});
+
+test("the dead zone can be dragged, not only typed", () => {
+  // It is the one number in the editor whose right value is a feel rather than
+  // a measurement, so it needs the same direct handle every other control has.
+  assert.ok(editor.includes('beginDrag(event, "deadzone")'));
+  assert.ok(editor.includes('mode: "move" | "resize" | "deadzone"'));
+  assert.ok(editor.includes("deadzone: start.deadzone + delta,"));
+  // Reachable without a pointer, like the resize handle beside it.
+  assert.ok(editor.includes('setField("deadzone", element.deadzone + 2)'));
+  assert.ok(editor.includes('role="slider"'));
 });
