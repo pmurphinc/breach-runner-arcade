@@ -34,7 +34,7 @@ async function loadPlaywright() {
   return null;
 }
 
-import { openModeScreen } from "./browser-launch.mjs";
+import { hideDevErrorOverlay, openModeScreen } from "./browser-launch.mjs";
 
 const playwright = URL_UNDER_TEST ? await loadPlaywright() : null;
 const skip = !URL_UNDER_TEST
@@ -63,6 +63,7 @@ async function openRiftRun(browser) {
   await page.route("https://murphtournaments.com/**", (route) =>
     route.fulfill({ json: { signedIn: false, player: null } })
   );
+  await hideDevErrorOverlay(page);
   await page.goto(URL_UNDER_TEST, { waitUntil: "networkidle" });
 
   // Home, then the mode list, then Rift Run's own setup screen. Rift Run is

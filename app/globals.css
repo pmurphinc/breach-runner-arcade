@@ -1262,7 +1262,14 @@ button.mission-line-button:focus-visible em {
   gap: 3px; padding: 3px; background: rgba(2,9,15,.8); backdrop-filter: blur(3px);
 }
 .touch-capable[data-immersive="true"][data-form="phone"] .touch-powerup-loaded { width: clamp(78px, 22vw, 104px); }
-.touch-capable[data-immersive="true"][data-form="phone"] .pup-notice-stack { left: 0; align-items: start; transform: none; }
+/* Deliberately no phone override of the notice stack.
+
+   `Recompose phone gameplay layouts` left-aligned it here -- left: 0 with the
+   centring transform removed -- which unpinned it from the inventory it hangs
+   off. The plate sat under the inventory's left end rather than over it, and
+   the pair stopped reading as one group. The base rule already centres the
+   stack on the panel and travels with it through every responsive rule, which
+   is the whole reason it is anchored to the panel instead of the viewport. */
 .touch-capable[data-immersive="true"][data-form="phone"] .system-controls {
   top: max(6px, var(--safe-top)); right: max(6px, var(--safe-right)); gap: 4px;
 }

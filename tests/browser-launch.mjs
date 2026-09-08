@@ -34,9 +34,49 @@
  * Play launches whatever Home is already showing, so with the preferences
  * seeded this is the entire launch flow.
  */
-export const LAUNCH_CONTROL = '[data-launch-control="play"]';
+/**
+ * Keep the dev server's error overlay from swallowing clicks.
+ *
+ * These tests run against `npm run dev`, and vinext paints a full-screen
+ * backdrop over the page when it wants to report something. It sits above
+ * everything and intercepts pointer events, so a click on a button that is
+ * visible, enabled and stable simply never lands -- Playwright retries for
+ * thirty seconds and then reports a timeout on a perfectly healthy control,
+ * which is a long way from the real cause.
+ *
+ * Hiding it conceals nothing: every one of these tests collects page errors
+ * and console errors separately and asserts they are empty, so a genuine
+ * failure still fails. This only stops a development affordance from
+ * standing between the test and the game.
+ *
+ * Injected as a stylesheet at document start so it applies to an overlay
+ * that appears at any later point.
+ */
+export async function hideDevErrorOverlay(page) {
+  await page.addInitScript(() => {
+    const style = document.createElement("style");
+    style.textContent =
+      "#__vinext_dev_error_overlay_root,[data-testid='vinext-dev-error-backdrop'],vite-error-overlay" +
+      "{display:none!important;pointer-events:none!important;}";
+    const attach = () => document.head?.appendChild(style);
+    if (document.head) attach();
+    else document.addEventListener("DOMContentLoaded", attach, { once: true });
+  });
+}
+
+/**
 
 /** Home's mode summary row, which opens the mode screen. */
+/**
+ * The launch control on Home.
+ *
+ * A `data-` hook rather than a style class, because that is the difference
+ * between a selector a redesign is allowed to break and one it is not. Home's
+ * Play launches whatever Home is already showing, so with the preferences
+ * seeded this is the entire launch flow.
+ */
+export const LAUNCH_CONTROL = '[data-launch-control="play"]';
+
 export const MODE_ROW = ".summary-row";
 
 export const HOME_ROUTE = ".menu-screen[data-route='home']";
@@ -69,6 +109,7 @@ export const SETTINGS_KEY = "wormhole-arcade:settings:v1";
  * Call before `page.goto`.
  */
 export async function seedRun(page, { difficulty, ship, controlProfile = "twinStick" } = {}) {
+  await hideDevErrorOverlay(page);
   await page.addInitScript(
     ({ difficulty: chosen, ship: hull, profile, difficultyKey, shipKey, settingsKey }) => {
       try {

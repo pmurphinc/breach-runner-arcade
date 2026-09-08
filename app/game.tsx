@@ -2869,6 +2869,26 @@ export default function WormholeGame() {
       wrap.style.setProperty("--camera-safe-top", `${layout.form === "phone" && layout.orientation === "landscape" ? Math.ceil(Math.max(healthBottom, bottomOf(".touch-powerup-hud"))) + 2 : 0}px`);
       wrap.style.setProperty("--arena-canvas-width", `${canvasWidth}px`);
       wrap.style.setProperty("--arena-canvas-height", `${canvasHeight}px`);
+      // The thumbstick deck, measured rather than assembled from parts.
+      //
+      // It used to be built as stick + 62px + lift + inset, and the 62px was a
+      // row of utility buttons that has since moved to orbit the stick instead
+      // of stacking above it. Nothing failed loudly; the arena simply ended 62
+      // pixels short of the sticks and left a dead strip there. The same class
+      // of drift as `--system-controls-width` above, and the same answer:
+      // reserve exactly what is there.
+      //
+      // Safe to measure because the deck is `position: fixed` and outside the
+      // wrap -- its height cannot depend on the canvas, so sizing the canvas
+      // from it cannot feed back.
+      const deck = document.querySelector<HTMLElement>(".touch-controls")?.getBoundingClientRect();
+      if (deck && deck.height > 0) {
+        wrap.style.setProperty("--measured-control-deck", `${Math.max(0, Math.round(wrapRect.bottom - deck.top))}px`);
+      } else {
+        // No deck on screen: the CSS fallback formula takes over rather than
+        // a stale value reserving room for controls that are not there.
+        wrap.style.removeProperty("--measured-control-deck");
+      }
     };
 
     measure();
@@ -2907,6 +2927,12 @@ export default function WormholeGame() {
     // label does, and the rail has to re-inset when it happens.
     const systemControlsEl = document.querySelector(".system-controls");
     if (systemControlsEl) observer.observe(systemControlsEl);
+
+    // Also fixed and outside the wrap. Its height changes with the touch size
+    // setting and with the lift, and the arena's bottom edge is measured from
+    // it, so it has to be watched rather than assumed.
+    const deckEl = document.querySelector(".touch-controls");
+    if (deckEl) observer.observe(deckEl);
     return () => { observer.disconnect(); swaps.disconnect(); };
   }, [immersive, layout.arena, layout.form, layout.orientation, layout.preset, layout.sticks, mode, net?.phase, viewProfile.modernHud]);
 
