@@ -37,7 +37,7 @@ test("Viper rebalance is inside budget with MK1 represented by base gun points",
   assert.ok(viper);
   const score = shipBalanceBreakdown(viper);
   assert.equal(viper.health, 150);
-  assert.equal(viper.maxSpeed, 3);
+  assert.equal(viper.maxSpeed, 6);
   assert.equal(viper.gun, 1);
   assert.equal(score.gun, 12);
   assert.equal(score.total, 99);
@@ -46,10 +46,10 @@ test("Viper rebalance is inside budget with MK1 represented by base gun points",
 test("Phantom stays the fleet's fastest frame without exceeding the cap", () => {
   const squid = SHIPS.find((ship) => ship.id === "squid");
   assert.ok(squid);
-  assert.equal(squid.maxSpeed, 3.8);
+  assert.equal(squid.maxSpeed, 7.6);
   assert.equal(squid.maxSpeed, Math.max(...SHIPS.map((ship) => ship.maxSpeed)));
   assert.equal(squid.turn, 8);
-  assert.equal(squid.acceleration, 0.12);
+  assert.equal(squid.acceleration, 0.24);
   assert.equal(squid.thrust, 1);
   assert.equal(shipBalanceBreakdown(squid).total, 98.8);
 });

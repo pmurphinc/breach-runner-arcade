@@ -14,7 +14,7 @@ const game = readFileSync(new URL("../app/game.tsx", import.meta.url), "utf8");
 
 test("Warden keeps its canonical frame but exposes Suppression Barrage", () => {
   const ship = SHIPS.find(({ id }) => id === "warden");
-  assert.deepEqual(ship, { id: "warden", name: "Warden", role: "Medium / Gunship", turn: 6, maxSpeed: 3, acceleration: 0.09, health: 200, gun: 1, thrust: 1, special: "Q: For 5 seconds, the primary cannon fires a tight three-shot barrage.", unlock: "OPEN" });
+  assert.deepEqual(ship, { id: "warden", name: "Warden", role: "Medium / Gunship", turn: 6, maxSpeed: 6, acceleration: 0.18, health: 200, gun: 1, thrust: 1, special: "Q: For 5 seconds, the primary cannon fires a tight three-shot barrage.", unlock: "OPEN" });
   assert.deepEqual(SHIP_SPECIALS.warden, { name: "SUPPRESSION BARRAGE", cooldownSeconds: 20, activeSeconds: 5, balancePoints: 20 });
 });
 

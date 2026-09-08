@@ -314,6 +314,7 @@ import {
 import { BeamAudioManager } from "./beam-audio";
 import { ThrusterAudioManager } from "./thruster-audio";
 import { type ArenaSize, DEFAULT_ARENA } from "./arena";
+import { sweptHit } from "./sweep";
 import {
   NEBULA_ALPHA,
   PARALLAX_DEPTH,
@@ -6286,7 +6287,7 @@ export default function WormholeGame() {
         // answered instead of only dodged.
         for (const hostile of game.bullets) {
           if (!hostile.enemy || hostile.life <= 0 || bullet.life <= 0) continue;
-          if (dist(bullet, hostile) < 11) {
+          if (sweptHit(bullet, hostile, 11)) {
             hostile.life = 0;
             bullet.life = 0;
             burst(game, hostile.x, hostile.y, "#ff9db0", 5, 2.5);
@@ -6299,7 +6300,7 @@ export default function WormholeGame() {
         if (bullet.life > 0 && !bullet.salvageLinked) {
           for (const loose of game.pickups) {
             if (!pupIsShootable(loose)) continue;
-            if (dist(bullet, loose) < PUP_RADIUS + 4) {
+            if (sweptHit(bullet, loose, PUP_RADIUS + 4)) {
               loose.life = 0;
               bullet.life = 0;
               burst(game, loose.x, loose.y, POWER_COLORS[loose.type], 12, 4);
@@ -6310,7 +6311,7 @@ export default function WormholeGame() {
         }
         for (const enemy of game.enemies) {
           if (enemy.hp <= 0 || bullet.life <= 0 || enemy.kind === "ghost") continue;
-          if (dist(bullet, enemy) < enemy.radius + 4) {
+          if (sweptHit(bullet, enemy, enemy.radius + 4)) {
             bullet.life = 0;
             const coopGuest = isArenaGuest(game.mode, netRef.current?.state.you?.id, netRef.current?.state.hostId);
             if (coopGuest) netRef.current?.reportEnemyHit(enemyIdentity(game, enemy), bullet.damage, bullet.special ? "overcharge" : "cannon");

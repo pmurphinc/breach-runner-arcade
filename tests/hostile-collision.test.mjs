@@ -50,8 +50,10 @@ test("loose power-ups are shootable, but only after a spawn grace", () => {
   // the same question — see the spawn-shield test below.
   assert.ok(game.includes("return pickup.life > 0 && !pupIsProtected(pickup);"));
   assert.match(playerRound, /if \(!pupIsShootable\(loose\)\) continue/);
-  // Hit radius comes from the canonical loose-PUP size, not a second constant.
-  assert.match(playerRound, /dist\(bullet, loose\) < PUP_RADIUS \+ 4/);
+  // Hit reach comes from the canonical loose-PUP size, not a second constant.
+  // Swept along the round's path rather than sampled where it ended the tick,
+  // because the fleet is fast enough now to step over a drop. See app/sweep.ts.
+  assert.match(playerRound, /sweptHit\(bullet, loose, PUP_RADIUS \+ 4\)/);
   assert.ok(PUP_RADIUS > 0);
 });
 

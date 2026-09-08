@@ -13,7 +13,7 @@ test("guided-strike frame keeps its gameplay while using the commercial identity
   assert.ok(needle);
   assert.equal(needle.name, "Needle");
   assert.equal(needle.health, 150);
-  assert.equal(needle.maxSpeed, 3);
+  assert.equal(needle.maxSpeed, 6);
   assert.equal(needle.gun, 1);
   assert.equal(SHIP_SPECIALS.rabbit.name, "TARGET LINK");
   assert.equal(SHIP_SPECIALS.rabbit.cooldownSeconds, 20);
@@ -25,8 +25,8 @@ test("Starling trades hull for the handling and volley of a skirmisher", () => {
   assert.ok(starling);
   // The rebalance is a trade, not an upgrade: the old frame was 240 hull.
   assert.equal(starling.health, 175);
-  assert.equal(starling.maxSpeed, 3.5);
-  assert.equal(starling.acceleration, 0.13);
+  assert.equal(starling.maxSpeed, 7);
+  assert.equal(starling.acceleration, 0.26);
   assert.equal(starling.turn, 9);
   assert.equal(SHIP_SPECIALS.wing.name, "SWARM OVERCHARGE");
 
@@ -71,8 +71,8 @@ test("Talon pays for its detonation with mobility", () => {
   const talon = SHIPS.find((ship) => ship.id === "hunter");
   assert.ok(talon);
   assert.equal(talon.gun, 2, "a brawler needs a cannon between specials");
-  assert.equal(talon.maxSpeed, 2.9);
-  assert.equal(talon.acceleration, 0.08);
+  assert.equal(talon.maxSpeed, 5.8);
+  assert.equal(talon.acceleration, 0.16);
   assert.equal(SHIP_SPECIALS.hunter.name, "CORE OVERCHARGE");
 
   const core = overchargeFor("hunter");
