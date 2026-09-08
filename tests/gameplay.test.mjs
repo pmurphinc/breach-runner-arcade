@@ -39,6 +39,8 @@ async function loadPlaywright() {
   return null;
 }
 
+import { launchSeededRun, seedRun } from "./browser-launch.mjs";
+
 const playwright = URL_UNDER_TEST ? await loadPlaywright() : null;
 const skip = !URL_UNDER_TEST
   ? "set WORMHOLE_TEST_URL to a running dev server"
@@ -53,20 +55,13 @@ async function openGame(browser, difficulty) {
   await page.route("https://murphtournaments.com/**", (route) =>
     route.fulfill({ json: { signedIn: false, player: null } })
   );
+  // The difficulty is seeded rather than clicked. Walking the menu to reach
+  // the game meant these tests were really testing the menu, and it broke
+  // them twice -- once when a difficulty label was renamed, once when a
+  // refresh deleted the controls outright. See `browser-launch.mjs`.
+  await seedRun(page, { difficulty });
   await page.goto(URL_UNDER_TEST, { waitUntil: "networkidle" });
-
-  // The launch flow runs through the main menu: open Game Modes from the
-  // Play panel's difficulty summary, choose the difficulty, then launch.
-  await page.waitForSelector(".menu-screen[data-route='home']", { timeout: 15_000 });
-  await page.locator(".summary-action").first().click();
-  await page.waitForTimeout(400);
-  // Selected by difficulty id rather than display label. The labels are themed
-  // copy and have already been renamed once, which broke every test in this
-  // file at once without CI noticing, because these skip without a server.
-  await page.locator(`.option-choices [data-choice="${difficulty}"]`).first().click();
-  await page.waitForTimeout(250);
-  await page.locator(".menu-footer .play-button").click();
-  await page.waitForTimeout(700);
+  await launchSeededRun(page, { timeout: 15_000, settle: 700 });
   return { context, page };
 }
 

@@ -34,6 +34,8 @@ async function loadPlaywright() {
   return null;
 }
 
+import { openModeScreen } from "./browser-launch.mjs";
+
 const playwright = URL_UNDER_TEST ? await loadPlaywright() : null;
 const skip = !URL_UNDER_TEST
   ? "set WORMHOLE_TEST_URL to a running dev server"
@@ -63,15 +65,14 @@ async function openRiftRun(browser) {
   );
   await page.goto(URL_UNDER_TEST, { waitUntil: "networkidle" });
 
-  // Ships first, then game type, then the PvE challenge list, then Rift Run's
-  // own setup screen — the route the player actually walks.
-  await page.waitForSelector(".menu-screen[data-route='ships']", { timeout: 15_000 });
-  await page.locator(".play-button").click();
-  await page.waitForSelector(".menu-screen[data-route='modes']", { timeout: 10_000 });
-  await page.locator(".mode-card[data-mode='pve']").click();
-  await page.waitForSelector(".menu-screen[data-route='pve-modes']", { timeout: 10_000 });
-  await page.locator(".mode-card[data-mode='rift-run']").click();
+  // Home, then the mode list, then Rift Run's own setup screen. Rift Run is
+  // the one mode that cannot be seeded straight into: it opens a setup screen
+  // rather than launching, so the walk is the thing being exercised.
+  await openModeScreen(page);
+  await page.locator("[data-mode='rift-run']").first().click();
   await page.waitForSelector(".menu-screen[data-route='rift-run']", { timeout: 10_000 });
+  await page.locator(".play-button").click();
+  await page.waitForTimeout(900);
 
   return { context, page, errors };
 }

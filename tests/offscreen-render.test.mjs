@@ -35,6 +35,8 @@ async function loadPlaywright() {
   return null;
 }
 
+import { launchSeededRun, seedRun } from "./browser-launch.mjs";
+
 const playwright = URL_UNDER_TEST ? await loadPlaywright() : null;
 const skip = !URL_UNDER_TEST
   ? "set WORMHOLE_TEST_URL to a running dev server"
@@ -189,16 +191,12 @@ async function openArena(browser, { width, height, viewMode, touch }) {
     }));
   }, { viewMode, zoom: ZOOM });
   await page.addInitScript(INSTRUMENT);
-  await page.goto(URL_UNDER_TEST, { waitUntil: "networkidle" });
-  await page.waitForSelector(".menu-screen[data-route='home']", { timeout: 20_000 });
-  await page.locator(".summary-action").first().click();
-  await page.waitForTimeout(400);
   // PRACTICE keeps the hull locked, so a run can be flown into a wall and held
-  // there for as long as a measurement needs without ending.
-  await page.locator('.option-choices [data-choice="practice"]').first().click();
-  await page.waitForTimeout(250);
-  await page.locator(".menu-footer .play-button").click();
-  await page.waitForTimeout(1200);
+  // there for as long as a measurement needs without ending. Seeded rather
+  // than clicked -- see `browser-launch.mjs` for why.
+  await seedRun(page, { difficulty: "practice" });
+  await page.goto(URL_UNDER_TEST, { waitUntil: "networkidle" });
+  await launchSeededRun(page, { timeout: 20_000, settle: 1200 });
   return { context, page, errors };
 }
 

@@ -57,7 +57,14 @@ test("Ships is a browsing surface: confirming returns where it was opened from",
   assert.match(game, /const confirmShip = useCallback\(\s*\(\) => setMenu\(\(stack\) => \(stack\.length > 1 \? popRoute\(stack\) : resetRoute\("home"\)\)\)/);
   assert.match(game, /<ShipsScreen[\s\S]*onLaunch=\{confirmShip\}/);
   // Home still offers it, as a place to compare the fleet.
-  assert.match(menu, /<MenuActionButton icon="✦" label="Ships" detail="Choose your hull" onClick=\{\(\) => go\("ships"\)\} \/>/);
+  // Asserted as the two parts that matter rather than as one exact tag. The
+  // previous form pinned every attribute in order, so adding a className to
+  // the button broke a test about navigation.
+  const shipsAt = menu.indexOf('label="Ships"');
+  assert.ok(shipsAt > 0, "Home still offers Ships");
+  const shipsButton = menu.slice(Math.max(0, shipsAt - 200), shipsAt + 200);
+  assert.ok(shipsButton.includes("MenuActionButton"), "as an action on Home");
+  assert.ok(shipsButton.includes('go("ships")'), "and it opens the browsing surface");
 });
 
 test("Home keeps setup choices available without showing them inline", () => {

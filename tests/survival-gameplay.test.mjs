@@ -36,6 +36,8 @@ async function loadPlaywright() {
   return null;
 }
 
+import { launchSeededRun, openModeScreen, seedRun } from "./browser-launch.mjs";
+
 const playwright = URL_UNDER_TEST ? await loadPlaywright() : null;
 const skip = !URL_UNDER_TEST
   ? "set WORMHOLE_TEST_URL to a running dev server"
@@ -49,7 +51,7 @@ const skip = !URL_UNDER_TEST
  * `seed` runs before any page script, so a test can plant a device board and
  * check the screen that renders it without playing the runs first.
  */
-async function openGame(browser, seed) {
+async function openGame(browser, run) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await context.newPage();
 
@@ -67,43 +69,51 @@ async function openGame(browser, seed) {
   await page.route("https://murphtournaments.com/**", (route) =>
     route.fulfill({ json: { signedIn: false, player: null } })
   );
-  if (seed) await page.addInitScript(seed);
+  await seedRun(page, run);
   await page.goto(URL_UNDER_TEST, { waitUntil: "networkidle" });
   await page.waitForSelector(".menu-screen[data-route='home']", { timeout: 15_000 });
 
   return { context, page, errors };
 }
 
-/** Selects Rift Survival on the Modes screen, ready to launch. */
+/**
+ * A live Rift Survival run.
+ *
+ * Seeded rather than clicked: Survival is a *difficulty*, not a mode, so it
+ * persists like any other ruleset and the menu never has to be walked. These
+ * tests are about the arena, and every time they reached it through the menu
+ * a menu change broke them.
+ */
 async function openSurvival(browser) {
-  const opened = await openGame(browser);
-  await opened.page.locator(".summary-action").first().click();
-  await opened.page.waitForSelector(".menu-screen[data-route='modes']", { timeout: 10_000 });
-  await opened.page.locator(".mode-card[data-mode='survival']").click();
-  await opened.page.waitForTimeout(250);
+  const opened = await openGame(browser, { difficulty: "survival" });
+  await launchSeededRun(opened.page, { settle: 900 });
   return opened;
 }
 
 const badgeText = (page) => page.locator(".difficulty-badge").innerText();
 const scoreText = async (page) => Number((await page.locator(".score b").innerText()).replace(/\D/g, ""));
 
-test("Rift Survival is chosen from Challenges, not from the difficulty list", { skip }, async () => {
+/**
+ * Survival is reached by picking it from the mode list, and picking it starts
+ * the run rather than dropping the pilot on a difficulty screen.
+ *
+ * This used to assert that choosing Survival un-ticked the arcade modes and
+ * hid the difficulty rows on the same screen. Both are gone: the mode list no
+ * longer carries difficulty at all, and its cards activate on click instead of
+ * behaving like radio buttons. What is still true, and still worth a browser
+ * to check, is that one click on Survival puts the pilot in a Survival run.
+ * That Survival stays out of the difficulty list is pinned in `survival.test.mjs`.
+ */
+test("picking Rift Survival from the mode list starts a Survival run", { skip }, async () => {
   const { chromium } = playwright;
   const browser = await chromium.launch({ executablePath: CHROME });
   try {
-    const { context, page } = await openSurvival(browser);
+    const { context, page } = await openGame(browser);
+    await openModeScreen(page);
+    await page.locator("[data-mode='survival']").first().click();
+    await page.waitForTimeout(900);
 
-    // Choosing the challenge takes the tick off the arcade modes and hides the
-    // difficulty rows, which Survival sets from the clock instead.
-    assert.equal(await page.locator(".mode-card[data-mode='survival']").getAttribute("aria-checked"), "true");
-    assert.equal(await page.locator(".mode-card[data-mode='pve']").getAttribute("aria-checked"), "false");
-    assert.equal(await page.locator(".option-choices").count(), 0);
-
-    // Going back to an arcade mode leaves the challenge behind.
-    await page.locator(".mode-card[data-mode='pve']").click();
-    await page.waitForTimeout(250);
-    assert.equal(await page.locator(".mode-card[data-mode='survival']").getAttribute("aria-checked"), "false");
-    assert.ok(await page.locator(".option-choices").count() > 0);
+    assert.match(await badgeText(page), /SURVIVAL/i, "the run that started is a Survival run");
 
     await context.close();
   } finally {

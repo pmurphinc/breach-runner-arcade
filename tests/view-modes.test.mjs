@@ -78,7 +78,14 @@ test('the alpha build marker is passive and belongs to the logo lockup', () => {
   const brandRow = game.slice(game.indexOf('className="brand-row"'), game.indexOf('className="brand-home"'));
   assert.match(brandRow, /className="brand-logo"/);
   assert.match(brandRow, /<BuildWatermark\s*\/>/);
-  assert.doesNotMatch(game.slice(game.indexOf('</header>')), /<BuildWatermark\s*\/>/);
+  // Containment rather than "not after the header": another component now
+  // closes a <header> earlier in the file, so that landmark pointed at the
+  // wrong place. One marker, inside the lockup, is the whole rule anyway.
+  const brandAt = game.indexOf('className="brand-row"');
+  const homeAt = game.indexOf('className="brand-home"');
+  const markerAt = game.indexOf('<BuildWatermark />');
+  assert.ok(brandAt > 0 && homeAt > brandAt, 'the brand lockup is where it says it is');
+  assert.ok(markerAt > brandAt && markerAt < homeAt, 'the only marker sits inside the lockup');
   assert.match(systemControls, /className="build-watermark"/);
   assert.match(systemControls, /aria-hidden="true"/);
   assert.match(systemControls, />\s*ALPHA BUILD\s*</);
@@ -222,13 +229,15 @@ test('phone portrait reserves measured HUD and control rows around a flexible ar
     /data-orientation="portrait"\] \.canvas-wrap \{[^}]*--portrait-arena-top:\s*calc\(var\(--arena-playfield-top/s
   );
   const portraitCanvas = arenaHudCss.match(/data-orientation="portrait"\] \.canvas-wrap > canvas \{.+?\n\}/s)?.[0] ?? '';
-  assert.match(portraitCanvas, /top:\s*var\(--portrait-arena-top\)/);
+  // `[^;]*` so the inset the arena border adds does not fail a test about
+  // whether the canvas tracks the measured HUD at all.
+  assert.match(portraitCanvas, /top:[^;]*var\(--portrait-arena-top\)/);
   // A canvas is a replaced element: `top` plus `bottom` with an automatic
   // height keeps its intrinsic ratio and drops `bottom`, which is what left a
   // dead strip above the sticks. The height has to be stated.
   assert.match(
     portraitCanvas,
-    /height:\s*calc\(100% - var\(--portrait-arena-top\) - var\(--portrait-control-deck\)\)/
+    /height:\s*calc\(100% - var\(--portrait-arena-top\) - var\(--portrait-control-deck\)/
   );
   assert.doesNotMatch(portraitCanvas, /^\s*height:\s*auto;/m);
 });
@@ -351,11 +360,21 @@ test('touch playfield starts below the complete HUD and removes canvas text pane
   assert.match(game, /--arena-canvas-height/);
   const overlay = game.slice(game.indexOf('const drawOverlay'), game.indexOf('// Next weapon in the bin'));
   assert.doesNotMatch(overlay, /WORMHOLE CHARGE|Mission notice|coachLine\(game\)/);
-  const reserved = css.slice(css.indexOf('The Touch\/Hybrid HUD occupies a real header lane'));
-  assert.match(reserved, /top:\s*var\(--arena-playfield-top/);
-  assert.match(reserved, /bottom:\s*0/);
-  assert.match(reserved, /height:\s*calc\(100% - var\(--arena-playfield-top/);
-  assert.match(reserved, /border-top:\s*2px/);
+  // Sliced to the rule itself rather than to the end of the stylesheet: the
+  // old form let `bottom` and the border match anything further down the
+  // file, which is how two of these kept passing for the wrong reason.
+  const reservedAt = css.indexOf('The Touch/Hybrid HUD occupies a real header lane');
+  assert.ok(reservedAt > 0, 'the immersive canvas rule is where it says it is');
+  const reserved = css.slice(reservedAt, css.indexOf('}', css.indexOf('{', reservedAt)));
+  // Starts below the measured HUD, and states its height rather than leaving
+  // it automatic -- a replaced element with top+bottom and an auto height
+  // keeps its intrinsic ratio and drops `bottom`, which left a dead strip.
+  assert.match(reserved, /top:[^;]*var\(--arena-playfield-top/);
+  assert.match(reserved, /height:[^;]*100%[^;]*var\(--arena-playfield-top/);
+  assert.match(reserved, /bottom:/, 'and is pinned to the bottom of the wrap');
+  // The separating border moved onto .arena-boundary when the arena gained a
+  // real inset frame; it is still driven by the same measured offset.
+  assert.match(css, /\.arena-boundary \{\s*top:[^;]*var\(--arena-playfield-top/);
 });
 
 
@@ -411,8 +430,10 @@ test('difficulty and mode copy is derived from the rules, not retyped', () => {
   assert.match(menu, /export const MODE_INFO/);
   assert.equal((menu.match(/Solo PvE/g) ?? []).length, 1);
   assert.equal((menu.match(/PvE Co-op/g) ?? []).length, 1);
-  assert.match(menu, /\{MODE_INFO\.pve\.label\}/);
-  assert.match(menu, /\{MODE_INFO\.coop\.label\}/);
+  // Read from the card list now rather than interpolated directly into JSX,
+  // so the braces are gone. "Defined once and reused" is the actual rule.
+  assert.match(menu, /MODE_INFO\.pve\.label/);
+  assert.match(menu, /MODE_INFO\.coop\.label/);
   assert.match(menu, /<b>\{difficultyLabel\("practice"\)\}<\/b>/);
 });
 

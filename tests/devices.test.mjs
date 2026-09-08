@@ -306,8 +306,9 @@ for (const device of DEVICES) {
         }
       }
 
-      // Modes, reached from the Play panel's own summary row.
-      await page.locator(".summary-action").first().click();
+      // Modes, reached from the Play panel's own summary row. The row itself
+      // is the button now -- the separate Change control was removed.
+      await page.locator(".summary-row").first().click();
       await page.waitForTimeout(200);
       let reach = await systemReach();
       assert.equal(reach.menu, "ok", `modes: Menu ${reach.menu}`);

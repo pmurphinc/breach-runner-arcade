@@ -57,8 +57,8 @@ export const MODE_INFO: Record<GameMode, { label: string; blurb: string }> = {
  * reference drop table, the compact HUD) is load-bearing everywhere else, so
  * removing it would break things that have nothing to do with Classic.
  *
- * To bring it back: add "classic" here and restore the card in
- * `PveModesScreen`. Nothing else needs to change.
+ * To bring it back: add "classic" here and add a card for it to the `cards`
+ * list in `GameTypeScreen`. Nothing else needs to change.
  */
 export const MODE_ORDER: GameMode[] = ["pve", "coop", "pvp", "team"];
 

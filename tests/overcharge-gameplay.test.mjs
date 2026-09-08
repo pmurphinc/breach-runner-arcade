@@ -33,6 +33,8 @@ async function loadPlaywright() {
   return null;
 }
 
+import { launchSeededRun, seedRun } from "./browser-launch.mjs";
+
 const playwright = URL_UNDER_TEST ? await loadPlaywright() : null;
 const skip = !URL_UNDER_TEST
   ? "set WORMHOLE_TEST_URL to a running dev server"
@@ -67,27 +69,13 @@ async function launch(browser, { ship, difficulty = "difficult", view = "pc", ca
       playerInitials: "",
     }));
   }, { mode: view, lock: cameraLock });
+  await seedRun(page, { difficulty, ship: ship.id });
   await page.goto(URL_UNDER_TEST, { waitUntil: "networkidle" });
-  await page.waitForSelector(".menu-screen[data-route='home']", { timeout: 15_000 });
 
-  // Difficulty lives on the Game Modes screen, reached from the Play panel's
-  // own summary row; the back control returns to home.
-  await page.locator(".summary-row", { hasText: "Difficulty" }).locator(".summary-action").click();
-  await page.waitForSelector(".menu-screen[data-route='modes']", { timeout: 10_000 });
-  // Selected by difficulty id, not by its display label: the labels are
-  // themed copy that has already been renamed once (EASY became STABLE), and
-  // matching on them silently broke every browser test in the repository.
-  await page.locator(`.option-choices [data-choice="${difficulty}"]`).first().click();
-  await page.waitForTimeout(250);
-  await page.locator(".menu-screen[data-route='modes'] .menu-back").click();
-  await page.waitForSelector(".menu-screen[data-route='home']", { timeout: 10_000 });
-
-  await page.locator(".summary-row", { hasText: "Ship" }).locator(".summary-action").click();
-  await page.waitForSelector(".menu-screen[data-route='ships']", { timeout: 10_000 });
-  await page.locator(".ship-card", { hasText: ship.name }).first().click();
-  await page.waitForTimeout(250);
-  await page.locator(".menu-footer .play-button").click();
-  await page.waitForTimeout(800);
+  // Both the ruleset and the hull are seeded rather than picked through two
+  // menu screens. Doing it by hand is what made these tests fragile: they are
+  // about overcharge in the arena, not about how the menu is laid out.
+  await launchSeededRun(page, { settle: 800 });
   return { context, page };
 }
 

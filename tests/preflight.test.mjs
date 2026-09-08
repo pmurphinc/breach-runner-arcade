@@ -21,6 +21,8 @@ async function loadPlaywright() {
   return null;
 }
 
+import { launchSeededRun, seedRun } from "./browser-launch.mjs";
+
 const playwright = URL_UNDER_TEST ? await loadPlaywright() : null;
 const skip = !URL_UNDER_TEST
   ? "set WORMHOLE_TEST_URL to a running dev server"
@@ -51,15 +53,21 @@ async function openShell(browser, { width, height, touch = false, preset } = {})
       try { localStorage.setItem("wormhole-arcade:screen", p); } catch { /* private mode */ }
     }, preset);
   }
+  await seedRun(page);
   await page.goto(URL_UNDER_TEST, { waitUntil: "networkidle" });
   await page.waitForTimeout(500);
   return { context, page, errors };
 }
 
-/** Walk from the main menu into the arena. */
+/**
+ * Walk from the main menu into the arena.
+ *
+ * Home's launch is a console control rather than a footer button now, so this
+ * uses the `data-launch-control` hook -- a selector a redesign is not free to
+ * break -- instead of the footer's `.play-button`.
+ */
 async function enterArena(page) {
-  await page.locator(".menu-footer .play-button").click();
-  await page.waitForTimeout(900);
+  await launchSeededRun(page, { settle: 900 });
 }
 
 /** Open a ship from the main menu's Ships destination. */
