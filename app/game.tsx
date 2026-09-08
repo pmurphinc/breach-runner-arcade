@@ -252,6 +252,7 @@ import {
   type RiftRunEntry,
 } from "./rift-run-board";
 import { pressureZonePhase } from "./pressure-zone";
+import { capturePayloadVelocity } from "./payload-capture";
 import { formatRunTime, normalizeInitials, settleScore } from "./run-scoring";
 import { suppressionBarrageRounds } from "./suppression-barrage";
 import {
@@ -311,6 +312,7 @@ import {
   type BeamDirection,
 } from "./beam-motion";
 import { BeamAudioManager } from "./beam-audio";
+import { ThrusterAudioManager } from "./thruster-audio";
 import { type ArenaSize, DEFAULT_ARENA } from "./arena";
 import {
   NEBULA_ALPHA,
@@ -2687,6 +2689,15 @@ export default function WormholeGame() {
   const audioPool = useRef<Map<string, HTMLAudioElement[]>>(new Map());
   const cueAudio = useRef<AudioContext | null>(null);
   const beamAudio = useRef<BeamAudioManager | null>(null);
+  const thrusterAudio = useRef<ThrusterAudioManager | null>(null);
+  /**
+   * The throttle the pilot is actually holding, 0 to 1.
+   *
+   * Read by the engine sound, which runs on the render loop rather than on
+   * the fixed step. A ref rather than state: it changes every frame and
+   * nothing renders from it.
+   */
+  const engineThrottle = useRef(0);
   const victorySuctionAudio = useRef<{
     context: AudioContext;
     master: GainNode;
@@ -2942,6 +2953,13 @@ export default function WormholeGame() {
     return beamAudio.current;
   }, []);
 
+  const getThrusterAudio = useCallback(() => {
+    if (!thrusterAudio.current) {
+      thrusterAudio.current = new ThrusterAudioManager(() => cueAudio.current);
+    }
+    return thrusterAudio.current;
+  }, []);
+
   const ensureAudioContext = useCallback(() => {
     if (!soundRef.current || typeof window === "undefined") return null;
     const AudioContextClass = window.AudioContext
@@ -2967,6 +2985,8 @@ export default function WormholeGame() {
     return () => {
       beamAudio.current?.stopAll(true);
       beamAudio.current = null;
+      thrusterAudio.current?.stop(true);
+      thrusterAudio.current = null;
       stopVictorySuction(0.012);
       pool.forEach((clips) => clips.forEach((clip) => { clip.pause(); clip.removeAttribute("src"); clip.load(); }));
       pool.clear();
@@ -3125,8 +3145,11 @@ export default function WormholeGame() {
     const beams = getBeamAudio();
     beams.setVolume(SOUND_GAIN[settings.soundLevel]);
     beams.setEnabled(sound);
+    const engine = getThrusterAudio();
+    engine.setVolume(SOUND_GAIN[settings.soundLevel]);
+    engine.setEnabled(sound);
     if (!sound) stopVictorySuction();
-  }, [getBeamAudio, settings.soundLevel, sound, stopVictorySuction]);
+  }, [getBeamAudio, getThrusterAudio, settings.soundLevel, sound, stopVictorySuction]);
 
   const sync = useCallback(() => {
     const next = hudFrom(gameRef.current);
@@ -5877,6 +5900,11 @@ export default function WormholeGame() {
       // throws a couple more sparks a little harder per mark. No new artwork,
       // and nothing here touches how the ship actually flies.
       const exhaustEvery = player.thrust > 0 ? 2 : 3;
+      // What the engine is actually doing, which is what both the exhaust and
+      // the engine sound report. Under Classic controls an intent can be
+      // active with a magnitude of zero -- that is a turn, not a burn.
+      const burning = intent.active && intent.heading !== null ? intent.magnitude : 0;
+      engineThrottle.current = burning;
       // The hull turns toward travel unless the player is aiming, and keeps its
       // last heading when nothing is held.
       player.angle = facingFor(
@@ -5884,7 +5912,7 @@ export default function WormholeGame() {
         firingHeading === null ? null : player.emp > 0 ? firingHeading + 180 : firingHeading,
         player.angle
       );
-      if (intent.active && intent.heading !== null && game.cycles % exhaustEvery === 0) {
+      if (burning > 0 && game.cycles % exhaustEvery === 0) {
         const points = shipThrusterWorldPoints(game.ship.id, player, player.angle * DEG, 1.15);
         const count = Math.max(1, Math.round((2 + player.thrust) / points.length));
         for (const point of points) exhaustBurst(game, point.x, point.y, player.angle * DEG, player.thrust > 1 ? "#9dfbff" : "#63efff", count, 2.5 + player.thrust * 0.5);
@@ -6250,6 +6278,14 @@ export default function WormholeGame() {
           const guided = steerHomingVelocity(power.x, power.y, power.vx, power.vy, game.portalX, game.portalY);
           power.vx = guided.vx;
           power.vy = guided.vy;
+        } else {
+          // The rift draws a near miss in. Only a near miss: the funnel is
+          // range- and angle-gated and turns at well under half the rate Viper
+          // guidance does, so the Rabbit's special stays the special. Skipped
+          // entirely for a guided payload, which already turns harder.
+          const drawn = capturePayloadVelocity(power.x, power.y, power.vx, power.vy, game.portalX, game.portalY);
+          power.vx = drawn.vx;
+          power.vy = drawn.vy;
         }
         power.x += power.vx;
         power.y += power.vy;
@@ -8403,6 +8439,17 @@ export default function WormholeGame() {
         liveHostileBeams.length,
         liveHostileBeams[0]?.phase ?? 0,
       );
+      // The engine is silent unless a run is live and the pilot is actually
+      // burning. `engineThrottle` is the intent's own magnitude, so under
+      // Classic controls holding the stick inside the deadzone to line up a
+      // shot makes no sound -- which is the point: the ship is turning, not
+      // accelerating.
+      getThrusterAudio().sync(
+        audioGame.running && !audioGame.paused && !audioGame.result && audioGame.player.health > 0
+          ? engineThrottle.current
+          : 0,
+        audioGame.player.thrust,
+      );
       const camera = drawScene(now, profile.detail);
       drawOverlay(now, camera);
       raf = requestAnimationFrame(loop);
@@ -8411,6 +8458,7 @@ export default function WormholeGame() {
 
     return () => {
       getBeamAudio().stopAll();
+      getThrusterAudio().stop();
       cancelAnimationFrame(raf);
       observer.disconnect();
       window.removeEventListener("resize", onDprChange);
