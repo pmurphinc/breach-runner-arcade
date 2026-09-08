@@ -11,6 +11,9 @@ import { FORM_SHIFT_PROFILES } from "../app/game-data.ts";
 import {
   ENGINE_MAX_LEVEL,
   IDLE_DRAG,
+  LATERAL_DRAG,
+  REVERSE_DRAG,
+  RETRO_IDLE_DRAG_PER_LEVEL,
   NO_INTENT,
   RETRO_MAX_LEVEL,
   STOP_SPEED,
@@ -192,27 +195,67 @@ test("changing direction bends momentum instead of snapping to a grid axis", () 
   assert.ok(speedOf(turningUp) <= ship.maxSpeed, "curved flight must still respect top speed");
 });
 
-test("releasing the input stops the ship quickly but not instantly", () => {
+/**
+ * An unupgraded hull never slows down.
+ *
+ * This is the whole of "zero gravity", and the original is unambiguous: a
+ * sprite moves by its vector every cycle and nothing anywhere reduces that
+ * vector. Only two things change a ship's speed -- thrust, and a wall.
+ *
+ * The assertion this replaces required the ship to be *stopped inside a
+ * second*. That was the complaint.
+ */
+test("with no retros a released hull coasts forever", () => {
   const ship = { acceleration: 0.5, maxSpeed: 4 };
-  const moving = { vx: 3, vy: 0 };
+  let velocity = { vx: 3, vy: 0 };
+  for (let i = 0; i < 5_000; i += 1) velocity = applyIntent(velocity, NO_INTENT, ship, { retros: 0 });
+  assert.equal(velocity.vx, 3, "drift must be carried exactly, not merely slowly");
+  assert.equal(velocity.vy, 0);
+});
 
-  const firstIdleTick = applyIntent(moving, NO_INTENT, ship);
-  assert.ok(firstIdleTick.vx < moving.vx, "momentum must start bleeding the tick the input ends");
-  assert.ok(firstIdleTick.vx > 0, "a little inertia survives, so letting go is not a dead stop");
+/**
+ * A turn with the throttle shut costs nothing.
+ *
+ * The rule Classic depends on. There the left stick aims the hull inside its
+ * deadzone and only opens the throttle past it, so tracking a target that is
+ * circling you is an *active* intent carrying a magnitude of zero. Treating
+ * that as thrusting ran the engine's drag with the engine off and took the
+ * pilot's drift away for the crime of aiming -- which is precisely what made
+ * Classic impossible to fight in.
+ */
+test("holding a heading with the throttle shut is coasting, not thrusting", () => {
+  const ship = { acceleration: 0.5, maxSpeed: 4 };
+  const drifting = { vx: 3, vy: 0 };
 
-  // A second of arena drift is the ice-skating we are removing: the hull has
-  // to be parked well inside that.
-  let velocity = moving;
-  let ticks = 0;
-  let coasted = 0;
-  while (speedOf(velocity) > 0 && ticks < 600) {
-    velocity = applyIntent(velocity, NO_INTENT, ship);
-    coasted += speedOf(velocity);
-    ticks += 1;
+  // Sweeping the nose right round while the throttle stays closed must land
+  // in exactly the same place as holding nothing at all.
+  let turning = drifting;
+  let idling = drifting;
+  for (let i = 0; i < 40; i += 1) {
+    turning = applyIntent(turning, { active: true, heading: i * 9, magnitude: 0 }, ship);
+    idling = applyIntent(idling, NO_INTENT, ship);
   }
-  assert.ok(ticks < 60, `the ship must be stopped inside a second, took ${ticks} ticks`);
-  assert.ok(coasted < 30, `coast distance must stay short, got ${coasted}`);
-  assert.deepEqual(velocity, { vx: 0, vy: 0 }, "a crawl is parked rather than left drifting");
+  assert.ok(Math.abs(turning.vx - idling.vx) < 1e-9, `turning cost speed: ${turning.vx} vs ${idling.vx}`);
+  assert.ok(Math.abs(turning.vy - idling.vy) < 1e-9, "and it must not push the ship sideways either");
+  assert.ok(speedOf(turning) > 0, "the drift survives the turn");
+});
+
+/**
+ * Thrust adds to your course rather than replacing it.
+ *
+ * The original computes `v += unit(angle) * accel` and clamps the total. No
+ * term scrubs the part of your momentum that is not going where the nose
+ * points, which is why a burn curves a flight path instead of steering it
+ * like a car -- and why a part-open throttle adds proportionally less.
+ */
+test("thrust is added as a vector, in proportion to the throttle", () => {
+  const ship = { acceleration: 0.5, maxSpeed: 8 };
+  const drifting = { vx: 3, vy: 0 };
+  const burn = (magnitude) => applyIntent(drifting, { active: true, heading: -90, magnitude }, ship, { retros: 0 });
+
+  assert.equal(burn(1).vx, 3, "the rightward drift is untouched by an upward burn");
+  assert.ok(Math.abs(burn(1).vy + ship.acceleration) < 1e-9, "a full burn adds its own axis");
+  assert.ok(Math.abs(burn(0.5).vy + ship.acceleration / 2) < 1e-9, "half throttle adds half of it");
 });
 
 test("retro thrusters still brake harder than the shared drag", () => {
@@ -434,39 +477,83 @@ test("a retro mark never raises top speed on any heading", () => {
   assert.ok(speedOf(braked) <= ship.maxSpeed + 1e-9);
 });
 
-test("reversing direction bites instead of sliding on", () => {
+/**
+ * Reversing takes thrust, and retros are what make it quick.
+ *
+ * Without them a flick to the opposite direction does not bite: it spends the
+ * ship's own acceleration undoing momentum, which is the honest cost of having
+ * no friction. With them it bites, because that is exactly what they are for.
+ */
+test("reversing costs thrust, and retros pay it down faster", () => {
   const intent = intentFromKeys(keys({ left: true }));
-  for (const ship of SHIPS) {
-    // Worst case: flat out one way, then the opposite direction is requested.
+  const ticksToTurnAround = (ship, retros) => {
     let velocity = { vx: ship.maxSpeed, vy: 0 };
     let ticks = 0;
-    while (velocity.vx > 0 && ticks < 600) {
-      velocity = applyIntent(velocity, intent, ship);
-      ticks += 1;
-    }
-    assert.ok(ticks <= 12,
-      `${ship.id} should stop carrying its old direction within a fifth of a second, took ${ticks}`);
+    while (velocity.vx > 0 && ticks < 4000) { velocity = applyIntent(velocity, intent, ship, { retros }); ticks += 1; }
+    return ticks;
+  };
+
+  for (const ship of SHIPS) {
+    const bare = ticksToTurnAround(ship, 0);
+    assert.ok(bare > 1, `${ship.id}: with no friction, turning around is work`);
+    assert.ok(bare < 400, `${ship.id}: the engine must still win, took ${bare} ticks`);
+    assert.ok(ticksToTurnAround(ship, 3) < bare, `${ship.id}: retros must make a reversal snap`);
   }
 });
 
-test("sideways drift is scrubbed while thrusting, not carried through the turn", () => {
-  const ship = { acceleration: 0.5, maxSpeed: 4 };
-  const intent = intentFromKeys(keys({ up: true }));
-  let velocity = { vx: 3, vy: 0 };
-  const lateral = [];
-  for (let i = 0; i < 6; i += 1) {
-    velocity = applyIntent(velocity, intent, ship);
-    lateral.push(velocity.vx);
+/**
+ * The model reduces to the original's, exactly.
+ *
+ * Written out rather than described, because "copy the original" only means
+ * something if something checks. Its cycle is 15ms, the same as this game's
+ * tick, so the constants cross over with no conversion.
+ *
+ * This replaces an assertion that sideways momentum is scrubbed under thrust.
+ * It is not, and it never was in the original -- that scrub is what made a
+ * burn steer like a car.
+ */
+test("an unupgraded hull matches the original model tick for tick", () => {
+  const ship = { acceleration: 0.13, maxSpeed: 3.5 };
+
+  /** thrust: v += unit(angle) * accel, then clamp the total to top speed. */
+  const theirs = (v, degrees) => {
+    const r = (degrees * Math.PI) / 180;
+    let vx = Math.cos(r) * ship.acceleration + v.vx;
+    let vy = Math.sin(r) * ship.acceleration + v.vy;
+    const hyp = Math.hypot(vx, vy);
+    if (hyp > ship.maxSpeed) { vx = (ship.maxSpeed * vx) / hyp; vy = (ship.maxSpeed * vy) / hyp; }
+    return { vx, vy };
+  };
+
+  let mine = { vx: 0, vy: 0 };
+  let match = { vx: 0, vy: 0 };
+  for (let i = 0; i < 400; i += 1) {
+    // Half the run one way, half at a right angle, so both the vector
+    // addition and the top-speed clamp are exercised.
+    const degrees = i < 200 ? 0 : 90;
+    mine = applyIntent(mine, { active: true, heading: degrees, magnitude: 1 }, ship, { retros: 0 });
+    match = theirs(match, degrees);
+    assert.ok(
+      Math.hypot(mine.vx - match.vx, mine.vy - match.vy) < 1e-9,
+      `tick ${i}: ${JSON.stringify(mine)} vs ${JSON.stringify(match)}`,
+    );
   }
-  for (let i = 1; i < lateral.length; i += 1) {
-    assert.ok(lateral[i] < lateral[i - 1], "the old sideways momentum must shrink every tick");
-  }
-  assert.ok(lateral.at(-1) < 3 * 0.5, `sideways drift should more than halve quickly, got ${lateral.at(-1)}`);
 });
 
-test("the shared drag constants stay in the light-inertia band", () => {
-  assert.ok(IDLE_DRAG > 0.05 && IDLE_DRAG < 0.3,
-    "idle drag must stop the ship without making movement feel digital");
+/**
+ * The base model carries no friction of its own.
+ *
+ * Zero is the point, so this pins zero rather than a band -- and pins the one
+ * number that is not zero against the original's own `decel(0.995)`.
+ */
+test("the base model carries no friction of its own", () => {
+  assert.equal(IDLE_DRAG, 0, "coasting must cost nothing");
+  assert.equal(LATERAL_DRAG, 0, "a burn adds to the course rather than scrubbing it");
+  assert.equal(REVERSE_DRAG, 0, "retros are what oppose momentum, not the vacuum");
+  assert.ok(
+    Math.abs(RETRO_IDLE_DRAG_PER_LEVEL - 0.005) < 1e-9,
+    "one retro mark is the original's decel(0.995) at the shared 15ms tick",
+  );
   assert.ok(STOP_SPEED > 0 && STOP_SPEED < 0.05, "the park threshold must stay below a slow ship's acceleration");
 });
 
