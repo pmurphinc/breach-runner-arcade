@@ -561,7 +561,21 @@ button.selected-ship-button:focus-visible .selected-ship-cta {
 /* Rift Run's danger readouts. `rule-context` is hidden on desktop, so these
    carry their own classes rather than borrowing it: the extra lives in hand
    and the anti-camp pressure meter both have to be readable while flying. */
-.difficulty-badge .rule-rift-lives { color: #75ffd0; }
+.difficulty-badge .rule-rift-lives { color: #75ffd0; display: inline-flex; align-items: center; gap: 4px; }
+/* Lives are an inventory, not a number: a berth is drawn whether or not it is
+   filled, so "two of three" is one glance rather than a count plus a memory of
+   the ceiling. Height is tied to the rail's own text size so the row cannot
+   grow the badge that the layout budget already measured. */
+.difficulty-badge .rule-rift-lives .life-pip { height: 1em; width: auto; overflow: visible; }
+.difficulty-badge .rule-rift-lives .life-pip.held path { fill: #75ffd0; stroke: none; }
+/* An empty berth is the same hull, hollow: it reads as a slot the run can
+   still earn back rather than as a different object. */
+.difficulty-badge .rule-rift-lives .life-pip.spent path {
+  fill: none;
+  stroke: rgba(117, 255, 208, .38);
+  stroke-width: 3;
+  stroke-linejoin: round;
+}
 .difficulty-badge .rule-rift-pressure { color: #ff9a4d; }
 .difficulty-badge .rule-rift-pressure.hot { color: #ff5570; font-weight: 700; }
 /* Small screens and the immersive shell get the mode line plus whichever

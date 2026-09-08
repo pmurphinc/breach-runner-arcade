@@ -231,11 +231,26 @@ test("the zone rescales the phase rather than reaching into the pressure system"
   assert.ok(game.includes("createPressureZoneDanger()"));
 });
 
-test("the rail reports pressure only while there is pressure to report", () => {
-  // A permanent PRESSURE 0% would widen the rail on every VOLATILE and CRITICAL
-  // round for a pilot who never camps. The threshold matches the arena ring's,
-  // so the number and the ring arrive together.
-  assert.ok(game.includes("{hud.riftPressure > 2 ? ("));
+test("pressure reads on its ring, not in the rail", () => {
+  // The number moved onto the anti-camp ring it describes. The rail is what a
+  // pilot reads between fights; pressure only matters during one, at the moment
+  // their eyes are already on the rift and on the circle they are being pushed
+  // out of. So the rail no longer carries it at all.
+  assert.ok(!game.includes("PRESSURE {hud.riftPressure}%"), "the rail must not draw it any more");
+
+  // Drawn on the ring, sharing the ring's own threshold and hot colour, so the
+  // number and the circle can never disagree about how bad it is.
+  assert.ok(game.includes("const label = `PRESSURE ${Math.round(pressure * 100)}%`;"));
+  assert.ok(game.includes("const labelY = game.portalY + RIFT_PRESSURE_RADIUS;"), "sat on the ring itself");
+  assert.ok(game.includes("const hot = pressure > 0.75;"), "one threshold for ring and number");
+
+  // Outlined against a busy arena, and at full opacity from the moment it
+  // appears rather than fading in with the ring: a warning that is hard to read
+  // at 20% is a warning that arrives at 80%.
+  assert.ok(game.includes("ctx.strokeText(label, game.portalX, labelY);"));
+
+  // Still spoken, which is the one place a reader who cannot see the ring
+  // needs it.
   assert.ok(game.includes("| RIFT PRESSURE ${hud.riftPressure}%"), "and it is spoken, not only drawn");
 });
 
