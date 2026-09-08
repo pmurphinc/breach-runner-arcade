@@ -189,7 +189,7 @@ import { cannonPlaybackRate, playCombatHaptics } from "./combat-feedback";
 import { PUP_INVENTORY_CAPACITY, consumeLoadedPup, pupInventoryLayout } from "./pup-inventory";
 import { TouchLayoutEditor } from "./touch-layout-editor";
 import { customTouchLayoutVariables, touchElementEdge } from "./touch-profiles";
-import { classicDeadzone, rightControlAims, stickFlight } from "./flight-controls";
+import { classicDeadzone, classicKeyboardFlight, pointerAims, rightControlAims, stickFlight } from "./flight-controls";
 import { salvageLinkHitsPup } from "./salvage-link";
 import { inventoryPayloadIconLayout, inventoryPupVisual } from "./pup-inventory-visual";
 import { pupPickupSoundProfile, type PupPickupSoundProfile } from "./pup-audio";
@@ -3862,6 +3862,11 @@ export default function WormholeGame() {
 
   const updateMouseAim = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
     if (event.pointerType === "touch") return;
+    // Under Classic the hull's heading belongs to the turn keys, and an aim
+    // heading outranks everything in `facingFor` -- so a mouse that kept
+    // setting one would pin the nose to the cursor and leave A and D doing
+    // nothing. Buttons still fire and still launch; only the pointing stops.
+    if (!pointerAims(settingsRef.current.controlProfile)) return;
     const canvas = event.currentTarget;
     const rect = canvas.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
@@ -5818,6 +5823,7 @@ export default function WormholeGame() {
       if (contact.damage > 0) damageContact(game, contact.damage);
 
       const controller = controllerInput.current;
+      const classicKeys = !rightControlAims(settingsRef.current.controlProfile);
       const controllerAimHeading = headingDegrees(controller.aimX, controller.aimY);
       const controllerMoveHeading = headingDegrees(controller.moveX, controller.moveY);
       const firingHeading = controllerAimHeading ?? aimHeading.current;
@@ -5827,7 +5833,23 @@ export default function WormholeGame() {
       // Resolve the input source before combining it. Stick and keys feed one
       // intent and one flight model, so Touch, PC and Hybrid fly identically.
       const stickIntent = intentFromStick(moveHeading.current, moveThrottle.current);
-      const keyboardIntent = intentFromKeys(keysFrom(keys.current));
+      // Classic steers rather than points: A and D turn the hull, W drives it
+      // along its own nose. The twin-stick scheme keeps reading WASD as an
+      // absolute screen direction, which is a different game -- there the ship
+      // is a cursor you aim at a place, here it is a vehicle.
+      //
+      // The turned heading is written straight to the hull, because under
+      // Classic the pilot owns it. `facingFor` then reads the same number back
+      // off the intent, so the two agree instead of fighting.
+      const heldKeys = keysFrom(keys.current);
+      let keyboardIntent;
+      if (classicKeys) {
+        const flight = classicKeyboardFlight(heldKeys, player.angle);
+        player.angle = flight.heading;
+        keyboardIntent = flight.intent;
+      } else {
+        keyboardIntent = intentFromKeys(heldKeys);
+      }
       const controllerIntent = intentFromStick(controllerMoveHeading);
       let intent = resolveIntent(controllerIntent, resolveIntent(stickIntent, keyboardIntent));
       if (player.emp > 0) {

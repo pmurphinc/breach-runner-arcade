@@ -121,7 +121,7 @@ export function TouchLayoutEditor({
    * control always follows the finger regardless of which side it lives on.
    */
   const beginDrag = useCallback(
-    (event: React.PointerEvent, mode: "move" | "resize") => {
+    (event: React.PointerEvent, mode: "move" | "resize" | "deadzone") => {
       event.preventDefault();
       event.stopPropagation();
       const target = event.currentTarget as HTMLElement;
@@ -143,6 +143,22 @@ export function TouchLayoutEditor({
                 ...current.elements[selected],
                 x: start.x + dx * inward,
                 y: start.y + dy,
+              }),
+            },
+          }));
+        } else if (mode === "deadzone") {
+          // The ring is drawn at a radius of exactly `deadzone` px, so this is
+          // 1:1 with the finger -- the edge of the ring stays under it. No
+          // `inward` here: the ring lives inside the stick, so screen-right
+          // grows it whichever edge the stick itself is anchored to.
+          const delta = Math.abs(dx) > Math.abs(dy) ? dx : dy;
+          setDraft((current) => ({
+            ...current,
+            elements: {
+              ...current.elements,
+              [selected]: clampTouchElement(selected, {
+                ...current.elements[selected],
+                deadzone: start.deadzone + delta,
               }),
             },
           }));
@@ -181,7 +197,7 @@ export function TouchLayoutEditor({
       <header className="touch-editor-head">
         <div>
           <b>{draft.handed === "right" ? "Right-handed, steering on the left" : "Left-handed, steering on the right"}</b>
-          <small>Drag to move · drag the handle to resize · x runs toward the screen centre, y down.</small>
+          <small>Drag to move · corner handle resizes · ring handle sets the dead zone · x runs toward the screen centre, y down.</small>
         </div>
         <div className="touch-editor-head-actions">
           <button type="button" onClick={onClose}>Close</button>
@@ -247,15 +263,41 @@ export function TouchLayoutEditor({
               }}
             >
               <span className="touch-editor-ghost-name">{TOUCH_ELEMENT_LABELS[id]}</span>
-              {isTouchStick(id) && element.deadzone > 0 ? (
+              {/* The dead zone is dragged like everything else here, because it
+                  is the one number in this editor whose right value is a feel
+                  rather than a measurement -- it decides where turning becomes
+                  burning. Typing 24 and checking tells you much less than
+                  pulling the ring until it looks like the gap your thumb
+                  actually wanders in. The ring is drawn at a radius of exactly
+                  `deadzone` px, so the handle tracks the finger 1:1. */}
+              {isTouchStick(id) ? (
                 <span
-                  className="touch-editor-deadzone"
+                  className={`touch-editor-deadzone ${active ? "adjustable" : ""}`}
                   style={{
                     width: classicDeadzoneShare(element) * element.size,
                     height: classicDeadzoneShare(element) * element.size,
                   }}
-                  aria-hidden="true"
-                />
+                  aria-hidden={active ? undefined : "true"}
+                >
+                  {active ? (
+                    <span
+                      className="touch-editor-deadzone-handle"
+                      role="slider"
+                      tabIndex={0}
+                      aria-label={`Dead zone radius for ${TOUCH_ELEMENT_LABELS[id]}`}
+                      aria-valuenow={element.deadzone}
+                      aria-valuemin={TOUCH_ELEMENT_RANGES.deadzone[0]}
+                      aria-valuemax={TOUCH_ELEMENT_RANGES.deadzone[1]}
+                      onPointerDown={(event) => beginDrag(event, "deadzone")}
+                      onKeyDown={(event) => {
+                        // Keyboard adjust, so this is not pointer-only -- the
+                        // same courtesy the resize handle gets.
+                        if (event.key === "ArrowUp" || event.key === "ArrowRight") setField("deadzone", element.deadzone + 2);
+                        if (event.key === "ArrowDown" || event.key === "ArrowLeft") setField("deadzone", element.deadzone - 2);
+                      }}
+                    />
+                  ) : null}
+                </span>
               ) : null}
               {active ? (
                 <span

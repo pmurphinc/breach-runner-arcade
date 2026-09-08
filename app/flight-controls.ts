@@ -23,6 +23,8 @@
  * of zero.
  */
 
+import { NO_INTENT, type MovementIntent, type MovementKeys } from "./movement.ts";
+
 export type ControlProfile = "classic" | "twinStick";
 
 export const CONTROL_PROFILES: readonly ControlProfile[] = ["classic", "twinStick"];
@@ -161,4 +163,71 @@ export function classicDeadzone(
   authored: { deadzone: number; size: number } | null,
 ): number {
   return maxTravel * classicDeadzoneShare(authored);
+}
+
+/* ------------------------------------------------ Classic on a keyboard -- */
+
+/**
+ * Degrees the hull turns per tick while a turn key is held.
+ *
+ * At the 15ms tick this is 280 degrees a second, so a full turn takes about
+ * one and a third seconds. Fast enough to bring the nose onto something that
+ * is shooting at you, slow enough that steering is a thing you do rather than
+ * a direction you select -- which is the entire difference between this and
+ * the twin-stick scheme.
+ */
+export const CLASSIC_TURN_DEGREES_PER_TICK = 4.2;
+
+export type ClassicKeyboardFlight = {
+  /** The hull's new heading in degrees. Always a number: the hull always points somewhere. */
+  heading: number;
+  /** What to fly. Magnitude 0 while turning without thrust. */
+  intent: MovementIntent;
+};
+
+/**
+ * Classic's keyboard: A and D turn the hull, W drives it along its own nose.
+ *
+ * This is the same arrangement as Classic's left stick, expressed in keys. The
+ * twin-stick scheme reads WASD as an absolute screen direction -- W means fly
+ * up-screen -- which is a different game: there the ship is a cursor you point
+ * at a place, and here it is a vehicle you steer.
+ *
+ * Turning without thrust is an **active intent with a magnitude of zero**, the
+ * same mechanism the stick's deadzone uses. `facingFor` reads the heading and
+ * acceleration scales by the magnitude, so the hull comes round while the
+ * engine stays cold, and no new physics is involved.
+ *
+ * S is deliberately unmapped. The original had no reverse, and giving the key
+ * a thrust vector opposite the nose would fight `facingFor`, which turns the
+ * hull to whatever the intent points at -- the ship would flip rather than back
+ * up. Reverse belongs to the retros upgrade, not to a key.
+ */
+export function classicKeyboardFlight(
+  keys: MovementKeys,
+  heading: number,
+  turnPerTick = CLASSIC_TURN_DEGREES_PER_TICK,
+): ClassicKeyboardFlight {
+  const safeHeading = Number.isFinite(heading) ? heading : 0;
+  // Opposing turn keys cancel, matching how the directional scheme treats a
+  // held left and right.
+  const turn = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+  const next = safeHeading + turn * turnPerTick;
+
+  if (keys.up) return { heading: next, intent: { active: true, heading: next, magnitude: 1 } };
+  if (turn !== 0) return { heading: next, intent: { active: true, heading: next, magnitude: 0 } };
+  return { heading: safeHeading, intent: NO_INTENT };
+}
+
+/**
+ * Whether a pointer's position should turn the hull.
+ *
+ * False under Classic, and it has to be: the hull's heading is the pilot's to
+ * set with the turn keys, and `facingFor` gives an aim heading priority over
+ * everything else -- so a mouse that kept setting one would pin the nose to the
+ * cursor and make A and D do nothing at all. The two cannot both own the
+ * heading. Mouse buttons still fire and still launch; only the pointing stops.
+ */
+export function pointerAims(profile: ControlProfile): boolean {
+  return rightControlAims(profile);
 }
