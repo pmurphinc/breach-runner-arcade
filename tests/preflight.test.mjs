@@ -21,7 +21,7 @@ async function loadPlaywright() {
   return null;
 }
 
-import { launchSeededRun, seedRun } from "./browser-launch.mjs";
+import { LAUNCH_CONTROL, launchSeededRun, seedRun } from "./browser-launch.mjs";
 
 const playwright = URL_UNDER_TEST ? await loadPlaywright() : null;
 const skip = !URL_UNDER_TEST
@@ -138,7 +138,7 @@ test("on touch, tapping a ship inspects and only Play commits", { skip }, async 
   try {
     const { context, page, errors } = await openShell(browser, { width: 390, height: 844, touch: true });
 
-    const play = await page.locator(".menu-footer .play-button").boundingBox();
+    const play = await page.locator(LAUNCH_CONTROL).boundingBox();
     assert.ok(play, "Play must be rendered");
     assert.ok(play.y >= 0 && play.y + play.height <= 844, "Play must stay inside the phone viewport");
     assert.ok(
@@ -156,12 +156,22 @@ test("on touch, tapping a ship inspects and only Play commits", { skip }, async 
     );
 
     const tooSmall = await page.evaluate(() =>
-      [...document.querySelectorAll(".ship-card, .menu-back, .play-button, .system-button")]
+      [...document.querySelectorAll(".ship-card, .menu-back, .play-button, .system-button, [data-launch-control]")]
         .filter((el) => el.getBoundingClientRect().height < 44).length
     );
     assert.equal(tooSmall, 0, "touch targets must be at least 44px");
 
+    // Confirming a hull returns to Home rather than launching: Ships is a
+    // browsing surface, not step one of a run.
     await page.locator(".menu-footer .play-button").tap();
+    await page.waitForTimeout(600);
+    assert.equal(
+      await page.evaluate(() => document.querySelector(".menu-screen")?.dataset.route),
+      "home",
+      "confirming a hull returns to Home",
+    );
+
+    await page.locator(LAUNCH_CONTROL).tap();
     await page.waitForTimeout(900);
     assert.equal(await page.locator(".menu-screen").count(), 0, "Play is what commits");
 
@@ -184,7 +194,7 @@ test("the primary action stays visible on wide and short touch screens", { skip 
   try {
     for (const viewport of viewports) {
       const { context, page, errors } = await openShell(browser, { ...viewport, touch: true });
-      const report = await page.locator(".menu-footer .play-button").evaluate((button) => {
+      const report = await page.locator(LAUNCH_CONTROL).evaluate((button) => {
         const rect = button.getBoundingClientRect();
         const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
         return {
