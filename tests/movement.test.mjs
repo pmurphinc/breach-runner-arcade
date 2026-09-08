@@ -192,27 +192,85 @@ test("changing direction bends momentum instead of snapping to a grid axis", () 
   assert.ok(speedOf(turningUp) <= ship.maxSpeed, "curved flight must still respect top speed");
 });
 
-test("releasing the input stops the ship quickly but not instantly", () => {
+/**
+ * Releasing the throttle glides.
+ *
+ * This used to assert the opposite -- parked inside a second, under 30 units
+ * of coast -- and that was the complaint: the ship read as a cursor that
+ * stopped where you let go rather than as something with mass. A hull that
+ * cannot carry momentum also cannot fight anything that circles it, because
+ * every shot has to be taken from a standstill.
+ *
+ * Still bounded at both ends. A drift that never ends is its own problem in a
+ * walled arena, and a crawl is parked rather than left creeping.
+ */
+test("releasing the throttle glides instead of stopping dead", () => {
   const ship = { acceleration: 0.5, maxSpeed: 4 };
   const moving = { vx: 3, vy: 0 };
 
   const firstIdleTick = applyIntent(moving, NO_INTENT, ship);
-  assert.ok(firstIdleTick.vx < moving.vx, "momentum must start bleeding the tick the input ends");
-  assert.ok(firstIdleTick.vx > 0, "a little inertia survives, so letting go is not a dead stop");
+  assert.ok(firstIdleTick.vx < moving.vx, "momentum still bleeds the tick the input ends");
+  assert.ok(firstIdleTick.vx > moving.vx * 0.9, "but only a little of it -- this is a glide, not a brake");
 
-  // A second of arena drift is the ice-skating we are removing: the hull has
-  // to be parked well inside that.
   let velocity = moving;
   let ticks = 0;
   let coasted = 0;
-  while (speedOf(velocity) > 0 && ticks < 600) {
+  while (speedOf(velocity) > 0 && ticks < 4000) {
     velocity = applyIntent(velocity, NO_INTENT, ship);
     coasted += speedOf(velocity);
     ticks += 1;
   }
-  assert.ok(ticks < 60, `the ship must be stopped inside a second, took ${ticks} ticks`);
-  assert.ok(coasted < 30, `coast distance must stay short, got ${coasted}`);
+
+  // At the 15ms tick, 60 ticks is a second. The glide has to outlast that by
+  // enough to be usable -- long enough to release, come round, and shoot.
+  assert.ok(ticks > 120, `a released hull must still be moving after two seconds, stopped in ${ticks} ticks`);
+  assert.ok(ticks < 900, `but it must settle eventually, took ${ticks} ticks`);
+  assert.ok(coasted > 60, `the coast has to cover real ground, got ${coasted}`);
   assert.deepEqual(velocity, { vx: 0, vy: 0 }, "a crawl is parked rather than left drifting");
+});
+
+/**
+ * A turn with the throttle shut costs nothing.
+ *
+ * The rule Classic depends on. There the left stick aims the hull inside its
+ * deadzone and only opens the throttle past it, so tracking a target that is
+ * circling you is an *active* intent carrying a magnitude of zero. Treating
+ * that as thrusting ran the engine's drag with the engine off and took the
+ * pilot's drift away for the crime of aiming -- which is precisely what made
+ * Classic impossible to fight in.
+ */
+test("holding a heading with the throttle shut is coasting, not thrusting", () => {
+  const ship = { acceleration: 0.5, maxSpeed: 4 };
+  const drifting = { vx: 3, vy: 0 };
+
+  // Sweeping the nose right round while the throttle stays closed must land
+  // in exactly the same place as holding nothing at all.
+  let turning = drifting;
+  let idling = drifting;
+  for (let i = 0; i < 40; i += 1) {
+    turning = applyIntent(turning, { active: true, heading: i * 9, magnitude: 0 }, ship);
+    idling = applyIntent(idling, NO_INTENT, ship);
+  }
+  assert.ok(Math.abs(turning.vx - idling.vx) < 1e-9, `turning cost speed: ${turning.vx} vs ${idling.vx}`);
+  assert.ok(Math.abs(turning.vy - idling.vy) < 1e-9, "and it must not push the ship sideways either");
+  assert.ok(speedOf(turning) > 0, "the drift survives the turn");
+});
+
+/**
+ * Part-open throttle is a nudge, not a snap.
+ *
+ * The engine's grip scales with how far the stick is pushed, so the deadzone
+ * ramp produces a proportional change of course rather than the hull
+ * snapping onto the new heading the instant the throttle cracks open.
+ */
+test("engine drag scales with the throttle", () => {
+  const ship = { acceleration: 0.5, maxSpeed: 4 };
+  const drifting = { vx: 3, vy: 0 };
+  const turn = (magnitude) => applyIntent(drifting, { active: true, heading: -90, magnitude }, ship).vx;
+
+  // Sideways momentum survives better the less the throttle is open.
+  assert.ok(turn(0.25) > turn(0.5), `quarter throttle kept ${turn(0.25)}, half kept ${turn(0.5)}`);
+  assert.ok(turn(0.5) > turn(1), `half throttle kept ${turn(0.5)}, full kept ${turn(1)}`);
 });
 
 test("retro thrusters still brake harder than the shared drag", () => {
@@ -461,12 +519,30 @@ test("sideways drift is scrubbed while thrusting, not carried through the turn",
   for (let i = 1; i < lateral.length; i += 1) {
     assert.ok(lateral[i] < lateral[i - 1], "the old sideways momentum must shrink every tick");
   }
-  assert.ok(lateral.at(-1) < 3 * 0.5, `sideways drift should more than halve quickly, got ${lateral.at(-1)}`);
+  // Halved within about a tenth of a second at full throttle. Slower than it
+  // was on purpose -- a thrusting turn arcs now rather than snapping -- but a
+  // committed burn still has to bite, or the ship skates through every turn.
+  assert.ok(lateral.at(-1) < 3 * 0.6, `sideways drift should fall away quickly under full thrust, got ${lateral.at(-1)}`);
+  const halving = [];
+  let settling = { vx: 3, vy: 0 };
+  for (let i = 0; i < 12; i += 1) {
+    settling = applyIntent(settling, intent, ship);
+    halving.push(settling.vx);
+  }
+  assert.ok(halving.at(-1) < 3 * 0.35, `a sustained burn must still kill the old heading, got ${halving.at(-1)}`);
 });
 
-test("the shared drag constants stay in the light-inertia band", () => {
-  assert.ok(IDLE_DRAG > 0.05 && IDLE_DRAG < 0.3,
-    "idle drag must stop the ship without making movement feel digital");
+/**
+ * The band the drags have to sit in for the game to feel like space.
+ *
+ * Stated as a band rather than as the numbers themselves, so the feel can be
+ * tuned without rewriting the test -- but bounded at both ends, because the
+ * two failure modes are opposite and both real: too much drag and the ship is
+ * a cursor again, too little and a walled arena becomes a pinball table.
+ */
+test("the drag constants keep the ship gliding without setting it adrift", () => {
+  assert.ok(IDLE_DRAG > 0.005 && IDLE_DRAG < 0.05,
+    `coasting drag ${IDLE_DRAG} must leave a real glide while still settling`);
   assert.ok(STOP_SPEED > 0 && STOP_SPEED < 0.05, "the park threshold must stay below a slow ship's acceleration");
 });
 

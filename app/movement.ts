@@ -78,20 +78,48 @@ export function resolveIntent(stick: MovementIntent, keyboard: MovementIntent) {
 export type Velocity = { vx: number; vy: number };
 
 /**
- * The shared arcade inertia model.
+ * The shared inertia model.
  *
- * These numbers are the whole feel — light momentum, quick stops, sharp
- * direction changes — and they are deliberately ship-agnostic. They scrub
- * momentum the pilot is not asking for; they never touch the acceleration or
- * top speed a hull was tuned with, so the ships stay as different from one
- * another as they were.
+ * Deliberately ship-agnostic: these scrub momentum the pilot is not asking
+ * for, and never touch the acceleration or top speed a hull was tuned with,
+ * so the fleet stays as different from itself as it was.
+ *
+ * ## Why these are much smaller than they were
+ *
+ * The model used to describe itself as "light momentum, quick stops", and it
+ * delivered: releasing the throttle parked a mid-fleet hull in **0.28s**
+ * after **0.3 ship-lengths** at the single retro mark most frames start
+ * with. That is not a stop, it is a handbrake, and it made the ship read as
+ * a cursor rather than as something with mass.
+ *
+ * It also made Classic unplayable against anything that moves. There the
+ * left stick turns *and* throttles, so tracking a target that is circling
+ * you means holding a heading with the engine shut — and the old model
+ * treated that as thrusting, scrubbing sideways momentum at 18% a tick. A
+ * pilot lost half their drift per second simply for aiming.
+ *
+ * Measured at a mid-fleet hull, one retro mark, releasing from top speed:
+ *
+ *   before   0.28s   0.3 ship-lengths
+ *   after    2.0s    2.2 ship-lengths
+ *
+ * Retros still stop you: at three marks it is back to ~1s, and their two
+ * *active* terms — the drag on opposing momentum and the braking thrust —
+ * are untouched. What shrank is the passive bleed they applied to a pilot
+ * who was not asking for anything, which is what stopped the glide ever
+ * being felt by the seven hulls that start with a mark fitted.
  */
-/** Fraction of the remaining drift shed each tick once the input is released. */
-export const IDLE_DRAG = 0.12;
-/** Fraction of sideways momentum scrubbed each tick while thrusting. */
-export const LATERAL_DRAG = 0.18;
-/** Fraction shed each tick from momentum running against the requested heading. */
-export const REVERSE_DRAG = 0.35;
+/**
+ * Fraction of the remaining drift shed each tick while coasting.
+ *
+ * The number to turn if space should feel emptier still; everything else
+ * here follows from it.
+ */
+export const IDLE_DRAG = 0.02;
+/** Fraction of sideways momentum scrubbed each tick at full throttle. */
+export const LATERAL_DRAG = 0.1;
+/** Fraction shed each tick from momentum running against a full-throttle burn. */
+export const REVERSE_DRAG = 0.26;
 /** A coasting ship below this speed is simply parked rather than left crawling. */
 export const STOP_SPEED = 0.02;
 
@@ -171,7 +199,7 @@ export function engineHandling(base: Handling, level: number): Handling {
  * retros never raise top speed and engines never shorten a stop.
  */
 /** Extra share of drift shed per retro mark while coasting. */
-export const RETRO_IDLE_DRAG_PER_LEVEL = 0.12;
+export const RETRO_IDLE_DRAG_PER_LEVEL = 0.018;
 /** Extra share of opposing momentum killed per retro mark. */
 export const RETRO_REVERSE_DRAG_PER_LEVEL = 0.15;
 /** Extra braking thrust per retro mark, applied only against momentum. */
@@ -212,6 +240,20 @@ export function retroBrakeAssist(level: number) {
  * One model serves every control mode. Returns a new velocity rather than
  * mutating, so it is trivially testable.
  */
+/**
+ * One tick of coasting: bleed a share of the drift, and park below a crawl.
+ *
+ * Shared by the two ways of not thrusting -- nothing held, and a heading held
+ * with the throttle shut -- so the two cannot drift apart into different
+ * feels for what is the same thing to a pilot.
+ */
+function coast(velocity: Velocity, drag: number): Velocity {
+  const vx = velocity.vx * (1 - drag);
+  const vy = velocity.vy * (1 - drag);
+  if (Math.hypot(vx, vy) < STOP_SPEED) return { vx: 0, vy: 0 };
+  return { vx, vy };
+}
+
 export function applyIntent(
   velocity: Velocity,
   intent: MovementIntent,
@@ -220,20 +262,26 @@ export function applyIntent(
 ): Velocity {
   const retros = retroLevel(options.retros);
 
-  if (!intent.active || intent.heading === null) {
-    // Nothing held: bleed the drift off fast and park the hull once what is
-    // left would only be a crawl. A couple of ship-lengths of coast remain, so
-    // letting go still reads as a glide rather than hitting a wall.
-    const drag = retroIdleDrag(retros);
-    const vx = velocity.vx * (1 - drag);
-    const vy = velocity.vy * (1 - drag);
-    if (Math.hypot(vx, vy) < STOP_SPEED) return { vx: 0, vy: 0 };
-    return { vx, vy };
-  }
+  // Nothing held: carry the drift, bleeding it slowly, and park the hull only
+  // once what is left would be a crawl.
+  if (!intent.active || intent.heading === null) return coast(velocity, retroIdleDrag(retros));
+
+  // A heading with the throttle shut is a turn, not a burn.
+  //
+  // Under Classic this is most of flying: the left stick aims the hull inside
+  // its deadzone and only opens the throttle past it, so lining up a shot is
+  // an active intent carrying a magnitude of zero. Falling through to the
+  // engine maths below meant the engine's drag ran with the engine off, and
+  // aiming cost the pilot their drift.
+  if (intent.magnitude <= 0) return coast(velocity, retroIdleDrag(retros));
 
   const radians = (intent.heading * Math.PI) / 180;
   const ux = Math.cos(radians);
   const uy = Math.sin(radians);
+  // Engine drag in proportion to the throttle. A quarter-open stick redirects
+  // a quarter as hard, which is what makes a partial burn read as a nudge
+  // rather than as a snap onto the new heading.
+  const open = Math.max(0, Math.min(1, intent.magnitude));
 
   // Split momentum into the part already heading where the pilot is pointing
   // and the part that is not. Only the second part is scrubbed, so a straight
@@ -249,12 +297,12 @@ export function applyIntent(
   // is still undoing momentum — never once the ship is already going the way
   // it was asked to, which is what keeps them out of ENGINE UPGRADE's job.
   const reversing = along < 0;
-  const carried = reversing ? along * (1 - retroReverseDrag(retros)) : along;
+  const carried = reversing ? along * (1 - retroReverseDrag(retros) * open) : along;
   const assist = reversing ? retroBrakeAssist(retros) : 1;
   const thrust = carried + ship.acceleration * intent.magnitude * assist;
 
-  let vx = lateralX * (1 - LATERAL_DRAG) + thrust * ux;
-  let vy = lateralY * (1 - LATERAL_DRAG) + thrust * uy;
+  let vx = lateralX * (1 - LATERAL_DRAG * open) + thrust * ux;
+  let vy = lateralY * (1 - LATERAL_DRAG * open) + thrust * uy;
   const speed = Math.hypot(vx, vy);
   if (speed > ship.maxSpeed) {
     const scale = ship.maxSpeed / speed;
