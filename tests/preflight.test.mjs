@@ -21,6 +21,8 @@ async function loadPlaywright() {
   return null;
 }
 
+import { LAUNCH_CONTROL, launchSeededRun, seedRun } from "./browser-launch.mjs";
+
 const playwright = URL_UNDER_TEST ? await loadPlaywright() : null;
 const skip = !URL_UNDER_TEST
   ? "set WORMHOLE_TEST_URL to a running dev server"
@@ -51,15 +53,21 @@ async function openShell(browser, { width, height, touch = false, preset } = {})
       try { localStorage.setItem("wormhole-arcade:screen", p); } catch { /* private mode */ }
     }, preset);
   }
+  await seedRun(page);
   await page.goto(URL_UNDER_TEST, { waitUntil: "networkidle" });
   await page.waitForTimeout(500);
   return { context, page, errors };
 }
 
-/** Walk from the main menu into the arena. */
+/**
+ * Walk from the main menu into the arena.
+ *
+ * Home's launch is a console control rather than a footer button now, so this
+ * uses the `data-launch-control` hook -- a selector a redesign is not free to
+ * break -- instead of the footer's `.play-button`.
+ */
 async function enterArena(page) {
-  await page.locator(".menu-footer .play-button").click();
-  await page.waitForTimeout(900);
+  await launchSeededRun(page, { settle: 900 });
 }
 
 /** Open a ship from the main menu's Ships destination. */
@@ -130,7 +138,7 @@ test("on touch, tapping a ship inspects and only Play commits", { skip }, async 
   try {
     const { context, page, errors } = await openShell(browser, { width: 390, height: 844, touch: true });
 
-    const play = await page.locator(".menu-footer .play-button").boundingBox();
+    const play = await page.locator(LAUNCH_CONTROL).boundingBox();
     assert.ok(play, "Play must be rendered");
     assert.ok(play.y >= 0 && play.y + play.height <= 844, "Play must stay inside the phone viewport");
     assert.ok(
@@ -148,12 +156,22 @@ test("on touch, tapping a ship inspects and only Play commits", { skip }, async 
     );
 
     const tooSmall = await page.evaluate(() =>
-      [...document.querySelectorAll(".ship-card, .menu-back, .play-button, .system-button")]
+      [...document.querySelectorAll(".ship-card, .menu-back, .play-button, .system-button, [data-launch-control]")]
         .filter((el) => el.getBoundingClientRect().height < 44).length
     );
     assert.equal(tooSmall, 0, "touch targets must be at least 44px");
 
+    // Confirming a hull returns to Home rather than launching: Ships is a
+    // browsing surface, not step one of a run.
     await page.locator(".menu-footer .play-button").tap();
+    await page.waitForTimeout(600);
+    assert.equal(
+      await page.evaluate(() => document.querySelector(".menu-screen")?.dataset.route),
+      "home",
+      "confirming a hull returns to Home",
+    );
+
+    await page.locator(LAUNCH_CONTROL).tap();
     await page.waitForTimeout(900);
     assert.equal(await page.locator(".menu-screen").count(), 0, "Play is what commits");
 
@@ -176,7 +194,7 @@ test("the primary action stays visible on wide and short touch screens", { skip 
   try {
     for (const viewport of viewports) {
       const { context, page, errors } = await openShell(browser, { ...viewport, touch: true });
-      const report = await page.locator(".menu-footer .play-button").evaluate((button) => {
+      const report = await page.locator(LAUNCH_CONTROL).evaluate((button) => {
         const rect = button.getBoundingClientRect();
         const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
         return {
@@ -872,8 +890,21 @@ test("touch HUD mirrors action geometry, renders the full queue, and keeps canva
         const wrap = rect(".canvas-wrap");
         const controls = rect(".touch-controls");
         const shell = document.querySelector(".app-shell");
+        // Measured with a probe rather than read as a string: the inset is a
+        // clamp(), and a custom property holding one reports its literal text
+        // rather than a resolved length, so parsing it yields nothing.
+        const inset = (() => {
+          const wrapEl = document.querySelector(".canvas-wrap");
+          const probe = document.createElement("div");
+          probe.style.cssText = "position:absolute;visibility:hidden;height:var(--arena-frame-inset)";
+          wrapEl.appendChild(probe);
+          const measured = Number.parseFloat(getComputedStyle(probe).height) || 0;
+          probe.remove();
+          return measured;
+        })();
         return {
           pairs,
+          inset,
           canvasBottom: canvas.bottom,
           wrapBottom: wrap.bottom,
           controlsTop: controls.top,
@@ -885,29 +916,56 @@ test("touch HUD mirrors action geometry, renders the full queue, and keeps canva
         assert.ok(Math.abs(pair.leftDelta.y - pair.rightDelta.y) <= 2, `${viewport.name} ${pair.name} Y offsets differ: ${JSON.stringify(pair)}`);
         assert.ok(pair.leftOutside && pair.rightOutside, `${viewport.name} ${pair.name} overlaps a stick: ${JSON.stringify(pair)}`);
       }
-      const intendedArenaBottom = geometry.reservesPortraitDeck ? geometry.controlsTop : geometry.wrapBottom;
+      // Phone portrait runs the arena right down to the deck; everywhere else
+      // it stops at the inside of the frame the arena is drawn within.
+      const intendedArenaBottom = geometry.reservesPortraitDeck
+        ? geometry.controlsTop
+        : geometry.wrapBottom - geometry.inset;
       assert.ok(
         Math.abs(geometry.canvasBottom - intendedArenaBottom) <= 2,
         `${viewport.name} canvas misses its intended arena bottom: ${JSON.stringify(geometry)}`
       );
 
-      for (const count of [0, 4, 10]) {
+      // Read from the page rather than restated here. The ceiling has moved
+      // once already (10 to 5) and left this asking for a state the inventory
+      // cannot hold; the HUD itself sizes its grid from the shared value for
+      // the same reason.
+      const capacity = await page.evaluate(() => {
+        const label = document.querySelector(".touch-powerup-hud")?.getAttribute("aria-label") ?? "";
+        return Number(label.match(/of (\d+) power-ups/)?.[1] ?? 0);
+      });
+      assert.ok(capacity > 0, `${viewport.name} could not read the payload ceiling from the inventory`);
+
+      for (const count of [0, Math.floor(capacity / 2), capacity]) {
         await page.evaluate((amount) => {
           const ids = ["heatseeker", "turret", "mines", "scarab", "ghost", "artillery", "minelayer", "emp", "beam", "nuke"];
           window.dispatchEvent(new CustomEvent("breach-runner:test-stock", { detail: ids.slice(0, amount) }));
         }, count);
         await page.waitForTimeout(60);
         const state = await page.evaluate(() => ({
-          count: document.querySelector(".touch-powerup-count")?.textContent,
+          // The visible tally is the slot grid now; the number itself lives in
+          // the panel's accessible name, which is the thing a screen reader
+          // actually announces and so the thing worth pinning.
+          spoken: document.querySelector(".touch-powerup-hud")?.getAttribute("aria-label"),
           occupied: document.querySelectorAll(".touch-powerup-slot.occupied").length,
-          next: document.querySelectorAll(".touch-powerup-slot.next").length,
+          // The next-to-fire payload has its own window beside the slots.
+          loaded: document.querySelectorAll(".touch-powerup-loaded.occupied").length,
           pupDisabled: [...document.querySelectorAll(".touch-pup")].map((button) => button.disabled),
           pupClasses: [...document.querySelectorAll(".touch-pup")].map((button) => button.className),
           specClasses: [...document.querySelectorAll(".touch-special")].map((button) => button.className),
         }));
-        assert.equal(state.count, `${count}/10`);
-        assert.equal(state.occupied, count, `${viewport.name} must show all ${count} occupied entries`);
-        assert.equal(state.next, count ? 1 : 0);
+        assert.ok(
+          state.spoken?.startsWith(`${count} of ${capacity} power-ups stored.`)
+            || state.spoken?.startsWith(`${count} of ${capacity} power-ups stored,`),
+          `${viewport.name} does not announce ${count} of ${capacity} stored: ${state.spoken}`,
+        );
+        assert.equal(
+          state.occupied + state.loaded,
+          count,
+          `${viewport.name} must show all ${count} stored payloads across the slots and the loaded window`,
+        );
+        // Something is loaded exactly when something is stored.
+        assert.equal(state.loaded, count ? 1 : 0, `${viewport.name} loaded window disagrees with a stock of ${count}`);
         assert.deepEqual(state.pupDisabled, [count === 0, count === 0], "both PUP copies must share inventory state");
         assert.equal(new Set(state.pupClasses).size, 1, "PUP copies must use the same class styling");
         assert.equal(new Set(state.specClasses).size, 1, "SPEC copies must use the same class styling");

@@ -15,6 +15,21 @@ export const newPilotProgression = (): PilotProgression => ({
   completedDifficulties: [],
 });
 
+/**
+ * The server's view of a pilot: nothing completed yet.
+ *
+ * One shared value rather than a call to `newPilotProgression`, and the
+ * difference matters. `useSyncExternalStore` compares snapshots by identity,
+ * so a factory here mints a new object on every read and every render looks
+ * like a change. React notices and warns -- "The result of getServerSnapshot
+ * should be cached to avoid an infinite loop" -- which is a real render-loop
+ * risk rather than console noise, and it fired on every page load.
+ *
+ * Frozen so it cannot be mutated into a per-session value by accident, which
+ * would be a much quieter bug than the one it replaces.
+ */
+const SERVER_PILOT_PROGRESSION: PilotProgression = Object.freeze(newPilotProgression());
+
 export function parsePilotProgression(raw: string | null): PilotProgression {
   if (!raw) return newPilotProgression();
   try {
@@ -67,7 +82,7 @@ export function createPilotProgressionStore(storage: StorageLike | null = browse
   const listeners = new Set<() => void>();
   return {
     getSnapshot: () => snapshot,
-    getServerSnapshot: newPilotProgression,
+    getServerSnapshot: () => SERVER_PILOT_PROGRESSION,
     subscribe(listener: () => void) { listeners.add(listener); return () => listeners.delete(listener); },
     record(result: Parameters<typeof recordDifficultyCompletion>[1]) {
       const next = recordDifficultyCompletion(snapshot, result);

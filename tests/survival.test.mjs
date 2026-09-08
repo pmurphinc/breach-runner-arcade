@@ -406,11 +406,20 @@ test("survival is launched from Challenges, not from the difficulty list", () =>
   // difficulty selector must not offer it at all.
   assert.ok(!DIFFICULTIES.survival.unlimitedHull);
   // One list now, rather than a PvE branch of its own.
-  assert.match(menu, /title="Select Game Mode"/);
-  assert.match(menu, /data-mode="survival"/);
-  assert.match(menu, /onClick=\{onSurvival\}/);
+  // One list, and Survival is on it. The cards are rendered from a list now,
+  // so the mode id and the callback are wired through it rather than written
+  // out per card -- which is why none of these are literal attributes.
+  const cardsAt = menu.indexOf("const cards = [");
+  const cardsEnd = menu.indexOf("const selectedCard =");
+  assert.ok(cardsAt > 0 && cardsEnd > cardsAt, "the mode card list is where it says it is");
+  assert.ok(menu.slice(cardsAt, cardsEnd).includes('id: "survival"'), "Survival is one of the cards");
+  assert.ok(menu.includes('else if (id === "survival") onSurvival();'), "and choosing it launches Survival");
+  assert.ok(menu.includes('data-mode={card.id}'), "the mode id reaches the DOM");
   // Survival owns its launch and never enters the standard Difficulty screen.
-  const difficultyScreen = menu.slice(menu.indexOf("export function DifficultyScreen"), menu.indexOf("Rift Run --"));
+  const difficultyAt = menu.indexOf("export function DifficultyScreen");
+  const difficultyEnd = menu.indexOf("Rift Run --");
+  assert.ok(difficultyAt > 0 && difficultyEnd > difficultyAt, "the difficulty screen is where it says it is");
+  const difficultyScreen = menu.slice(difficultyAt, difficultyEnd);
   assert.doesNotMatch(difficultyScreen, /survival/);
 
   // Choosing an arcade mode leaves the challenge behind.

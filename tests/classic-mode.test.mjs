@@ -48,10 +48,26 @@ test("Classic is off the menu but intact underneath", () => {
   // Classic is absent, not the exact length of the list.
   assert.ok(menu.includes("export const MODE_ORDER: GameMode[] = [\"pve\", \"coop\", \"pvp\", \"team\"];"), "not offered");
   assert.ok(!menu.match(/MODE_ORDER: GameMode[] = [[^]]*"classic"/), "and Classic specifically is not in it");
-  // The three mode screens collapsed into one list; Classic is parked inside it.
-  const pveScreen = menu.slice(menu.indexOf("export function GameTypeScreen"), menu.indexOf("Roster selection inside a lobby"));
-  assert.ok(pveScreen.includes("Classic Wormhole is shelved -- see MODE_ORDER"), "the card is commented out, with the reason");
-  assert.ok(pveScreen.indexOf("{/* Classic Wormhole is shelved") < pveScreen.indexOf("data-mode=\"classic\""), "the card sits inside that comment, not beside it");
+  // The mode screen builds its cards from a list, so "not offered" is now a
+  // question about that list rather than about a commented-out block of JSX.
+  // Sliced with its boundaries checked, because a slice that silently widens
+  // to the whole file would pass this by finding Classic somewhere else.
+  const cardsAt = menu.indexOf("const cards = [");
+  const cardsEnd = menu.indexOf("const selectedCard =");
+  assert.ok(cardsAt > 0 && cardsEnd > cardsAt, "the mode card list is where it says it is");
+  const cards = menu.slice(cardsAt, cardsEnd);
+  assert.ok(!cards.includes("classic"), "Classic is not one of the cards offered");
+  for (const offered of ["pve", "rift-run", "survival", "coop", "pvp", "team"]) {
+    assert.ok(cards.includes(`id: "${offered}"`), `${offered} is still offered`);
+  }
+
+  // Shelved means recoverable, so the note saying how has to survive too.
+  assert.ok(menu.includes("It is shelved, not deleted"), "the reason is on the record");
+  assert.ok(menu.includes("To bring it back:"), "and so are the steps back");
+  assert.ok(
+    menu.includes('export const ALL_MODE_IDS: GameMode[] = ["pve", "coop", "pvp", "team", "classic"];'),
+    "the engine still knows the mode exists",
+  );
   // Still reachable in code: the ruleset, the drop table and the ships all
   // answer for "classic" exactly as before.
   assert.equal(rulesFor("classic", "easy"), CLASSIC_RULES);
@@ -100,9 +116,14 @@ test("Classic is its own object, so retuning Easy cannot move it", () => {
 
 test("solo Classic launches straight, skipping the difficulty screen", () => {
   // There is nothing for that screen to choose: Classic pins its own rules.
+  // This is the path that still has to work the day Classic comes back.
   assert.match(game, /if \(next === "classic"\) start\(undefined, "classic"\)/);
-  assert.match(menu, /data-mode="classic"/);
+  // The mode screen's own callback still accepts it, so restoring the card is
+  // the only change needed. (`data-mode="classic"` used to be asserted here;
+  // the cards are rendered from a list now, so the attribute is built from
+  // `card.id` and never appears literally.)
   assert.match(menu, /onMode: \(mode: "pve" \| "coop" \| "classic"\) => void/);
+  assert.ok(menu.includes("data-mode={card.id}"), "the attribute is built, not written out");
 });
 
 test("kills are counted where hostiles actually die", () => {

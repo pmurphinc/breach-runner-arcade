@@ -29,6 +29,8 @@ async function loadPlaywright() {
   return null;
 }
 
+import { launchSeededRun, seedRun } from "./browser-launch.mjs";
+
 const playwright = await loadPlaywright();
 const skip = playwright ? false : "playwright is not installed";
 
@@ -497,13 +499,9 @@ test("a finished arcade run offers every action without scrolling", { skip, time
     await page.route("https://murphtournaments.com/**", (r) =>
       r.fulfill({ json: { signedIn: false, player: null } })
     );
+    await seedRun(page, { difficulty: "difficult" });
     await page.goto(base, { waitUntil: "networkidle" });
-    await page.locator(".summary-action").first().click();
-    await page.waitForTimeout(400);
-    await page.locator('.option-choices [data-choice="difficult"]').first().click();
-    await page.waitForTimeout(250);
-    await page.locator(".menu-footer .play-button").click();
-    await page.waitForTimeout(800);
+    await launchSeededRun(page, { settle: 800 });
     await playUntilSummary(page);
 
     assert.equal(await page.locator(".initials-entry").count(), 0, "a defeat does not ask for initials");
@@ -554,13 +552,11 @@ test("a placing run fits its initials prompt, before and after locking", { skip,
     await page.route("https://murphtournaments.com/**", (r) =>
       r.fulfill({ json: { signedIn: false, player: null } })
     );
+    // Rift Survival is a difficulty rather than a mode, so it seeds like any
+    // other ruleset instead of needing the mode screen.
+    await seedRun(page, { difficulty: "survival" });
     await page.goto(base, { waitUntil: "networkidle" });
-    await page.locator(".summary-action").first().click();
-    await page.waitForTimeout(400);
-    await page.locator(".mode-card[data-mode='survival']").click();
-    await page.waitForTimeout(250);
-    await page.locator(".menu-footer .play-button").click();
-    await page.waitForTimeout(800);
+    await launchSeededRun(page, { settle: 800 });
     await playUntilSummary(page);
 
     assert.equal(await page.locator(".initials-entry").count(), 1, "a placing run asks for initials");

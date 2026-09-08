@@ -27,6 +27,8 @@ async function loadPlaywright() {
   return null;
 }
 
+import { openModeScreen, seedRun } from "./browser-launch.mjs";
+
 const playwright = await loadPlaywright();
 const skip = playwright ? false : "playwright is not installed";
 
@@ -75,14 +77,19 @@ test("two guests play a PvP match end to end", { skip, timeout: 240_000 }, async
       await page.route("https://murphtournaments.com/**", (r) =>
         r.fulfill({ json: { signedIn: false, player: null } })
       );
+      // Flies with arrow keys, so it needs the scheme that maps keys to screen
+      // directions rather than to turning. See `browser-launch.mjs`.
+      await seedRun(page);
       await page.goto(service.base, { waitUntil: "networkidle" });
       // The game opens on the main menu. Change the mode to PvP, then Play —
       // which routes to the lobby rather than launching into nothing.
-      await page.locator(".summary-action").first().click();
-      await page.waitForTimeout(400);
-      await page.locator('.mode-card', { hasText: "PvP 1v1" }).first().click();
-      await page.waitForTimeout(300);
-      await page.locator(".menu-footer .play-button").click();
+      // The mode is the one preference that does not survive a reload, so it
+      // cannot be seeded and this genuinely has to walk the menu.
+      await openModeScreen(page);
+      // Keyed on data-mode, not the card's class: that class has been renamed
+      // twice. Selecting a mode activates it, and PvP goes straight to the
+      // lobby -- there is no second Play press.
+      await page.locator("[data-mode='pvp']").first().click();
       await page.waitForSelector(".lobby", { timeout: 15_000 });
       // Wait for usability, not for the word OFFLINE to vanish: "CONNECTING"
       // also lacks it while the buttons are still disabled.
