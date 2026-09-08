@@ -4,6 +4,12 @@
  * These weights translate unlike units into one comparable total. The values
  * are deliberately simple and public so future balance changes cannot quietly
  * create an over-budget frame.
+ *
+ * The speed and acceleration weights are half what they were, because the
+ * fleet's speed and acceleration are double what they were. That is a change
+ * of units, not of balance: this budget measures a ship against the rest of
+ * the fleet, and a fleet-wide speed change makes no hull stronger than any
+ * other. Every hull's total is unchanged to the decimal.
  */
 // Explicit extension keeps this module directly loadable by Node's test runner.
 import { SHIP_SPECIALS, type ShipSpec } from "./game-data.ts";
@@ -14,8 +20,8 @@ export const SHIP_BALANCE_FLOOR = 90;
 export const SHIP_BALANCE_WEIGHTS = {
   hull: 0.1,
   handling: 1.5,
-  speed: 6,
-  acceleration: 100,
+  speed: 3,
+  acceleration: 50,
   gunBase: 6,
   gunLevel: 6,
   thrust: 4,

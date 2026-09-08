@@ -22,8 +22,19 @@
  * to the uniform swarm this replaces.
  */
 
-/** Base flight speed. Was a flat 7, then a flat 5; both read as too fast. */
-export const TRACKER_SPEED = 3.4;
+/**
+ * Base flight speed.
+ *
+ * Was 7, then 5, then 3.4 — every drop made while the fleet topped out at
+ * 3.8, where anything above 5 was simply unoutrunnable. The fleet is twice
+ * as fast now, so the same chase reads at twice the number: 6.8, within a
+ * whisker of the 7.0 the reference gives its own homing missile.
+ *
+ * This is the one number in the speed change that is a difficulty decision
+ * rather than a change of units. Halve it and the swarm becomes something
+ * eight of the ten hulls can simply drive away from.
+ */
+export const TRACKER_SPEED = 6.8;
 
 /** Per-tracker speed spread, as a fraction of the base either way. */
 export const TRACKER_SPEED_SPREAD = 0.3;

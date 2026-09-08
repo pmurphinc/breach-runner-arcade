@@ -25,18 +25,41 @@ export type ShipSpec = {
  * power-up (see `app/overcharge.ts`). Every frame still has to clear
  * `app/ship-balance.ts`, so a special that got stronger was paid for
  * somewhere else on the sheet.
+ *
+ * ## Why every top speed and acceleration here is a doubling
+ *
+ * The fleet was too slow for its own arena. Once the arena stopped applying
+ * friction, that showed up as the specific complaint that a pilot cannot bring
+ * their nose round onto something circling them: hostiles ran at 3.5 to 5 units
+ * a tick against a fleet that topped out at 3.8, so nearly everything in the
+ * game outran nearly every ship, and disengaging was not a move a pilot could
+ * make. Doubling puts the fleet at 2 to 7.6 and puts that choice back.
+ *
+ * Uniform, and deliberately so. Every hull is multiplied by the same number, so
+ * no frame gains on any other and the roster keeps the shape a balance pass
+ * gave it — turn rate, hull, gun and thrust are untouched, and time-to-top-
+ * speed is unchanged because acceleration moved with top speed. Three things
+ * had to move alongside it or they would have drifted in meaning: the balance
+ * weights (`app/ship-balance.ts`), the flat half of the engine upgrade
+ * (`app/movement.ts`), and the homing tracker (`app/trackers.ts`). Each says so
+ * at its own site.
+ *
+ * These are this project's numbers, not the reference client's. A uniform
+ * multiple of an independently balanced sheet is still that sheet; the results
+ * do not match the reference's fleet, and `tests/classic-ships.test.mjs` holds
+ * the two tables apart hull by hull so they cannot quietly converge.
  */
 export const SHIPS: ShipSpec[] = [
-  { id: "tank", name: "Ironclad", role: "Heavy brawler", turn: 5, maxSpeed: 2.7, acceleration: 0.04, health: 280, gun: 2, thrust: 0, special: "Q: Grants three seconds of collision immunity.", unlock: "OPEN" },
-  { id: "wing", name: "Starling", role: "Strike skirmisher", turn: 9, maxSpeed: 3.5, acceleration: 0.13, health: 175, gun: 1, thrust: 1, special: "Q: Launches twelve homing trackers, then afterburns for three seconds.", unlock: "OPEN" },
-  { id: "squid", name: "Phantom", role: "Disruption scout", turn: 8, maxSpeed: 3.8, acceleration: 0.12, health: 170, gun: 1, thrust: 1, special: "Q: Burns a four-second beam along your aim that destroys any hostile it touches.", unlock: "OPEN" },
-  { id: "rabbit", name: "Needle", role: "Guided-strike corvette", turn: 12, maxSpeed: 3, acceleration: 0.14, health: 150, gun: 1, thrust: 2, special: "Q: Steers every power-up launched in the next three seconds into the rival rift.", unlock: "OPEN" },
-  { id: "turtle", name: "Rampart", role: "Defensive bruiser", turn: 4.5, maxSpeed: 2.4, acceleration: 0.06, health: 250, gun: 1, thrust: 1, special: "Q: Clears nearby threats at a cost to your own hull.", unlock: "OPEN" },
-  { id: "flash", name: "Switchback", role: "Shape-shifter", turn: 1, maxSpeed: 1, acceleration: 0.1, health: 190, gun: 3, thrust: 3, special: "Q: Swaps between heavy and scout handling profiles.", unlock: "OPEN" },
-  { id: "hunter", name: "Talon", role: "Siege brawler", turn: 5.5, maxSpeed: 2.9, acceleration: 0.08, health: 220, gun: 2, thrust: 1, special: "Q: Detonates on your hull, gutting hostiles within 340 units.", unlock: "OPEN" },
-  { id: "flagship", name: "Leviathan", role: "Command vessel", turn: 2, maxSpeed: 1.8, acceleration: 0.04, health: 300, gun: 0, thrust: 2, special: "Q: Projects a three-second field that pulls in pickups and shoves enemies away.", unlock: "OPEN" },
-  { id: "kestrel", name: "Kestrel", role: "Light / Scavenger", turn: 10, maxSpeed: 3.7, acceleration: 0.15, health: 120, gun: 1, thrust: 1, special: "Q: For 5 seconds, cannon shots collect loose PUPs on impact.", unlock: "OPEN" },
-  { id: "warden", name: "Warden", role: "Medium / Gunship", turn: 6, maxSpeed: 3, acceleration: 0.09, health: 200, gun: 1, thrust: 1, special: "Q: For 5 seconds, the primary cannon fires a tight three-shot barrage.", unlock: "OPEN" },
+  { id: "tank", name: "Ironclad", role: "Heavy brawler", turn: 5, maxSpeed: 5.4, acceleration: 0.08, health: 280, gun: 2, thrust: 0, special: "Q: Grants three seconds of collision immunity.", unlock: "OPEN" },
+  { id: "wing", name: "Starling", role: "Strike skirmisher", turn: 9, maxSpeed: 7, acceleration: 0.26, health: 175, gun: 1, thrust: 1, special: "Q: Launches twelve homing trackers, then afterburns for three seconds.", unlock: "OPEN" },
+  { id: "squid", name: "Phantom", role: "Disruption scout", turn: 8, maxSpeed: 7.6, acceleration: 0.24, health: 170, gun: 1, thrust: 1, special: "Q: Burns a four-second beam along your aim that destroys any hostile it touches.", unlock: "OPEN" },
+  { id: "rabbit", name: "Needle", role: "Guided-strike corvette", turn: 12, maxSpeed: 6, acceleration: 0.28, health: 150, gun: 1, thrust: 2, special: "Q: Steers every power-up launched in the next three seconds into the rival rift.", unlock: "OPEN" },
+  { id: "turtle", name: "Rampart", role: "Defensive bruiser", turn: 4.5, maxSpeed: 4.8, acceleration: 0.12, health: 250, gun: 1, thrust: 1, special: "Q: Clears nearby threats at a cost to your own hull.", unlock: "OPEN" },
+  { id: "flash", name: "Switchback", role: "Shape-shifter", turn: 1, maxSpeed: 2, acceleration: 0.2, health: 190, gun: 3, thrust: 3, special: "Q: Swaps between heavy and scout handling profiles.", unlock: "OPEN" },
+  { id: "hunter", name: "Talon", role: "Siege brawler", turn: 5.5, maxSpeed: 5.8, acceleration: 0.16, health: 220, gun: 2, thrust: 1, special: "Q: Detonates on your hull, gutting hostiles within 340 units.", unlock: "OPEN" },
+  { id: "flagship", name: "Leviathan", role: "Command vessel", turn: 2, maxSpeed: 3.6, acceleration: 0.08, health: 300, gun: 0, thrust: 2, special: "Q: Projects a three-second field that pulls in pickups and shoves enemies away.", unlock: "OPEN" },
+  { id: "kestrel", name: "Kestrel", role: "Light / Scavenger", turn: 10, maxSpeed: 7.4, acceleration: 0.3, health: 120, gun: 1, thrust: 1, special: "Q: For 5 seconds, cannon shots collect loose PUPs on impact.", unlock: "OPEN" },
+  { id: "warden", name: "Warden", role: "Medium / Gunship", turn: 6, maxSpeed: 6, acceleration: 0.18, health: 200, gun: 1, thrust: 1, special: "Q: For 5 seconds, the primary cannon fires a tight three-shot barrage.", unlock: "OPEN" },
 ];
 
 /**
@@ -49,8 +72,8 @@ export const SHIPS: ShipSpec[] = [
  * is the ship being changed.
  */
 export const FORM_SHIFT_PROFILES = {
-  tank: { maxSpeed: 2.7, acceleration: 0.04 },
-  squid: { maxSpeed: 4, acceleration: 0.13 },
+  tank: { maxSpeed: 5.4, acceleration: 0.08 },
+  squid: { maxSpeed: 8, acceleration: 0.26 },
 } as const;
 
 export type ShipSpecial = {

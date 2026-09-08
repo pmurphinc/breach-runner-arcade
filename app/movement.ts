@@ -145,11 +145,11 @@ export const STOP_SPEED = 0.02;
 /** Share of the frame's own top speed added per engine mark. */
 export const ENGINE_SPEED_SCALE = 0.1;
 /** Flat top-speed bonus per engine mark, on top of the share. */
-export const ENGINE_SPEED_FLAT = 0.25;
+export const ENGINE_SPEED_FLAT = 0.5;
 /** Share of the frame's own acceleration added per engine mark. */
 export const ENGINE_ACCEL_SCALE = 0.25;
 /** Flat acceleration bonus per engine mark, on top of the share. */
-export const ENGINE_ACCEL_FLAT = 0.04;
+export const ENGINE_ACCEL_FLAT = 0.08;
 /** Marks the engine can reach. MK 3 is where the pickup stops helping. */
 export const ENGINE_MAX_LEVEL = 3;
 
