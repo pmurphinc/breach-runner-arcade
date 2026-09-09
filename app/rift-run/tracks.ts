@@ -25,7 +25,7 @@ import {
   thrusterMarkForTier,
 } from "./loadout.ts";
 import { riftRunSpecial } from "./specials.ts";
-import { capstoneChoice } from "./skill-tree.ts";
+import { capstoneChoices } from "./skill-tree.ts";
 import { availableHardpointIndexes, nextLockedHardpointIndex } from "./state.ts";
 import type { UpgradeChoice } from "./upgrades.ts";
 import type { RiftRunState } from "./types.ts";
@@ -166,10 +166,10 @@ export function socketTrackChoice(state: RiftRunState): UpgradeChoice | null {
 /**
  * Every ladder card currently worth offering, in system order.
  *
- * The capstone rides along at the end. It is not a sixth ladder — it is
- * where the other five lead — but it is produced here for the same reason
- * they are: one place decides whether a card is worth a pilot's slot, and
- * it is the producer rather than a filter downstream.
+ * The capstones ride along at the end. They are not extra ladders — they
+ * are where four of these lead — but they are produced here for the same
+ * reason: one place decides whether a card is worth a pilot's slot, and it
+ * is the producer rather than a filter downstream.
  */
 export function trackChoices(state: RiftRunState): UpgradeChoice[] {
   return [
@@ -178,6 +178,6 @@ export function trackChoices(state: RiftRunState): UpgradeChoice[] {
     thrusterTrackChoice(state),
     specialTrackChoice(state),
     socketTrackChoice(state),
-    capstoneChoice(state),
+    ...capstoneChoices(state),
   ].filter((choice): choice is UpgradeChoice => choice !== null);
 }
