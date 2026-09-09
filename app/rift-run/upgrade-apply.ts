@@ -12,7 +12,7 @@ import {
 } from "./loadout.ts";
 import { isRiftRunSpecial } from "./specials.ts";
 import { nextLockedHardpointIndex } from "./state.ts";
-import { PHASE_ROUNDS_ID, capstoneUnlocked, hasPhaseRounds } from "./skill-tree.ts";
+import { CAPSTONE_IDS, RIFT_BRANCH_BY_CAPSTONE, takenCapstone, type CapstoneId } from "./skill-tree.ts";
 import type { ShipId } from "../game-data.ts";
 
 /**
@@ -54,11 +54,16 @@ function applyTrack(state: RiftRunState, choice: UpgradeChoice): RiftRunState | 
   } else if (track === "special-tier") {
     if (!loadout.special || loadout.special.tier >= RIFT_RUN_MAX_SPECIAL_TIER) return state;
     loadout.special = { ...loadout.special, tier: loadout.special.tier + 1 };
-  } else if (track === PHASE_ROUNDS_ID) {
-    // The capstone carries no numbers of its own: the loop reads it off the
-    // history and changes how rounds behave. Guarded against a stale card
-    // the same way every other ladder step is.
-    if (hasPhaseRounds(next) || !capstoneUnlocked(next)) return state;
+  } else if ((CAPSTONE_IDS as readonly string[]).includes(track)) {
+    // A capstone carries no numbers of its own: the loop reads it off the
+    // history and changes how the ship behaves. Two guards, both the kind
+    // every other ladder step already has — the branch must actually be
+    // finished, and a run keeps exactly one capstone, so a card rolled
+    // before another was taken cannot quietly become a second.
+    if (takenCapstone(next)) return state;
+    const branch = RIFT_BRANCH_BY_CAPSTONE[track as CapstoneId];
+    const reached = branch.read(next);
+    if (reached.current < reached.max) return state;
   } else if (track === "socket-unlock") {
     const index = nextLockedHardpointIndex(next);
     if (index === null) return state;
