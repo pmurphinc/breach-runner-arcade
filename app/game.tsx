@@ -161,6 +161,7 @@ import {
   tickRiftHazards,
 } from "./rift-run/environmental-hazards";
 import { awardLifeForDepth, extraLifeNotice, respawnNotice, RIFT_RUN_MAX_LIVES, spendExtraLife } from "./rift-run/extra-lives";
+import { CAPSTONE_REQUIRED_BRANCHES, completedBranches, hasPhaseRounds } from "./rift-run/skill-tree";
 import {
   RIFT_RUN_HOSTILE_CAP,
   createRiftRunEscalationRuntime,
@@ -2179,6 +2180,9 @@ function DifficultyBadge({
     // rather than spelled out here, so a change of issued hull moves the
     // symbol with it.
     const livesShip = RIFT_RUN_STARTER_HULL;
+    // Ladders finished, and whether the capstone is already held.
+    const ladders = completedBranches(riftRun);
+    const phaseRounds = hasPhaseRounds(riftRun);
     const special = riftRun.loadout.special;
     const specialLabel = special
       ? `${SHIP_SPECIALS[special.shipId].name} ${tierNumeral(special.tier)}`
@@ -2217,6 +2221,13 @@ function DifficultyBadge({
         <span>ENERGY {Math.floor(riftRun.riftEnergy)}/{riftEnergyRequiredForLevel(riftRun.level)}</span>
         <span>HARDPOINTS {active}/{unlocked}</span>
         <span>SPECIAL {specialLabel}</span>
+        {/* The tree's only progress number, and the reason the ladders are a
+            tree at all: without somewhere visible to be heading, finishing a
+            ladder and abandoning one look identical from the cockpit. Reads
+            as the capstone's name once it is held. */}
+        <span className={ladders >= CAPSTONE_REQUIRED_BRANCHES ? "rule-rift-tree ready" : "rule-rift-tree"}>
+          {phaseRounds ? "PHASE ROUNDS" : `TREE ${ladders}/${CAPSTONE_REQUIRED_BRANCHES}`}
+        </span>
       </div>
     );
   }
@@ -6071,6 +6082,10 @@ export default function WormholeGame() {
       if (player.y < 12 || player.y > game.worldHeight - 12) { player.y = cap(player.y, 12, game.worldHeight - 12); player.vy *= game.rules.wall.bounce; if (game.rules.wall.damage > 0) damageCollision(game, game.rules.wall.damage, "wall"); }
 
       const activeRiftRun = riftRunRef.current;
+      // The skill tree's capstone. Derived from the run rather than stored as a
+      // flag, so it cannot drift from the history that granted it and needs no
+      // migration for a run saved before the tree existed.
+      const phaseRounds = activeRiftRun ? hasPhaseRounds(activeRiftRun) : false;
       if (activeRiftRun) {
         clearInactiveFlameFx(game.riftFlames, new Set(activeRiftRun.hardpoints.flatMap((point) =>
           point.status === "occupied" && point.weapon.weaponId === "flamethrower" ? [point.weapon.instanceId] : []
@@ -6390,10 +6405,13 @@ export default function WormholeGame() {
             cannonImpactFeedback(game, bullet);
           }
         }
-        // A loose power-up can be shot once its spawn grace is up. Salvage-linked
-        // rounds are exempt: Kestrel's special collects PUPs by shooting them, so
-        // letting those same rounds destroy one would cancel the ship's identity.
-        if (bullet.life > 0 && !bullet.salvageLinked) {
+        // A loose power-up can be shot once its spawn grace is up. Two things
+        // are exempt. Salvage-linked rounds, because Kestrel's special collects
+        // PUPs by shooting them and destroying one would cancel the ship's
+        // identity. And PHASE ROUNDS, the skill tree's capstone: a run that has
+        // finished three of its five ladders stops having to choose between
+        // clearing a lane and keeping what is in it.
+        if (bullet.life > 0 && !bullet.salvageLinked && !phaseRounds) {
           for (const loose of game.pickups) {
             if (!pupIsShootable(loose)) continue;
             if (sweptHit(bullet, loose, PUP_RADIUS + 4)) {

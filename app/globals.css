@@ -576,6 +576,10 @@ button.selected-ship-button:focus-visible .selected-ship-cta {
   stroke-width: 3;
   stroke-linejoin: round;
 }
+/* Tree progress. Dim while climbing, lit once the capstone is reachable, so
+   the moment it unlocks is visible without a notice interrupting a fight. */
+.difficulty-badge .rule-rift-tree { color: #9aa8d8; }
+.difficulty-badge .rule-rift-tree.ready { color: #b2ff62; font-weight: 700; }
 .difficulty-badge .rule-rift-pressure { color: #ff9a4d; }
 .difficulty-badge .rule-rift-pressure.hot { color: #ff5570; font-weight: 700; }
 /* Small screens and the immersive shell get the mode line plus whichever

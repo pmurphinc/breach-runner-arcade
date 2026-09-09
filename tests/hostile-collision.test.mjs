@@ -58,7 +58,10 @@ test("loose power-ups are shootable, but only after a spawn grace", () => {
 });
 
 test("Kestrel's salvage link still collects rather than destroys", () => {
-  assert.match(playerRound, /if \(bullet\.life > 0 && !bullet\.salvageLinked\) \{/);
+  // Two exemptions from the destroy pass now: Kestrel's salvage link, and the
+  // skill tree's PHASE ROUNDS capstone. Both mean "this round does not consume
+  // the drop", for different reasons.
+  assert.match(playerRound, /if \(bullet\.life > 0 && !bullet\.salvageLinked && !phaseRounds\) \{/);
   // The collecting branch runs first and consumes the round on contact.
   assert.ok(
     playerRound.indexOf("salvageLinked) {") < playerRound.indexOf("!bullet.salvageLinked"),

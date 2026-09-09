@@ -12,6 +12,7 @@ import {
 } from "./loadout.ts";
 import { isRiftRunSpecial } from "./specials.ts";
 import { nextLockedHardpointIndex } from "./state.ts";
+import { PHASE_ROUNDS_ID, capstoneUnlocked, hasPhaseRounds } from "./skill-tree.ts";
 import type { ShipId } from "../game-data.ts";
 
 /**
@@ -53,6 +54,11 @@ function applyTrack(state: RiftRunState, choice: UpgradeChoice): RiftRunState | 
   } else if (track === "special-tier") {
     if (!loadout.special || loadout.special.tier >= RIFT_RUN_MAX_SPECIAL_TIER) return state;
     loadout.special = { ...loadout.special, tier: loadout.special.tier + 1 };
+  } else if (track === PHASE_ROUNDS_ID) {
+    // The capstone carries no numbers of its own: the loop reads it off the
+    // history and changes how rounds behave. Guarded against a stale card
+    // the same way every other ladder step is.
+    if (hasPhaseRounds(next) || !capstoneUnlocked(next)) return state;
   } else if (track === "socket-unlock") {
     const index = nextLockedHardpointIndex(next);
     if (index === null) return state;
