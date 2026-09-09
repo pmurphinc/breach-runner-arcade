@@ -161,7 +161,7 @@ import {
   tickRiftHazards,
 } from "./rift-run/environmental-hazards";
 import { awardLifeForDepth, extraLifeNotice, respawnNotice, RIFT_RUN_MAX_LIVES, spendExtraLife } from "./rift-run/extra-lives";
-import { CAPSTONE_REQUIRED_BRANCHES, completedBranches, hasPhaseRounds } from "./rift-run/skill-tree";
+import { branchProgress, hasPhaseRounds, hasRegenerativePlating, hasSlipstream, hasTractorField, takenCapstone, HULL_REGEN_PER_TICK, SLIPSTREAM_SPEED_FRACTION, TRACTOR_FIELD_PULL, TRACTOR_FIELD_RADIUS } from "./rift-run/skill-tree";
 import {
   RIFT_RUN_HOSTILE_CAP,
   createRiftRunEscalationRuntime,
@@ -2180,9 +2180,13 @@ function DifficultyBadge({
     // rather than spelled out here, so a change of issued hull moves the
     // symbol with it.
     const livesShip = RIFT_RUN_STARTER_HULL;
-    // Ladders finished, and whether the capstone is already held.
-    const ladders = completedBranches(riftRun);
-    const phaseRounds = hasPhaseRounds(riftRun);
+    // The tree: the branch nearest its top, and the capstone held if any. A
+    // run keeps one, so the rail shows the climb until there is a name to show
+    // instead.
+    const branches = branchProgress(riftRun);
+    const heldCapstone = takenCapstone(riftRun);
+    const leadBranch = branches.reduce((best, branch) =>
+      branch.current / branch.max > best.current / best.max ? branch : best);
     const special = riftRun.loadout.special;
     const specialLabel = special
       ? `${SHIP_SPECIALS[special.shipId].name} ${tierNumeral(special.tier)}`
@@ -2221,12 +2225,15 @@ function DifficultyBadge({
         <span>ENERGY {Math.floor(riftRun.riftEnergy)}/{riftEnergyRequiredForLevel(riftRun.level)}</span>
         <span>HARDPOINTS {active}/{unlocked}</span>
         <span>SPECIAL {specialLabel}</span>
-        {/* The tree's only progress number, and the reason the ladders are a
-            tree at all: without somewhere visible to be heading, finishing a
-            ladder and abandoning one look identical from the cockpit. Reads
-            as the capstone's name once it is held. */}
-        <span className={ladders >= CAPSTONE_REQUIRED_BRANCHES ? "rule-rift-tree ready" : "rule-rift-tree"}>
-          {phaseRounds ? "PHASE ROUNDS" : `TREE ${ladders}/${CAPSTONE_REQUIRED_BRANCHES}`}
+        {/* The reason the ladders are a tree at all: without somewhere visible
+            to be heading, finishing a branch and abandoning one look identical
+            from the cockpit. Shows the branch nearest its top and what waits
+            there, then the capstone's name once one is held — and a run holds
+            exactly one, so this line is the run's identity. */}
+        <span className={heldCapstone || leadBranch.complete ? "rule-rift-tree ready" : "rule-rift-tree"}>
+          {heldCapstone
+            ? branches.find((branch) => branch.capstoneId === heldCapstone)?.capstoneName ?? ""
+            : `${leadBranch.label} ${leadBranch.current}/${leadBranch.max} → ${leadBranch.capstoneName}`}
         </span>
       </div>
     );
@@ -4487,6 +4494,20 @@ export default function WormholeGame() {
     };
 
     /**
+     * Is the pilot moving fast enough for SLIPSTREAM to hold?
+     *
+     * Half the hull's own top speed, so the threshold means the same thing on
+     * every frame: a slow hull is not asked to reach a fast one's number, and
+     * a fast hull cannot idle inside its own immunity.
+     */
+    const slipstreamActive = (game: Game): boolean => {
+      const run = riftRunRef.current;
+      if (!run || !hasSlipstream(run)) return false;
+      const player = game.player;
+      return Math.hypot(player.vx, player.vy) >= game.ship.maxSpeed * SLIPSTREAM_SPEED_FRACTION;
+    };
+
+    /**
      * Collision damage: walls and hostile bodies.
      *
      * Existing immunity wins first (post-hit i-frames, collectible shield), so
@@ -4496,6 +4517,12 @@ export default function WormholeGame() {
     const damageCollision = (game: Game, amount: number, cause = "enemy_collision") => {
       const player = game.player;
       if (game.result || player.invuln > 0 || player.shield > 0) return;
+
+      // SLIPSTREAM, the THRUSTERS branch's ending: contact cannot touch a
+      // pilot who is actually moving. Conditional rather than blanket
+      // immunity on purpose — it rewards the thing the branch is about, and
+      // a hull sitting still in a crowd is still in trouble.
+      if (slipstreamActive(game)) return;
 
       const shield = game.collisionShield;
       if (!shield) {
@@ -6086,6 +6113,14 @@ export default function WormholeGame() {
       // flag, so it cannot drift from the history that granted it and needs no
       // migration for a run saved before the tree existed.
       const phaseRounds = activeRiftRun ? hasPhaseRounds(activeRiftRun) : false;
+      const tractorField = activeRiftRun ? hasTractorField(activeRiftRun) : false;
+
+      // REGENERATIVE PLATING, the HULL branch's ending. Slow and unceasing:
+      // it will not save a pilot inside a fight, and it removes the need to
+      // limp back to a rift between them.
+      if (activeRiftRun && hasRegenerativePlating(activeRiftRun) && !game.result && game.player.health > 0) {
+        game.player.health = Math.min(game.player.maxHealth, game.player.health + HULL_REGEN_PER_TICK);
+      }
       if (activeRiftRun) {
         clearInactiveFlameFx(game.riftFlames, new Set(activeRiftRun.hardpoints.flatMap((point) =>
           point.status === "occupied" && point.weapon.weaponId === "flamethrower" ? [point.weapon.instanceId] : []
@@ -6570,6 +6605,20 @@ export default function WormholeGame() {
         // A loose PUP now belongs to the arena rather than drifting out of it:
         // `advancePup` carries the float it always had and bounces its whole
         // body — not its centre — off the boundary.
+        // TRACTOR FIELD, the PAYLOAD branch's ending: loose power-ups come to
+        // the pilot instead of the pilot going to them. Steers rather than
+        // teleports, so a drop still has to survive the trip and the pilot
+        // still has to stay alive while it makes it.
+        if (tractorField) {
+          const dx = player.x - pickup.x;
+          const dy = player.y - pickup.y;
+          const d = Math.max(1, Math.hypot(dx, dy));
+          if (d <= TRACTOR_FIELD_RADIUS) {
+            const pull = TRACTOR_FIELD_PULL * (1 - d / TRACTOR_FIELD_RADIUS);
+            pickup.vx = cap(pickup.vx + (dx / d) * pull, -7, 7);
+            pickup.vy = cap(pickup.vy + (dy / d) * pull, -7, 7);
+          }
+        }
         if (advancePup(pickup, { width: game.worldWidth, height: game.worldHeight })) {
           burst(game, pickup.x, pickup.y, POWER_COLORS[pickup.type], 3, 2);
         }

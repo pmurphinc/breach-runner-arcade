@@ -475,8 +475,15 @@ test("the pool offers all five systems and nothing that is already finished", ()
   }
   assert.equal(run.loadout.payloadSlots, RIFT_RUN_MAX_PAYLOAD_SLOTS);
   assert.equal(RIFT_RUN_MAX_PAYLOAD_SLOTS, PUP_INVENTORY_CAPACITY, "Rift Run earns its way to the shared cap");
-  assert.deepEqual(choicesForSystem(run, "payload"), [], "a maxed payload ladder leaves the pool");
-  assert.ok(!liveSystems(run).includes("payload"));
+  // A topped ladder no longer leaves the pool empty: it offers its branch's
+  // ending, once. That is the whole of the skill tree — the rungs run out and
+  // the thing they were leading to appears in their place.
+  assert.deepEqual(
+    choicesForSystem(run, "payload").map(({ track }) => track),
+    ["tractor-field"],
+    "a topped payload branch offers its ending and no further rungs",
+  );
+  assert.ok(liveSystems(run).includes("payload"), "and the system is live for exactly that card");
 
   // Cannon and thruster ladders top out at tier five.
   for (const [system, max, key] of [["cannon", RIFT_RUN_MAX_CANNON_TIER, "cannonTier"], ["thrusters", RIFT_RUN_MAX_THRUSTER_TIER, "thrusterTier"]]) {
@@ -486,7 +493,14 @@ test("the pool offers all five systems and nothing that is already finished", ()
       run = applyUpgrade(run, card);
     }
     assert.equal(run.loadout[key], max);
-    assert.equal(choicesForSystem(run, system).filter(({ track }) => track).length, 0, `${system} ladder is finished`);
+    // The rungs are spent, and the branch's ending stands in their place. No
+    // capstone has been taken yet in this run, so each topped branch is still
+    // offering its own — which is exactly the choice the tree is for.
+    assert.deepEqual(
+      choicesForSystem(run, system).filter(({ track }) => track).map(({ track }) => track),
+      [system === "cannon" ? "phase-rounds" : "slipstream"],
+      `${system} branch offers its ending once its rungs are done`,
+    );
     // The system itself stays live through its repeatable perks, which is what
     // keeps three cards on screen once the ladders are done.
     assert.ok(liveSystems(run).includes(system));
