@@ -50,14 +50,24 @@ export const RIFT_RUN_STARTER_HULL: ShipId = "wing";
  * frame is still pleasant to fly while it is weak, and hull sits between the
  * light and medium frames: a starter that dies to one mistake would spend the
  * run in the menu rather than in the arena.
+ *
+ * Top speed and acceleration are doubled from what they first were, for the
+ * same reason and by the same factor as the rest of the fleet. This hull is
+ * declared here rather than taken from `SHIPS`, so the fleet-wide change went
+ * straight past it and left a starter that was second-slowest in the game
+ * instead of third — "slower than most" by a far wider margin than was ever
+ * intended. Doubling restores its exact former place in the order.
+ *
+ * `tests/fleet-speed.test.mjs` now walks every hull table rather than only
+ * `SHIPS`, so a future pace change cannot skip this one again.
  */
 export const RIFT_RUN_STARTER_SHIP: ShipSpec = {
   id: RIFT_RUN_STARTER_HULL,
   name: "Rift Runner",
   role: "Standard issue",
   turn: 7,
-  maxSpeed: 2.4,
-  acceleration: 0.07,
+  maxSpeed: 4.8,
+  acceleration: 0.14,
   health: 180,
   // Mark zero on both tracks. `createGame` reads these straight into
   // `player.gun` and `player.thrust`, and a zero thrust mark is also what

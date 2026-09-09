@@ -7,6 +7,7 @@ import { shipBalanceBreakdown, isShipWithinBudget, SHIP_BALANCE_WEIGHTS } from "
 import { TRACKER_SPEED } from "../app/trackers.ts";
 import { DEFAULT_ARENA } from "../app/arena.ts";
 import { TICK_MS } from "../app/difficulty.ts";
+import { RIFT_RUN_STARTER_SHIP } from "../app/rift-run/starter-ship.ts";
 
 /**
  * The fleet's speed before it was doubled.
@@ -125,6 +126,32 @@ test("the homing swarm can still run down most of the fleet", () => {
   const outrun = SHIPS.filter((ship) => ship.maxSpeed > TRACKER_SPEED).map((ship) => ship.id);
   assert.deepEqual(outrun.sort(), ["kestrel", "squid", "wing"], "only the lightest frames escape outright");
   assert.ok(outrun.length < SHIPS.length / 2, "a swarm must still be a threat to most of the fleet");
+});
+
+/**
+ * Every hull table, not just `SHIPS`.
+ *
+ * The Rift Run starter is declared in its own module, so the fleet-wide
+ * doubling went straight past it and left a starter second-slowest in the game
+ * against a fleet twice as quick. This is the guard: any hull a pilot can
+ * actually fly has to sit inside the fleet's own range, wherever it is
+ * declared.
+ */
+test("no hull table is left behind by a fleet-wide change", () => {
+  const slowest = Math.min(...SHIPS.map((ship) => ship.maxSpeed));
+  const fastest = Math.max(...SHIPS.map((ship) => ship.maxSpeed));
+
+  assert.equal(RIFT_RUN_STARTER_SHIP.maxSpeed, 4.8);
+  assert.equal(RIFT_RUN_STARTER_SHIP.acceleration, 0.14);
+  assert.ok(
+    RIFT_RUN_STARTER_SHIP.maxSpeed >= slowest && RIFT_RUN_STARTER_SHIP.maxSpeed <= fastest,
+    `the starter must fly in the same fleet: ${RIFT_RUN_STARTER_SHIP.maxSpeed} outside ${slowest}..${fastest}`
+  );
+  // Deliberately unremarkable, but not a special case: below the fleet average
+  // and above its floor is what "slower than most" is supposed to mean.
+  const average = SHIPS.reduce((sum, ship) => sum + ship.maxSpeed, 0) / SHIPS.length;
+  assert.ok(RIFT_RUN_STARTER_SHIP.maxSpeed < average, "it should still be slower than most");
+  assert.ok(RIFT_RUN_STARTER_SHIP.maxSpeed > slowest, "but never the slowest thing flying");
 });
 
 test("the arena still takes real time to cross", () => {

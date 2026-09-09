@@ -98,7 +98,8 @@ import {
   ShipsScreen,
 } from "./main-menu";
 import { activeHardpointCount, unlockedHardpointCount } from "./rift-run/state";
-import { riftRunStarterSpec } from "./rift-run/starter-ship";
+import { RIFT_RUN_STARTER_HULL, riftRunStarterSpec } from "./rift-run/starter-ship";
+import { shipGlyphPath, shipGlyphViewBox } from "./ship-glyph";
 import { RIFT_RUN_SPECIALS } from "./rift-run/specials";
 import {
   RIFT_SYSTEM_LABELS,
@@ -159,7 +160,7 @@ import {
   riftHazardNotice,
   tickRiftHazards,
 } from "./rift-run/environmental-hazards";
-import { awardLifeForDepth, extraLifeNotice, respawnNotice, spendExtraLife } from "./rift-run/extra-lives";
+import { awardLifeForDepth, extraLifeNotice, respawnNotice, RIFT_RUN_MAX_LIVES, spendExtraLife } from "./rift-run/extra-lives";
 import {
   RIFT_RUN_HOSTILE_CAP,
   createRiftRunEscalationRuntime,
@@ -2173,6 +2174,11 @@ function DifficultyBadge({
     // the Special by name once one exists. `unlocked` and `active` differ
     // whenever a socket is open with no gun bolted into it yet.
     const unlocked = unlockedHardpointCount(riftRun);
+    // Every Rift Run flies the same issued frame, so the life glyph is that
+    // frame rather than a generic mark. It is read from the starter module
+    // rather than spelled out here, so a change of issued hull moves the
+    // symbol with it.
+    const livesShip = RIFT_RUN_STARTER_HULL;
     const special = riftRun.loadout.special;
     const specialLabel = special
       ? `${SHIP_SPECIALS[special.shipId].name} ${tierNumeral(special.tier)}`
@@ -2185,11 +2191,28 @@ function DifficultyBadge({
         <span className="rule-rift-level">LEVEL {riftRun.level}</span>
         <span className="rule-rift-level">DEPTH {riftRun.riftBreaches}</span>
         <span className="rule-rift-stage">{depthStage}</span>
-        {/* Milestone-sourced only. The rail says how many are in hand because
-            the whole point of the buffer is that the pilot can spend it
-            deliberately rather than discover it on the death screen. */}
-        <span className="rule-rift-lives">LIVES {riftRun.lives}</span>
-        <span className={hud.riftPressure >= 70 ? "rule-rift-pressure hot" : "rule-rift-pressure"}>PRESSURE {hud.riftPressure}%</span>
+        {/* Milestone-sourced only, and drawn as an inventory rather than a
+            count: the whole point of the buffer is that the pilot can spend it
+            deliberately, and a row of hulls says "you have two left of three"
+            in one glance where "LIVES 2" makes them remember the ceiling.
+            Empty berths stay drawn for that reason.
+
+            The glyph is the hull actually being flown, from the same outline
+            table the arena draws, so it can never name a different ship. */}
+        <span className="rule-rift-lives" aria-hidden="true">
+          {Array.from({ length: RIFT_RUN_MAX_LIVES }, (_, index) => (
+            <svg
+              key={index}
+              className={index < riftRun.lives ? "life-pip held" : "life-pip spent"}
+              viewBox={shipGlyphViewBox(livesShip)}
+              focusable="false"
+            >
+              <path d={shipGlyphPath(livesShip)} />
+            </svg>
+          ))}
+        </span>
+        {/* Pressure reads on the ring around the rift now — the thing it is
+            actually about — so the rail does not say it twice. */}
         <span>PAYLOADS {hud.riftPupBudget}</span>
         <span>ENERGY {Math.floor(riftRun.riftEnergy)}/{riftEnergyRequiredForLevel(riftRun.level)}</span>
         <span>HARDPOINTS {active}/{unlocked}</span>
@@ -2218,11 +2241,9 @@ function DifficultyBadge({
           <span className="rule-mode">{gameMode} · {difficulty}</span>
           {riftLevel > 0 ? <span className="rule-rift-level">LEVEL {riftLevel} · {riftStage}</span> : null}
           <span className="rule-rift">RIFT {wormhole}</span>
-          {hud.riftPressure > 2 ? (
-            <span className={hud.riftPressure >= 70 ? "rule-rift-pressure hot" : "rule-rift-pressure"}>
-              PRESSURE {hud.riftPressure}%
-            </span>
-          ) : null}
+          {/* Pressure is drawn on its own ring around the rift now. It stays
+              in this rail's accessible label, which is the one place a reader
+              who cannot see the ring still needs it. */}
         <span className={`rule-shield ${charge !== null && charge <= 0 ? "warn" : ""}`}>{shieldText}</span>
         <span className={`rule-contact ${hazardArmed ? "warn" : ""}`}>CONTACT {contact}</span>
           {live && hud.enrageActive ? <span className="rule-enraged warn">ENRAGED</span> : null}
@@ -6911,6 +6932,7 @@ export default function WormholeGame() {
       ctx.beginPath();
       ctx.arc(0, 0, 64, -Math.PI / 2, -Math.PI / 2 + charge * Math.PI * 2);
       ctx.stroke();
+
       ctx.restore();
     };
 
@@ -6932,14 +6954,45 @@ export default function WormholeGame() {
       // so the arena is not permanently ringed for a pilot who never camps.
       const pressure = danger.pressure.pressure / 100;
       if (pressure > 0.02) {
+        const hot = pressure > 0.75;
         ctx.save();
         ctx.globalAlpha = 0.1 + pressure * 0.4;
-        ctx.strokeStyle = pressure > 0.75 ? "#ff5570" : "#ff9a4d";
+        ctx.strokeStyle = hot ? "#ff5570" : "#ff9a4d";
         ctx.lineWidth = 1 + pressure * 2.5;
         ctx.setLineDash([10, 12]);
         ctx.beginPath();
         ctx.arc(game.portalX, game.portalY, RIFT_PRESSURE_RADIUS, 0, Math.PI * 2);
         ctx.stroke();
+        ctx.restore();
+
+        /*
+         * The reading, on the ring it belongs to.
+         *
+         * It used to be a percentage in the top rail, which was the wrong
+         * place twice over: the rail is what a pilot reads *between* fights,
+         * and this is a number that only matters during one — at the exact
+         * moment the pilot's eyes are on the rift and the circle they are
+         * being pushed out of. The ring already says "leave"; the number says
+         * how much longer there is to argue about it.
+         *
+         * Sat on the ring's own southern edge rather than floating near it, so
+         * the two read as one instrument. Full opacity while the ring itself
+         * fades in with pressure, because a warning that is hard to read at
+         * 20% is a warning that arrives at 80%.
+         */
+        ctx.save();
+        ctx.font = hot ? "700 14px 'Chakra Petch', monospace" : "600 13px 'Chakra Petch', monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = "rgba(4,6,18,.85)";
+        ctx.fillStyle = hot ? "#ff5570" : "#ff9a4d";
+        const label = `PRESSURE ${Math.round(pressure * 100)}%`;
+        const labelY = game.portalY + RIFT_PRESSURE_RADIUS;
+        // Outlined first: the arena behind this is busy, and the ring is drawn
+        // over starfield, hostiles and the rift's own glow.
+        ctx.strokeText(label, game.portalX, labelY);
+        ctx.fillText(label, game.portalX, labelY);
         ctx.restore();
       }
 
