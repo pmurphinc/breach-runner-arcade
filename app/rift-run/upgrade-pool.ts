@@ -24,6 +24,7 @@ import { RIFT_UPGRADES, occupiedWeapons, upgradeStack, type UpgradeChoice } from
 import { RIFT_WEAPON_BY_ID } from "./weapons.ts";
 import { eligibleEvolutions } from "./evolutions.ts";
 import { trackChoices } from "./tracks.ts";
+import { PHASE_ROUNDS_ID } from "./skill-tree.ts";
 
 /** Cards shown on one upgrade screen. Three of the five systems, never repeated. */
 export const RIFT_UPGRADE_CARDS = 3;
@@ -89,11 +90,22 @@ export function rollUpgradeChoices(state: RiftRunState): { choices: UpgradeChoic
     ? ["hull", ...shuffled.filter((system) => system !== "hull")]
     : shuffled;
 
-  const choices: UpgradeChoice[] = [];
+  // The capstone is the end of the tree, so it is never left to a shuffle. A
+  // reward for finishing three ladders that can be hidden by the roll is not a
+  // reward — the pilot would simply never learn it was there. It takes the
+  // first slot on the first screen after it unlocks, and stops being offered
+  // the moment it is taken.
+  const capstone = pool.find((choice) => choice.track === PHASE_ROUNDS_ID) ?? null;
+
+  const choices: UpgradeChoice[] = capstone ? [capstone] : [];
   ordered.forEach((system, slot) => {
     if (choices.length >= RIFT_UPGRADE_CARDS) return;
+    // The capstone has already spent its system's slot, exactly as an
+    // evolution spends the hull's. A screen still shows three distinct
+    // systems.
+    if (capstone && system === capstone.system) return;
     if (system === "hull" && evolutions[0]) { choices.push(evolutions[0].choice); return; }
-    const candidates = pool.filter((choice) => choice.system === system);
+    const candidates = pool.filter((choice) => choice.system === system && choice.track !== PHASE_ROUNDS_ID);
     const picked = candidates
       .map((choice, i) => ({ choice, n: random(state.seed, state.rollIndex + (slot + 3) * (pool.length + 1) + i) }))
       .sort((a, b) => a.n - b.n)[0];

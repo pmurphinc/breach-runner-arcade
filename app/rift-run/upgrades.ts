@@ -21,7 +21,7 @@ export type UpgradeDefinition = { id: string; name: string; description: string;
 export type UpgradeChoice = { key: string; upgradeId: string; system: RiftSystemId; gameplayCategory: GameplayCategory; track?: RiftTrackId; evolutionId?: import("./types").RiftEvolutionId; targetInstanceId?: string; hardpointIndex?: number; title: string; target: string; description: string; kind?: "upgrade" | "evolution" };
 
 /** The tiered ladders. Each advances one step at a time and then leaves the pool. */
-export type RiftTrackId = "payload-slot" | "cannon-tier" | "thruster-tier" | "special-unlock" | "special-tier" | "socket-unlock";
+export type RiftTrackId = "payload-slot" | "cannon-tier" | "thruster-tier" | "special-unlock" | "special-tier" | "socket-unlock" | "phase-rounds";
 
 const weapon = (id: string, name: string, description: string, effect: UpgradeEffect, amount: number, weapons?: readonly RiftWeaponId[], maxStacks=4): UpgradeDefinition => ({ id, name, description, category: "hull-gun", gameplayCategory: "offensive", system: "hull", tier: 1, maxStacks, effect, amount, weapons });
 export const RIFT_UPGRADES: readonly UpgradeDefinition[] = [
