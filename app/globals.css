@@ -3384,7 +3384,7 @@ button.summary-row:hover, button.summary-row:focus-visible,
 .mode-catalog-header h3 { margin: 4px 0 0; color: var(--ink); font: 800 var(--fs-lg)/1.1 var(--mono); letter-spacing: .05em; text-transform: uppercase; }
 .mode-count { color: var(--muted); font: 800 var(--fs-nano)/1 var(--mono); letter-spacing: .12em; }
 .mode-card-matrix { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); align-content: start; }
-.mode-launch-card { position: relative; min-height: 124px; overflow: hidden; padding: var(--space-3); display: grid; grid-template-columns: auto 34px minmax(0, 1fr); grid-template-rows: auto 1fr auto; grid-template-areas: "index orbit copy" ". orbit copy" ". orbit enter"; gap: 4px 10px; color: var(--ink); text-align: left; border: 1px solid rgba(116, 220, 255, .18); border-left: 3px solid var(--mode-accent, var(--cyan)); border-radius: 10px; background: linear-gradient(135deg, color-mix(in srgb, var(--mode-accent, var(--cyan)) 10%, rgba(3, 13, 22, .9)), rgba(3, 11, 19, .94)); cursor: pointer; animation: menu-rise 360ms calc(100ms + var(--mode-index) * 45ms) ease both; transition: transform var(--motion-fast) ease, border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease; }
+.mode-launch-card { position: relative; min-height: 136px; overflow: hidden; padding: var(--space-3); display: grid; grid-template-columns: auto 34px minmax(0, 1fr); grid-template-rows: auto 1fr auto; grid-template-areas: "index orbit copy" ". orbit copy" ". orbit enter"; gap: 4px 10px; color: var(--ink); text-align: left; border: 1px solid rgba(116, 220, 255, .18); border-left: 3px solid var(--mode-accent, var(--cyan)); border-radius: 10px; background: linear-gradient(135deg, color-mix(in srgb, var(--mode-accent, var(--cyan)) 10%, rgba(3, 13, 22, .9)), rgba(3, 11, 19, .94)); cursor: pointer; animation: menu-rise 360ms calc(100ms + var(--mode-index) * 45ms) ease both; transition: transform var(--motion-fast) ease, border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease; }
 .mode-launch-card:hover, .mode-launch-card:focus-visible { transform: translateY(-3px); border-color: var(--mode-accent, var(--cyan)); outline: none; box-shadow: 0 12px 26px rgba(0, 0, 0, .24), 0 0 18px color-mix(in srgb, var(--mode-accent, var(--cyan)) 18%, transparent); }
 .mode-launch-card.selected { transform: translateY(-4px) scale(1.015); border-color: var(--mode-accent, var(--cyan)); box-shadow: 0 14px 32px rgba(0, 0, 0, .28), 0 0 24px color-mix(in srgb, var(--mode-accent, var(--cyan)) 25%, transparent), inset 0 0 24px color-mix(in srgb, var(--mode-accent, var(--cyan)) 6%, transparent); }
 .mode-card-index { grid-area: index; color: var(--mode-accent, var(--cyan)); font: 800 var(--fs-nano)/1 var(--mono); }
@@ -3392,7 +3392,15 @@ button.summary-row:hover, button.summary-row:focus-visible,
 .mode-card-orbit i { width: 6px; height: 6px; border-radius: 50%; background: var(--mode-accent, var(--cyan)); box-shadow: 0 0 10px var(--mode-accent, var(--cyan)); }
 .mode-card-copy { grid-area: copy; min-width: 0; display: grid; align-content: center; gap: 4px; }
 .mode-card-copy small { color: var(--mode-accent, var(--cyan)); font: 800 var(--fs-nano)/1 var(--mono); letter-spacing: .1em; }
-.mode-card-copy b { overflow: hidden; color: var(--ink); font: 800 var(--fs-md)/1.15 var(--mono); letter-spacing: .04em; text-overflow: ellipsis; text-transform: uppercase; }
+/* `overflow: hidden` here was the bug, not the guard it looked like. An
+   element with overflow other than visible loses its automatic minimum
+   size, so this row was free to shrink below one line: on a narrow card the
+   title was squeezed to half its line-height and clipped through the middle
+   of the letters, which read as the title colliding with the description
+   under it. `text-overflow` never did anything either — it needs
+   `white-space: nowrap`, and these titles are meant to wrap. Both removed;
+   the title now keeps its height and the card grows to hold it. */
+.mode-card-copy b { color: var(--ink); font: 800 var(--fs-md)/1.15 var(--mono); letter-spacing: .04em; overflow-wrap: anywhere; text-transform: uppercase; }
 .mode-card-copy em { color: var(--muted); font: 500 var(--fs-xs)/1.3 var(--mono); font-style: normal; }
 .mode-card-enter { grid-area: enter; justify-self: end; color: var(--muted); font: 800 var(--fs-nano)/1 var(--mono); letter-spacing: .1em; }
 .mode-launch-card.selected .mode-card-enter { color: var(--mode-accent, var(--cyan)); }
@@ -3438,6 +3446,28 @@ button.summary-row:hover, button.summary-row:focus-visible,
 .result-screen-header p { max-width: 65ch; margin: 0; color: var(--muted); font: 500 var(--fs-xs)/1.45 var(--mono); }
 .result-report-column { grid-area: report; min-width: 0; }
 .result-command-column { grid-area: commands; min-width: 0; align-content: start; padding: var(--space-3); border: 1px solid rgba(116, 220, 255, .16); border-radius: 10px; background: rgba(2, 11, 18, .5); }
+/* These two groups are `display: contents` by default (arena-hud.css), which
+   was right when this card was one column: it dissolved the grouping so the
+   report read as a single stack. Against this panel it is ruinous. A
+   `display: contents` element is not a grid item, so its `grid-area` is
+   inert and its seven children are auto-placed across *both* columns —
+   outcome left, settlement right, meta left, final event right — which is
+   what put the pilot's result on top of the rank readout on every phone and
+   folding screen. Named areas need real items, so here they are real items.
+   Phone landscape still promotes them itself, at higher specificity. */
+.result-command-panel > .result-report-column,
+.result-command-panel > .result-command-column { display: grid; gap: 9px; align-content: start; min-width: 0; }
+/* And below two columns' worth of room it goes back to one.
+
+   This panel is drawn over the arena, not inside the menu shell, so the
+   `@container menu` rules further down never match it — the two-column
+   template survived all the way to a 412px phone, where the commands column
+   held its 260px floor and left the report 91px to wrap the whole telemetry
+   into. A width query rather than a container one, because the container
+   this panel actually has is the viewport. */
+@media (max-width: 760px) {
+  .result-command-panel { width: min(560px, 100%); grid-template-columns: minmax(0, 1fr); grid-template-areas: "header" "report" "commands"; }
+}
 .result-command-column .run-links { display: grid; gap: 8px; }
 .result-command-column .run-action, .result-command-column .run-board-link { min-height: 48px; border-radius: 7px; }
 
