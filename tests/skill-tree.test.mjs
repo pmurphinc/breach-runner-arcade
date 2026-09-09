@@ -232,9 +232,18 @@ test("TRACTOR FIELD steers drops in rather than snatching them", () => {
   assert.ok(TRACTOR_FIELD_RADIUS > 400, "but it should reach across a fight");
 });
 
-test("the rail shows the climb, then the run's identity", () => {
-  // Without a visible destination, finishing a branch and abandoning one look
-  // identical from the cockpit.
-  assert.match(game, /\$\{leadBranch\.label\} \$\{leadBranch\.current\}\/\$\{leadBranch\.max\} → \$\{leadBranch\.capstoneName\}/);
-  assert.match(game, /branches\.find\(\(branch\) => branch\.capstoneId === heldCapstone\)\?\.capstoneName/);
+/**
+ * The tree is not on the rail any more.
+ *
+ * It was, and it was the wrong place for it: the tree is a decision made on
+ * the upgrade screen, which is the only screen it can be acted on, so a bar of
+ * progress toward it was one more thing to read while being shot at. The rail
+ * consolidation took it out along with everything else that could not be used
+ * mid-fight. It is still spoken, because a reader has no upgrade screen in
+ * front of them.
+ */
+test("the tree is spoken, not drawn on the rail", () => {
+  assert.doesNotMatch(game, /rule-rift-tree/, "the rail no longer carries a tree readout");
+  assert.match(game, /const spokenTree = heldCapstone/);
+  assert.match(game, /Skill tree ability \$\{spokenTree\}/, "it stays in the accessible label");
 });

@@ -2152,16 +2152,19 @@ function DifficultyBadge({
         hud.retros > 0 ? "RETROS" : null,
       ].filter(Boolean).join(" · ")
     : "";
+  // The rail used to end with a catch-all "context" span that restated
+  // whichever of these was truest. Against the contact readout beside it that
+  // meant the badge printed CONTACT SAFE twice at once. The two states worth
+  // interrupting a pilot for are drawn on their own now, and the shield's
+  // recharge is already the second fill on the hull bar, so the whole line
+  // said nothing that was not said better elsewhere. It survives only in the
+  // spoken label, where a reader has no bar to look at.
+  // Only the part `status` does not already say. Repeating CONTACT here is how
+  // the visible rail ended up printing it twice in the first place.
+  const spokenContext = recharge > 0 ? ` | SHIELD RECHARGING ${recharge.toFixed(1)}s` : "";
   const status = activeMode === "classic"
     ? `CLASSIC | KILLS ${live ? hud.kills : 0} | RIFT ${wormhole}${upgrades ? ` | ${upgrades}` : ""}`
-    : `${gameMode} · ${difficulty}${riftLevel > 0 ? ` | RIFT LEVEL ${riftLevel} · ${riftStage}` : ""} | RIFT ${wormhole} | ${shieldText} | CONTACT ${contact}${hud.riftPressure > 2 ? ` | RIFT PRESSURE ${hud.riftPressure}%` : ""}${live && hud.enrageActive ? " | ENRAGED" : ""}`;
-  const context = live && hud.enrageActive
-    ? "ENRAGED"
-    : recharge > 0
-      ? `SHIELD RECHARGING ${recharge.toFixed(1)}s`
-      : hazardArmed
-        ? `CONTACT ${contact}`
-        : "CONTACT SAFE";
+    : `${gameMode} · ${difficulty}${riftLevel > 0 ? ` | RIFT LEVEL ${riftLevel} · ${riftStage}` : ""} | RIFT ${wormhole} | ${shieldText} | CONTACT ${contact}${hud.riftPressure > 2 ? ` | RIFT PRESSURE ${hud.riftPressure}%` : ""}${live && hud.enrageActive ? " | ENRAGED" : ""}${spokenContext}`;
 
   if (riftRun?.status === "active") {
     const active = activeHardpointCount(riftRun);
@@ -2180,25 +2183,33 @@ function DifficultyBadge({
     // rather than spelled out here, so a change of issued hull moves the
     // symbol with it.
     const livesShip = RIFT_RUN_STARTER_HULL;
-    // The tree: the branch nearest its top, and the capstone held if any. A
-    // run keeps one, so the rail shows the climb until there is a name to show
-    // instead.
-    const branches = branchProgress(riftRun);
+    // The tree no longer has a line on the rail: it is a decision made on the
+    // upgrade screen, which is the only place it can be acted on, and a bar of
+    // progress toward it was one more thing to read while being shot at. It is
+    // still spoken, because a reader has no upgrade screen in front of them.
     const heldCapstone = takenCapstone(riftRun);
-    const leadBranch = branches.reduce((best, branch) =>
-      branch.current / branch.max > best.current / best.max ? branch : best);
+    const spokenTree = heldCapstone
+      ? branchProgress(riftRun).find((branch) => branch.capstoneId === heldCapstone)?.capstoneName ?? ""
+      : "none yet";
     const special = riftRun.loadout.special;
     const specialLabel = special
       ? `${SHIP_SPECIALS[special.shipId].name} ${tierNumeral(special.tier)}`
       : "LOCKED";
     return (
       <div className="difficulty-badge rift-run-badge" role="status" aria-live="polite"
-        aria-label={`Rift Run. Depth ${riftRun.riftBreaches}, ${depthStage}. ${riftRun.lives} extra ${riftRun.lives === 1 ? "life" : "lives"}. ${active} of ${unlocked} unlocked hardpoints armed. Special ${specialLabel}. Rift pressure ${hud.riftPressure} percent. ${hud.riftPupBudget} payloads left in this rift.`}>
-        <span className="rule-score">SCORE {hud.score.toLocaleString().padStart(6, "0")}</span>
-        <span className="rule-mode">RIFT RUN</span>
-        <span className="rule-rift-level">LEVEL {riftRun.level}</span>
+        aria-label={`Rift Run. Depth ${riftRun.riftBreaches}, ${depthStage}. ${riftRun.lives} extra ${riftRun.lives === 1 ? "life" : "lives"}. ${active} of ${unlocked} unlocked hardpoints armed. Special ${specialLabel}. Skill tree ability ${spokenTree}. Level ${riftRun.level}, ${Math.floor(riftRun.riftEnergy)} of ${riftEnergyRequiredForLevel(riftRun.level)} energy. Rift pressure ${hud.riftPressure} percent. ${hud.riftPupBudget} payloads left in this rift.`}>
+        <span className="rule-score">{hud.score.toLocaleString().padStart(6, "0")}</span>
         <span className="rule-rift-level">DEPTH {riftRun.riftBreaches}</span>
-        <span className="rule-rift-stage">{depthStage}</span>
+        {/*
+          The experience bar, and the only place a Rift Run's level progress is
+          shown at all now. Energy toward the next level was a fraction in text
+          — "ENERGY 12/28" — which is a number a pilot has to read and divide
+          mid-fight. A bar is the same fact answered at a glance.
+        */}
+        <span className="rule-xp" title={`Level ${riftRun.level}`}>
+          <b>LV {riftRun.level}</b>
+          <i><em style={{ width: `${Math.min(100, Math.round((riftRun.riftEnergy / Math.max(1, riftEnergyRequiredForLevel(riftRun.level))) * 100))}%` }} /></i>
+        </span>
         {/* Milestone-sourced only, and drawn as an inventory rather than a
             count: the whole point of the buffer is that the pilot can spend it
             deliberately, and a row of hulls says "you have two left of three"
@@ -2219,53 +2230,69 @@ function DifficultyBadge({
             </svg>
           ))}
         </span>
-        {/* Pressure reads on the ring around the rift now — the thing it is
-            actually about — so the rail does not say it twice. */}
-        <span>PAYLOADS {hud.riftPupBudget}</span>
-        <span>ENERGY {Math.floor(riftRun.riftEnergy)}/{riftEnergyRequiredForLevel(riftRun.level)}</span>
-        <span>HARDPOINTS {active}/{unlocked}</span>
-        <span>SPECIAL {specialLabel}</span>
-        {/* The reason the ladders are a tree at all: without somewhere visible
-            to be heading, finishing a branch and abandoning one look identical
-            from the cockpit. Shows the branch nearest its top and what waits
-            there, then the capstone's name once one is held — and a run holds
-            exactly one, so this line is the run's identity. */}
-        <span className={heldCapstone || leadBranch.complete ? "rule-rift-tree ready" : "rule-rift-tree"}>
-          {heldCapstone
-            ? branches.find((branch) => branch.capstoneId === heldCapstone)?.capstoneName ?? ""
-            : `${leadBranch.label} ${leadBranch.current}/${leadBranch.max} → ${leadBranch.capstoneName}`}
-        </span>
+        {/*
+          Everything this rail used to carry — the stage name, the payload
+          budget, hardpoints, the Special, the skill tree, rift pressure — is
+          drawn somewhere it means more: pressure on its ring, payloads and the
+          Special in the HUD beside the ship, the tree on the upgrade screen
+          that is the only place it can be acted on. None of it was a number a
+          pilot could use while being shot at, and all of it is still in this
+          rail's accessible label below.
+
+          What is left is what a pilot actually glances at: the score, how deep
+          they are, how close the next level is, and how many lives are in hand.
+        */}
+        {live && hud.enrageActive ? <span className="rule-enraged warn">ENRAGED</span> : null}
       </div>
     );
   }
 
   return (
     <div className={`difficulty-badge ${contactActive ? "hazard" : ""}`} role="status" aria-live="polite" aria-label={`Score ${hud.score}. Active rules: ${status}`}>
-      <span className="rule-score">SCORE {hud.score.toLocaleString().padStart(6, "0")}</span>
-      <span className="rule-time">TIME {formatRunTime(hud.elapsedSeconds)}</span>
-      {/* Classic gets its own visible rail, not just its own accessible label.
-          The shield and contact readouts describe systems the mode does not
-          have, and a difficulty tier it does not use; kills and banked
-          upgrades belong there instead. */}
+      {/*
+        Score first, and without its label: six padded digits in the score
+        colour are not mistakable for anything else, and the word cost as much
+        room as two of the digits.
+      */}
+      <span className="rule-score">{hud.score.toLocaleString().padStart(6, "0")}</span>
+      {/*
+        Time earns its place only where it is the thing being ranked. Survival
+        is scored on how long the pilot lasted, so the clock is the score;
+        everywhere else it was a number nobody was playing for.
+      */}
+      {activeMode !== "classic" && hud.difficulty === "survival"
+        ? <span className="rule-time">{formatRunTime(hud.elapsedSeconds)}</span>
+        : null}
       {activeMode === "classic" ? (
         <>
+          {/* Classic keeps its name where the other modes lose theirs. It is
+              the one mode whose readout is meant to echo the reference
+              client's, and knowing you are in it is part of that. */}
           <span className="rule-mode">CLASSIC</span>
           <span className="rule-rift-level">KILLS {live ? hud.kills : 0}</span>
-          <span className="rule-rift">RIFT {wormhole}</span>
+          {/* The banked permanent upgrades stay: in Classic they are the
+              closest thing the mode has to a character sheet, and they are the
+              readout the reference client itself kept on screen. */}
           {upgrades ? <span className="rule-context">{upgrades}</span> : null}
         </>
       ) : (
         <>
-          <span className="rule-mode">{gameMode} · {difficulty}</span>
-          {riftLevel > 0 ? <span className="rule-rift-level">LEVEL {riftLevel} · {riftStage}</span> : null}
-          <span className="rule-rift">RIFT {wormhole}</span>
-          {/* Pressure is drawn on its own ring around the rift now. It stays
-              in this rail's accessible label, which is the one place a reader
-              who cannot see the ring still needs it. */}
-        <span className={`rule-shield ${charge !== null && charge <= 0 ? "warn" : ""}`}>{shieldText}</span>
-        <span className={`rule-contact ${hazardArmed ? "warn" : ""}`}>CONTACT {contact}</span>
+          {riftLevel > 0 ? <span className="rule-rift-level">LEVEL {riftLevel}</span> : null}
+          {/*
+            The mode and difficulty, the rift's state, the shield percentage,
+            the contact readout and the stage name are all gone from the rail.
+            The pilot chose the first two on the way in; the rift's state and
+            the shield are both already drawn — the shield as the second fill
+            on the hull bar, the rift as its own charge ring — and "CONTACT
+            SAFE" was on screen twice at once, which is twice more than a fact
+            that is true almost always needs to be.
+
+            Only the two states worth interrupting for are still drawn, and
+            only while they are true. Everything removed is still spoken in
+            this rail's accessible label.
+          */}
+          {live && hud.contactActive ? <span className="rule-contact warn">HAZARD</span> : null}
           {live && hud.enrageActive ? <span className="rule-enraged warn">ENRAGED</span> : null}
-          <span className="rule-context">{context}</span>
         </>
       )}
     </div>

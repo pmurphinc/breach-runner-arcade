@@ -576,10 +576,22 @@ button.selected-ship-button:focus-visible .selected-ship-cta {
   stroke-width: 3;
   stroke-linejoin: round;
 }
-/* Tree progress. Dim while climbing, lit once the capstone is reachable, so
-   the moment it unlocks is visible without a notice interrupting a fight. */
-.difficulty-badge .rule-rift-tree { color: #9aa8d8; }
-.difficulty-badge .rule-rift-tree.ready { color: #b2ff62; font-weight: 700; }
+/* The experience bar.
+   "ENERGY 12/28" is a fraction a pilot has to read and then divide, mid-fight,
+   to learn one thing: how close the next level is. The bar answers that
+   without being read. The level number stays beside it because that one is a
+   fact rather than a proportion, and a bar cannot say "4". */
+.difficulty-badge .rule-xp { display: inline-flex; align-items: center; gap: 6px; color: var(--cyan); }
+.difficulty-badge .rule-xp b { font-weight: 800; font-variant-numeric: tabular-nums; }
+.difficulty-badge .rule-xp i {
+  width: clamp(38px, 7vw, 74px);
+  height: 6px;
+  overflow: hidden;
+  border: 1px solid rgba(116, 220, 255, .35);
+  border-radius: 3px;
+  background: rgba(4, 14, 22, .8);
+}
+.difficulty-badge .rule-xp em { display: block; height: 100%; background: linear-gradient(90deg, var(--cyan), var(--lime)); transition: width var(--motion-fast) linear; }
 .difficulty-badge .rule-rift-pressure { color: #ff9a4d; }
 .difficulty-badge .rule-rift-pressure.hot { color: #ff5570; font-weight: 700; }
 /* Small screens and the immersive shell get the mode line plus whichever
