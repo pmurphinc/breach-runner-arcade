@@ -317,6 +317,7 @@ import { BeamAudioManager } from "./beam-audio";
 import { ThrusterAudioManager } from "./thruster-audio";
 import { type ArenaSize, DEFAULT_ARENA } from "./arena";
 import { sweptHit } from "./sweep";
+import { advanceAllyShots, spawnAllyShots, type AllyShot } from "./ally-shots";
 import {
   CORE_BOMB_DRIFT_MAX,
   CORE_BOMB_DRIFT_MIN,
@@ -778,6 +779,23 @@ type Game = {
   /** Rift-only entities stay out of standard cannon and its global shot budget. */
   riftProjectiles: RiftProjectile[];
   riftFlames: RiftFlameFx[];
+  /**
+   * A teammate's cannon fire, drawn and nothing else.
+   *
+   * Deliberately not in `bullets`: a round there with `enemy: false` is a
+   * *player* round to the rest of the loop and would charge the rift,
+   * destroy loose power-ups and damage hostiles the host has already
+   * resolved. See app/ally-shots.ts.
+   */
+  allyShots: AllyShot[];
+  /**
+   * Angles fired since the last position frame actually went out.
+   *
+   * Held here rather than in the client because only the send decides
+   * whether a frame left: the position cadence throttles most ticks, and a
+   * buffer cleared on a throttled tick would drop the shot it was holding.
+   */
+  pendingShotAngles: number[];
   /** Recoil/muzzle-flash state for the hull guns, one record per occupied socket. */
   riftGunFx: HullGunFx[];
   /** Inferno-only damage-over-time state, keyed by stable enemy identity. */
@@ -1031,6 +1049,8 @@ function createGame(
     bullets: [],
     riftProjectiles: [],
     riftFlames: [],
+    allyShots: [],
+    pendingShotAngles: [],
     riftGunFx: [],
     riftScorched: new Map(),
     riftReformTicks: 0,
@@ -5903,8 +5923,19 @@ export default function WormholeGame() {
       game.elapsedTicks += 1;
       // PvpClient owns the single 33ms (~30Hz) position cadence.
       if (isSharedArenaKind(game.mode)) {
-        netRef.current?.reportPosition(player.x, player.y, player.angle);
+        // Cleared only when a frame actually left. reportPosition returns
+        // false on the ticks it throttles, and clearing on one of those
+        // would drop every shot fired between frames.
+        if (netRef.current?.reportPosition(player.x, player.y, player.angle, game.pendingShotAngles)) {
+          game.pendingShotAngles.length = 0;
+        }
+        // And the other direction: whatever the teammate fired since the
+        // last tick becomes tracers here.
+        for (const volley of netRef.current?.drainTeammateShots() ?? []) {
+          game.allyShots.push(...spawnAllyShots(volley, volley.angles));
+        }
       }
+      game.allyShots = advanceAllyShots(game.allyShots);
       game.shotCycle -= 1;
       game.botTimer -= 1;
       game.noticeLife = Math.max(0, game.noticeLife - 1);
@@ -6232,6 +6263,12 @@ export default function WormholeGame() {
           const velocity = shipForwardVelocity(round.angle, 10, { x: player.vx, y: player.vy });
           game.bullets.push({ x: muzzle.x, y: muzzle.y, vx: velocity.x, vy: velocity.y, damage: round.damage, life: 110, enemy: false, color: shot.color, bouncesLeft: player.ricochetTicks > 0 ? RICOCHET_BOUNCES : 0, salvageLinked: game.specialShip === "kestrel" && player.salvageLink > 0, supplemental: round.supplemental });
           if (!round.supplemental) game.playerShots += 1;
+          // Only in an arena someone else is watching, and only the aimed
+          // rounds: a spread's second barrel is the same trigger pull and
+          // would draw a tracer the shooter never fired.
+          if (isSharedArenaKind(game.mode) && !round.supplemental) {
+            game.pendingShotAngles.push((round.angle / DEG + 360) % 360);
+          }
         });
         game.shotCycle = Math.max(1, Math.round(shot.delay / (activeRiftRun?.shipModifiers.cannonFireRate ?? 1)));
         play("fire", 0.12, cannonPlaybackRate(player.gun));
@@ -7620,6 +7657,29 @@ export default function WormholeGame() {
       }
 
       // Pulse-cannon rounds: thin bright darts with a white core.
+      /*
+        A teammate's fire, drawn before the pilot's own so their own rounds
+        read on top of it.
+
+        In the ally ring's colour rather than a cannon colour, and thinner and
+        dimmer than a real round: this is the one thing on screen that looks
+        like ordnance and cannot touch anything. A pilot who reads it as their
+        own fire would misjudge every shot they take.
+      */
+      for (const shot of game.allyShots) {
+        if (!visible(shot.x, shot.y, 20)) continue;
+        ctx.save();
+        ctx.globalAlpha = Math.min(0.55, shot.life / 20);
+        ctx.strokeStyle = "#7dffd0";
+        ctx.lineWidth = 2;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(shot.x, shot.y);
+        ctx.lineTo(shot.x - shot.vx * 1.8, shot.y - shot.vy * 1.8);
+        ctx.stroke();
+        ctx.restore();
+      }
+
       for (const bullet of game.bullets) {
         if (!visible(bullet.x, bullet.y, 20)) continue;
         const tailX = bullet.x - bullet.vx * 2.2;

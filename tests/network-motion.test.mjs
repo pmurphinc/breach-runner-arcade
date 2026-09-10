@@ -8,6 +8,7 @@ import {
   interpolateAngle,
 } from "../app/network-motion.ts";
 import { POSITION_SEND_INTERVAL_MS, PvpClient } from "../app/pvp-client.ts";
+import { MAX_ALLY_SHOTS_PER_FRAME } from "../app/ally-shots.ts";
 
 const point = (seq, receivedAt, x, angle = 0) => ({ seq, sentAt: 1000 + receivedAt, receivedAt, x, y: 0, angle });
 
@@ -85,9 +86,35 @@ test("position reporting has one approximately 30Hz cadence and adds ordering da
   const client = new PvpClient("coop");
   const frames = [];
   client.socket = { readyState: 1, send: (frame) => frames.push(JSON.parse(frame)) };
-  assert.equal(client.reportPosition(1, 2, 3, 100), true);
-  assert.equal(client.reportPosition(2, 3, 4, 100 + POSITION_SEND_INTERVAL_MS - 1), false);
-  assert.equal(client.reportPosition(3, 4, 5, 100 + POSITION_SEND_INTERVAL_MS), true);
+  assert.equal(client.reportPosition(1, 2, 3, [], 100), true);
+  assert.equal(client.reportPosition(2, 3, 4, [], 100 + POSITION_SEND_INTERVAL_MS - 1), false);
+  assert.equal(client.reportPosition(3, 4, 5, [], 100 + POSITION_SEND_INTERVAL_MS), true);
   assert.deepEqual(frames.map(({ seq }) => seq), [1, 2]);
   assert.ok(frames.every(({ sentAt }) => Number.isInteger(sentAt)));
+});
+
+/**
+ * A position frame carries what the pilot fired getting there.
+ *
+ * The tracers ride the one channel that is already symmetric, so showing a
+ * pilot their teammate's fire costs no new round trip — see app/ally-shots.ts
+ * for why the angles travel rather than the rounds.
+ */
+test("a position frame carries the angles fired since the last one", () => {
+  const client = new PvpClient("coop");
+  const frames = [];
+  client.socket = { readyState: 1, send: (frame) => frames.push(JSON.parse(frame)) };
+
+  assert.equal(client.reportPosition(1, 2, 3, [90, 270], 100), true);
+  assert.deepEqual(frames[0].shots, [90, 270]);
+
+  // A frame with nothing fired still says so, rather than leaving the previous
+  // frame's shots standing on the server.
+  assert.equal(client.reportPosition(1, 2, 3, [], 100 + POSITION_SEND_INTERVAL_MS), true);
+  assert.deepEqual(frames[1].shots, []);
+
+  // Capped on the way out as well as on the way in: a client cannot put more
+  // tracers on a teammate's screen than a cannon could have fired.
+  assert.equal(client.reportPosition(1, 2, 3, [0, 1, 2, 3, 4, 5], 100 + POSITION_SEND_INTERVAL_MS * 2), true);
+  assert.equal(frames[2].shots.length, MAX_ALLY_SHOTS_PER_FRAME);
 });

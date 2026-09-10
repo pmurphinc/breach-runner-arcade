@@ -1,6 +1,7 @@
 "use client";
 
 import { RemoteMotion } from "./network-motion.ts";
+import { MAX_ALLY_SHOTS_PER_FRAME, readAllyShotAngles } from "./ally-shots.ts";
 
 /**
  * Client side of the PvP protocol.
@@ -15,7 +16,7 @@ import { RemoteMotion } from "./network-motion.ts";
  */
 
 /** Must match server/protocol.mjs. `tests/pvp-protocol.test.mjs` asserts it. */
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 9;
 export const PVP_PATH = "/pvp";
 export const CODE_LENGTH = 4;
 export const COUNTDOWN_SECONDS = 3;
@@ -67,7 +68,7 @@ const NETWORK_MODES: NetworkMode[] = ["pvp", "coop", "team"];
 function asNetworkMode(value: unknown, fallback: NetworkMode): NetworkMode {
   return NETWORK_MODES.includes(value as NetworkMode) ? (value as NetworkMode) : fallback;
 }
-export type TeammatePosition = { id: string; name: string; roundId: number; seq: number; sentAt: number; x: number; y: number; angle: number };
+export type TeammatePosition = { id: string; name: string; roundId: number; seq: number; sentAt: number; x: number; y: number; angle: number; shots: number[] };
 export const POSITION_SEND_INTERVAL_MS = 33;
 export type CoopRival = { hull: number; maxHull: number; score: number };
 export type RoundResult = {
@@ -458,6 +459,11 @@ export class PvpClient {
         if (teammate.roundId !== this.snapshot.roundId) return;
         const receivedAt = performance.now();
         if (!this.teammateMotion.push({ ...teammate, receivedAt })) return;
+        // Fired at the position the frame reports, which is where the
+        // teammate was when the shot left — not where interpolation has
+        // their ship by the time this is drawn.
+        const fired = readAllyShotAngles(teammate.shots);
+        if (fired.length > 0) this.pendingAllyShots.push({ x: teammate.x, y: teammate.y, angles: fired });
         this.update({ teammate });
         if (process.env.NODE_ENV !== "production" && receivedAt - this.lastMotionDebugAt >= 2000) {
           this.lastMotionDebugAt = receivedAt;
@@ -595,11 +601,36 @@ export class PvpClient {
     return this.send({ type: "inventory", seq: this.inventorySeq, action, weapon });
   }
 
-  reportPosition(x: number, y: number, angle: number, now = performance.now()) {
+  /**
+   * Where this pilot is, and what they fired getting there.
+   *
+   * `shots` are aim angles in degrees since the last frame this method
+   * actually sent. The caller keeps the buffer because only the caller knows
+   * whether a frame went out: this returns false on the frames it throttles,
+   * and a buffer cleared on one of those would drop the shot.
+   */
+  /**
+   * Tracers the teammate has fired that this client has not drawn yet.
+   *
+   * Queued on arrival rather than read off the latest frame: frames arrive
+   * faster than the game ticks, so reading the newest one at render time
+   * would silently drop every shot in the frames between.
+   */
+  private pendingAllyShots: Array<{ x: number; y: number; angles: number[] }> = [];
+
+  /** Takes the queued tracers and empties it. */
+  drainTeammateShots(): Array<{ x: number; y: number; angles: number[] }> {
+    if (this.pendingAllyShots.length === 0) return [];
+    const drained = this.pendingAllyShots;
+    this.pendingAllyShots = [];
+    return drained;
+  }
+
+  reportPosition(x: number, y: number, angle: number, shots: readonly number[] = [], now = performance.now()) {
     if (now - this.lastPositionAt < POSITION_SEND_INTERVAL_MS) return false;
     this.lastPositionAt = now;
     this.positionSeq += 1;
-    return this.send({ type: "position", seq: this.positionSeq, sentAt: Date.now(), x, y, angle });
+    return this.send({ type: "position", seq: this.positionSeq, sentAt: Date.now(), x, y, angle, shots: shots.slice(0, MAX_ALLY_SHOTS_PER_FRAME) });
   }
 
   /** Called from the canvas render loop; it does not cause a React update. */

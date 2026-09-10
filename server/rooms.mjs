@@ -126,7 +126,7 @@ export function createPlayer(send, { now = Date.now(), random = Math.random } = 
     lastEnemyHitSeq: -1,
     lastWorldActionSeq: -1,
     lastPupClaimSeq: -1,
-    position: { seq: -1, sentAt: 0, x: 752, y: 470, angle: 270 },
+    position: { seq: -1, sentAt: 0, x: 752, y: 470, angle: 270, shots: [] },
     window: createRateWindow(),
   };
 }
@@ -692,7 +692,11 @@ export class MatchServer {
     const room = player.room;
     if (!room || !isSharedArenaKind(room.kind) || room.phase !== PHASES.ACTIVE) return { ok: false, code: ERRORS.NOT_IN_MATCH };
     if (position.seq <= player.position.seq) return { ok: true, ignored: true };
-    player.position = { seq: position.seq, sentAt: position.sentAt, x: position.x, y: position.y, angle: position.angle };
+    // `shots` is per-frame rather than standing state: it is whatever this
+    // pilot fired since their last frame, and the next frame replaces it
+    // with its own list or an empty one. The teammate message below spreads
+    // the whole position, so it travels with no extra plumbing.
+    player.position = { seq: position.seq, sentAt: position.sentAt, x: position.x, y: position.y, angle: position.angle, shots: position.shots ?? [] };
     room.touchedAt = now;
     // This pilot's own arena only, never the other team's: the two teams fly in
     // separate arenas and must not see each other's ships.

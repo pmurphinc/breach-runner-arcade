@@ -10,7 +10,7 @@
  * `tests/pvp-protocol.test.mjs` asserts the two agree.
  */
 
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 9;
 
 /** WebSocket path. Shares the game's HTTP server and Railway's injected PORT. */
 export const PVP_PATH = "/pvp";
@@ -126,6 +126,15 @@ export const SHIP_IDS = [
 // ------------------------------------------------------------------ limits --
 
 /** Hard ceiling on a single frame. Anything larger is dropped unparsed. */
+/**
+ * Shot angles one position frame may carry.
+ *
+ * Position goes out every 33ms and the fastest cannon fires every 90ms, so
+ * two is already generous. The cap exists because this arrives over a
+ * network, not because normal play approaches it.
+ */
+export const MAX_SHOT_ANGLES = 4;
+
 export const MAX_PAYLOAD_BYTES = 32768;
 
 /** Largest damage a single event may claim. The heaviest in-game hit is 40. */
@@ -308,6 +317,18 @@ export function parseClientMessage(raw) {
         || ![parsed.x, parsed.y, parsed.angle].every(isFiniteNumber)) {
         return { ok: false, code: ERRORS.BAD_MESSAGE, detail: "bad position" };
       }
+      // Angles this pilot fired since their last frame, so a teammate can
+      // draw the tracers. Filtered rather than rejected: one bad entry
+      // should cost that entry and not the whole position frame, which
+      // also carries where the pilot is. Capped here because the cap is
+      // the only thing standing between a client's claim and everyone
+      // else's screen.
+      const shots = Array.isArray(parsed.shots)
+        ? parsed.shots
+            .filter(isFiniteNumber)
+            .slice(0, MAX_SHOT_ANGLES)
+            .map((angle) => ((angle % 360) + 360) % 360)
+        : [];
       return {
         ok: true,
         message: {
@@ -317,6 +338,7 @@ export function parseClientMessage(raw) {
           x: Math.max(0, Math.min(1504, parsed.x)),
           y: Math.max(0, Math.min(940, parsed.y)),
           angle: ((parsed.angle % 360) + 360) % 360,
+          shots,
         },
       };
     }
