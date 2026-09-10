@@ -317,6 +317,7 @@ import { BeamAudioManager } from "./beam-audio";
 import { ThrusterAudioManager } from "./thruster-audio";
 import { type ArenaSize, DEFAULT_ARENA } from "./arena";
 import { sweptHit } from "./sweep";
+import { spatialPan, spatialVolume } from "./spatial-audio";
 import {
   CORE_BOMB_DRIFT_MAX,
   CORE_BOMB_DRIFT_MIN,
@@ -3128,7 +3129,7 @@ export default function WormholeGame() {
    * Procedural event cues avoid a large audio download while giving every
    * power-up a stable, recognizable two-note signature.
    */
-  const playCue = useCallback((cue: string | PupPickupSoundProfile | ProceduralCue, volume = 0.16) => {
+  const playCue = useCallback((cue: string | PupPickupSoundProfile | ProceduralCue, volume = 0.16, pan = 0) => {
     const context = ensureAudioContext();
     if (!context) return;
 
@@ -3191,7 +3192,17 @@ export default function WormholeGame() {
       gain.gain.exponentialRampToValueAtTime(Math.max(0.001, volume), noteStart + 0.018);
       gain.gain.exponentialRampToValueAtTime(0.0001, noteEnd);
       oscillator.connect(gain);
-      gain.connect(context.destination);
+      // Panned where the context supports it. StereoPannerNode is absent on
+      // older Safari, and a cue heard in the middle is a far better outcome
+      // there than a cue not heard at all.
+      if (pan !== 0 && typeof context.createStereoPanner === "function") {
+        const panner = context.createStereoPanner();
+        panner.pan.setValueAtTime(Math.max(-1, Math.min(1, pan)), noteStart);
+        gain.connect(panner);
+        panner.connect(context.destination);
+      } else {
+        gain.connect(context.destination);
+      }
       oscillator.start(noteStart);
       oscillator.stop(noteEnd + 0.02);
     });
@@ -4611,7 +4622,9 @@ export default function WormholeGame() {
       // The arrival flare belongs at the same mouth the wave came out of.
       pushSpawn(game, "hostile", power, originX, originY, count);
       burst(game, originX, originY, POWER_COLORS[power], 26, 9);
-      playCue(`spawn:${power}`, 0.15);
+      // Floored: a wave arriving is an announcement, and the rift may be
+      // the far side of the arena from wherever the pilot happens to be.
+      playCue(`spawn:${power}`, spatialVolume(0.15, game.player, { x: originX, y: originY }, 0.45), spatialPan(game.player, { x: originX, y: originY }));
     };
 
     const spawnEnrageWave = (game: Game) => {
@@ -4625,7 +4638,7 @@ export default function WormholeGame() {
           game.enemies.push(makeEnemy(enemy, game.portalX, game.portalY, i, count));
         }
         pushSpawn(game, "hostile", enemy, game.portalX, game.portalY, count);
-        playCue(`spawn:${enemy}`, 0.14);
+        playCue(`spawn:${enemy}`, spatialVolume(0.14, game.player, { x: game.portalX, y: game.portalY }, 0.45), spatialPan(game.player, { x: game.portalX, y: game.portalY }));
       }
 
       game.incoming = "ufo";
@@ -4633,7 +4646,9 @@ export default function WormholeGame() {
       game.noticeLife = 180;
       game.portalPulse = 1;
       burst(game, game.portalX, game.portalY, "#ff263f", 52, 12);
-      play("explosion", 0.36);
+      // Floored high. A pilot on the far side of the arena who does not
+      // hear the rift enrage is about to be surprised by it.
+      play("explosion", spatialVolume(0.36, game.player, { x: game.portalX, y: game.portalY }, 0.7));
     };
 
     /**
@@ -4652,7 +4667,7 @@ export default function WormholeGame() {
       game.notice = `${label} // ${WEAPONS[kind].short} ×${count}`;
       game.noticeLife = 110;
       burst(game, game.portalX, game.portalY, POWER_COLORS[kind], 22, 8);
-      playCue(`spawn:${kind}`, 0.14);
+      playCue(`spawn:${kind}`, spatialVolume(0.14, game.player, { x: game.portalX, y: game.portalY }, 0.45), spatialPan(game.player, { x: game.portalX, y: game.portalY }));
     };
 
     /**
@@ -4759,7 +4774,10 @@ export default function WormholeGame() {
         if (next.pendingLevels>0) game.paused=true;
       }
       burst(game, enemy.x, enemy.y, POWER_COLORS[enemy.kind], 18, 8);
-      play("explosion", 0.16);
+      // The commonest sound in the game and the one that most needed
+      // placing: a dozen bodies on screen used to be a flat wall of equal
+      // explosions with no information in it. Sampled, so volume only.
+      play("explosion", spatialVolume(0.16, game.player, enemy));
       if (enemy.kind !== "ghost" && enemy.kind !== "beam" && enemy.kind !== "emp" && enemy.kind !== "mines" && (guaranteedDrop || Math.random() < 0.48)) {
         game.pickups.push({ x: enemy.x, y: enemy.y, ...pupLaunchVelocity(1.1, 2.6), type: dropForGame(game), life: 900, phase: range(0, 6) });
       }
@@ -4810,7 +4828,7 @@ export default function WormholeGame() {
       game.notice = `${WEAPONS[type].short} READY TO COLLECT`;
       game.noticeLife = 100;
       pushSpawn(game, "friendly", type, game.portalX, game.portalY, 1);
-      playCue(`spawn:${type}`, 0.17);
+      playCue(`spawn:${type}`, spatialVolume(0.17, game.player, { x: game.portalX, y: game.portalY }, 0.45), spatialPan(game.player, { x: game.portalX, y: game.portalY }));
     };
 
     /**
@@ -4994,7 +5012,7 @@ export default function WormholeGame() {
         const ejection = ejectRiftPup(index, owed, { x: game.portalX, y: game.portalY });
         game.pickups.push({ ...ejection, type, phase: range(0, 6) });
         pushSpawn(game, "friendly", type, ejection.x, ejection.y, 1);
-        playCue(`spawn:${type}`, 0.17);
+        playCue(`spawn:${type}`, spatialVolume(0.17, game.player, ejection, 0.45), spatialPan(game.player, ejection));
       }
       const left = riftPupBudgetRemaining(danger.budget);
       game.notice = left > 0
@@ -6443,7 +6461,7 @@ export default function WormholeGame() {
               const type = dropForGame(game);
               game.pickups.push({ x: struck.x + range(-28, 28), y: struck.y + range(-28, 28), ...pupLaunchVelocity(2.0, 4.2), type, life: PUP_LIFE_TICKS, phase: range(0, 6) });
               pushSpawn(game, "friendly", type, struck.x, struck.y, 1);
-              playCue(`spawn:${type}`, 0.17);
+              playCue(`spawn:${type}`, spatialVolume(0.17, game.player, struck, 0.45), spatialPan(game.player, struck));
             }
           }
           // This is where cannon damage is actually applied to the rift — the
