@@ -314,7 +314,11 @@ test('touch-stick height participates in the shared safe-area reservation', () =
 
 
 test('touch score shares the rules rail and utilities orbit the fire stick', () => {
-  assert.match(game, /className="rule-score">SCORE/);
+  // The score keeps its slot in the rules rail on touch. It lost the word
+  // SCORE in the rail consolidation -- six padded digits in the score colour
+  // are not mistakable for anything else, and the label cost as much room as
+  // two of the digits.
+  assert.match(game, /className="rule-score">{hud.score/);
   assert.match(css, /\.modern-hud \.match-bar\s*\{\s*display:\s*none/);
   assert.match(css, /\.touch-capable \.difficulty-badge \.rule-score/);
   const satellites = css.slice(css.indexOf('Three independent circular utility buttons'));
