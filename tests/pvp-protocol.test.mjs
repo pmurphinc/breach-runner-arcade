@@ -19,6 +19,7 @@ import {
 import {
   CODE_LENGTH,
   COUNTDOWN_SECONDS,
+  MAX_SHOT_ANGLES,
   PROTOCOL_VERSION,
   PVP_PATH,
   RECONNECT_GRACE_MS,
@@ -56,12 +57,37 @@ test("the server normalizes PvP queue and private requests to Easy rules", () =>
 test("position packets require sequence, timestamp, and finite coordinates", () => {
   const valid = parseClientMessage(JSON.stringify({ type: "position", seq: 7, sentAt: 123456, x: 20, y: 30, angle: 361 }));
   assert.equal(valid.ok, true);
-  assert.deepEqual(valid.message, { type: "position", seq: 7, sentAt: 123456, x: 20, y: 30, angle: 1 });
+  // A frame that fired nothing still carries an empty list, so the previous
+  // frame's shots are replaced rather than left standing on the server.
+  assert.deepEqual(valid.message, { type: "position", seq: 7, sentAt: 123456, x: 20, y: 30, angle: 1, shots: [] });
   for (const invalid of [
     { type: "position", sentAt: 123, x: 1, y: 2, angle: 3 },
     { type: "position", seq: 1, x: 1, y: 2, angle: 3 },
     { type: "position", seq: 1, sentAt: 123, x: NaN, y: 2, angle: 3 },
   ]) assert.equal(parseClientMessage(JSON.stringify(invalid)).ok, false);
+});
+
+/**
+ * Shot angles are filtered, not trusted, and never fatal.
+ *
+ * A position frame also carries where the pilot is, which their teammate needs
+ * every single frame. Rejecting the whole message over one bad angle would
+ * cost the position too, so a bad entry costs that entry alone.
+ */
+test("a position packet's shot angles are bounded and sanitised", () => {
+  const shots = (value) => parseClientMessage(JSON.stringify({
+    type: "position", seq: 1, sentAt: 1, x: 0, y: 0, angle: 0, shots: value,
+  }));
+
+  assert.deepEqual(shots([90, 450, -90]).message.shots, [90, 90, 270], "normalised like any heading");
+  assert.equal(shots([0, 1, 2, 3, 4, 5, 6]).message.shots.length, MAX_SHOT_ANGLES, "and capped");
+
+  // Junk is dropped without taking the frame down with it.
+  const mixed = shots([90, "spin", null, NaN, 180]);
+  assert.equal(mixed.ok, true);
+  assert.deepEqual(mixed.message.shots, [90, 180]);
+  assert.deepEqual(shots("not-an-array").message.shots, []);
+  assert.equal(shots(undefined).ok, true, "a client that sends none is still valid");
 });
 
 
