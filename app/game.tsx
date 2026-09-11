@@ -318,6 +318,7 @@ import { ThrusterAudioManager } from "./thruster-audio";
 import { type ArenaSize, DEFAULT_ARENA } from "./arena";
 import { sweptHit } from "./sweep";
 import { advanceAllyShots, spawnAllyShots, type AllyShot } from "./ally-shots";
+import { spatialPan, spatialVolume } from "./spatial-audio";
 import {
   CORE_BOMB_DRIFT_MAX,
   CORE_BOMB_DRIFT_MIN,
@@ -3138,7 +3139,15 @@ export default function WormholeGame() {
     }
     const clip = clips.find((item) => item.paused || item.ended) ?? clips[0];
     // The volume setting is a real gain on every effect, not a label.
-    clip.volume = cap(volume * SOUND_GAIN[soundLevelRef.current], 0, 1);
+    //
+    // `cap` is Math.max/Math.min, and neither stops a NaN: `Math.max(0,
+    // Math.min(1, NaN))` is NaN. Assigning that to `.volume` throws, and a
+    // throw here is raised inside the animation frame — which is how a
+    // single bad coordinate used to freeze the whole game. Volumes are
+    // computed from positions now, so this has to be checked rather than
+    // assumed.
+    const gain = volume * SOUND_GAIN[soundLevelRef.current];
+    clip.volume = Number.isFinite(gain) ? cap(gain, 0, 1) : 0;
     clip.playbackRate = cap(playbackRate, 0.5, 2);
     try { clip.currentTime = 0; } catch { /* Safari throws before metadata loads. */ }
     void clip.play().catch(() => undefined);
@@ -3148,7 +3157,13 @@ export default function WormholeGame() {
    * Procedural event cues avoid a large audio download while giving every
    * power-up a stable, recognizable two-note signature.
    */
-  const playCue = useCallback((cue: string | PupPickupSoundProfile | ProceduralCue, volume = 0.16, pan = 0) => {
+  const playCue = useCallback((rawCue: string | PupPickupSoundProfile | ProceduralCue, rawVolume = 0.16, rawPan = 0) => {
+    // AudioParam throws on a non-finite value, and a throw in here reaches
+    // the animation frame. Both of these are computed from world positions
+    // now, so neither can be taken on trust.
+    const cue = rawCue;
+    const volume = Number.isFinite(rawVolume) ? rawVolume : 0;
+    const pan = Number.isFinite(rawPan) ? rawPan : 0;
     const context = ensureAudioContext();
     if (!context) return;
 
@@ -8769,7 +8784,7 @@ export default function WormholeGame() {
 
     };
 
-    const loop = (now: number) => {
+    const runFrame = (now: number) => {
       const delta = now - previous;
       previous = now;
       accumulator += Math.min(50, delta);
@@ -8809,6 +8824,32 @@ export default function WormholeGame() {
       );
       const camera = drawScene(now, profile.detail);
       drawOverlay(now, camera);
+    };
+
+    /**
+     * One bad frame must not end the run.
+     *
+     * The next frame used to be requested by the last statement of the frame
+     * body, so *any* exception anywhere in a tick or a draw meant the chain
+     * was never continued: the game froze permanently, on the spot, with
+     * nothing on screen to say why. On a phone, where the console is not
+     * visible, that is indistinguishable from the game simply dying.
+     *
+     * Rescheduling outside the guard turns that whole class of fault into
+     * one dropped frame. The error is reported once rather than every frame,
+     * because a fault that repeats would otherwise bury the console in
+     * thousands of copies of itself and take the tab down that way instead.
+     */
+    let frameFaultReported = false;
+    const loop = (now: number) => {
+      try {
+        runFrame(now);
+      } catch (error) {
+        if (!frameFaultReported) {
+          frameFaultReported = true;
+          console.error("[breach-runner] frame fault; the run continues", error);
+        }
+      }
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);

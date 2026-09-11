@@ -74,6 +74,10 @@ export function distanceBetween(a: Point, b: Point): number {
  * only thing the ear notices is that far things are quieter.
  */
 export function spatialGain(distance: number): number {
+  // NaN compares false against everything, so it would fall through both
+  // guards below and come out the other end as NaN. The audio API throws on
+  // that, and a throw inside the frame is what froze the game.
+  if (Number.isNaN(distance)) return 0;
   if (!Number.isFinite(distance) || distance <= AUDIO_NEAR_RADIUS) return 1;
   if (distance >= AUDIO_FAR_RADIUS) return 0;
   const travelled = (distance - AUDIO_NEAR_RADIUS) / (AUDIO_FAR_RADIUS - AUDIO_NEAR_RADIUS);
@@ -89,7 +93,11 @@ export function spatialGain(distance: number): number {
  */
 export function spatialVolume(base: number, listener: Point, source: Point, floor = 0): number {
   const gain = spatialGain(distanceBetween(listener, source));
-  return base * (floor + (1 - floor) * gain);
+  const volume = base * (floor + (1 - floor) * gain);
+  // A silent effect is a far better outcome than a thrown one: the audio
+  // API rejects a non-finite volume, and that exception surfaces inside the
+  // animation frame.
+  return Number.isFinite(volume) ? volume : 0;
 }
 
 /**
@@ -101,5 +109,9 @@ export function spatialVolume(base: number, listener: Point, source: Point, floo
  */
 export function spatialPan(listener: Point, source: Point): number {
   const offset = (source.x - listener.x) / AUDIO_PAN_WIDTH;
+  // Math.max/Math.min do not clamp a NaN — `Math.max(-1, Math.min(1, NaN))`
+  // is NaN — so the clamp alone was never protection. Centre is the right
+  // answer for a position that cannot be read.
+  if (!Number.isFinite(offset)) return 0;
   return Math.max(-1, Math.min(1, offset));
 }
