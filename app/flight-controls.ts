@@ -168,15 +168,72 @@ export function classicDeadzone(
 /* ------------------------------------------------ Classic on a keyboard -- */
 
 /**
- * Degrees the hull turns per tick while a turn key is held.
+ * Degrees the hull turns per second while a turn key is held.
  *
- * At the 15ms tick this is 280 degrees a second, so a full turn takes about
- * one and a third seconds. Fast enough to bring the nose onto something that
- * is shooting at you, slow enough that steering is a thing you do rather than
- * a direction you select -- which is the entire difference between this and
- * the twin-stick scheme.
+ * A full turn takes about one and a third seconds. Fast enough to bring the
+ * nose onto something that is shooting at you, slow enough that steering is a
+ * thing you do rather than a direction you select -- which is the entire
+ * difference between this and the twin-stick scheme.
+ *
+ * ## Why this is per second and not per tick
+ *
+ * It used to be 4.2 degrees per **simulation tick**, and at the 15ms tick that
+ * is the same 280 degrees a second -- on average. On screen it was not, and
+ * the difference is the whole reason this constant changed unit.
+ *
+ * The simulation advances in fixed 15ms ticks; a 60Hz display draws every
+ * 16.7ms. A frame therefore collects one tick, sometimes two, occasionally
+ * three. Measured in a real browser, holding a turn key moved the hull by
+ * **4.2, 8.4 or 12.6 degrees from one frame to the next**, an instantaneous
+ * rate swinging between 250 and 506 degrees a second around a 283 mean. A
+ * constant turn rendered as an irregular lurch, which is exactly the "snapping"
+ * a pilot feels: the nose does not sweep round, it jumps in uneven chunks and
+ * you cannot land it where you meant to.
+ *
+ * Nothing about the hull's heading needs the fixed tick. It is pure
+ * integration of held keys -- no collision, no inertia, nothing another system
+ * reads back. So it is integrated once per frame against real elapsed time
+ * instead, and the on-screen rate becomes exactly constant. The average rate is
+ * deliberately unchanged: this is a fix for how the turn *reads*, not a
+ * rebalance of how fast it is.
  */
-export const CLASSIC_TURN_DEGREES_PER_TICK = 4.2;
+export const CLASSIC_TURN_DEGREES_PER_SECOND = 280;
+
+/**
+ * The longest span a single update may turn through.
+ *
+ * A backgrounded tab, a garbage collection pause or a slow first frame all
+ * arrive as one enormous delta, and integrating it whole would spin the hull
+ * through a half-turn the pilot never asked for. Matched to the clamp the
+ * frame loop already applies to its own accumulator, so the simulation and the
+ * steering lose the same time to a hitch rather than drifting apart.
+ */
+export const MAX_TURN_SPAN_MS = 50;
+
+/** Which way the turn keys point: -1, 0 or +1. Opposing keys cancel. */
+export function classicTurnDirection(keys: MovementKeys): number {
+  return (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+}
+
+/**
+ * The hull's heading after steering for a real span of time.
+ *
+ * The single place the Classic turn is integrated. Returns the heading
+ * unchanged when no turn key is held, so a caller can apply it every frame
+ * without checking first.
+ */
+export function classicTurnedHeading(
+  keys: MovementKeys,
+  heading: number,
+  elapsedMs: number,
+  degreesPerSecond = CLASSIC_TURN_DEGREES_PER_SECOND,
+): number {
+  const safeHeading = Number.isFinite(heading) ? heading : 0;
+  const turn = classicTurnDirection(keys);
+  if (turn === 0) return safeHeading;
+  const span = Math.max(0, Math.min(MAX_TURN_SPAN_MS, Number.isFinite(elapsedMs) ? elapsedMs : 0));
+  return safeHeading + turn * degreesPerSecond * (span / 1000);
+}
 
 export type ClassicKeyboardFlight = {
   /** The hull's new heading in degrees. Always a number: the hull always points somewhere. */
@@ -202,20 +259,28 @@ export type ClassicKeyboardFlight = {
  * a thrust vector opposite the nose would fight `facingFor`, which turns the
  * hull to whatever the intent points at -- the ship would flip rather than back
  * up. Reverse belongs to the retros upgrade, not to a key.
+ *
+ * **The heading passed in is the answer, not a starting point.** This used to
+ * turn the hull itself, which meant the turn advanced once per simulation tick
+ * and rendered as an uneven lurch -- see `CLASSIC_TURN_DEGREES_PER_SECOND`.
+ * Steering is integrated once per frame by `classicTurnedHeading` now, and what
+ * is left here is the question this function was always really answering: given
+ * where the hull points, what is the pilot asking the engine to do?
  */
 export function classicKeyboardFlight(
   keys: MovementKeys,
   heading: number,
-  turnPerTick = CLASSIC_TURN_DEGREES_PER_TICK,
 ): ClassicKeyboardFlight {
   const safeHeading = Number.isFinite(heading) ? heading : 0;
-  // Opposing turn keys cancel, matching how the directional scheme treats a
-  // held left and right.
-  const turn = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
-  const next = safeHeading + turn * turnPerTick;
 
-  if (keys.up) return { heading: next, intent: { active: true, heading: next, magnitude: 1 } };
-  if (turn !== 0) return { heading: next, intent: { active: true, heading: next, magnitude: 0 } };
+  if (keys.up) {
+    return { heading: safeHeading, intent: { active: true, heading: safeHeading, magnitude: 1 } };
+  }
+  // Turning with the engine cold is still an active intent: the hull has to
+  // follow the heading, and only the magnitude says not to burn for it.
+  if (classicTurnDirection(keys) !== 0) {
+    return { heading: safeHeading, intent: { active: true, heading: safeHeading, magnitude: 0 } };
+  }
   return { heading: safeHeading, intent: NO_INTENT };
 }
 

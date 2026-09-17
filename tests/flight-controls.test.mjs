@@ -30,8 +30,11 @@ import {
 import { intentFromStick } from "../app/movement.ts";
 import { classicDeadzoneShare } from "../app/flight-controls.ts";
 import {
-  CLASSIC_TURN_DEGREES_PER_TICK,
+  CLASSIC_TURN_DEGREES_PER_SECOND,
+  MAX_TURN_SPAN_MS,
   classicKeyboardFlight,
+  classicTurnDirection,
+  classicTurnedHeading,
   pointerAims,
 } from "../app/flight-controls.ts";
 import {
@@ -264,19 +267,72 @@ test("the adjustable layout offers a ring for the stick and nothing else", () =>
 const NO_KEYS = { up: false, down: false, left: false, right: false };
 const held = (...names) => ({ ...NO_KEYS, ...Object.fromEntries(names.map((n) => [n, true])) });
 
+/** A 60Hz frame, which is the span the turn is normally integrated over. */
+const FRAME_MS = 1000 / 60;
+const degrees = (ms) => CLASSIC_TURN_DEGREES_PER_SECOND * (ms / 1000);
+
 test("A and D turn the hull without moving the ship", () => {
+  // Two halves, deliberately separate. `classicTurnedHeading` owns the turn;
+  // `classicKeyboardFlight` owns what the engine is asked to do about it.
+  assert.equal(classicTurnedHeading(held("right"), 0, FRAME_MS), degrees(FRAME_MS), "D turns one frame's worth");
+  assert.equal(classicTurnedHeading(held("left"), 0, FRAME_MS), -degrees(FRAME_MS), "A turns the other way");
+
   // The same mechanism the stick's deadzone uses: an active intent carrying a
   // heading and a magnitude of zero. If this ever returns an inactive intent
-  // the hull stops turning; if it returns magnitude 1 the ship drives off
-  // while the pilot is only trying to line up.
-  const right = classicKeyboardFlight(held("right"), 0);
-  assert.equal(right.heading, CLASSIC_TURN_DEGREES_PER_TICK, "D turns one tick's worth");
-  assert.equal(right.intent.active, true, "active, so the hull follows");
-  assert.equal(right.intent.magnitude, 0, "but the engine stays cold");
-  assert.equal(right.intent.heading, right.heading, "and the intent agrees with the hull");
+  // the hull stops following the turn; if it returns magnitude 1 the ship
+  // drives off while the pilot is only trying to line up.
+  const turning = classicKeyboardFlight(held("right"), 30);
+  assert.equal(turning.intent.active, true, "active, so the hull follows");
+  assert.equal(turning.intent.magnitude, 0, "but the engine stays cold");
+  assert.equal(turning.intent.heading, 30, "and the intent agrees with the hull");
+});
 
-  const left = classicKeyboardFlight(held("left"), 0);
-  assert.equal(left.heading, -CLASSIC_TURN_DEGREES_PER_TICK, "A turns the other way");
+/**
+ * The regression this change exists for.
+ *
+ * The turn used to advance a fixed 4.2 degrees per **simulation tick**, and the
+ * simulation ticks every 15ms while a 60Hz display draws every 16.7ms. A frame
+ * therefore collected one tick, sometimes two, occasionally three, and the hull
+ * moved 4.2, 8.4 or 12.6 degrees between consecutive frames -- an instantaneous
+ * rate measured in a real browser as swinging between 250 and 506 degrees a
+ * second. That unevenness is what a pilot feels as the nose snapping round in
+ * chunks instead of sweeping.
+ *
+ * The property that makes it smooth is that the turn depends only on how much
+ * *time* passed, never on how that time was chopped up. So: any partition of a
+ * span must produce the same heading as integrating the span whole.
+ */
+test("the turn depends on elapsed time, not on how it is chopped up", () => {
+  const whole = classicTurnedHeading(held("right"), 0, 30);
+  for (const parts of [[15, 15], [10, 10, 10], [1, 29], [16.7, 13.3]]) {
+    const stepped = parts.reduce((heading, part) => classicTurnedHeading(held("right"), heading, part), 0);
+    assert.ok(
+      Math.abs(stepped - whole) < 1e-9,
+      `${parts.join("+")}ms turned ${stepped}, but 30ms turned ${whole}`,
+    );
+  }
+});
+
+test("the turn rate is constant across every frame length a display can produce", () => {
+  // 144Hz, 120Hz, 60Hz, 30Hz. The rate has to read the same at all of them;
+  // only the step size may differ, because that is the display's granularity.
+  for (const frame of [1000 / 144, 1000 / 120, 1000 / 60, 1000 / 30]) {
+    const rate = (classicTurnedHeading(held("right"), 0, frame) / frame) * 1000;
+    assert.ok(
+      Math.abs(rate - CLASSIC_TURN_DEGREES_PER_SECOND) < 1e-9,
+      `a ${frame.toFixed(1)}ms frame turned at ${rate} deg/s`,
+    );
+  }
+});
+
+test("a hitch cannot spin the hull through a turn nobody asked for", () => {
+  // A backgrounded tab, a GC pause or a slow first frame all arrive as one
+  // enormous delta. The clamp matches the one the frame loop applies to its own
+  // accumulator, so the steering and the simulation lose the same time.
+  const clamped = classicTurnedHeading(held("right"), 0, 5000);
+  assert.equal(clamped, degrees(MAX_TURN_SPAN_MS), "a two-second stall turns one clamped span");
+  assert.ok(clamped < 20, `${clamped} degrees is a lurch, not a hitch`);
+  assert.equal(classicTurnedHeading(held("right"), 0, -5), 0, "time cannot run backwards");
 });
 
 test("W drives the ship along its own nose, wherever that points", () => {
@@ -290,20 +346,28 @@ test("W drives the ship along its own nose, wherever that points", () => {
 
 test("turning and thrusting together is a curve", () => {
   // Holding W and D should come round while still driving -- the single most
-  // common thing a pilot does in this scheme.
-  const flight = classicKeyboardFlight(held("up", "right"), 10);
-  assert.equal(flight.heading, 10 + CLASSIC_TURN_DEGREES_PER_TICK);
+  // common thing a pilot does in this scheme. The turn lands first, then the
+  // engine burns along whatever heading it produced.
+  const turned = classicTurnedHeading(held("up", "right"), 10, FRAME_MS);
+  assert.equal(turned, 10 + degrees(FRAME_MS), "thrust does not suppress the turn");
+
+  const flight = classicKeyboardFlight(held("up", "right"), turned);
+  assert.equal(flight.heading, turned);
   assert.equal(flight.intent.magnitude, 1);
   assert.equal(flight.intent.heading, flight.heading);
 });
 
 test("opposing turn keys cancel, and nothing held holds the heading", () => {
+  assert.equal(classicTurnDirection(held("left", "right")), 0);
+  assert.equal(classicTurnedHeading(held("left", "right"), 42, FRAME_MS), 42, "A and D together do not drift");
+  assert.equal(classicTurnedHeading(NO_KEYS, 42, FRAME_MS), 42, "the hull keeps pointing where it was left");
+
   const both = classicKeyboardFlight(held("left", "right"), 42);
-  assert.equal(both.heading, 42, "A and D together do not drift");
+  assert.equal(both.heading, 42);
   assert.equal(both.intent.active, false);
 
   const idle = classicKeyboardFlight(NO_KEYS, 42);
-  assert.equal(idle.heading, 42, "the hull keeps pointing where it was left");
+  assert.equal(idle.heading, 42);
   assert.equal(idle.intent.active, false, "and coasts rather than braking");
 });
 
@@ -311,26 +375,29 @@ test("S does nothing, deliberately", () => {
   // The original had no reverse, and a thrust vector opposite the nose would
   // fight `facingFor` -- the hull turns to whatever the intent points at, so
   // the ship would flip rather than back up. Reverse is the retros upgrade.
+  assert.equal(classicTurnedHeading(held("down"), 33, FRAME_MS), 33);
   const flight = classicKeyboardFlight(held("down"), 33);
   assert.equal(flight.heading, 33);
   assert.equal(flight.intent.active, false);
 });
 
 test("a turn rate that is steering, not selecting a direction", () => {
-  // At the 15ms tick, a full turn should take somewhere around a second and a
-  // bit: fast enough to bring the nose onto something shooting at you, slow
-  // enough that steering is a thing you do. Pinned as a band so it can be
-  // tuned without rewriting the test.
-  const secondsPerTurn = 360 / (CLASSIC_TURN_DEGREES_PER_TICK * (1000 / 15));
+  // A full turn should take somewhere around a second and a bit: fast enough to
+  // bring the nose onto something shooting at you, slow enough that steering is
+  // a thing you do. Pinned as a band so it can be tuned without rewriting the
+  // test -- and unchanged by the move off the tick, which was a fix for how the
+  // turn reads rather than for how fast it is.
+  const secondsPerTurn = 360 / CLASSIC_TURN_DEGREES_PER_SECOND;
   assert.ok(secondsPerTurn > 0.8, `${secondsPerTurn.toFixed(2)}s per turn -- too twitchy`);
   assert.ok(secondsPerTurn < 2.2, `${secondsPerTurn.toFixed(2)}s per turn -- too sluggish`);
 });
 
 test("a nonsense heading cannot leave the hull pointing nowhere", () => {
   for (const bad of [Number.NaN, Infinity, -Infinity]) {
-    const flight = classicKeyboardFlight(held("right"), bad);
-    assert.ok(Number.isFinite(flight.heading), `${bad} produced ${flight.heading}`);
+    assert.ok(Number.isFinite(classicTurnedHeading(held("right"), bad, FRAME_MS)), `${bad} survived the turn`);
+    assert.ok(Number.isFinite(classicKeyboardFlight(held("right"), bad).heading), `${bad} survived the flight`);
   }
+  assert.ok(Number.isFinite(classicTurnedHeading(held("right"), 0, Number.NaN)), "an unmeasurable frame turns nothing");
 });
 
 test("the mouse stops steering under Classic, and still steers under Twin Stick", () => {
@@ -346,8 +413,25 @@ test("the loop reads the keyboard through the profile", () => {
   // If this reverts to calling intentFromKeys unconditionally, Classic silently
   // goes back to absolute-direction WASD and nothing else here would notice.
   assert.ok(game.includes("const flight = classicKeyboardFlight(heldKeys, player.angle);"));
-  assert.ok(game.includes("player.angle = flight.heading;"), "the turned heading reaches the hull");
+  assert.ok(game.includes("player.angle = flight.heading;"), "the heading reaches the hull");
   assert.ok(game.includes("const classicKeys = !rightControlAims(settingsRef.current.controlProfile);"));
+  // Steering is integrated once per frame against the clock, outside the fixed
+  // tick. Inside it, a 16.7ms frame would collect one 15ms tick or two, and the
+  // hull would lurch through an uneven number of degrees between frames.
+  assert.ok(game.includes("const steerClassic = (elapsedMs: number) => {"), "steering has its own per-frame pass");
+  assert.ok(
+    game.includes("game.player.angle = classicTurnedHeading(keysFrom(keys.current), game.player.angle, elapsedMs);"),
+    "and it is the only place the Classic turn is integrated",
+  );
+  assert.ok(game.includes("steerClassic(span);"), "called once per frame, before the simulation catches up");
+  assert.ok(
+    game.includes("const span = Math.min(MAX_TURN_SPAN_MS, delta);"),
+    "steering and the simulation lose the same time to a hitch",
+  );
+  assert.ok(
+    !game.includes("classicKeyboardFlight(heldKeys, player.angle, "),
+    "nothing passes a per-tick turn amount any more",
+  );
   // Twin Stick keeps the scheme it always had.
   assert.ok(game.includes("keyboardIntent = intentFromKeys(heldKeys);"));
 });
