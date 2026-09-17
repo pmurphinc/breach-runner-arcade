@@ -23,6 +23,16 @@ import { difficultyCardStyle } from "./arena-palettes";
 import { DIFFICULTIES, DIFFICULTY_ORDER, type DifficultyId, type GameMode } from "./difficulty";
 import { PRODUCT_TAGLINE, PRODUCT_TITLE } from "./product";
 import type { MenuRoute } from "./menu-routes";
+import { SIGNED_OUT, type AccountSession } from "./account";
+import { formatCredits } from "./currency";
+import {
+  PUBLIC_ACCESS,
+  WORK_IN_PROGRESS_HINT,
+  WORK_IN_PROGRESS_NOTE,
+  isModeCardAvailable,
+  type ModeAccess,
+  type ModeCardId,
+} from "./mode-access";
 import { settingsStore, type AimGuide, type CombatHaptics, type SoundLevel, type TouchControlHeight, type TouchControlSize, type ViewMode, type ZoomLevel } from "./view-settings";
 import { GAMEPAD_BINDINGS } from "./gamepad";
 import { RIFT_RUN_DESCRIPTION, RIFT_RUN_TAGLINE, RIFT_RUN_TITLE } from "./rift-run/data";
@@ -38,7 +48,7 @@ import { drawWeaponGlyph } from "./weapon-art";
 export const MODE_INFO: Record<GameMode, { label: string; blurb: string }> = {
   pve: { label: "Solo PvE", blurb: "One pilot against the rift. Scores count on the global board." },
   coop: { label: "PvE Co-op", blurb: "Two pilots, one objective. Tougher rift, shared win." },
-  pvp: { label: "PvP 1v1", blurb: "Real-time duel under Stable rules. No sign-in needed." },
+  pvp: { label: "PvP 1v1", blurb: "Real-time duel under Stable rules. Sign in to keep the result." },
   team: { label: "PvP 2v2", blurb: "You and an ally share one rift, against a rival pair sharing theirs." },
   classic: {
     label: "Classic Wormhole",
@@ -112,8 +122,13 @@ export function MenuPupPreview({ pup, size = 88 }: { pup: PickupId; size?: numbe
 }
 
 /** Shared read-only reference, generated from gameplay and selection metadata. */
-export function GameInfoContent({ viewMode }: { viewMode: ViewMode }) {
+export function GameInfoContent({ viewMode, access = PUBLIC_ACCESS }: { viewMode: ViewMode; access?: ModeAccess }) {
   const touch = viewMode !== "pc";
+  // The codex describes what can be played, so it observes the same lock the
+  // Mode Select screen does: a locked mode is named and marked in development,
+  // and its premise is not advertised until the mode can deliver it.
+  const modeLine = (id: GameMode) =>
+    isModeCardAvailable(id as ModeCardId, access) ? MODE_INFO[id].blurb : WORK_IN_PROGRESS_NOTE;
   return <div className="game-info-content">
     <MenuSection title="How to Play">
       <ol className="how-to">
@@ -131,8 +146,8 @@ export function GameInfoContent({ viewMode }: { viewMode: ViewMode }) {
     </MenuSection>
     <MenuSection title="Game Modes" hint="Gameplay formats determine who plays and how a run ends.">
       <dl className="control-list mode-info-list">
-        {MODE_ORDER.map((id) => <div key={id} data-mode={id}><dt>{MODE_INFO[id].label}</dt><dd>{MODE_INFO[id].blurb}</dd></div>)}
-        <div><dt>{CHALLENGE_INFO.survival.label}</dt><dd>{DIFFICULTIES.survival.blurb}</dd></div>
+        {MODE_ORDER.map((id) => <div key={id} data-mode={id} data-locked={isModeCardAvailable(id as ModeCardId, access) ? "false" : "true"}><dt>{MODE_INFO[id].label}</dt><dd>{modeLine(id)}</dd></div>)}
+        <div data-mode="survival"><dt>{CHALLENGE_INFO.survival.label}</dt><dd>{DIFFICULTIES.survival.blurb}</dd></div>
       </dl>
       <h4 className="game-info-subheading">Solo difficulties</h4>
       <dl className="control-list difficulty-info-list">
@@ -244,14 +259,35 @@ export function HomeScreen({
   go,
   openSettings,
   close,
+  session = SIGNED_OUT,
+  difficulty,
+  modeLocked = false,
 }: MenuCallbacks & {
   mode: GameMode;
   running: boolean;
   onLaunch: () => void;
+  /** Who is signed in, and what they have to spend. */
+  session?: AccountSession;
+  /** The remembered difficulty, so a challenge is named as itself. */
+  difficulty?: DifficultyId;
+  /** True when the remembered run is one this pilot cannot currently launch. */
+  modeLocked?: boolean;
 }) {
   const network = mode !== "pve";
-  const modeLabel = MODE_INFO[mode].label;
-  const modeBlurb = MODE_INFO[mode].blurb;
+  // Rift Survival rides on the PvE mode, so the mode alone would have Home
+  // announce the plain solo label for a run that is nothing of the sort. Home
+  // is the screen Play launches from, so it has to name what Play will
+  // actually start.
+  const challenge = difficulty === "survival";
+  // A preference outlives the roster. Rather than quietly rewriting what the
+  // pilot last chose, Home says the remembered run is not available and Play
+  // opens Mode Select — so the screen and the button agree, and the choice is
+  // still the pilot's to make.
+  const modeLabel = modeLocked ? "Choose a mode" : challenge ? CHALLENGE_INFO.survival.label : MODE_INFO[mode].label;
+  const modeBlurb = modeLocked
+    ? `${MODE_INFO[mode].label} is still in development. Pick one of the modes that are open.`
+    : challenge ? CHALLENGE_INFO.survival.blurb : MODE_INFO[mode].blurb;
+  const pilot = session.account;
 
   return (
     <MenuScreen
@@ -266,6 +302,7 @@ export function HomeScreen({
       footer={
         <nav className="home-command-deck" aria-label="Command deck">
           <MenuActionButton className="launch-utility-ships" icon="✦" label="Ships" detail="Choose your hull" onClick={() => go("ships")} />
+          <MenuActionButton className="launch-utility-armory" icon="$" label="Armory" detail="Buy and load PUPs" onClick={() => go("armory")} />
           <MenuActionButton className="launch-utility-leaderboard" icon="↗" label="Leaderboard" detail="Review high scores" onClick={() => go("leaderboard")} />
           <MenuActionButton className="launch-utility-info" icon="?" label="Game Info" detail="Controls and codex" onClick={() => go("info")} />
         </nav>
@@ -283,6 +320,24 @@ export function HomeScreen({
           />
           <p>{PRODUCT_TAGLINE}</p>
         </header>
+
+        {/*
+          Who is flying, and what they have to spend.
+          Deliberately the first thing under the logo and deliberately a
+          button: signing in is what makes a score count and money stick, so
+          the state of it belongs where a pilot looks before pressing Play
+          rather than in a settings screen they have no reason to open.
+        */}
+        <button type="button" className={`home-pilot-strip ${pilot ? "signed-in" : "signed-out"}`} onClick={() => go("account")}>
+          <span className="home-pilot-id">
+            <small>{pilot ? "PILOT" : "NOT SIGNED IN"}</small>
+            <b>{pilot ? pilot.initials : "SIGN IN TO SAVE SCORES"}</b>
+          </span>
+          <span className="home-pilot-credits">
+            <small>BALANCE</small>
+            <b>{pilot ? formatCredits(session.wallet.credits) : formatCredits(0)}</b>
+          </span>
+        </button>
 
         <section className="launch-console" data-launch-region="mission" aria-labelledby="launch-console-title">
           <div className="launch-console-scanline" aria-hidden="true" />
@@ -318,8 +373,10 @@ export function HomeScreen({
             data-launch-control="play"
             tone="primary"
             icon="▶"
-            label={network ? "Find a Match" : "Play"}
-            detail={running ? "Resume the current sortie" : "Enter the rift and begin the run"}
+            label={modeLocked ? "Choose a Mode" : network ? "Find a Match" : "Play"}
+            detail={modeLocked
+              ? "Open Mode Select and pick a playable run"
+              : running ? "Resume the current sortie" : "Enter the rift and begin the run"}
             onClick={onLaunch}
           />
         </section>
@@ -344,24 +401,15 @@ export function HomeScreen({
  * what most sessions stay in. The grouping needs no caption of its own: every
  * label in MODE_INFO already names the shape it belongs to.
  */
-export function GameTypeScreen({ onMode, onSurvival, onRiftRun, onVersus, back, openSettings, currentMode }: MenuCallbacks & {
+export function GameTypeScreen({ onMode, onSurvival, onRiftRun, onVersus, back, openSettings, currentMode, access = PUBLIC_ACCESS }: MenuCallbacks & {
   onMode: (mode: "pve" | "coop" | "classic") => void;
   onSurvival: () => void;
   onRiftRun: () => void;
   onVersus: (mode: "pvp" | "team") => void;
   currentMode?: GameMode;
+  /** Who is asking. A developer account sees the whole roster unlocked. */
+  access?: ModeAccess;
 }) {
-  const defaultSelection = currentMode === "coop" || currentMode === "pvp" || currentMode === "team" ? currentMode : "pve";
-  const [selected, setSelected] = useState<"pve" | "rift-run" | "survival" | "coop" | "pvp" | "team">(defaultSelection);
-
-  const activate = (id: typeof selected) => {
-    setSelected(id);
-    if (id === "rift-run") onRiftRun();
-    else if (id === "survival") onSurvival();
-    else if (id === "pvp" || id === "team") onVersus(id);
-    else onMode(id);
-  };
-
   const cards = [
     { id: "pve" as const, label: MODE_INFO.pve.label, detail: MODE_INFO.pve.blurb, tag: "SOLO // STANDARD", accent: "cyan" },
     { id: "rift-run" as const, label: RIFT_RUN_TITLE, detail: RIFT_RUN_TAGLINE, tag: "ROGUELITE // DEPTH", accent: "pink" },
@@ -369,47 +417,85 @@ export function GameTypeScreen({ onMode, onSurvival, onRiftRun, onVersus, back, 
     { id: "coop" as const, label: MODE_INFO.coop.label, detail: MODE_INFO.coop.blurb, tag: "CO-OP // SHARED", accent: "lime" },
     { id: "pvp" as const, label: MODE_INFO.pvp.label, detail: MODE_INFO.pvp.blurb, tag: "VERSUS // DUEL", accent: "pink" },
     { id: "team" as const, label: MODE_INFO.team.label, detail: MODE_INFO.team.blurb, tag: "VERSUS // TEAM", accent: "purple" },
-  ];
+  ].map((card) => ({ ...card, locked: !isModeCardAvailable(card.id, access) }));
+
+  /*
+    A locked card is not a card with its button turned off: it is a card with
+    nothing on it but its name. Describing a mode nobody can play — its
+    premise, its tag, its accent — is an advertisement for a locked door, and
+    the blurb is exactly the part that makes a player want to press it. So the
+    copy is replaced rather than dimmed, and what remains is the title and the
+    fact that it is being worked on.
+  */
+  const copyFor = (card: (typeof cards)[number]) =>
+    card.locked ? { tag: "", detail: WORK_IN_PROGRESS_NOTE } : { tag: card.tag, detail: card.detail };
+
+  // Never open on a card the pilot cannot deploy: the remembered mode may have
+  // been locked since it was last played, and a screen whose primary action is
+  // inert is a screen that reads as broken.
+  const remembered = currentMode === "coop" || currentMode === "pvp" || currentMode === "team" ? currentMode : "pve";
+  const openable = cards.find((card) => card.id === remembered && !card.locked)
+    ?? cards.find((card) => !card.locked)
+    ?? cards[0];
+  const [selected, setSelected] = useState<(typeof cards)[number]["id"]>(openable.id);
+
+  const activate = (id: typeof selected) => {
+    setSelected(id);
+    if (cards.find((card) => card.id === id)?.locked) return;
+    if (id === "rift-run") onRiftRun();
+    else if (id === "survival") onSurvival();
+    else if (id === "pvp" || id === "team") onVersus(id);
+    else onMode(id);
+  };
+
   const selectedCard = cards.find((card) => card.id === selected) ?? cards[0];
+  const selectedCopy = copyFor(selectedCard);
+  const openCount = cards.filter((card) => !card.locked).length;
 
   return (
     <MenuScreen route="modes" onOpenSettings={openSettings} title="Mode Select" eyebrow="MISSION ARCHIVE // CHOOSE YOUR RUN" onBack={back} wide>
       <div className="mode-command-layout">
         <aside className="mode-selection-console" aria-live="polite">
           <span className="menu-stage-kicker">SELECTED PROTOCOL</span>
-          <div className={`mode-selection-sigil accent-${selectedCard.accent}`} aria-hidden="true">
-            <span>{selectedCard.id === "rift-run" ? "R" : selectedCard.id === "survival" ? "∞" : selectedCard.id === "pve" ? "1" : "2"}</span>
+          <div className={`mode-selection-sigil accent-${selectedCard.locked ? "locked" : selectedCard.accent}`} aria-hidden="true">
+            <span>{selectedCard.locked ? "✕" : selectedCard.id === "rift-run" ? "R" : selectedCard.id === "survival" ? "∞" : selectedCard.id === "pve" ? "1" : "2"}</span>
           </div>
-          <p className="mode-selection-tag">{selectedCard.tag}</p>
+          {selectedCopy.tag ? <p className="mode-selection-tag">{selectedCopy.tag}</p> : null}
           <h3>{selectedCard.label}</h3>
-          <p>{selectedCard.detail}</p>
-          <div className="mode-selection-footer"><span>STATUS</span><b>READY TO DEPLOY</b></div>
+          <p>{selectedCopy.detail}</p>
+          <div className="mode-selection-footer"><span>STATUS</span><b>{selectedCard.locked ? "IN DEVELOPMENT" : "READY TO DEPLOY"}</b></div>
         </aside>
 
         <section className="mode-catalog" aria-label="Available game modes">
           <div className="mode-catalog-header">
             <div><span className="menu-stage-kicker">AVAILABLE RUNS</span><h3>Choose your breach vector</h3></div>
-            <span className="mode-count">{cards.length.toString().padStart(2, "0")} MODES</span>
+            <span className="mode-count">{openCount.toString().padStart(2, "0")} OPEN</span>
           </div>
+          <p className="menu-hint mode-catalog-note">{access.developer ? "Developer access: every mode is unlocked for testing." : WORK_IN_PROGRESS_HINT}</p>
           <div className="mode-card-matrix">
-            {cards.map((card, index) => (
-              <button
-                key={card.id}
-                type="button"
-                className={`mode-launch-card ${selected === card.id ? "selected" : ""} accent-${card.accent}`}
-                data-mode={card.id}
-                onClick={() => activate(card.id)}
-                style={{ "--mode-index": index } as React.CSSProperties}
-              >
-                <span className="mode-card-index">0{index + 1}</span>
-                <span className="mode-card-orbit" aria-hidden="true"><i /></span>
-                <span className="mode-card-copy"><small>{card.tag}</small><b>{card.label}</b><em>{card.detail}</em></span>
-                <span className="mode-card-enter" aria-hidden="true">ENTER ↗</span>
-              </button>
-            ))}
+            {cards.map((card, index) => {
+              const copy = copyFor(card);
+              return (
+                <button
+                  key={card.id}
+                  type="button"
+                  className={`mode-launch-card ${selected === card.id ? "selected" : ""} ${card.locked ? "locked" : ""} accent-${card.locked ? "locked" : card.accent}`}
+                  data-mode={card.id}
+                  data-locked={card.locked ? "true" : "false"}
+                  aria-disabled={card.locked}
+                  onClick={() => activate(card.id)}
+                  style={{ "--mode-index": index } as React.CSSProperties}
+                >
+                  <span className="mode-card-index">0{index + 1}</span>
+                  <span className="mode-card-orbit" aria-hidden="true"><i /></span>
+                  <span className="mode-card-copy">{copy.tag ? <small>{copy.tag}</small> : null}<b>{card.label}</b><em>{copy.detail}</em></span>
+                  <span className="mode-card-enter" aria-hidden="true">{card.locked ? "LOCKED" : "ENTER ↗"}</span>
+                </button>
+              );
+            })}
           </div>
           <div className="mode-catalog-footer">
-            <MenuActionButton className="mode-deploy-button" tone="primary" icon="▶" label="Deploy selected mode" detail={`${selectedCard.label} // press to enter`} onClick={() => activate(selected)} />
+            <MenuActionButton className="mode-deploy-button" tone="primary" icon="▶" label="Deploy selected mode" detail={selectedCard.locked ? `${selectedCard.label} // ${WORK_IN_PROGRESS_NOTE.toLowerCase()}` : `${selectedCard.label} // press to enter`} disabled={selectedCard.locked} onClick={() => activate(selected)} />
             <span className="menu-footnote">Arrow keys / controller to navigate · Enter to select · Esc to return</span>
           </div>
         </section>
@@ -697,7 +783,9 @@ export function SettingsScreen({
   onZoom,
   initials,
   onInitials,
+  access = PUBLIC_ACCESS,
 }: MenuCallbacks & {
+  access?: ModeAccess;
   viewMode: ViewMode;
   storedViewMode: ViewMode | null;
   onViewMode: (next: ViewMode | null) => void;
@@ -978,7 +1066,7 @@ export function SettingsScreen({
       </MenuSection> : null}
 
       {activeTab === "gameInfo" ? <MenuSection title="Game Info">
-        <GameInfoContent viewMode={viewMode} />
+        <GameInfoContent viewMode={viewMode} access={access} />
       </MenuSection> : null}
 
           </div>
@@ -996,10 +1084,11 @@ export function InfoScreen({
   openSettings,
   viewMode,
   onCodex,
-}: MenuCallbacks & { viewMode: ViewMode; onCodex: () => void }) {
+  access = PUBLIC_ACCESS,
+}: MenuCallbacks & { viewMode: ViewMode; onCodex: () => void; access?: ModeAccess }) {
   return (
     <MenuScreen route="info" title="Game Info" onBack={back} onOpenSettings={openSettings} wide>
-      <GameInfoContent viewMode={viewMode} />
+      <GameInfoContent viewMode={viewMode} access={access} />
       <MenuSection title="More detail">
         <button type="button" className="menu-link-button" onClick={onCodex} aria-haspopup="dialog">
           Open the weapon codex

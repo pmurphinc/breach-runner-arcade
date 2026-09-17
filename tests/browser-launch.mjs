@@ -90,6 +90,30 @@ export const HOME_ROUTE = ".menu-screen[data-route='home']";
 export const DIFFICULTY_KEY = "wormhole-arcade:difficulty";
 export const SHIP_KEY = "wormhole-arcade:ship";
 export const SETTINGS_KEY = "wormhole-arcade:settings:v1";
+export const ACCOUNTS_KEY = "breach-runner:accounts:v1";
+export const SESSION_KEY = "breach-runner:session:v1";
+
+/**
+ * The pilot a browser test flies as.
+ *
+ * Two things now depend on being signed in, and both of them are things these
+ * tests take for granted: most modes are locked to everyone but a developer
+ * account, and a finished run is only saved against an account. A suite that
+ * measures the arena should not have to fill in a sign-up form to reach one,
+ * so the session is seeded directly — the same way the difficulty and the
+ * ship already are.
+ *
+ * The developer address is deliberate rather than convenient: it is the
+ * mechanism the game itself provides for reaching an unfinished mode, so these
+ * tests use the product's own door rather than a test-only back one.
+ *
+ * The stored credential is never exercised. A session is restored by account
+ * id, so seeding one costs no key derivation; signing in with a password would
+ * be a hundred and fifty thousand PBKDF2 rounds per test for a screen none of
+ * them are testing.
+ */
+export const TEST_PILOT_EMAIL = "pmurphinc@gmail.com";
+export const TEST_PILOT_ID = "browser-test-pilot";
 
 /**
  * Seed the run a page will open on, before any of its scripts run.
@@ -108,11 +132,15 @@ export const SETTINGS_KEY = "wormhole-arcade:settings:v1";
  *
  * Call before `page.goto`.
  */
-export async function seedRun(page, { difficulty, ship, controlProfile = "twinStick" } = {}) {
+export async function seedRun(page, { difficulty, ship, controlProfile = "twinStick", signedIn = true } = {}) {
   await hideDevErrorOverlay(page);
   await page.addInitScript(
-    ({ difficulty: chosen, ship: hull, profile, difficultyKey, shipKey, settingsKey }) => {
+    ({ difficulty: chosen, ship: hull, profile, difficultyKey, shipKey, settingsKey, pilot, accountsKey, sessionKey }) => {
       try {
+        if (pilot) {
+          localStorage.setItem(accountsKey, JSON.stringify([pilot]));
+          localStorage.setItem(sessionKey, pilot.id);
+        }
         if (chosen) localStorage.setItem(difficultyKey, chosen);
         if (hull) localStorage.setItem(shipKey, hull);
         if (profile) {
@@ -127,7 +155,29 @@ export async function seedRun(page, { difficulty, ship, controlProfile = "twinSt
         // A browser with storage blocked still runs the game on defaults.
       }
     },
-    { difficulty, ship, profile: controlProfile, difficultyKey: DIFFICULTY_KEY, shipKey: SHIP_KEY, settingsKey: SETTINGS_KEY },
+    {
+      difficulty,
+      ship,
+      profile: controlProfile,
+      difficultyKey: DIFFICULTY_KEY,
+      shipKey: SHIP_KEY,
+      settingsKey: SETTINGS_KEY,
+      accountsKey: ACCOUNTS_KEY,
+      sessionKey: SESSION_KEY,
+      pilot: signedIn
+        ? {
+            version: 1,
+            id: TEST_PILOT_ID,
+            email: TEST_PILOT_EMAIL,
+            initials: "",
+            createdAt: 0,
+            // Never read: the record is restored by id, and the developer flag
+            // is re-derived from the email on every read.
+            salt: "browser-test-salt",
+            hash: "browser-test-hash",
+          }
+        : null,
+    },
   );
 }
 

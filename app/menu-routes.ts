@@ -22,6 +22,8 @@ export type MenuRoute =
   | "pve-modes"
   | "difficulty"
   | "rift-run"
+  | "armory"
+  | "account"
   | "settings"
   | "info"
   | "leaderboard"
@@ -37,6 +39,8 @@ export const MENU_ROUTES: readonly MenuRoute[] = [
   "pve-modes",
   "difficulty",
   "rift-run",
+  "armory",
+  "account",
   "settings",
   "info",
   "leaderboard",
@@ -57,6 +61,8 @@ export const ROUTE_TITLES: Record<MenuRoute, string> = {
   "pve-modes": "PvE Modes",
   difficulty: "Difficulty",
   "rift-run": "Rift Run",
+  armory: "Armory",
+  account: "Pilot Account",
   settings: "Settings",
   info: "Game Info",
   leaderboard: "Leaderboard",
