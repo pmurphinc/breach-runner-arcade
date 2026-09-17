@@ -195,6 +195,20 @@ import { classicDeadzone, classicKeyboardFlight, pointerAims, rightControlAims, 
 import { salvageLinkHitsPup } from "./salvage-link";
 import { inventoryPayloadIconLayout, inventoryPupVisual } from "./pup-inventory-visual";
 import { pupPickupSoundProfile, type PupPickupSoundProfile } from "./pup-audio";
+import { accountStore, type AccountSession } from "./account";
+import { AccountScreen } from "./account-screen";
+import { ArmoryScreen } from "./armory-screen";
+import { bankCredits, consumeLoadout, type PilotWallet } from "./armory";
+import {
+  CREDIT_AWARDS,
+  creditsForRiftCharge,
+  creditsForRiftDamage,
+  enemyBounty,
+  formatCredits,
+  formatCreditsCompact,
+  settleRunCredits,
+} from "./currency";
+import { canLaunch, type ModeAccess } from "./mode-access";
 import { RICOCHET_BOUNCES, RICOCHET_DURATION_SECONDS, reflectRicochet } from "./ricochet";
 import { controllerStateForPads, EMPTY_GAMEPAD, headingDegrees, pressedOnce, type GamepadActions } from "./gamepad";
 import { clearControllerFocus, controllerCancelTarget, moveControllerFocus, visibleControllerControls } from "./controller-navigation";
@@ -718,6 +732,16 @@ type Game = {
    * the HUD only shows it where it means something.
    */
   kills: number;
+  /**
+   * Money earned this run, in dollars, before it is banked.
+   *
+   * Held as a float because the smallest award — charging the rift — is a
+   * fraction of a dollar a hit, and rounding each one to zero would make the
+   * loop's first step pay nothing at all. Only whole dollars ever leave the
+   * run: the HUD floors it and `settleRunCredits` floors it again on the way
+   * into the wallet.
+   */
+  credits: number;
   /** Set by the self-destruct key; spent by the loop on the next tick. */
   selfDestruct: boolean;
   /**
@@ -845,6 +869,8 @@ type Hud = {
   /** Retro marks fitted, so the readout can show the mark rather than a lamp. */
   retros: number;
   score: number;
+  /** Whole dollars earned so far this run. */
+  credits: number;
   elapsedSeconds: number;
   /** Normalized rival integrity percentage for UI and saved-run compatibility. */
   rivalHealth: number;
@@ -1069,6 +1095,7 @@ function createGame(
     pickupLabels: [],
     stock: [],
     score: 0,
+    credits: 0,
     // One rift, split between however many pilots share this arena. Co-op and
     // a 2v2 team are both two, so both get the doubled rift co-op has always
     // had; solo and 1v1 are one and are unchanged.
@@ -1096,6 +1123,7 @@ function hudFrom(game: Game): Hud {
     thrust: game.player.thrust,
     retros: game.player.retros,
     score: game.score,
+    credits: Math.floor(game.credits),
     kills: game.kills,
     elapsedSeconds: Math.floor(game.elapsedTicks * TICK_MS / 1000),
     rivalHealth: Math.max(0, Math.round((game.rivalHealth / game.rivalMaxHealth) * 100)),
@@ -1146,6 +1174,7 @@ function hudEqual(a: Hud, b: Hud) {
     && a.thrust === b.thrust
     && a.retros === b.retros
     && a.score === b.score
+    && a.credits === b.credits
     && a.elapsedSeconds === b.elapsedSeconds
     && a.rivalHealth === b.rivalHealth
     && a.rivalCurrentHealth === b.rivalCurrentHealth
@@ -1583,6 +1612,16 @@ type RunSummary = {
   runs: number;
   /** True when the card is reporting a run saved across a sign-in redirect. */
   restored: boolean;
+  /**
+   * Dollars this run earned, already settled to whole dollars.
+   *
+   * Reported whether or not they were banked, because a signed-out pilot
+   * should be able to see exactly what an account would have kept for them —
+   * "sign in to save" is an empty instruction without the number attached.
+   */
+  earned: number;
+  /** False when the run was flown signed out, so nothing was banked or saved. */
+  banked: boolean;
   /** Victory waits for classic arcade initials before any persistence. */
   awaitingInitials: boolean;
   /** Final hull-damaging hazard for defeat screens. */
@@ -2220,6 +2259,7 @@ function DifficultyBadge({
       <div className="difficulty-badge rift-run-badge" role="status" aria-live="polite"
         aria-label={`Rift Run. Depth ${riftRun.riftBreaches}, ${depthStage}. ${riftRun.lives} extra ${riftRun.lives === 1 ? "life" : "lives"}. ${active} of ${unlocked} unlocked hardpoints armed. Special ${specialLabel}. Skill tree ability ${spokenTree}. Level ${riftRun.level}, ${Math.floor(riftRun.riftEnergy)} of ${riftEnergyRequiredForLevel(riftRun.level)} energy. Rift pressure ${hud.riftPressure} percent. ${hud.riftPupBudget} payloads left in this rift.`}>
         <span className="rule-score">{hud.score.toLocaleString().padStart(6, "0")}</span>
+        <span className="rule-credits">{formatCreditsCompact(hud.credits)}</span>
         <span className="rule-rift-level">DEPTH {riftRun.riftBreaches}</span>
         {/*
           The experience bar, and the only place a Rift Run's level progress is
@@ -2269,13 +2309,14 @@ function DifficultyBadge({
   }
 
   return (
-    <div className={`difficulty-badge ${contactActive ? "hazard" : ""}`} role="status" aria-live="polite" aria-label={`Score ${hud.score}. Active rules: ${status}`}>
+    <div className={`difficulty-badge ${contactActive ? "hazard" : ""}`} role="status" aria-live="polite" aria-label={`Score ${hud.score}. Earned ${formatCredits(hud.credits)}. Active rules: ${status}`}>
       {/*
         Score first, and without its label: six padded digits in the score
         colour are not mistakable for anything else, and the word cost as much
         room as two of the digits.
       */}
       <span className="rule-score">{hud.score.toLocaleString().padStart(6, "0")}</span>
+        <span className="rule-credits">{formatCreditsCompact(hud.credits)}</span>
       {/*
         Time earns its place only where it is the thing being ranked. Survival
         is scored on how long the pilot lasted, so the clock is the score;
@@ -2744,10 +2785,60 @@ export default function WormholeGame() {
     pilotProgressionStore.getSnapshot,
     pilotProgressionStore.getServerSnapshot,
   );
+  /**
+   * Who is signed in, and what they have to spend.
+   *
+   * One subscription for the whole shell: Home's pilot strip, the Armory, the
+   * mode lock and the result card's banking line all read the same snapshot,
+   * so they can never disagree about whether a pilot is signed in.
+   */
+  const session: AccountSession = useSyncExternalStore(
+    accountStore.subscribe,
+    accountStore.getSnapshot,
+    accountStore.getServerSnapshot,
+  );
+  const signedIn = session.account !== null;
+  const developer = session.account?.developer ?? false;
+  // Memoised because it is a prop on three screens and a dependency of the
+  // launch guard; a fresh object every render would re-run both for nothing.
+  const access: ModeAccess = useMemo(() => ({ developer }), [developer]);
+  const updateWallet = useCallback(
+    (change: (wallet: PilotWallet) => PilotWallet) => accountStore.updateWallet(change),
+    [],
+  );
+  /**
+   * An account supplies the initials a board entry is signed with.
+   *
+   * Copied into device settings rather than read from the account at every
+   * call site: initials were a device preference long before accounts existed,
+   * and every board, lobby and result card already reads them from there.
+   */
+  const accountInitials = session.account?.initials ?? "";
+  useEffect(() => {
+    // Keyed on the initials themselves rather than the account object: the
+    // snapshot is replaced on every wallet change, and depending on it would
+    // re-stamp the device preference after every purchase — quietly undoing a
+    // pilot who had since changed their initials in Settings.
+    if (accountInitials && settingsStore.getSnapshot().playerInitials !== accountInitials) {
+      settingsStore.update({ playerInitials: accountInitials });
+    }
+  }, [accountInitials]);
   useEffect(() => {
     const safe = safeDifficulty(difficulty, progression);
     if (safe !== difficulty) difficultyPreference.set(safe);
   }, [difficulty, progression]);
+  /**
+   * Whether the remembered run can actually be flown.
+   *
+   * Derived, never written back. Rewriting the stored preference was the
+   * obvious fix for "a pilot whose remembered mode has since been locked" and
+   * it was wrong: `useSyncExternalStore` serves the *server* snapshot during
+   * hydration, so for one commit every pilot looks signed out — and an effect
+   * acting on that clobbered the remembered difficulty of everyone who was
+   * signed in, developers included, on every page load. A value that is only
+   * read cannot do that, and the launch guard already refuses the run.
+   */
+  const remembered = canLaunch(mode, difficulty, access);
   /** True once a run has been launched, so the shell knows the arena is live. */
   const [launched, setLaunched] = useState(false);
   const [net, setNet] = useState<PvpSnapshot | null>(null);
@@ -3499,9 +3590,52 @@ export default function WormholeGame() {
       depth: riftRun ? riftRun.riftBreaches : undefined,
     };
 
-    const storedInitials = settings.playerInitials;
+    /*
+      Payday.
+
+      The run's live total plus the one award that can only be known at the
+      end. Banked here rather than in the loop so a run banks exactly once —
+      the loop reaches `result` on one tick but the effect that reads it can
+      run again, and `recordedResult` is what makes this block idempotent.
+
+      Signed out, the money is still counted and still shown. It simply has
+      nowhere to go, which is the honest form of "an account keeps this".
+    */
+    const earned = settleRunCredits(hud.credits + (hud.result === "victory" ? CREDIT_AWARDS.victory : 0));
+    // `banked` answers "was this run kept at all", not "did money move": a run
+    // that earned nothing was still saved if a pilot was signed in, and the
+    // card's save state and its money line both depend on that distinction.
+    const banked = signedIn;
+    if (banked && earned > 0) accountStore.updateWallet((wallet) => bankCredits(wallet, earned));
+
+    /*
+      And the other half of the same rule: a score is written against an
+      account or it is not written at all.
+
+      Nothing about the run itself changes — it was played, it is settled, and
+      the card reports it in full. What a signed-out pilot does not get is a
+      row on a board, on this device or the public one, because there is no
+      identity to attach it to. The card says so and offers the way through.
+    */
+    const storedInitials = signedIn ? settings.playerInitials : "";
     const identifiedRun = storedInitials ? { ...run, initials: storedInitials } : run;
     setInitialsEntry(storedInitials);
+    const unsaved = { earned, banked };
+    if (!signedIn) {
+      setSummary({
+        run,
+        replay,
+        best: null,
+        isBest: false,
+        runs: 0,
+        restored: false,
+        awaitingInitials: false,
+        deathCause: hud.deathCause,
+        ...unsaved,
+      });
+      setSaveState({ status: "idle" });
+      return;
+    }
     if (riftRun) {
       // Rift Run keeps its own device board and stays out of the arcade one.
       // The arcade record is a single best score from a completed victory,
@@ -3521,6 +3655,7 @@ export default function WormholeGame() {
         deathCause: hud.deathCause,
         riftRank: placement.rank,
         riftBoard: placement.board,
+        ...unsaved,
       });
     } else if (survivalRun) {
       // Survival keeps its own device board and stays out of the arcade one.
@@ -3538,6 +3673,7 @@ export default function WormholeGame() {
         deathCause: hud.deathCause,
         survivalRank: placement.rank,
         survivalBoard: placement.board,
+        ...unsaved,
       });
     } else if (hud.result === "victory" && hud.mode === "pve" && !practice && !storedInitials) {
       setSummary({
@@ -3549,15 +3685,16 @@ export default function WormholeGame() {
         restored: false,
         awaitingInitials: true,
         deathCause: hud.deathCause,
+        ...unsaved,
       });
     } else if (practice) {
-      setSummary({ run: identifiedRun, replay, best: loadLocalBest(), isBest: false, runs: 0, restored: false, awaitingInitials: false, deathCause: hud.deathCause });
+      setSummary({ run: identifiedRun, replay, best: loadLocalBest(), isBest: false, runs: 0, restored: false, awaitingInitials: false, deathCause: hud.deathCause, ...unsaved });
     } else {
       const local = saveLocalRun(identifiedRun);
-      setSummary({ run: identifiedRun, replay, best: local.best, isBest: local.isBest, runs: local.runs, restored: false, awaitingInitials: false, deathCause: hud.deathCause });
+      setSummary({ run: identifiedRun, replay, best: local.best, isBest: local.isBest, runs: local.runs, restored: false, awaitingInitials: false, deathCause: hud.deathCause, ...unsaved });
     }
     setSaveState({ status: "idle" });
-  }, [hud.breaches, hud.deathCause, hud.deathDamage, hud.difficulty, hud.elapsedSeconds, hud.mode, hud.result, hud.riftLevel, hud.rivalFinalCause, hud.rivalFinalDamage, hud.rivalHealth, hud.score, netResult, settings.playerInitials]);
+  }, [hud.breaches, hud.credits, hud.deathCause, hud.deathDamage, hud.difficulty, hud.elapsedSeconds, hud.mode, hud.result, hud.riftLevel, hud.rivalFinalCause, hud.rivalFinalDamage, hud.rivalHealth, hud.score, netResult, settings.playerInitials, signedIn]);
 
   // Every initials-tagged, non-Practice solo victory joins the public board.
   useEffect(() => {
@@ -3632,6 +3769,17 @@ export default function WormholeGame() {
     const confirmedShip = launchMode === "coop" || launchMode === "team" ? netRef.current?.state.you?.ship : null;
     const launchDifficulty = safeDifficulty(selectedDifficulty, pilotProgressionStore.getSnapshot());
     if (launchDifficulty !== selectedDifficulty) difficultyPreference.set(launchDifficulty);
+    /*
+      The lock is enforced here as well as on the menu, and that is not
+      belt-and-braces: the mode preference is restored from local storage, so a
+      pilot who last played a mode before it was locked would have Home's Play
+      launch it without Mode Select ever being opened. Mode Select is where the
+      lock is explained; this is where it holds.
+    */
+    if (!canLaunch(launchMode, launchDifficulty, access)) {
+      setMenu(resetRoute("modes"));
+      return;
+    }
     // Rift Run issues the same stripped starter frame every time; every other
     // mode flies the hull its lobby confirmed.
     const launchSpec = riftRun ? riftRunStarterSpec() : selectedShip((confirmedShip ?? shipId) as ShipId);
@@ -3653,6 +3801,27 @@ export default function WormholeGame() {
       riftRunRef.current = null;
       riftWeaponRuntime.current = {};
       setRiftRun(null);
+    }
+    /*
+      What the pilot paid for, loaded before the first shot.
+
+      Taken only up to the run's own payload ceiling — Rift Run opens with a
+      single slot — and whatever does not fit stays bought, in the wallet, for
+      a run that has room for it. Nothing is destroyed by launching the wrong
+      mode.
+
+      In a network match the server owns the inventory ledger, so each seeded
+      payload is reported as an ordinary `collect` rather than pushed into the
+      local array alone. A local-only seed would let the pilot fire payloads
+      the server has no record of, and the server would rightly reject every
+      one of them.
+    */
+    const banked = consumeLoadout(accountStore.getSnapshot().wallet, game.payloadCapacity);
+    if (banked.stock.length > 0 && accountStore.updateWallet(() => banked.wallet)) {
+      game.stock = [...banked.stock];
+      if (!isOfflineMode(launchMode)) {
+        for (const payload of banked.stock) netRef.current?.reportInventory("collect", payload);
+      }
     }
     game.roundId = launchMode === "coop" || launchMode === "team" ? (netRef.current?.state.roundId ?? 0) : 0;
     game.running = true;
@@ -3676,7 +3845,7 @@ export default function WormholeGame() {
     setLaunched(true);
     closeMenu();
     play("magic", 0.28);
-  }, [closeMenu, difficulty, mode, play, shipId, stopVictorySuction, sync]);
+  }, [access, closeMenu, difficulty, mode, play, setMenu, shipId, stopVictorySuction, sync]);
 
   const launchRiftRun = useCallback(() => {
     modePreference.set("pve");
@@ -3839,9 +4008,13 @@ export default function WormholeGame() {
    * nothing left to confirm.
    */
   const launchFromMenu = useCallback(() => {
+    // A remembered mode can have been locked since it was last played, and
+    // Home is the one launch that never passes through Mode Select. Send the
+    // pilot to the screen that explains it rather than failing silently.
+    if (!canLaunch(mode, difficulty, access)) { setMenu(resetRoute("modes")); return; }
     if (isOfflineMode(mode)) { start(); return; }
     setMenu(resetRoute("lobby"));
-  }, [mode, start]);
+  }, [access, difficulty, mode, start]);
 
   /**
    * Confirm on the Ships screen returns where it was opened from.
@@ -4801,6 +4974,11 @@ export default function WormholeGame() {
       enemy.hp = 0;
       game.kills += 1;
       game.score += enemy.kind === "nuke" ? 600 : enemy.kind === "gunship" ? 300 : 100;
+      // Money is paid out beside the score from the same event rather than
+      // derived from it: the two are ranked and spent differently, and a
+      // wallet computed from a score would move whenever the score is
+      // rebalanced for reasons that have nothing to do with prices.
+      game.credits += enemyBounty(enemy.kind);
       const run=riftRunRef.current;
       if (run) {
         const next=awardRiftEnergy(run,enemyKillEnergy(enemy.kind));
@@ -4841,13 +5019,22 @@ export default function WormholeGame() {
      * way and nothing here changes them.
      */
     const awardRiftDamage = (game: Game, damage: number) => {
+      if (game.result) return;
+      // Money first, and in every mode: integrity removed is the loop paying
+      // out, and it pays the same whether or not this ruleset also scores it.
+      // `damage` is integrity actually removed, so a hit an enrage shield
+      // swallowed and a hit on a rift already at zero both pay nothing.
+      game.credits += creditsForRiftDamage(damage);
       const survival = game.survival;
-      if (!survival || game.result) return;
+      if (!survival) return;
       game.score += scoreRiftDamage(survival, damage);
     };
 
     /** Shared nominal-damage path for cannon and additive Rift Run hull guns. */
     const chargeRiftPup = (game: Game, nominalDamage: number) => {
+      // Hitting the rift pays, which is the whole of "you get paid for
+      // everything you do": the first step of the loop is not free labour.
+      if (!game.result) game.credits += creditsForRiftCharge(nominalDamage);
       // Banked through the portal model: it owns the threshold rule, including
       // resetting to zero rather than carrying the remainder, so one enormous
       // hit sheds one power-up instead of a shower of them.
@@ -4879,6 +5066,7 @@ export default function WormholeGame() {
 
       survival.breaches += 1;
       game.score += survivalBreachBonus(survival.level, survival.breaches - 1);
+      game.credits += CREDIT_AWARDS.breach;
       game.rivalMaxHealth = survivalBreachIntegrity(survival.breaches);
       game.rivalHealth = game.rivalMaxHealth;
       game.enrageRecovery = createEnrageRecovery();
@@ -4934,6 +5122,7 @@ export default function WormholeGame() {
       // belong to the run, not to the rift.
       if (game.riftDanger) resetRiftDangerForNewRift(game.riftDanger);
       game.score += scoreDelta;
+      game.credits += CREDIT_AWARDS.breach;
       game.rivalHealth = breached.runtime.integrity;
       game.rivalMaxHealth = breached.runtime.maximumIntegrity;
       game.riftReformTicks = Math.ceil(breached.runtime.reformRemainingMs / TICK_MS);
@@ -5486,6 +5675,7 @@ export default function WormholeGame() {
 
       pickup.life = 0;
       game.score += 50;
+      game.credits += CREDIT_AWARDS.pupCollected;
       if (type === "gun") player.gun = Math.min(3, player.gun + 1);
       else if (type === "thrust") player.thrust = Math.min(3, player.thrust + 1);
       else if (type === "retros") player.retros = Math.min(RETRO_MAX_LEVEL, player.retros + 1);
@@ -9070,7 +9260,17 @@ export default function WormholeGame() {
           onContextMenu={(event) => event.preventDefault()}
         >
           <div className="match-bar" data-round-id={net?.roundId ?? 0}>
-            <div className="score"><span>SCORE</span><b>{hud.score.toLocaleString().padStart(6, "0")}</b></div>
+            {/* Money rides inside the score cell rather than beside it. The
+                match bar is a three-column grid with three children, and every
+                rule that thins it for a small screen or an immersive layout
+                addresses those children by position — a fourth would wrap to a
+                second row inside a fixed-height bar and take the rival readout
+                off screen with it. */}
+            <div className="score">
+              <span>SCORE</span>
+              <b>{hud.score.toLocaleString().padStart(6, "0")}</b>
+              <em className="score-credits">{formatCreditsCompact(hud.credits)}</em>
+            </div>
             <div className="match-hull"><span>HULL</span><div className="meter hull"><i style={{ width: `${healthPct}%` }} /></div><b>{hud.health}</b></div>
             {mode === "pvp" ? (
               // Rival integrity is the PvE objective and decides nothing in a
@@ -9394,6 +9594,36 @@ export default function WormholeGame() {
                     </div>
 
                     <div className="run-continue result-command-column">
+                      {/*
+                        What the run paid, and whether anything kept it.
+
+                        Shown above the save state rather than inside one of
+                        its branches, because it is true of every run: a
+                        practice run, a defeat and a signed-out run all earn
+                        money, and only one of those three has anywhere to put
+                        it. Naming the amount is the point — "sign in to save"
+                        with no number attached is an instruction without a
+                        reason.
+                      */}
+                      <p className={`run-banked ${summary.banked ? "" : "pending"}`} role="status">
+                        {summary.banked
+                          ? `BANKED ${formatCredits(summary.earned)}`
+                          : `${formatCredits(summary.earned)} EARNED // SIGN IN TO KEEP IT`}
+                      </p>
+                      {summary.banked ? null : (
+                        <div className="run-save">
+                          <p className="run-status warn">NOT SIGNED IN // SCORE NOT SAVED</p>
+                          <button type="button" className="run-action" onClick={() => go("account")}>SIGN IN OR CREATE ACCOUNT</button>
+                        </div>
+                      )}
+                      {/*
+                        A signed-out run has already said what happened to it
+                        above, so the whole save-state chain is wrapped rather
+                        than left to fall through to its last branch — which
+                        would report "RUN SAVED ON THIS DEVICE" about a run
+                        that was deliberately not saved anywhere.
+                      */}
+                      {summary.banked ? (<>
                       {summary.awaitingInitials ? (
                         <form
                           className="initials-entry"
@@ -9466,6 +9696,7 @@ export default function WormholeGame() {
                           ) : null}
                         </div>
                       )}
+                      </>) : null}
 
                       <div className="run-links" aria-label="End game actions">
                         {summary.awaitingInitials ? (
@@ -9707,8 +9938,30 @@ export default function WormholeGame() {
       {route === "home" ? (
         <HomeScreen
           mode={mode}
+          difficulty={difficulty}
+          modeLocked={!remembered}
+          session={session}
           running={launched && gameActive}
           onLaunch={launchFromMenu}
+          go={go}
+          openSettings={openSettings}
+          back={back}
+          close={resumeOrClose}
+        />
+      ) : null}
+
+      {route === "account" ? (
+        <AccountScreen session={session} go={go} openSettings={openSettings} back={back} close={resumeOrClose} />
+      ) : null}
+
+      {route === "armory" ? (
+        <ArmoryScreen
+          session={session}
+          onWallet={updateWallet}
+          // Offered only when there is a run to launch into from here. A
+          // network mode needs its lobby first, so the Armory does not pretend
+          // it can start one.
+          onLaunch={isOfflineMode(mode) && canLaunch(mode, difficulty, access) ? launchFromMenu : undefined}
           go={go}
           openSettings={openSettings}
           back={back}
@@ -9747,6 +10000,7 @@ export default function WormholeGame() {
           onRiftRun={() => go("rift-run")}
           onVersus={(kind) => { chooseMode(kind); setMenu(["modes", "lobby"]); }}
           currentMode={mode}
+          access={access}
           go={go}
           openSettings={openSettings}
           back={back}
@@ -9784,6 +10038,7 @@ export default function WormholeGame() {
 
       {route === "settings" ? (
         <SettingsScreen
+          access={access}
           viewMode={viewMode}
           storedViewMode={settings.viewMode}
           onViewMode={(next) => setSetting("viewMode", next)}
@@ -9823,6 +10078,7 @@ export default function WormholeGame() {
 
       {route === "info" ? (
         <InfoScreen
+          access={access}
           viewMode={viewMode}
           onCodex={() => setCodexOpen(true)}
           go={go}

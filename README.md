@@ -27,6 +27,14 @@ The existing hostname and repository name are retained for development compatibi
 - **PvP 1v1** — each pilot flies their own arena while transmitting attack payloads to the opponent.
 - **Practice** — unlimited-hull training without leaderboard submission.
 
+### What is currently playable
+
+Only **PvP 1v1** and **Rift Survival** are open. Every other card on Mode Select is shown locked: the title is drawn as usual and the rest of the card is replaced by "Work in progress", so the roster is visible without inviting anyone into a mode that is not ready to be judged. Locked modes are neither deleted nor hidden — they build, they pass their suites, and most of the engine is shared with the open ones.
+
+The lock is one list, `AVAILABLE_MODE_CARDS` in `app/mode-access.ts`, and opening a mode is adding its id to it. It is enforced twice on purpose: on Mode Select, where it can be explained, and again inside `start()`, because the mode preference is restored from local storage and Home's Play never passes through Mode Select. A pilot whose remembered mode has since been locked has that preference rewritten to something playable rather than being shown a Play button that does nothing.
+
+`DEVELOPER_EMAILS` in the same file names the accounts that bypass the lock entirely and see the whole roster, so unfinished modes stay reachable for testing without a build flag that could ship enabled by accident.
+
 Difficulty rules include a stationary-rift collision-shield mode, a moving-rift mode, and a hard contact-hazard mode.
 
 ### Challenges
@@ -89,11 +97,36 @@ Movement is inertial rather than grid based. Thrust adds acceleration to current
 
 Touch play uses a twin-stick layout: the left stick controls movement and the right stick aims/fires. **PUP** fires the stored payload and **SPEC** activates the ship special. Dedicated layout logic supports phones, tablets, foldables, landscape play, safe areas, fullscreen, and high-density canvas rendering.
 
+## Pilot accounts
+
+Saving a score requires an account. Playing does not: a signed-out pilot flies the whole run, sees it settled, and sees exactly what it earned — the run simply is not written to any board, on this device or the public one, because there is no identity to attach it to. The result card says so and offers the way through.
+
+Accounts live on the device for now (`app/account.ts`). This deployment has no database binding — `.openai/hosting.json` sets `d1` to null, and the public boards are an external API that takes initials and no identity at all — so there is nothing to register an account *with* yet. What the module owns is the shape of one: the record, the credential check, the session, and every call site that asks "who is this?". Credentials are stored as PBKDF2-SHA-256 over a per-account random salt, so no stored record holds a password in the clear. That is worth doing and it is not a substitute for a server; a local record can be read and edited by whoever holds the device. Moving to a real backend is replacing the storage functions at the bottom of that file, not finding every place in the game that assumed a device.
+
+An account supplies the three-character board initials, so signing in also answers the question the result card used to ask.
+
+## Money and the Armory
+
+Every action the game already notices pays a few dollars: charging the rift with the cannon, removing rift integrity with a payload, destroying a hostile, collecting a PUP, breaching, and winning. The live total sits beside the score in the HUD, and it is banked into the signed-in pilot's account when the run ends.
+
+Money is deliberately **not** derived from score. Score ranks a run and is settled with a time penalty; money persists across runs and is spent. Tying them together would mean either a leaderboard that rewards farming or a shop a good run cannot stock, so both are paid out side by side from the same events (`app/currency.ts`).
+
+The Armory (**Home → Armory**) sells two different things, and keeping them apart is the design:
+
+- **Unlocking** a payload is permanent and expensive, bought once per account.
+- **Loading** a payload is cheap and consumable: one copy in the inventory the next round starts with.
+
+So money buys access first and ammunition second, and a pilot who owns the whole catalog still has to decide what to carry into this round. Prices are derived from the threat rating the weapon catalog already carries, so a payload rebalanced up a tier is repriced by that change rather than drifting. A basket refunds in full until the round launches with it; the charge lands at launch, not at the button press.
+
+The Armory does not touch the rift's drop table. A locked payload still drops in the arena and is still collectable exactly as before — the lock is on what a pilot may *buy* into the inventory before the round, not on what the rift may hand them during it. Only sendable payloads are stocked, because the upgrades, the repair and the rare drops apply themselves on contact and never enter the inventory at all.
+
+A purchased inventory is taken only up to the run's own payload ceiling (Rift Run opens with a single slot); anything that does not fit stays bought. In a network match the server owns the inventory ledger, so each seeded payload is reported as an ordinary `collect` rather than pushed into the local array alone.
+
 ## Scoring and arcade identity
 
-A qualifying solo PvE score can be locked using three-character arcade initials. Initials are remembered on the device and reused until changed in **Menu → Game Info**. Practice runs are not submitted.
+A qualifying solo PvE score can be locked using three-character arcade initials. Initials come from the signed-in account and are remembered on the device. Practice runs are not submitted.
 
-The global board is designed like a classic arcade leaderboard: no account is required merely to enter initials and compete. Local bests are also retained on-device.
+The global board is still an arcade board — three characters, one row — but a run now reaches it through an account rather than anonymously. Local bests are retained on-device under the same rule.
 
 Rift Survival is ranked by **time survived** rather than by a settled score, so it has its own board rather than sharing the arcade one — a single merged list would be sorted wrongly for one of them. The leaderboard screen carries both, switchable, and the Survival board can be filtered to a single ship.
 

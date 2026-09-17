@@ -29,7 +29,7 @@ async function loadPlaywright() {
   return null;
 }
 
-import { launchSeededRun, seedRun } from "./browser-launch.mjs";
+import { LAUNCH_CONTROL, launchSeededRun, seedRun } from "./browser-launch.mjs";
 
 const playwright = await loadPlaywright();
 const skip = playwright ? false : "playwright is not installed";
@@ -105,6 +105,12 @@ async function openArena(browser, { width, height, settings = {}, insets } = {})
   await page.route("https://murphtournaments.com/**", (r) =>
     r.fulfill({ json: { signedIn: false, player: null } })
   );
+  // Signed in with a known difficulty, because Home now launches whatever the
+  // account is allowed to play: signed out, an unplayable remembered mode is
+  // rewritten to Rift Survival, and this file measures the ordinary PvE HUD.
+  // `controlProfile: null` leaves the game's own default in place — these
+  // tests are about where the touch controls land.
+  await seedRun(page, { difficulty: "easy", controlProfile: null });
   await page.addInitScript(([key, value]) => {
     try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* private mode */ }
   }, [SETTINGS_KEY, {
@@ -119,7 +125,9 @@ async function openArena(browser, { width, height, settings = {}, insets } = {})
     await page.addInitScript(fn, values);
   }
   await page.goto(base, { waitUntil: "networkidle" });
-  await page.locator(".menu-footer .play-button").click();
+  // Home launches from its mission console, not from the footer; the footer is
+  // the command deck. See the same note in devices.test.mjs.
+  await page.locator(LAUNCH_CONTROL).click();
   await page.waitForTimeout(1200);
   return { context, page, errors };
 }

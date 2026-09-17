@@ -12,6 +12,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { LAUNCH_CONTROL, seedRun } from "./browser-launch.mjs";
 
 const CHROME = process.env.WORMHOLE_TEST_CHROME
   ?? "/opt/pw-browsers/chromium-1194/chrome-linux/chrome";
@@ -140,6 +141,10 @@ for (const device of DEVICES) {
       await page.route("https://murphtournaments.com/**", (r) =>
         r.fulfill({ json: { signedIn: false, player: null } })
       );
+      // Signed in, because most modes are now locked to everyone else and this
+      // file measures a live run. `seedRun` is the same door the rest of the
+      // browser suite uses.
+      await seedRun(page, { difficulty: "easy", controlProfile: null });
       await page.goto(service.base, { waitUntil: "networkidle" });
 
       const overflow = await page.evaluate(
@@ -317,7 +322,13 @@ for (const device of DEVICES) {
       await page.waitForTimeout(200);
 
       // Gameplay: the controls stay reachable while a run is live.
-      await page.locator(".menu-footer .play-button").click();
+      //
+      // Home's launch is `[data-launch-control="play"]` in the mission console,
+      // not a footer button — the footer is the command deck. This asked for
+      // `.menu-footer .play-button` and had been timing out on every device
+      // since Home was rebuilt around the console; the whole file is skipped
+      // in CI, which is why nobody saw it.
+      await page.locator(LAUNCH_CONTROL).click();
       await page.waitForTimeout(1200);
       reach = await systemReach();
       assert.equal(reach.menu, "ok", `gameplay: Menu ${reach.menu}`);

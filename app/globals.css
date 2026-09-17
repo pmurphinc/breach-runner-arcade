@@ -1639,6 +1639,9 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
   color: var(--lime);
   font-weight: 900;
 }
+/* Money sits beside the score in the rail, so on touch it carries the same
+   weight the score does rather than reading as a caption under it. */
+.touch-capable .difficulty-badge .rule-credits { font-weight: 900; }
 
 /* Three independent circular utility buttons orbit the Fire stick. Their
    geometry derives from --stick and --touch-target, so the 9/10/11 o'clock
@@ -3280,7 +3283,9 @@ button.summary-row:hover, button.summary-row:focus-visible,
 .main-menu-stage {
   min-height: 100%;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  /* Branding, the pilot strip, then the mission console. The strip is its own
+     row so it never competes with the console for the flexible one. */
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: clamp(var(--space-3), 2.5cqw, var(--space-5));
   align-content: center;
   padding: clamp(var(--space-2), 1.5cqw, var(--space-4)) 0;
@@ -3349,7 +3354,7 @@ button.summary-row:hover, button.summary-row:focus-visible,
 .launch-summary-grid .summary-text b { font-size: var(--fs-sm); }
 .launch-command { position: relative; z-index: 1; }
 
-.home-command-deck { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); animation: menu-rise 520ms 150ms ease both; }
+.home-command-deck { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-2); animation: menu-rise 520ms 150ms ease both; }
 .menu-action {
   min-width: 0;
   min-height: 64px;
@@ -3508,7 +3513,7 @@ button.summary-row:hover, button.summary-row:focus-visible,
   .launch-console { padding: var(--space-3); }
   .launch-console-header h3 { font-size: var(--fs-lg); }
   .launch-status-cluster { font-size: 9px; }
-  .home-command-deck { grid-template-columns: 1fr; }
+  .home-command-deck { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .menu-action { min-height: 54px; }
   .mode-card-matrix { grid-template-columns: 1fr; }
   .mode-launch-card { min-height: 98px; }
@@ -3519,7 +3524,7 @@ button.summary-row:hover, button.summary-row:focus-visible,
 }
 
 @media (orientation: landscape) and (max-height: 560px) {
-  .main-menu-stage { grid-template-rows: auto minmax(0, 1fr) auto; gap: var(--space-2); }
+  .main-menu-stage { grid-template-rows: auto auto minmax(0, 1fr); gap: var(--space-2); }
   .main-menu-brand-lockup { grid-template-columns: auto 1fr; justify-items: start; align-items: center; gap: var(--space-2) var(--space-3); }
   .main-menu-brand-lockup .menu-stage-kicker { grid-column: 1 / -1; }
   .main-menu-brand-lockup .launch-brand-logo { width: clamp(180px, 25cqw, 300px); }
@@ -3599,7 +3604,7 @@ button.summary-row:hover, button.summary-row:focus-visible,
 .menu-screen[data-route="home"] .main-menu-stage {
   height: 100%;
   min-height: 0;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   align-content: stretch;
 }
 .menu-screen[data-route="home"] .launch-console {
@@ -3615,7 +3620,7 @@ button.summary-row:hover, button.summary-row:focus-visible,
 }
 .menu-screen[data-route="home"] .home-command-deck {
   min-width: 0;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 /* The artwork is deliberately bounded by viewport height as well as panel
@@ -3640,7 +3645,7 @@ button.summary-row:hover, button.summary-row:focus-visible,
   .launch-console-header h3 { font-size: var(--fs-md); }
   .launch-status-cluster { font-size: 9px; }
   .launch-briefing h4 { font-size: var(--fs-md); }
-  .menu-screen[data-route="home"] .home-command-deck { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .menu-screen[data-route="home"] .home-command-deck { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .menu-screen[data-route="home"] .home-command-deck .menu-action {
     padding-inline: 4px;
     grid-template-columns: minmax(0, 1fr);
@@ -3710,14 +3715,14 @@ button.summary-row:hover, button.summary-row:focus-visible,
 }
 
 @media (orientation: landscape) and (max-height: 560px) {
-  .menu-screen[data-route="home"] .main-menu-stage { grid-template-rows: auto minmax(0, 1fr); gap: var(--space-1); }
+  .menu-screen[data-route="home"] .main-menu-stage { grid-template-rows: auto auto minmax(0, 1fr); gap: var(--space-1); }
   .menu-screen[data-route="home"] .main-menu-brand-lockup { display: flex; justify-content: center; }
   .menu-screen[data-route="home"] .main-menu-brand-lockup .menu-stage-kicker,
   .menu-screen[data-route="home"] .main-menu-brand-lockup p { display: none; }
   .menu-screen[data-route="home"] .main-menu-brand-lockup .launch-brand-logo { width: clamp(76px, min(22cqw, 22dvh), 230px); }
   .menu-screen[data-route="home"] .launch-console-header { gap: var(--space-2); }
   .menu-screen[data-route="home"] .launch-console-body-simple { padding-block: 0; }
-  .menu-screen[data-route="home"] .home-command-deck { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .menu-screen[data-route="home"] .home-command-deck { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 /* ---------------------------------------------------------------------------
@@ -3906,7 +3911,7 @@ button.summary-row:hover, button.summary-row:focus-visible,
   min-height: 0;
   padding: 0;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr) auto auto;
   gap: var(--launch-section-gap);
   align-content: stretch;
 }
@@ -3949,7 +3954,7 @@ button.summary-row:hover, button.summary-row:focus-visible,
 }
 .menu-screen[data-route="home"] .home-command-deck {
   min-width: 0;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: clamp(2px, .8dvw, 8px);
 }
 .menu-screen[data-route="home"] .home-command-deck .menu-action {
@@ -4028,4 +4033,195 @@ button.summary-row:hover, button.summary-row:focus-visible,
   .result-command-panel { grid-template-columns: minmax(0, 1.15fr) minmax(220px, .85fr); gap: var(--space-2); padding: var(--space-3); }
   .result-screen-header { padding-bottom: var(--space-2); }
   .result-screen-header h2 { font-size: var(--fs-xl); }
+}
+
+/* ---------------------------------------------------------------------------
+   Accounts, money and the Armory
+
+   Three surfaces added together because they are one idea: a pilot has an
+   identity, that identity holds money, and money buys payloads. They share the
+   arcade chrome the rest of the menu system uses and add no new primitives —
+   every colour, space and font below comes from the tokens on :root.
+   --------------------------------------------------------------------------- */
+
+/* A locked mode keeps the card geometry and loses the colour.
+   The accent is what makes a card read as somewhere to go, so a locked one
+   drops to the muted ink rather than dimming the whole tile — the title stays
+   at full contrast, because the title is the only thing it is still saying. */
+.mode-launch-card[data-locked="true"] {
+  --mode-accent: var(--muted-2);
+  cursor: default;
+  animation: none;
+}
+.mode-launch-card[data-locked="true"]:hover,
+.mode-launch-card[data-locked="true"]:focus-visible { transform: none; box-shadow: none; }
+.mode-launch-card[data-locked="true"] .mode-card-orbit { opacity: .3; }
+.mode-launch-card[data-locked="true"] .mode-card-copy em { color: var(--muted-2); font-style: italic; }
+.mode-launch-card[data-locked="true"] .mode-card-enter { color: var(--muted-2); letter-spacing: .16em; }
+.mode-selection-sigil.accent-locked { color: var(--muted-2); animation: none; }
+.mode-selection-sigil.accent-locked::before { animation: none; }
+.mode-catalog-note { margin: 0; }
+
+/* Home: who is flying, and what they have to spend. */
+.home-pilot-strip {
+  width: 100%;
+  min-height: var(--touch-target);
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: linear-gradient(120deg, rgba(4, 18, 28, .82), rgba(3, 11, 19, .9));
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--motion-fast) ease;
+}
+.home-pilot-strip:hover, .home-pilot-strip:focus-visible { border-color: var(--line-strong); outline: none; }
+.home-pilot-strip.signed-out { border-color: rgba(255, 179, 77, .32); }
+.home-pilot-id, .home-pilot-credits { min-width: 0; display: grid; gap: 2px; }
+.home-pilot-credits { text-align: right; }
+.home-pilot-strip small { color: var(--muted-2); font: 800 var(--fs-nano)/1 var(--mono); letter-spacing: .12em; }
+.home-pilot-strip b { font: 800 var(--fs-sm)/1.1 var(--mono); letter-spacing: .05em; overflow-wrap: anywhere; }
+.home-pilot-strip.signed-out b { color: var(--amber); }
+.home-pilot-credits b { color: var(--lime); }
+
+/* The sign-in form. Deliberately plain: it is the one screen in the game that
+   is not a game surface, and dressing it as one makes it harder to fill in. */
+.account-panel-switch { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); margin-bottom: var(--space-3); }
+.account-panel-switch button {
+  min-height: var(--touch-target);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(3, 13, 22, .7);
+  color: var(--muted);
+  font: 800 var(--fs-nano)/1 var(--mono);
+  letter-spacing: .12em;
+  cursor: pointer;
+}
+.account-panel-switch button.active { border-color: var(--cyan); color: var(--ink); background: rgba(72, 225, 255, .12); }
+.account-form { display: grid; gap: var(--space-1); }
+.account-form label { color: var(--muted-2); font: 800 var(--fs-nano)/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+.account-form input {
+  min-height: var(--touch-target);
+  padding: 0 var(--space-3);
+  margin-bottom: var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(2, 10, 17, .85);
+  color: var(--ink);
+  font: 600 var(--fs-sm)/1 var(--mono);
+  letter-spacing: .06em;
+}
+.account-form input:focus-visible { border-color: var(--focus); outline: none; }
+.account-form small { margin: -6px 0 var(--space-2); color: var(--muted-2); font: 500 var(--fs-nano)/1.3 var(--mono); }
+.account-form .play-button { margin-top: var(--space-2); }
+.account-benefits { margin: 0; padding-left: 1.1em; color: var(--muted); font: 500 var(--fs-xs)/1.6 var(--mono); }
+.account-summary dd { color: var(--lime); }
+
+/* The Armory. */
+.armory-balance {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid rgba(168, 255, 82, .28);
+  border-radius: 10px;
+  background: linear-gradient(120deg, rgba(10, 30, 18, .7), rgba(3, 11, 19, .92));
+}
+.armory-credits { color: var(--lime); font: 900 var(--fs-xl)/1 var(--mono); letter-spacing: .04em; }
+.armory-balance small { color: var(--muted-2); font: 700 var(--fs-nano)/1 var(--mono); letter-spacing: .1em; }
+.armory-notice { margin: 0 0 var(--space-3); }
+
+.armory-loadout { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--space-2); }
+.armory-slot {
+  min-height: 118px;
+  padding: var(--space-2);
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 4px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: rgba(2, 10, 17, .6);
+  color: var(--ink);
+  text-align: center;
+}
+.armory-slot.filled { border-style: solid; border-color: var(--line-strong); cursor: pointer; }
+.armory-slot.filled:hover, .armory-slot.filled:focus-visible { border-color: var(--pink); outline: none; }
+.armory-slot b { font: 800 var(--fs-nano)/1.1 var(--mono); letter-spacing: .06em; overflow-wrap: anywhere; }
+.armory-slot small { color: var(--muted-2); font: 700 var(--fs-nano)/1 var(--mono); letter-spacing: .08em; }
+.armory-slot.empty span { color: var(--muted-2); font: 800 var(--fs-lg)/1 var(--mono); }
+.armory-loadout-actions { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-top: var(--space-2); }
+
+.armory-catalog { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--space-2); }
+.armory-card {
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas: "art copy" "actions actions";
+  align-items: center;
+  gap: var(--space-2);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-strong);
+  border-radius: 10px;
+  background: linear-gradient(140deg, rgba(4, 18, 28, .78), rgba(3, 11, 19, .94));
+}
+.armory-card.locked { border-left-color: var(--muted-2); }
+.armory-card.owned { border-left-color: var(--lime); }
+.armory-card-art { grid-area: art; display: grid; place-items: center; }
+.armory-card-copy { grid-area: copy; min-width: 0; display: grid; gap: 3px; }
+.armory-card-copy b { color: var(--ink); font: 800 var(--fs-sm)/1.15 var(--mono); letter-spacing: .04em; text-transform: uppercase; overflow-wrap: anywhere; }
+.armory-card-copy small { color: var(--muted); font: 500 var(--fs-nano)/1.35 var(--mono); }
+.armory-card-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.armory-card-tags i { color: var(--muted-2); font: 800 var(--fs-nano)/1 var(--mono); font-style: normal; letter-spacing: .1em; }
+.armory-card-tags i.carried { color: var(--lime); }
+.armory-card-actions { grid-area: actions; display: flex; align-items: center; justify-content: flex-start; gap: var(--space-2); margin-top: var(--space-1); }
+.armory-card-actions small { color: var(--muted-2); font: 700 var(--fs-nano)/1 var(--mono); letter-spacing: .08em; text-align: right; }
+.armory-buy, .armory-unlock {
+  min-height: var(--touch-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: rgba(3, 13, 22, .8);
+  color: var(--ink);
+  font: 800 var(--fs-nano)/1 var(--mono);
+  letter-spacing: .1em;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.armory-buy { border-color: rgba(168, 255, 82, .45); color: var(--lime); }
+.armory-unlock { border-color: rgba(255, 179, 77, .45); color: var(--amber); }
+.armory-buy:disabled, .armory-unlock:disabled { opacity: .4; cursor: not-allowed; }
+
+/* The live readout.
+   Money sits beside the score because they are paid out by the same events, and
+   a pilot glancing at one is already looking at the other. It stays drawn in the
+   rules rail on every device, unlike the score beside it: the desktop HUD hides
+   `.rule-score` in favour of the match bar and then hides the match bar too, so
+   following the score exactly would mean a currency a PC pilot never sees
+   moving. */
+.rule-credits { display: inline-flex; color: var(--lime); font: 800 var(--fs-nano)/1 var(--mono); letter-spacing: .06em; }
+.match-bar .score-credits {
+  display: block;
+  margin-top: 4px;
+  color: var(--lime);
+  font: 700 var(--fs-nano)/1 var(--mono);
+  font-style: normal;
+  letter-spacing: .06em;
+}
+
+/* The banked total on the result card. */
+.run-banked { margin: 0; color: var(--lime); font: 800 var(--fs-nano)/1.3 var(--mono); letter-spacing: .08em; }
+.run-banked.pending { color: var(--amber); }
+
+@container menu (max-width: 720px) {
+  .armory-loadout { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+  .armory-slot { min-height: 94px; padding: 4px; }
+  .armory-catalog { grid-template-columns: minmax(0, 1fr); }
 }
