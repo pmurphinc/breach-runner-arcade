@@ -239,7 +239,11 @@ test("the SPEC control fires the special on touch and hybrid alike", { skip }, a
   try {
     for (const view of ["touch", "hybrid"]) {
       const { context, page } = await launch(browser, { ship: OVERCHARGED[0], view });
-      const button = page.locator(".touch-special");
+      // The mirrored left-hand cluster carries a second copy of every touch
+      // action, hidden unless the pilot turns mirroring on. Both are in the
+      // DOM either way, so a bare class selector is a strict-mode violation
+      // rather than a control.
+      const button = page.locator(".touch-special:visible").first();
       await button.waitFor({ state: "visible", timeout: 10_000 });
       // The control is disabled until the run is actually live, so pressing it
       // before then would prove nothing.
@@ -316,19 +320,30 @@ test("movement, aim and the power-up launcher still work alongside the special",
       return total ? { x: sx / total / canvas.width, y: sy / total / canvas.height } : null;
     });
 
-    const drift = await (async () => {
-      const start = await at();
-      await page.waitForTimeout(900);
-      const end = await at();
-      return end.x - start.x;
-    })();
+    /*
+      Measured as velocity, not displacement.
 
-    const before = await at();
+      Starling's special is a swarm *and* a three-second afterburn, so the
+      special the test wants to fly alongside is itself moving the ship. This
+      used to sample a "drift" window and subtract it from a longer thrust
+      window -- but the afterburn decays between the two, and on a slower
+      machine it expired part-way through, so the correction over-corrected and
+      the test reported the ship travelling left. It passed locally and failed
+      in CI, which is the worst way for a test to be wrong.
+
+      Sampling twice while D is still held answers the question directly:
+      whatever happened before, is the ship moving right *now*, under sustained
+      thrust? Both samples sit inside one steady state, so there is nothing to
+      correct for. The window is short enough that the ship cannot reach the
+      right wall and stop before the second sample.
+    */
     await page.keyboard.down("KeyD");
-    await page.waitForTimeout(1200);
+    await page.waitForTimeout(550);
+    const start = await at();
+    await page.waitForTimeout(350);
+    const end = await at();
     await page.keyboard.up("KeyD");
-    const after = await at();
-    const moved = after.x - before.x - drift;
+    const moved = end.x - start.x;
     assert.ok(moved > 0.01, `thrust must still move the ship while a special is live (${moved})`);
 
     // The power-up launcher is a separate control and must be unaffected.
