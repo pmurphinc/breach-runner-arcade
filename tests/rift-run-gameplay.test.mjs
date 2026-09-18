@@ -34,7 +34,7 @@ async function loadPlaywright() {
   return null;
 }
 
-import { hideDevErrorOverlay, openModeScreen } from "./browser-launch.mjs";
+import { openModeScreen, railLabel, seedRun } from "./browser-launch.mjs";
 
 const playwright = URL_UNDER_TEST ? await loadPlaywright() : null;
 const skip = !URL_UNDER_TEST
@@ -63,7 +63,13 @@ async function openRiftRun(browser) {
   await page.route("https://murphtournaments.com/**", (route) =>
     route.fulfill({ json: { signedIn: false, player: null } })
   );
-  await hideDevErrorOverlay(page);
+  // Rift Run is one of the modes held back while it is finished, so its card
+  // is locked to an ordinary pilot and clicking it does nothing. `seedRun`
+  // signs in the developer account the game itself provides for reaching an
+  // unfinished mode -- the product's own door, not a test-only back one. The
+  // control profile is left alone: this suite is about the arena, not the
+  // scheme, and it also hides the dev error overlay on the way through.
+  await seedRun(page, { controlProfile: null });
   await page.goto(URL_UNDER_TEST, { waitUntil: "networkidle" });
 
   // Home, then the mode list, then Rift Run's own setup screen. Rift Run is
@@ -78,14 +84,15 @@ async function openRiftRun(browser) {
   return { context, page, errors };
 }
 
-const badgeText = (page) => page.locator(".difficulty-badge").innerText();
+/** The rules rail, read from the label that still carries every word of it. */
+const badgeText = (page) => railLabel(page);
 
 test("a Rift Run opens at depth zero and keeps ticking its escalation", { skip }, async () => {
   const { chromium } = playwright;
   const browser = await chromium.launch({ executablePath: CHROME });
   try {
+    // `openRiftRun` already pressed Play on the setup screen; the run is live.
     const { context, page, errors } = await openRiftRun(browser);
-    await page.locator(".play-button").click();
     await page.waitForTimeout(2000);
 
     // An unbreached run is the arena Rift Run has always opened in, and the

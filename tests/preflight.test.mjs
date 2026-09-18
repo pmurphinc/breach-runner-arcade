@@ -21,7 +21,8 @@ async function loadPlaywright() {
   return null;
 }
 
-import { LAUNCH_CONTROL, launchSeededRun, seedRun } from "./browser-launch.mjs";
+import { HOME_SHIPS, LAUNCH_CONTROL, launchSeededRun, openSettingsTab, seedRun } from "./browser-launch.mjs";
+import { SHIP_ORDER } from "../app/ship-data.ts";
 
 const playwright = URL_UNDER_TEST ? await loadPlaywright() : null;
 const skip = !URL_UNDER_TEST
@@ -72,7 +73,7 @@ async function enterArena(page) {
 
 /** Open a ship from the main menu's Ships destination. */
 async function openShips(page) {
-  await page.locator(".menu-nav button", { hasText: "Ships" }).click();
+  await page.locator(HOME_SHIPS).click();
   await page.waitForTimeout(400);
 }
 
@@ -89,19 +90,36 @@ test("the main menu is the launch experience", { skip }, async () => {
       "home",
       "the game must open on the main menu"
     );
-    assert.match(await page.locator(".menu-header h2").innerText(), /BREACH RUNNER/i);
+    // Home's heading is the branded lockup rather than a text title, so the
+    // name is carried by the artwork's alt text and the kicker above it.
+    assert.match(await page.locator(".launch-brand-logo").getAttribute("alt"), /BREACH RUNNER/i);
+    assert.match(
+      await page.locator(".main-menu-brand-lockup .menu-stage-kicker").innerText(),
+      /BREACH RUNNER/i,
+    );
 
-    // Play carries the whole launch decision inline, so a returning player
-    // presses one button instead of walking three full-screen steps.
-    const summary = (await page.locator(".play-summary").innerText()).replace(/\s+/g, " ");
+    // The launch decision Home carries is the *mode*, and only the mode.
+    // Difficulty and ship moved to each mode's own lobby, because asking for
+    // them here made the most consequential choice of a session the first one,
+    // taken with the least information. The row says where they went.
+    const summary = (await page.locator(".launch-summary-grid").innerText()).replace(/\s+/g, " ");
     assert.match(summary, /Mode/i);
-    assert.match(summary, /Difficulty/i);
-    assert.match(summary, /Ship/i);
-    assert.equal(await page.locator(".menu-nav button").count(), 4, "four secondary destinations");
+    assert.match(summary, /difficulty and ship after selecting a mode/i);
+    assert.equal(
+      await page.locator(".home-command-deck .menu-action").count(),
+      4,
+      "four secondary destinations",
+    );
 
     // Ships is a destination, and browsing never launches.
     await openShips(page);
-    assert.equal(await page.locator(".ship-card").count(), 8, "all eight ships are offered");
+    // Read from the roster rather than typed, so adding a hull is not a test
+    // failure. It was `8` when the fleet was eight.
+    assert.equal(
+      await page.locator(".ship-card").count(),
+      SHIP_ORDER.length,
+      `all ${SHIP_ORDER.length} ships are offered`,
+    );
     await page.locator(".ship-card").nth(3).click();
     await page.waitForTimeout(200);
     assert.equal(
@@ -113,11 +131,16 @@ test("the main menu is the launch experience", { skip }, async () => {
     assert.ok((await page.locator(".ship-stats li").count()) >= 6, "the focused ship shows its stats");
     assert.match(await page.locator(".ship-special").innerText(), /Special/i);
 
-    // Back returns to the menu, and the choice is remembered on the Play panel.
-    const chosen = await page.locator(".ship-detail h3").innerText();
+    // Back returns where Ships was opened from. The hull is deliberately not
+    // echoed on Home any more: Ships is a place to compare the fleet, and the
+    // round's hull is picked in the lobby that will fly it.
     await page.locator(".menu-back").click();
     await page.waitForTimeout(300);
-    assert.match((await page.locator(".play-summary").innerText()), new RegExp(chosen, "i"));
+    assert.equal(
+      await page.evaluate(() => document.querySelector(".menu-screen")?.dataset.route),
+      "home",
+      "Back from Ships returns to Home",
+    );
 
     await enterArena(page);
     assert.equal(await page.locator(".menu-screen").count(), 0, "launching enters the arena");
@@ -591,9 +614,18 @@ test("the settings drawer scrolls, traps focus, and restores it", { skip }, asyn
       const text = (await panel.innerText()).replace(/\s+/g, " ");
       // Labels are uppercased by CSS, so innerText comes back uppercase.
       const upper = text.toUpperCase();
-      for (const action of ["RESUME", "SETTINGS", "GAME INFO"]) {
+      for (const action of ["RESUME", "GAME INFO"]) {
         assert.ok(upper.includes(action), `missing pause action: ${action}`);
       }
+      // Settings is not one of them, and that is the point of it: it is the
+      // header control every menu screen carries, so it is reached the same
+      // way from Pause as from anywhere else rather than being listed once
+      // here and again on Home.
+      assert.equal(
+        await page.getByRole("button", { name: "Open settings" }).count(),
+        1,
+        "Settings is the header control, reachable from Pause like every other screen",
+      );
       // Solo PvE keeps Restart, which is a client-side start().
       assert.ok(upper.includes("RESTART RUN"), "solo play can restart its own run");
       // Ship and mode changes are destructive and must say so: reaching them
@@ -692,7 +724,10 @@ test("changing display settings never resets the match", { skip }, async () => {
       await page.keyboard.press("Escape");
       await page.waitForTimeout(300);
     };
-    const pick = async (group, option) => {
+    // Settings is tabbed, and a control on an unselected tab is not in the DOM
+    // at all -- so the tab is opened before the row is reached for.
+    const pick = async (tab, group, option) => {
+      await openSettingsTab(page, tab);
       await page
         .locator(".option-row", { hasText: group })
         .locator("[role=radio]", { hasText: option })
@@ -712,13 +747,14 @@ test("changing display settings never resets the match", { skip }, async () => {
     await openDrawer();
     await page.getByRole("button", { name: "Open settings" }).click();
     await page.waitForTimeout(400);
-    await pick("Volume", "Low");
-    await pick("Input", "Both");
-    await pick("Input", "Auto");
+    await pick("Audio", "Volume", "Low");
+    await pick("Controls", "Input", "Both");
+    await pick("Controls", "Input", "Auto");
     // The camera is a Perspective choice now; it used to be a Camera lock
     // switch. Full Arena is the one that clears cameraLock, which is what the
     // stored-settings assertion below reads back.
-    await pick("Perspective", "Full Arena");
+    await pick("Video", "Perspective", "Full Arena");
+    await openSettingsTab(page, "Audio");
     await toggle("Sound");
     await closeDrawer();
     await closeDrawer();
