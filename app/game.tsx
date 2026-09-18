@@ -191,7 +191,7 @@ import { cannonPlaybackRate, playCombatHaptics } from "./combat-feedback";
 import { PUP_INVENTORY_CAPACITY, consumeLoadedPup, pupInventoryLayout } from "./pup-inventory";
 import { TouchLayoutEditor } from "./touch-layout-editor";
 import { customTouchLayoutVariables, touchElementEdge } from "./touch-profiles";
-import { classicDeadzone, classicKeyboardFlight, pointerAims, rightControlAims, stickFlight } from "./flight-controls";
+import { MAX_TURN_SPAN_MS, classicDeadzone, classicKeyboardFlight, classicTurnedHeading, pointerAims, rightControlAims, stickFlight } from "./flight-controls";
 import { salvageLinkHitsPup } from "./salvage-link";
 import { inventoryPayloadIconLayout, inventoryPupVisual } from "./pup-inventory-visual";
 import { pupPickupSoundProfile, type PupPickupSoundProfile } from "./pup-audio";
@@ -6285,6 +6285,9 @@ export default function WormholeGame() {
       const heldKeys = keysFrom(keys.current);
       let keyboardIntent;
       if (classicKeys) {
+        // The hull was already turned for this frame, in real time, by
+        // `steerClassic` below. All that is read here is what the pilot is
+        // asking the engine to do about the heading they now hold.
         const flight = classicKeyboardFlight(heldKeys, player.angle);
         player.angle = flight.heading;
         keyboardIntent = flight.intent;
@@ -8974,10 +8977,38 @@ export default function WormholeGame() {
 
     };
 
+    /**
+     * Classic steering, integrated against the clock rather than the tick.
+     *
+     * Once per frame, before the simulation catches up. The hull's heading is
+     * pure integration of held keys — nothing else in the loop writes it under
+     * Classic and nothing reads it back into the physics — so it does not need
+     * the fixed tick, and putting it there was what made turning lurch: a
+     * 16.7ms frame collects one 15ms tick, sometimes two, occasionally three,
+     * so a constant turn rate rendered as 4.2, 8.4 or 12.6 degrees from one
+     * frame to the next. Integrated here it is exactly constant on screen, at
+     * the same average rate as before.
+     *
+     * Guarded by the same conditions `tick` guards itself with, so a paused,
+     * finished or unstarted run cannot be steered, and the victory cinematic
+     * keeps the hull it froze.
+     */
+    const steerClassic = (elapsedMs: number) => {
+      if (rightControlAims(settingsRef.current.controlProfile)) return;
+      const game = gameRef.current;
+      if (!game.running || game.paused || game.result || game.victorySequence > 0) return;
+      game.player.angle = classicTurnedHeading(keysFrom(keys.current), game.player.angle, elapsedMs);
+    };
+
     const runFrame = (now: number) => {
       const delta = now - previous;
       previous = now;
-      accumulator += Math.min(50, delta);
+      // One clamp, read twice: the steering and the simulation lose the same
+      // time to a hitch, so a backgrounded tab cannot return with the hull
+      // spun through a half-turn the simulation never saw.
+      const span = Math.min(MAX_TURN_SPAN_MS, delta);
+      steerClassic(span);
+      accumulator += span;
       frameAverage += (Math.min(60, delta) - frameAverage) * 0.05;
       samples += 1;
       if (samples >= 90) {
