@@ -3415,6 +3415,37 @@ export default function WormholeGame() {
     return () => window.removeEventListener("breach-runner:test-stock", seedStock);
   }, [sync]);
 
+  /*
+    Where the ship actually is, for browser regression tests.
+
+    The movement suite used to answer this by photographing the arena: it took
+    the centroid of every cyan pixel on the canvas and watched it shift. That
+    works right up until something else cyan moves — a hostile drifting across
+    frame is the same colour as the ship and much larger in aggregate, so the
+    same keypress measured anywhere between a clear result and a tenth of one,
+    depending on what happened to be on screen. A test that photographs the
+    game cannot tell the ship from the scenery.
+
+    Read-only and development-only, on the same terms as the seeding hooks
+    above: it exposes no way to move the ship, so it cannot be used to cheat,
+    and it does not exist in a production bundle at all.
+  */
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    const probe = () => {
+      const game = gameRef.current;
+      return {
+        x: game.player.x,
+        y: game.player.y,
+        angle: game.player.angle,
+        running: game.running && !game.paused && !game.result,
+        world: { width: game.worldWidth, height: game.worldHeight },
+      };
+    };
+    (window as unknown as { __breachRunnerPilot?: typeof probe }).__breachRunnerPilot = probe;
+    return () => { delete (window as unknown as { __breachRunnerPilot?: typeof probe }).__breachRunnerPilot; };
+  }, []);
+
   /* The two-browser lifecycle test ends a real server-owned PvP round without
      depending on random arena collisions. Production builds omit this hook. */
   useEffect(() => {

@@ -173,7 +173,7 @@ const describeMarker = (marker) => {
 };
 
 /** Launches a run in one device shape, with the arena already instrumented. */
-async function openArena(browser, { width, height, viewMode, touch }) {
+async function openArena(browser, { width, height, viewMode, touch }, difficulty = "practice") {
   const context = await browser.newContext({
     viewport: { width, height }, hasTouch: touch, isMobile: touch,
   });
@@ -194,7 +194,7 @@ async function openArena(browser, { width, height, viewMode, touch }) {
   // PRACTICE keeps the hull locked, so a run can be flown into a wall and held
   // there for as long as a measurement needs without ending. Seeded rather
   // than clicked -- see `browser-launch.mjs` for why.
-  await seedRun(page, { difficulty: "practice" });
+  await seedRun(page, { difficulty });
   await page.goto(URL_UNDER_TEST, { waitUntil: "networkidle" });
   await launchSeededRun(page, { timeout: 20_000, settle: 1200 });
   return { context, page, errors };
@@ -257,26 +257,68 @@ test("the whole marker stays inside the visible playfield on every device", { sk
   }
 });
 
+/**
+ * Why this one flies Volatile while everything else here flies Practice.
+ *
+ * The premise it needs is a Rift the pilot cannot see, and with a Rift held at
+ * the arena's centre that is unreachable on this axis at any zoom. The camera
+ * clamps at the world edge, and the arena is wide enough relative to the view
+ * that every position the camera can clamp to still contains the centre --
+ * measured on all four device shapes, the Rift stayed on screen with the ship
+ * pinned against either side wall, hugging the far edge but never past it. The
+ * test used to fly into the wall and assert a marker anyway, so it was asking
+ * for something the game is not able to draw.
+ *
+ * Volatile unlocks the Rift's orbit, and an orbiting Rift does leave the view:
+ * radius 210 about the centre carries it past the clamped edge for part of
+ * every lap. So the ship is held at one wall and the Rift is allowed to come to
+ * it, which is the real situation a pilot meets this marker in.
+ *
+ * Polled for a full orbit rather than sampled once, because where the Rift is
+ * when the ship arrives is not something the test gets to choose.
+ */
+const ORBIT_MS = 12_000;
+
 test("a Rift off the left and the right is marked where the pilot can see it", { skip }, async () => {
   const { chromium } = playwright;
   const browser = await chromium.launch({ executablePath: CHROME });
   try {
-    // The clipping layout, and the axis it clips. Flying to one wall puts the
-    // Rift past the opposite edge, which is the case that used to be painted
-    // into the discarded strip.
-    const { context, page } = await openArena(browser, DEVICES[3]);
+    // The clipping layout, and the axis it clips: this shape's canvas overhangs
+    // its wrapper by hundreds of pixels on each side, which is where the side
+    // markers were being lost.
+    const { context, page } = await openArena(browser, DEVICES[3], "difficult");
     for (const [key, side] of [["ArrowLeft", "right"], ["ArrowRight", "left"]]) {
-      await flyInto(page, key);
+      await flyInto(page, key, 2600);
       await clearMarkers(page);
-      await page.waitForTimeout(400);
-      const rift = markerInstances(await collect(page)).filter((marker) => marker.shapes.includes(RIFT_RING));
-      assert.ok(rift.length > 0, `expected a Rift marker off the ${side} with the ship at the far wall`);
-      const marker = rift[rift.length - 1];
+      // Held against the wall for the whole watch, so the camera stays clamped
+      // and the only thing moving is the Rift.
+      await page.keyboard.down(key);
+      let rift = [];
+      let drawn = [];
+      const deadline = Date.now() + ORBIT_MS;
+      while (Date.now() < deadline && rift.length === 0) {
+        await page.waitForTimeout(400);
+        drawn = markerInstances(await collect(page));
+        rift = drawn.filter((marker) => marker.shapes.includes(RIFT_RING));
+      }
+      await page.keyboard.up(key);
+
+      // Says what *was* drawn when the Rift was not. "No marker" on its own
+      // cannot tell a missing indicator from a ship that never reached the
+      // wall, and this file is the only place that distinction is visible.
       assert.ok(
-        inside(marker),
-        `the ${side}-edge Rift marker was painted outside the visible playfield — ${describeMarker(marker)}`,
+        rift.length > 0,
+        `expected a Rift marker off the ${side} within one orbit, with the ship at the far wall;`
+        + ` ${drawn.length} marker(s) drawn: ${JSON.stringify([...new Set(drawn.map((m) => m.shapes.join("+")))].slice(0, 8))}`,
       );
+      for (const marker of rift) {
+        assert.ok(
+          inside(marker),
+          `the ${side}-edge Rift marker was painted outside the visible playfield — ${describeMarker(marker)}`,
+        );
+      }
       // And it is genuinely on that edge, not merely somewhere legal.
+      const marker = rift[rift.length - 1];
       const width = marker.playfield.right - marker.playfield.left;
       const offset = side === "left"
         ? marker.anchorX - marker.playfield.left

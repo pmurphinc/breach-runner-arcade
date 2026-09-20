@@ -82,6 +82,86 @@ export const MODE_ROW = ".summary-row";
 export const HOME_ROUTE = ".menu-screen[data-route='home']";
 
 /**
+ * Home's command deck.
+ *
+ * Every one of these used to be reached with `.menu-nav button` filtered by
+ * its label. `MenuSectionNav` is not rendered any more -- Home carries these as
+ * a footer deck of `MenuActionButton`s -- so that selector matches nothing, and
+ * three separate suites sat on a thirty-second timeout waiting for it. Pinned
+ * here by the class each button already carries, so the next rearrangement of
+ * Home is one edit rather than a hunt.
+ */
+export const HOME_SHIPS = ".launch-utility-ships";
+export const HOME_ARMORY = ".launch-utility-armory";
+export const HOME_LEADERBOARD = ".launch-utility-leaderboard";
+export const HOME_INFO = ".launch-utility-info";
+
+/**
+ * The rules rail, read the way it is published.
+ *
+ * The visible rail is deliberately sparse: the mode, the difficulty, the rift's
+ * state, the shield and the contact readout were all taken off it, because each
+ * is already drawn somewhere it means more -- the shield as the second fill on
+ * the hull bar, the rift as its own charge ring. What the redesign kept is the
+ * promise that *none of it was lost*: every one of those facts is still spoken
+ * in the rail's `aria-label`.
+ *
+ * So these tests read the label. That is not a workaround for a missing
+ * readout; it is the readout, and asserting on it is what keeps the accessible
+ * description honest as the visible rail keeps changing. Uppercased because the
+ * visible rail is uppercased by CSS and the label is written in sentence case,
+ * and every expectation in these suites was written against the former.
+ */
+export const RULES_RAIL = ".difficulty-badge";
+
+export async function railLabel(page) {
+  const label = await page.locator(RULES_RAIL).first().getAttribute("aria-label");
+  return (label ?? "").replace(/\s+/g, " ").toUpperCase();
+}
+
+/** The live score, read from the rail's label rather than a hidden match bar. */
+export async function railScore(page) {
+  const match = /SCORE (\d[\d,]*)/.exec(await railLabel(page));
+  return match ? Number(match[1].replace(/,/g, "")) : NaN;
+}
+
+/**
+ * Where the ship actually is, in world units.
+ *
+ * Read from the development-only probe the shell installs rather than from the
+ * pixels. The suite used to take the centroid of every cyan pixel on the arena
+ * canvas, which is the same colour as the hostiles: the ship is a small part of
+ * that mass, so a drifting hostile moved the measurement further than the
+ * keypress being tested did, and the same input measured anywhere between a
+ * clear result and a tenth of one.
+ */
+export async function pilotAt(page) {
+  return page.evaluate(() => window.__breachRunnerPilot?.() ?? null);
+}
+
+/** Hold a set of keys for a span and report how far the ship actually moved. */
+export async function drivePilot(page, codes, ms) {
+  const before = await pilotAt(page);
+  for (const code of codes) await page.keyboard.down(code);
+  await page.waitForTimeout(ms);
+  for (const code of codes) await page.keyboard.up(code);
+  const after = await pilotAt(page);
+  return { before, after, dx: after.x - before.x, dy: after.y - before.y };
+}
+
+/**
+ * Open one of the Settings tabs.
+ *
+ * Settings became a tabbed screen; a control that is not on the active tab is
+ * not in the DOM at all. Two suites were clicking straight at a row that only
+ * exists once its tab is selected.
+ */
+export async function openSettingsTab(page, name) {
+  await page.getByRole("tab", { name }).click();
+  await page.waitForTimeout(200);
+}
+
+/**
  * localStorage keys the game reads its remembered run from.
  *
  * Kept here beside the helpers that write them so the pairing is visible; they
@@ -92,6 +172,20 @@ export const SHIP_KEY = "wormhole-arcade:ship";
 export const SETTINGS_KEY = "wormhole-arcade:settings:v1";
 export const ACCOUNTS_KEY = "breach-runner:accounts:v1";
 export const SESSION_KEY = "breach-runner:session:v1";
+export const PROGRESSION_KEY = "breach-runner:pilot-progression";
+
+/**
+ * A pilot who has already earned the harder rulesets.
+ *
+ * Volatile and Critical are gated behind winning the ruleset below them, and
+ * `safeDifficulty` quietly rewrites a locked one to Stable at launch. That is
+ * correct for a player and invisible to a test: a suite seeding `difficult`
+ * got a Stable run, asserted against Stable's rail, and reported the mismatch
+ * as "no collision shield" rather than "your difficulty never took". Seeding
+ * the progression is the same move as seeding the ship -- put the game in the
+ * state the test is about instead of playing three runs to reach it.
+ */
+export const UNLOCKED_PROGRESSION = { version: 1, completedDifficulties: ["easy", "difficult", "hard"] };
 
 /**
  * The pilot a browser test flies as.
@@ -132,15 +226,22 @@ export const TEST_PILOT_ID = "browser-test-pilot";
  *
  * Call before `page.goto`.
  */
-export async function seedRun(page, { difficulty, ship, controlProfile = "twinStick", signedIn = true } = {}) {
+export async function seedRun(
+  page,
+  { difficulty, ship, controlProfile = "twinStick", signedIn = true, progression = UNLOCKED_PROGRESSION } = {},
+) {
   await hideDevErrorOverlay(page);
   await page.addInitScript(
-    ({ difficulty: chosen, ship: hull, profile, difficultyKey, shipKey, settingsKey, pilot, accountsKey, sessionKey }) => {
+    ({
+      difficulty: chosen, ship: hull, profile, difficultyKey, shipKey, settingsKey,
+      pilot, accountsKey, sessionKey, earned, progressionKey,
+    }) => {
       try {
         if (pilot) {
           localStorage.setItem(accountsKey, JSON.stringify([pilot]));
           localStorage.setItem(sessionKey, pilot.id);
         }
+        if (earned) localStorage.setItem(progressionKey, JSON.stringify(earned));
         if (chosen) localStorage.setItem(difficultyKey, chosen);
         if (hull) localStorage.setItem(shipKey, hull);
         if (profile) {
@@ -164,6 +265,8 @@ export async function seedRun(page, { difficulty, ship, controlProfile = "twinSt
       settingsKey: SETTINGS_KEY,
       accountsKey: ACCOUNTS_KEY,
       sessionKey: SESSION_KEY,
+      progressionKey: PROGRESSION_KEY,
+      earned: progression,
       pilot: signedIn
         ? {
             version: 1,

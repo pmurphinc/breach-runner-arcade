@@ -36,7 +36,7 @@ async function loadPlaywright() {
   return null;
 }
 
-import { launchSeededRun, openModeScreen, seedRun } from "./browser-launch.mjs";
+import { HOME_LEADERBOARD, launchSeededRun, openModeScreen, railLabel, railScore, seedRun } from "./browser-launch.mjs";
 
 const playwright = URL_UNDER_TEST ? await loadPlaywright() : null;
 const skip = !URL_UNDER_TEST
@@ -51,7 +51,7 @@ const skip = !URL_UNDER_TEST
  * `seed` runs before any page script, so a test can plant a device board and
  * check the screen that renders it without playing the runs first.
  */
-async function openGame(browser, run) {
+async function openGame(browser, run, seed) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await context.newPage();
 
@@ -70,6 +70,12 @@ async function openGame(browser, run) {
     route.fulfill({ json: { signedIn: false, player: null } })
   );
   await seedRun(page, run);
+  // A test that plants a device board runs its own init script after the
+  // seeded run. This used to be passed as `run` and handed straight to
+  // `seedRun`, which destructures its argument -- so a seeding *function* set
+  // nothing at all and the board test was quietly asserting against an empty
+  // board.
+  if (seed) await page.addInitScript(seed);
   await page.goto(URL_UNDER_TEST, { waitUntil: "networkidle" });
   await page.waitForSelector(".menu-screen[data-route='home']", { timeout: 15_000 });
 
@@ -90,8 +96,17 @@ async function openSurvival(browser) {
   return opened;
 }
 
-const badgeText = (page) => page.locator(".difficulty-badge").innerText();
-const scoreText = async (page) => Number((await page.locator(".score b").innerText()).replace(/\D/g, ""));
+/**
+ * The rules rail and the score, both read from the rail's accessible label.
+ *
+ * The visible rail no longer carries the mode, the difficulty or the rift's
+ * state, and the match bar that used to carry `.score b` is hidden outright in
+ * the modern HUD -- so reading either as text returned an empty string and the
+ * score came back `NaN`. The label is where the redesign kept every one of
+ * these facts in words.
+ */
+const badgeText = (page) => railLabel(page);
+const scoreText = (page) => railScore(page);
 
 /**
  * Survival is reached by picking it from the mode list, and picking it starts
@@ -125,8 +140,11 @@ test("a Survival run reports its Rift Level and scores the seconds survived", { 
   const { chromium } = playwright;
   const browser = await chromium.launch({ executablePath: CHROME });
   try {
+    // `openSurvival` already launched. The extra Play click this used to carry
+    // was left over from when it did not, and Home's Play is not on screen once
+    // a run is live -- so it spent thirty seconds waiting for a button that had
+    // done its job.
     const { context, page, errors } = await openSurvival(browser);
-    await page.locator(".play-button").click();
     await page.waitForTimeout(2000);
 
     const opening = await badgeText(page);
@@ -155,7 +173,6 @@ test("a Survival run ends on the pilot's hull and reports time, not a settlement
   const browser = await chromium.launch({ executablePath: CHROME });
   try {
     const { context, page, errors } = await openSurvival(browser);
-    await page.locator(".play-button").click();
 
     // Force a deterministic hull defeat instead of relying on random Survival
     // hazards to eventually kill an idle pilot. Holding left repeatedly drives
@@ -194,7 +211,7 @@ test("the Survival board ranks by time, filters by ship, and survives a bad row"
   try {
     // A board with two ships, one unfinished row and one that is not an object
     // at all. Corrupt rows are dropped rather than taking the screen with them.
-    const { context, page, errors } = await openGame(browser, () => {
+    const { context, page, errors } = await openGame(browser, undefined, () => {
       localStorage.setItem("wormhole-arcade:survival-board", JSON.stringify([
         { runId: "a", initials: "PJM", ship: "Starling", durationSeconds: 947, score: 182400, riftLevel: 16, breaches: 3, achievedAt: 10 },
         { runId: "b", initials: "ZZZ", ship: "Phantom", durationSeconds: 600, score: 90000, riftLevel: 11, breaches: 1, achievedAt: 20 },
@@ -204,7 +221,7 @@ test("the Survival board ranks by time, filters by ship, and survives a bad row"
       ]));
     });
 
-    await page.locator(".menu-nav button").filter({ hasText: /Leaderboard/i }).first().click();
+    await page.locator(HOME_LEADERBOARD).click();
     await page.waitForSelector(".codex.board", { timeout: 10_000 });
     await page.locator(".board-tabs button", { hasText: "SURVIVAL" }).click();
     await page.waitForTimeout(600);

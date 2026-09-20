@@ -33,7 +33,7 @@ async function loadPlaywright() {
   return null;
 }
 
-import { launchSeededRun, seedRun } from "./browser-launch.mjs";
+import { drivePilot, launchSeededRun, seedRun } from "./browser-launch.mjs";
 
 const playwright = URL_UNDER_TEST ? await loadPlaywright() : null;
 const skip = !URL_UNDER_TEST
@@ -239,7 +239,11 @@ test("the SPEC control fires the special on touch and hybrid alike", { skip }, a
   try {
     for (const view of ["touch", "hybrid"]) {
       const { context, page } = await launch(browser, { ship: OVERCHARGED[0], view });
-      const button = page.locator(".touch-special");
+      // The mirrored left-hand cluster carries a second copy of every touch
+      // action, hidden unless the pilot turns mirroring on. Both are in the
+      // DOM either way, so a bare class selector is a strict-mode violation
+      // rather than a control.
+      const button = page.locator(".touch-special:visible").first();
       await button.waitFor({ state: "visible", timeout: 10_000 });
       // The control is disabled until the run is actually live, so pressing it
       // before then would prove nothing.
@@ -300,36 +304,29 @@ test("movement, aim and the power-up launcher still work alongside the special",
     await page.keyboard.press("KeyQ");
     await page.waitForTimeout(200);
 
-    const at = () => page.evaluate(() => {
-      const canvas = document.querySelector(".canvas-wrap > canvas");
-      const data = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data;
-      let sx = 0;
-      let sy = 0;
-      let total = 0;
-      for (let y = 0; y < canvas.height; y += 2) {
-        for (let x = 0; x < canvas.width; x += 2) {
-          const i = (y * canvas.width + x) * 4;
-          const cyan = Math.min(data[i + 1], data[i + 2]) - data[i];
-          if (cyan > 60) { sx += x * cyan; sy += y * cyan; total += cyan; }
-        }
-      }
-      return total ? { x: sx / total / canvas.width, y: sy / total / canvas.height } : null;
-    });
+    /*
+      Asked of the game, in world units, rather than read off the pixels.
 
-    const drift = await (async () => {
-      const start = await at();
-      await page.waitForTimeout(900);
-      const end = await at();
-      return end.x - start.x;
-    })();
+      Two earlier versions of this measurement were photometric -- the centroid
+      of every cyan pixel on the arena canvas -- and both were wrong in CI
+      while passing locally, which is the worst way for a test to be wrong.
+      The first subtracted a "drift" window from a longer thrust window, but
+      Starling's special *is* a three-second afterburn: it decays between the
+      two, and on a slower machine it expired part-way through, so the
+      correction over-corrected and the ship appeared to travel left. The
+      second sampled twice inside one steady state, which fixed the direction
+      but not the signal -- the ship is a small part of the cyan on screen
+      beside the hostiles, so a real 300-unit burst still measured as four
+      thousandths of a canvas.
 
-    const before = await at();
-    await page.keyboard.down("KeyD");
-    await page.waitForTimeout(1200);
-    await page.keyboard.up("KeyD");
-    const after = await at();
-    const moved = after.x - before.x - drift;
-    assert.ok(moved > 0.01, `thrust must still move the ship while a special is live (${moved})`);
+      The pilot probe has no such problem: it reports where the ship is, and
+      nothing else can move the number.
+    */
+    const moved = await drivePilot(page, ["KeyD"], 700);
+    assert.ok(
+      moved.dx > 60,
+      `thrust must still move the ship while a special is live (dx=${moved.dx.toFixed(1)})`,
+    );
 
     // The power-up launcher is a separate control and must be unaffected.
     await page.keyboard.press("KeyE");

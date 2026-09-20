@@ -39,7 +39,7 @@ async function loadPlaywright() {
   return null;
 }
 
-import { launchSeededRun, seedRun } from "./browser-launch.mjs";
+import { HOME_SHIPS, drivePilot, launchSeededRun, pilotAt, railLabel, seedRun } from "./browser-launch.mjs";
 
 const playwright = URL_UNDER_TEST ? await loadPlaywright() : null;
 const skip = !URL_UNDER_TEST
@@ -68,8 +68,17 @@ async function openGame(browser, difficulty) {
 const hullOf = (page) =>
   page.locator(".pilot-health b").innerText().then((text) => Number(text.split("/")[0]));
 
-const badgeOf = (page) =>
-  page.locator(".difficulty-badge").innerText().then((text) => text.replace(/\s+/g, " "));
+/**
+ * The rules rail.
+ *
+ * Read from the rail's accessible label rather than its visible text. The
+ * visible rail was deliberately stripped back to the score, the money and the
+ * two states worth interrupting a pilot for; the mode, the difficulty, the
+ * rift's state, the shield and the contact readout all moved to places they
+ * mean more, and the label is where the redesign kept them in words. See
+ * `railLabel` in `browser-launch.mjs`.
+ */
+const badgeOf = (page) => railLabel(page);
 
 /**
  * Hold a movement direction; the caller decides when to stop by polling.
@@ -108,8 +117,12 @@ test("gameplay suppresses context menus without consuming mouse controls", { ski
 
     // A real secondary pointer event must still reach the existing PUP input.
     // The contextmenu event is a separate browser event and cannot swallow it.
+    // `mines`, not `mine`. The seeding hook filters the ids it is handed
+    // against the weapon catalog, so a renamed id seeds nothing at all and the
+    // bin simply never fills -- which is a thirty-second timeout rather than a
+    // useful failure.
     await page.evaluate(() => window.dispatchEvent(new CustomEvent("breach-runner:test-stock", {
-      detail: ["mine"],
+      detail: ["mines"],
     })));
     await page.waitForFunction(() => document.querySelector(".bin-count")?.textContent?.startsWith("1/"));
     const canvas = page.locator(".canvas-wrap > canvas");
@@ -278,97 +291,69 @@ test("HARD: the contact hazard is armed and the wormhole moves", { skip }, async
   }
 });
 
-/**
- * Where the ship actually is, from the cyan hull on the canvas.
- *
- * The centroid also catches canvas HUD text, which drags it slightly, so
- * callers measure every direction against a no-input baseline rather than
- * against zero.
- */
-const shipAt = (page) =>
-  page.evaluate(() => {
-    const canvas = document.querySelector(".canvas-wrap > canvas");
-    const context = canvas.getContext("2d");
-    const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
-    let sx = 0;
-    let sy = 0;
-    let total = 0;
-    for (let y = 0; y < canvas.height; y += 2) {
-      for (let x = 0; x < canvas.width; x += 2) {
-        const i = (y * canvas.width + x) * 4;
-        const cyan = Math.min(data[i + 1], data[i + 2]) - data[i];
-        if (cyan > 60) { sx += x * cyan; sy += y * cyan; total += cyan; }
-      }
-    }
-    return total ? { x: sx / total / canvas.width, y: sy / total / canvas.height } : null;
-  });
-
 test("WASD and the arrows move the ship in world space", { skip }, async () => {
   const { chromium } = playwright;
   const browser = await chromium.launch({ executablePath: CHROME });
   try {
-    const { context, page } = await openGame(browser, "difficult");
+    const { context, page } = await openGame(browser, "easy");
 
-    // Arena camera, so screen movement maps to world movement. The camera is a
-    // Perspective choice in Settings — it used to be a Camera lock switch —
-    // reached from the pause menu via the global Menu control.
-    await page.locator(".system-menu").click();
-    await page.waitForTimeout(300);
-    await page.getByRole("button", { name: "Open settings" }).click();
-    await page.waitForTimeout(300);
-    await page
-      .locator(".option-row", { hasText: "Perspective" })
-      .locator('[data-choice="arena"]')
-      .click();
-    await page.waitForTimeout(200);
-    await page.keyboard.press("Escape");
-    await page.waitForTimeout(200);
-    await page.keyboard.press("Escape");
-    await page.waitForTimeout(300);
+    /*
+      Measured in world units from the development-only pilot probe, not from
+      the pixels.
 
-    // Restart lives in the pause menu now: the top bar no longer carries a
-    // control that throws the run away.
+      This used to take the centroid of every cyan pixel on the arena canvas.
+      Hostiles are the same cyan and vastly outweigh the ship in aggregate, so
+      the same keypress measured anywhere between a clear result and a tenth of
+      one depending on what happened to be drifting through frame -- and the
+      threshold it was compared against was a fraction of the canvas, which
+      means nothing once the canvas is letterboxed differently. Asking the game
+      where the ship is answers the question the test is actually asking.
+
+      Restart between drives so each one starts from the spawn, which keeps a
+      long drive from measuring a ship already pinned against a wall.
+    */
     const restart = async () => {
       await page.locator(".system-menu").click();
       await page.waitForTimeout(300);
       await page.locator(".pause-actions button", { hasText: "Restart Run" }).click();
-      await page.waitForTimeout(500);
+      await page.waitForTimeout(700);
     };
 
-    const drive = async (codes, ms = 1100) => {
+    const drive = async (codes, ms = 900) => {
       await restart();
-      await page.waitForTimeout(500);
-      const before = await shipAt(page);
-      for (const code of codes) await page.keyboard.down(code);
-      await page.waitForTimeout(ms);
-      for (const code of codes) await page.keyboard.up(code);
-      const after = await shipAt(page);
-      return { dx: after.x - before.x, dy: after.y - before.y };
+      return drivePilot(page, codes, ms);
     };
 
-    const baseline = await drive([]);
-    const relative = async (codes) => {
-      const raw = await drive(codes);
-      return { dx: raw.dx - baseline.dx, dy: raw.dy - baseline.dy };
-    };
+    // A ship length or so of travel: far enough that a stray nudge cannot
+    // produce it, short enough that no drive reaches a wall and stops.
+    const MOVED = 60;
 
-    const up = await relative(["KeyW"]);
-    assert.ok(up.dy < -0.02, `W should move up, got dy=${up.dy.toFixed(3)}`);
+    const idle = await drive([]);
+    assert.ok(
+      Math.abs(idle.dx) < MOVED && Math.abs(idle.dy) < MOVED,
+      `an untouched ship should hold station, drifted (${idle.dx.toFixed(1)}, ${idle.dy.toFixed(1)})`,
+    );
 
-    const down = await relative(["KeyS"]);
-    assert.ok(down.dy > 0.02, `S should move down, got dy=${down.dy.toFixed(3)}`);
+    const up = await drive(["KeyW"]);
+    assert.ok(up.dy < -MOVED, `W should move up, got dy=${up.dy.toFixed(1)}`);
 
-    const left = await relative(["KeyA"]);
-    assert.ok(left.dx < -0.02, `A should move left, got dx=${left.dx.toFixed(3)}`);
+    const down = await drive(["KeyS"]);
+    assert.ok(down.dy > MOVED, `S should move down, got dy=${down.dy.toFixed(1)}`);
 
-    const right = await relative(["KeyD"]);
-    assert.ok(right.dx > 0.02, `D should move right, got dx=${right.dx.toFixed(3)}`);
+    const left = await drive(["KeyA"]);
+    assert.ok(left.dx < -MOVED, `A should move left, got dx=${left.dx.toFixed(1)}`);
 
-    const arrow = await relative(["ArrowUp"]);
-    assert.ok(arrow.dy < -0.02, "the up arrow must move up exactly like W");
+    const right = await drive(["KeyD"]);
+    assert.ok(right.dx > MOVED, `D should move right, got dx=${right.dx.toFixed(1)}`);
 
-    const diagonal = await relative(["KeyW", "KeyD"]);
-    assert.ok(diagonal.dx > 0.02 && diagonal.dy < -0.02, "W+D should move up and right");
+    const arrow = await drive(["ArrowUp"]);
+    assert.ok(arrow.dy < -MOVED, `the up arrow must move up exactly like W, got dy=${arrow.dy.toFixed(1)}`);
+
+    const diagonal = await drive(["KeyW", "KeyD"]);
+    assert.ok(
+      diagonal.dx > MOVED && diagonal.dy < -MOVED,
+      `W+D should move up and right, got (${diagonal.dx.toFixed(1)}, ${diagonal.dy.toFixed(1)})`,
+    );
 
     // Diagonal *speed* is deliberately not compared here. This measurement is
     // a pixel centroid sampled over about a second of live play, with enemies,
@@ -378,8 +363,8 @@ test("WASD and the arrows move the ship in world space", { skip }, async () => {
     // uniquely proves is that the keys reach the ship at all, which is what
     // the direction assertions above cover.
 
-    const cancelled = await relative(["KeyW", "KeyS"]);
-    assert.ok(Math.abs(cancelled.dy) < 0.03, `W+S should cancel, got dy=${cancelled.dy.toFixed(3)}`);
+    const cancelled = await drive(["KeyW", "KeyS"]);
+    assert.ok(Math.abs(cancelled.dy) < MOVED, `W+S should cancel, got dy=${cancelled.dy.toFixed(1)}`);
 
     // Game keys must never scroll the page.
     const scrolled = await page.evaluate(() => window.scrollY || document.documentElement.scrollTop);
@@ -456,9 +441,19 @@ test("a run cannot be resumed after its ship or mode is changed", { skip }, asyn
       "with the run ended, Menu must resolve to Home rather than Pause"
     );
 
-    // And Home describes the newly chosen ship, so nothing is left resumable
-    // under a label that does not match it.
-    assert.match(await page.locator(".play-summary").innerText(), new RegExp(chosen, "i"));
+    // Home is back to describing a run that has not started yet. It no longer
+    // echoes the hull -- the round's ship is chosen in the lobby that flies it
+    // -- so what is checked is the claim the test is named for: the simulation
+    // is stopped, not merely hidden behind a menu. Asked of the game rather
+    // than inferred from the rules rail, which is drawn on Home too and
+    // describes the run that *would* start.
+    const home = (await page.locator(".launch-summary-grid").innerText()).replace(/\s+/g, " ");
+    assert.match(home, /Mode/i, "Home describes the mode the next run will use");
+    assert.equal(
+      (await pilotAt(page))?.running,
+      false,
+      "the ended run must not still be simulating behind Home",
+    );
 
     // Escape must not smuggle the player back into the dead simulation.
     await page.keyboard.press("Escape");
@@ -504,7 +499,7 @@ test("with no run, Menu returns to Home instead of an empty cockpit", { skip }, 
     assert.equal(await routeNow(), "home", "Menu from a screen with no run must return Home");
 
     // Same from Ships.
-    await page.locator(".menu-nav button", { hasText: "Ships" }).click();
+    await page.locator(HOME_SHIPS).click();
     await page.waitForTimeout(300);
     assert.equal(await routeNow(), "ships");
     await page.locator(".system-menu").click();
