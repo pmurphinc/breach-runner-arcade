@@ -458,10 +458,27 @@ for (const device of DEVICES) {
             // The backing store follows the measured CSS rectangle, so the
             // world is drawn at one scale however wide the monitor is.
             aspectDrift: Math.abs(rect.width / rect.height - canvas.width / canvas.height),
-            hudOverArena: [".match-bar", ".status-dock"].filter(
-              (selector) => !overlaps(box(selector), rect)
-            ),
-            hudOverRules: overlaps(box(".match-bar"), box(".difficulty-badge")),
+            /*
+              Nothing may take a band out of the arena.
+
+              This used to require `.match-bar` and `.status-dock` to overlap
+              the canvas, and treated "not rendered" as failing that — but the
+              modern HUD removed both outright (`display: none`), so the test
+              was demanding that two elements which no longer exist be drawn
+              somewhere. What the rule is actually protecting is that the HUD
+              never gets its own strip beside the arena, so an element that is
+              not drawn cannot break it; one that is drawn must be over the
+              canvas.
+            */
+            hudBesideArena: [".match-bar", ".status-dock", ".health-rails", ".difficulty-badge"]
+              .filter((selector) => {
+                const shape = box(selector);
+                return shape !== null && !overlaps(shape, rect);
+              }),
+            // And the HUD that replaced them is really there and really floating,
+            // so "nothing beside the arena" cannot be satisfied by an empty HUD.
+            hudFloating: [".health-rails", ".difficulty-badge"]
+              .filter((selector) => overlaps(box(selector), rect)),
             // Aiming and firing must reach the arena through the floating HUD.
             arenaCentre: (() => {
               const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
@@ -474,8 +491,8 @@ for (const device of DEVICES) {
         assert.ok(pc.widthShare > 0.95, `the arena uses only ${Math.round(pc.widthShare * 100)}% of the width`);
         assert.ok(pc.heightShare > 0.85, `the arena uses only ${Math.round(pc.heightShare * 100)}% of the height`);
         assert.ok(pc.aspectDrift < 0.01, `the backing store drifted from the canvas box by ${pc.aspectDrift}`);
-        assert.deepEqual(pc.hudOverArena, [], "the PC HUD should float over the arena, not beside it");
-        assert.ok(!pc.hudOverRules, "the floating HUD covers the rules rail");
+        assert.deepEqual(pc.hudBesideArena, [], "the PC HUD should float over the arena, not beside it");
+        assert.ok(pc.hudFloating.length > 0, "the PC HUD is not drawn over the arena at all");
         assert.ok(pc.arenaCentre, "the arena does not receive the pointer at its own centre");
       }
 

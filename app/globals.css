@@ -1417,7 +1417,7 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
 @media (max-width: 380px) {
   .brand-row { gap: 6px; }
   .brand-logo { width: 80px; }
-  .build-watermark { font-size: 8px; letter-spacing: .1em; }
+  .build-watermark { letter-spacing: .1em; }
   .drawer-tabs button { font-size: 11px; }
 }
 @media (max-height: 500px) and (orientation: landscape) {
@@ -2141,7 +2141,11 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
 .build-watermark {
   flex: 0 0 auto;
   color: var(--cyan);
-  font: 800 clamp(9px, 1.1vw, 11px)/1 var(--mono);
+  /* --fs-nano is the smallest type in the system, and its floor is the 11px
+     readability floor `devices.test.mjs` enforces. This used to bottom out at
+     9px, and 8px on a narrow phone -- below the floor whatever it is
+     labelling, and a build marker is still something a person reads. */
+  font: 800 var(--fs-nano)/1 var(--mono);
   letter-spacing: .16em;
   opacity: .42;
   white-space: nowrap;
@@ -2261,6 +2265,7 @@ html:has(.settings-drawer), body:has(.settings-drawer) { width: 100%; height: 10
   padding: var(--space-3) var(--space-4);
   border-bottom: var(--border-1);
 }
+
 
 .menu-heading { min-width: 0; }
 .menu-settings {
@@ -3641,7 +3646,7 @@ button.summary-row:hover, button.summary-row:focus-visible,
 @container menu (max-width: 480px) {
   .main-menu-brand-lockup { gap: var(--space-1); }
   .main-menu-brand-lockup .menu-stage-kicker { font-size: 9px; letter-spacing: .14em; }
-  .main-menu-brand-lockup p { font-size: 10px; }
+  .main-menu-brand-lockup p { font-size: var(--fs-nano); }
   .launch-console-header h3 { font-size: var(--fs-md); }
   .launch-status-cluster { font-size: 9px; }
   .launch-briefing h4 { font-size: var(--fs-md); }
@@ -3698,7 +3703,7 @@ button.summary-row:hover, button.summary-row:focus-visible,
   .menu-screen[data-route="home"] .main-menu-stage { gap: var(--space-2); padding-block: 0; }
   .menu-screen[data-route="home"] .main-menu-brand-lockup { gap: var(--space-1); }
   .menu-screen[data-route="home"] .main-menu-brand-lockup .launch-brand-logo { width: clamp(100px, min(28cqw, 34dvh), 320px); }
-  .menu-screen[data-route="home"] .main-menu-brand-lockup p { font-size: 10px; }
+  .menu-screen[data-route="home"] .main-menu-brand-lockup p { font-size: var(--fs-nano); }
   .menu-screen[data-route="home"] .launch-console { gap: var(--space-2); padding: var(--space-2) var(--space-3); }
   .menu-screen[data-route="home"] .launch-briefing { gap: var(--space-1); }
   .menu-screen[data-route="home"] .launch-briefing > p {
@@ -3878,7 +3883,7 @@ button.summary-row:hover, button.summary-row:focus-visible,
   --launch-control-height: max(var(--touch-target), clamp(44px, 6.5dvh, 64px));
   --launch-logo-size: clamp(52px, min(42cqw, 28dvh), 510px);
   --launch-heading-size: clamp(12px, calc(9px + .9vmin), 24px);
-  --launch-body-size: clamp(10px, calc(8px + .45vmin), 13px);
+  --launch-body-size: clamp(11px, calc(8px + .45vmin), 13px);
   --launch-header-height: var(--touch-target);
   height: 100dvh;
   padding: var(--launch-edge);
@@ -3896,13 +3901,40 @@ button.summary-row:hover, button.summary-row:focus-visible,
 
 .menu-screen[data-route="home"] .menu-header {
   min-height: var(--launch-header-height);
-  padding: 2px max(104px, calc(var(--safe-right) + 96px)) 2px var(--launch-panel-padding);
+  padding: 2px max(104px, calc(var(--safe-right) + 96px), var(--menu-system-overlap, 0px)) 2px var(--launch-panel-padding);
 }
 
 .menu-screen[data-route="home"] .menu-content {
   min-height: 0;
   padding: var(--launch-edge) var(--launch-panel-padding);
   overflow: visible;
+}
+
+/*
+  Keep the header's Settings gear out from under the global Menu/Fullscreen bar.
+
+  That bar is position:fixed at the viewport's top-right and paints above every
+  screen, so on any viewport where the panel runs full-bleed it lands squarely
+  on the gear: measured on a 900px tablet, the bar spans x 645–893 and the gear
+  sits at 736–784, entirely underneath it. `elementFromPoint` at the gear's own
+  centre returned the system button, and Settings could not be opened from the
+  menu at all.
+
+  Home already reserved a lane here and did it with a hardcoded 104px, which is
+  less than half what the bar actually needs at that width. `--menu-system-overlap`
+  is measured by the shell instead — exactly how far the bar reaches across the
+  panel, and zero whenever it does not reach at all — the same treatment
+  `--system-controls-width` already gives the rules rail. A phone reserves
+  nothing, because there the bar collapses to icons and the header sits below it.
+
+  Last, because several earlier rules set the header's padding with the
+  shorthand and would otherwise overwrite this.
+*/
+.menu-screen .menu-header {
+  padding-right: max(var(--space-4), var(--menu-system-overlap, 0px));
+}
+.menu-screen[data-route="home"] .menu-header {
+  padding-right: max(104px, calc(var(--safe-right) + 96px), var(--menu-system-overlap, 0px));
 }
 
 .menu-screen[data-route="home"] .main-menu-stage {
@@ -3973,7 +4005,7 @@ button.summary-row:hover, button.summary-row:focus-visible,
     --launch-panel-padding: clamp(4px, 1dvh, 7px);
     --launch-logo-size: clamp(52px, min(22cqw, 16dvh), 150px);
     --launch-heading-size: clamp(11px, calc(8px + .75vmin), 16px);
-    --launch-body-size: clamp(9px, calc(7px + .5vmin), 11px);
+    --launch-body-size: clamp(11px, calc(7px + .5vmin), 11px);
   }
   .menu-screen[data-route="home"] .main-menu-brand-lockup {
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
