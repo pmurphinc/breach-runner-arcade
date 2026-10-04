@@ -3878,24 +3878,50 @@ export default function WormholeGame() {
       setRiftRun(null);
     }
     /*
-      What the pilot paid for, loaded before the first shot.
+      What the pilot paid for, loaded before the first shot — in a solo run,
+      and only in a solo run.
 
       Taken only up to the run's own payload ceiling — Rift Run opens with a
       single slot — and whatever does not fit stays bought, in the wallet, for
       a run that has room for it. Nothing is destroyed by launching the wrong
-      mode.
+      mode, and nothing is spent by launching a match.
 
-      In a network match the server owns the inventory ledger, so each seeded
-      payload is reported as an ordinary `collect` rather than pushed into the
-      local array alone. A local-only seed would let the pilot fire payloads
-      the server has no record of, and the server would rightly reject every
-      one of them.
+      ## Why a match starts with an empty bin
+
+      The wallet is client state. It is a localStorage record the pilot's own
+      browser writes, there is no server-side account to check it against — the
+      D1 schema is empty and a match player is a guest with a four-digit
+      callsign — and `app/account.ts` can only re-derive the developer flag
+      from the email, not the balance from anything.
+
+      That is tolerable for a solo run: a pilot who edits their own save has
+      cheated their own game, which is theirs to do. It is not tolerable in a
+      duel, and the way it reached one was this seed. Payloads were pushed into
+      the bin and then announced to the server as ordinary `collect` events,
+      which is precisely what `updateInventory` in server/rooms.mjs says cannot
+      be faked: "the arena still reports the concrete collision event, but it
+      never supplies the resulting count... this server-owned typed LIFO ledger
+      makes count jumps, replay, overflow, fabricated removal, and transmission
+      without a launch impossible." Every one of those holds. The hole was that
+      a `collect` no longer had to correspond to anything in the arena, so two
+      lines of devtools bought a full bin of the heaviest payloads in every
+      ranked 1v1.
+
+      So the loadout does not travel. A networked match starts empty and
+      everything in the bin is won off the floor of a shared arena both pilots
+      can see and race for, which is the contest the mode is for; the ledger's
+      guarantee is true again as written. Money is still earned in a match —
+      the awards are mode-agnostic — and spent on the runs the pilot flies
+      alone.
+
+      When accounts become server-side this can come back as an allowance the
+      *server* issues at ready-up, from a balance it holds, rather than an
+      inventory the client announces. Until then, equal and empty.
     */
-    const banked = consumeLoadout(accountStore.getSnapshot().wallet, game.payloadCapacity);
-    if (banked.stock.length > 0 && accountStore.updateWallet(() => banked.wallet)) {
-      game.stock = [...banked.stock];
-      if (!isOfflineMode(launchMode)) {
-        for (const payload of banked.stock) netRef.current?.reportInventory("collect", payload);
+    if (isOfflineMode(launchMode)) {
+      const banked = consumeLoadout(accountStore.getSnapshot().wallet, game.payloadCapacity);
+      if (banked.stock.length > 0 && accountStore.updateWallet(() => banked.wallet)) {
+        game.stock = [...banked.stock];
       }
     }
     game.roundId = launchMode === "coop" || launchMode === "team" ? (netRef.current?.state.roundId ?? 0) : 0;

@@ -123,7 +123,7 @@ export function ArmoryScreen({
 
       <MenuSection
         title="Round inventory"
-        hint={`Bought payloads are carried into the next round and used up by it. ${space} of ${PUP_INVENTORY_CAPACITY} slots free.`}
+        hint={`Bought payloads are carried into your next solo run and used up by it \u2014 a match starts both pilots empty. ${space} of ${PUP_INVENTORY_CAPACITY} slots free.`}
       >
         <div className="armory-loadout" aria-label="Payloads loaded for the next round">
           {Array.from({ length: PUP_INVENTORY_CAPACITY }, (_, slot) => {

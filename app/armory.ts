@@ -50,7 +50,7 @@ export type PilotWallet = {
   lifetimeEarned: number;
   /** Payloads bought outright. Always includes the starter grants. */
   unlocked: PowerId[];
-  /** Payloads paid for and waiting to be carried into the next round. */
+  /** Payloads paid for and waiting to be carried into the next solo run. */
   loadout: PowerId[];
 };
 
