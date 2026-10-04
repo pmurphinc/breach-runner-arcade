@@ -3104,12 +3104,34 @@ export default function WormholeGame() {
       // of drift as `--system-controls-width` above, and the same answer:
       // reserve exactly what is there.
       //
-      // Safe to measure because the deck is `position: fixed` and outside the
-      // wrap -- its height cannot depend on the canvas, so sizing the canvas
-      // from it cannot feed back.
-      const deck = document.querySelector<HTMLElement>(".touch-controls")?.getBoundingClientRect();
-      if (deck && deck.height > 0) {
-        wrap.style.setProperty("--measured-control-deck", `${Math.max(0, Math.round(wrapRect.bottom - deck.top))}px`);
+      // "What is there" means the controls, not the box they are positioned
+      // in. `.touch-controls` was the obvious thing to measure and it is the
+      // wrong rectangle: it is a fixed strip `--stick` tall that the sticks
+      // hang out of the bottom of -- each stick is anchored `bottom: 0` inside
+      // it and is taller than it is -- so its top edge sits a long way above
+      // anything the player can touch. Measured on a 390x844 phone: the strip
+      // starts at y 685 and the highest control, the orbiting Pause button,
+      // starts at 786. A hundred and one pixels of arena, given up to reserve
+      // room for nothing, which is the same dead strip the 62px left in a new
+      // disguise.
+      //
+      // So take the union of the real controls: both thumbsticks and every
+      // utility button orbiting them, skipping the mirrored copies while they
+      // are hidden. Still safe to measure -- all of it is fixed-positioned
+      // outside the wrap and sized from the control-size preference, so none
+      // of it can depend on the canvas this feeds.
+      let deckTop = Infinity;
+      const parts = document.querySelectorAll<HTMLElement>(
+        ".touch-controls .virtual-stick, .touch-controls .touch-utility button"
+      );
+      for (const part of parts) {
+        if (getComputedStyle(part).visibility === "hidden") continue;
+        const rect = part.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) continue;
+        deckTop = Math.min(deckTop, rect.top);
+      }
+      if (Number.isFinite(deckTop)) {
+        wrap.style.setProperty("--measured-control-deck", `${Math.max(0, Math.round(wrapRect.bottom - deckTop))}px`);
       } else {
         // No deck on screen: the CSS fallback formula takes over rather than
         // a stale value reserving room for controls that are not there.

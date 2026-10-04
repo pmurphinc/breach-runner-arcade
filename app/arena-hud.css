@@ -455,8 +455,22 @@ html[data-mirror-touch-actions="on"] .touch-capable[data-immersive="true"][data-
    other. Both groups are real grid items here and `display: contents`
    everywhere else, so there is one set of markup for every orientation. */
 .touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .run-summary {
-  width: min(560px, 100%);
+  /* All the width there is. A landscape phone is 740-932px across and this
+     card used to take 560 of it, leaving the columns 261px each to wrap the
+     telemetry and the action labels into -- height spent buying nothing, on
+     the one axis that is short. */
+  width: 100%;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  /* The areas as well as the columns, and that pairing is the whole fix. Under
+     760px wide globals.css collapses this card to one column by redefining
+     both -- right for a 412px portrait phone, and exactly backwards for a
+     740x360 landscape one, which has width to spare and 360px of height to
+     fit everything into. This rule used to override only the columns, so a
+     landscape phone narrower than 760px got a two-column grid whose named
+     areas all still lived in column one: the report under the header, the
+     controls under the report, a dead second column beside them, and 629px of
+     content in a 346px card with every button below the fold. */
+  grid-template-areas: "header header" "report commands";
   gap: 6px 12px;
   padding: 10px 12px;
 }
@@ -476,6 +490,66 @@ html[data-mirror-touch-actions="on"] .touch-capable[data-immersive="true"][data-
 .touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .run-score b {
   font-size: clamp(20px, 4.4vw, 28px);
 }
+
+/* Two columns was not enough on its own. The continuation column carries the
+   initials prompt plus four actions, every one of which is a 48px touch
+   target by design, so it wants a little over 300px of height on a viewport
+   that has 376 — and 346 on a 740x360 phone. Stacked, it simply does not fit,
+   and the overflow puts GLOBAL BOARD below the fold where a player cannot
+   reach it.
+
+   So the actions pair up across the width, which is the dimension a landscape
+   phone has going spare. Four buttons in two rows instead of four saves about
+   a hundred pixels and costs no target size. */
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .run-links {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+/* RUN AGAIN keeps the whole width -- it is the one action with any primacy --
+   and the three secondary ones share the row below it rather than taking a
+   row each. The note explaining why they are disabled spans, as it always
+   does. */
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"]
+  :is(.run-links-note, .run-links .run-action.primary) {
+  grid-column: 1 / -1;
+}
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .run-links .run-board-link {
+  grid-column: auto;
+}
+/* One line. "0/3 · LETTERS OR NUMBERS" wrapped to two in a column this
+   narrow, for a hint the field's own behaviour already demonstrates. */
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .initials-entry small {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The commands column is a panel inside a panel, and its own inset is charged
+   to the same height budget. Enough to read as a group, no more. */
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .result-command-column {
+  padding: 6px 8px;
+}
+/* And the debrief sentence goes. It is the same line after every run -- review
+   the telemetry, choose a deployment -- so it is the one thing on this card
+   that is prose rather than a reading, and it costs three wrapped lines of a
+   height budget that is already short. The outcome is still named by the
+   heading above it and spelled out by the result line in the report column. */
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .result-screen-header p {
+  display: none;
+}
+/* Kicker and heading on one line. With the card at full width there is room
+   for "MISSION DEBRIEF // SURVIVAL" beside "SURVIVAL ENDED", and a landscape
+   phone would rather spend that width than a whole row of its height. */
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .result-screen-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding-bottom: 6px;
+}
+.touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] .result-screen-header h2 {
+  margin: 0;
+  font-size: clamp(20px, 3.2vw, 28px);
+}
+
 .touch-capable[data-immersive="true"][data-form="phone"][data-orientation="landscape"] :is(.run-save, .run-links) {
   padding-top: 0;
   border-top: 0;

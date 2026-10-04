@@ -308,7 +308,18 @@ test('touch-stick height participates in the shared safe-area reservation', () =
   assert.match(css, /data-touch-height="high"[^}]*--touch-lift:\s*clamp\(24px, 8dvh, 64px\)/);
   assert.match(css, /data-sticks="docked"[^}]*\.touch-controls[^}]*bottom:[^;]*var\(--touch-lift\)/);
   assert.match(css, /data-sticks="overlay"[^}]*touch-action[^}]*bottom:[^;]*var\(--touch-lift\)/);
-  assert.match(css, /data-sticks="gutter"[^}]*touch-action[^}]*top:\s*calc\(50% - var\(--touch-lift/);
+  // A gutter reads the preference through --gutter-rise instead, and that is
+  // the point of it being a second variable: --touch-lift is an offset from the
+  // bottom edge, whose Low is zero and whose Middle is already a 32px rise.
+  // Subtracted from 50% it put the default Middle setting above the viewport
+  // midline, so the pair was not centred beside the arena at all.
+  assert.match(css, /data-sticks="gutter"[^}]*touch-action[^}]*top:\s*calc\(50% - var\(--gutter-rise/);
+  assert.match(css, /\.touch-capable\[data-sticks="gutter"\] \{ --gutter-rise: 0px; \}/);
+  assert.match(css, /data-sticks="gutter"\]\[data-touch-height="high"\] \{ --gutter-rise: clamp\(/);
+  // And the translate is the only centring. Under the Classic profile a second
+  // one arrives as `margin-top: calc(size / -2)`, and both landing put the
+  // sticks a full stick radius above where either alone would.
+  assert.match(css, /data-sticks="gutter"[^}]*touch-action[^}]*margin-top:\s*0/);
   assert.doesNotMatch(css, /data-touch-height="high"[^}]*transform:/);
 });
 
@@ -321,10 +332,21 @@ test('touch score shares the rules rail and utilities orbit the fire stick', () 
   assert.match(game, /className="rule-score">{hud.score/);
   assert.match(css, /\.modern-hud \.match-bar\s*\{\s*display:\s*none/);
   assert.match(css, /\.touch-capable \.difficulty-badge \.rule-score/);
+  // The live arc, not the one before it. This used to pin `right: calc(100% +
+  // 8px)` / `right: 85%` / `left: 38%`, which were three rules the radial
+  // offsets below them overrode outright -- same specificity, later in the
+  // file, and each one re-stating the side it anchors to. They have gone, and
+  // these are the declarations the buttons are actually placed by: one set of
+  // offsets from the stick's centre, reflected for the mirrored cluster.
   const satellites = css.slice(css.indexOf('Three independent circular utility buttons'));
-  assert.match(satellites, /\.touch-pup[\s\S]*right:\s*calc\(100% \+ 8px\)/);
-  assert.match(satellites, /\.touch-special[\s\S]*right:\s*85%/);
-  assert.match(satellites, /\.touch-pause[\s\S]*left:\s*38%/);
+  assert.match(satellites, /--pup-x:\s*calc\(50% \+ var\(--satellite\) \/ 2 \+ 8px\)/);
+  assert.match(satellites, /--spec-x:\s*115%/);
+  assert.match(satellites, /--pause-x:\s*83%/);
+  assert.match(satellites, /\.touch-action \.touch-pause \{ left: calc\(100% - var\(--pause-x\)\)/);
+  assert.match(satellites, /\.touch-flight \.touch-pause \{ left: var\(--pause-x\)/);
+  // And the orbit container is the stick's own box, which is what makes those
+  // percentages mean anything.
+  assert.match(satellites, /\.touch-utility \{[\s\S]*?width:\s*100%;[\s\S]*?aspect-ratio:\s*1/);
   assert.match(satellites, /border-radius:\s*50%/);
 });
 
@@ -391,8 +413,14 @@ test('landscape tablets reuse the full arena shell and corner controls', () => {
   assert.match(tablet, /\.arena-stage\s*\{[\s\S]*?width:\s*100%/);
   assert.match(tablet, /data-sticks="overlay"[^}]*\.touch-flight\s*\{[\s\S]*?bottom:\s*calc\(max\(12px,[^;]*var\(--touch-lift\)/);
   assert.match(tablet, /data-sticks="overlay"[^}]*\.touch-action\s*\{[\s\S]*?bottom:\s*calc\(max\(12px,[^;]*var\(--touch-lift\)/);
-  assert.match(tablet, /data-sticks="gutter"[^}]*\.touch-flight\s*\{[\s\S]*?top:\s*calc\(50% - var\(--touch-lift\)/);
-  assert.match(tablet, /data-sticks="gutter"[^}]*\.touch-action\s*\{[\s\S]*?top:\s*calc\(50% - var\(--touch-lift\)/);
+  // Overlay lifts off the bottom edge; a gutter offsets from its own centre.
+  // See --gutter-rise, and the note beside it on why they cannot be the same
+  // number. Each also zeroes the margin, because the translate is already the
+  // centring and the Classic profile contributes a second one.
+  assert.match(tablet, /data-sticks="gutter"[^}]*\.touch-flight\s*\{[\s\S]*?top:\s*calc\(50% - var\(--gutter-rise, 0px\)\)/);
+  assert.match(tablet, /data-sticks="gutter"[^}]*\.touch-action\s*\{[\s\S]*?top:\s*calc\(50% - var\(--gutter-rise, 0px\)\)/);
+  assert.match(tablet, /data-sticks="gutter"[^}]*\.touch-flight\s*\{[\s\S]*?margin-top:\s*0/);
+  assert.match(tablet, /data-sticks="gutter"[^}]*\.touch-action\s*\{[\s\S]*?margin-top:\s*0/);
   assert.doesNotMatch(tablet, /scale|dead.?zone|accel|inertia/i,
     'tablet layout must not alter touch response or gameplay');
 });

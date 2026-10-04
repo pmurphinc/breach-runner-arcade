@@ -25,15 +25,37 @@ test("cannon mark pitch ladder keeps one fire sound identity", () => {
 });
 
 test("normal cannon impacts drive hit feedback while specials are excluded", () => {
-  assert.match(game, /bullet\.enemy \|\| bullet\.special/);
-  assert.equal((game.match(/cannonImpactFeedback\(game, bullet\)/g) ?? []).length, 2);
+  // The exclusion lives in the helper rather than at its call sites, which is
+  // the whole reason it cannot be forgotten at a new one.
+  const helper = game.slice(game.indexOf("const cannonImpactFeedback"));
+  assert.match(helper.slice(0, 400), /if \(bullet\.enemy \|\| bullet\.special \|\| game\.cycles - lastGunFeedbackTick < 2\) return;/);
+  // Every impact path reports through it, and the number of paths is not
+  // pinned. This used to assert exactly two and there are four -- the rift,
+  // intercepting a hostile shot, shooting a loose payload, and hitting an
+  // enemy -- so it had been failing since the third was added, in a suite no
+  // script ran. A count that has to be edited whenever a path is added only
+  // ever fails for the right reason by accident; what matters is that no path
+  // reports impact feedback any other way.
+  assert.ok(
+    (game.match(/cannonImpactFeedback\(game, bullet\)/g) ?? []).length >= 2,
+    "cannon impacts must report through the shared helper"
+  );
   assert.match(game, /cannonHitSoundRef\.current/);
 });
 
 test("hull feedback is emitted only after unlimited-hull guard", () => {
   const start = game.indexOf("const applyHullDamage");
   const block = game.slice(start, start + 900);
-  assert.ok(block.indexOf("unlimitedHull") < block.indexOf('vibrateCombat("hull")'));
+  // Matched without the closing bracket: the call carries the amount now
+  // (`vibrateCombat("hull", amount)`), so the old exact-string search found
+  // nothing, compared -1 against a real index, and reported the guard as
+  // missing. Both ends are asserted present so the comparison cannot pass on
+  // two absences again.
+  const guard = block.indexOf("game.rules.unlimitedHull");
+  const feedback = block.indexOf('vibrateCombat("hull"');
+  assert.ok(guard >= 0, "the unlimited-hull guard must be in applyHullDamage");
+  assert.ok(feedback >= 0, "hull feedback must be in applyHullDamage");
+  assert.ok(guard < feedback, "a locked hull must not buzz the pad");
 });
 
 const rumblePad = (playEffect) => ({
