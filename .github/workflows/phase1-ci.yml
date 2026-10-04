@@ -7,6 +7,13 @@ on:
 permissions:
   contents: read
 
+# Three jobs rather than one long one, and the split is deliberate: the browser
+# suites take longer than everything else put together, so running them beside
+# `verify` instead of after it keeps the wall clock close to the slowest single
+# job. `tests/test-wiring.test.mjs` asserts that every script owning suites is
+# invoked here, so a suite can no longer be wired into a script that CI never
+# calls -- which is how four browser suites came to hold twenty real failures
+# without a single red build.
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -25,6 +32,21 @@ jobs:
         run: npm test
       - name: Lint
         run: npm run lint
+
+  # The suites that drive the dev server over WORMHOLE_TEST_URL.
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Use Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
       - name: Install browser harness
         run: |
           npm install --no-save --ignore-scripts playwright@1.55.0
@@ -45,3 +67,30 @@ jobs:
           export WORMHOLE_TEST_URL=http://127.0.0.1:5199/
           export WORMHOLE_TEST_CHROME=$(node --input-type=module -e "import { chromium } from 'playwright'; console.log(chromium.executablePath())")
           npm run test:browser
+
+  # The suites that boot server/start.mjs themselves, so they need the built
+  # bundle rather than the dev server: every device layout, the phone HUD, and
+  # the two-browser PvP match against the real production entry point.
+  browser-devices:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Use Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Install browser harness
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Device and PvP browser tests
+        run: |
+          export WORMHOLE_TEST_CHROME=$(node --input-type=module -e "import { chromium } from 'playwright'; console.log(chromium.executablePath())")
+          npm run test:browser:devices

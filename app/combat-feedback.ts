@@ -1,4 +1,4 @@
-import { COMBAT_RUMBLE, rumbleGameplayGamepad } from "./gamepad";
+import { COMBAT_RUMBLE, rumbleGameplayGamepad } from "./gamepad.ts";
 
 export type CombatHaptics = "off" | "gun" | "hull" | "both";
 export type CombatHapticEvent = "gun" | "hull";

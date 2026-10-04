@@ -29,7 +29,31 @@ test("camera zoom is shared by rendering and pointer-to-world transforms", () =>
 });
 
 test("arena ships are visually larger without changing collision constants", () => {
-  assert.equal((game.match(/\* 1\.15/g) ?? []).length, 2);
+  // The 1.15 used to be written as two bare multiplications and counted as
+  // such, which stopped matching the moment the scale became an argument the
+  // geometry helpers take -- so this read zero and had been failing silently in
+  // a suite no script ran.
+  //
+  // Asserted as the guarantee instead: the hull is drawn at 1.15, and every
+  // resolver that places something *on* the hull is handed the same 1.15, so
+  // muzzles, thrusters and hardpoints cannot drift off a model that grew
+  // without them.
+  assert.match(game, /drawShipModel\(ctx, game\.ship\.id, 1\.15\)/);
+  for (const resolver of [
+    "shipMuzzleWorldPoint",
+    "shipThrusterWorldPoints",
+    "shipHardpointResolver",
+    "shipHardpointOffset",
+  ]) {
+    assert.match(
+      game,
+      new RegExp(`${resolver}\\([^)]*1\\.15`),
+      `${resolver} must be given the same visual scale as the model`
+    );
+  }
+  // And nothing in the collision maths is scaled by it: a bigger drawing is a
+  // drawing, not a bigger hitbox.
+  assert.doesNotMatch(game, /(?:sweptHit|hitRadius|collide)[^\n]*1\.15/);
 });
 
 test("difficulty ladder uses Breach Runner themed names", () => {

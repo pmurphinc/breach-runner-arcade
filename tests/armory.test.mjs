@@ -178,10 +178,32 @@ test("the arena is paid from the events that already exist", () => {
   assert.equal((game.match(/game\.credits \+= CREDIT_AWARDS\.breach;/g) ?? []).length, 2, "both breach paths pay");
 });
 
-test("a purchased inventory is carried into the round the server also knows about", () => {
+test("a purchased inventory is carried into a solo run and nothing else", () => {
   assert.match(game, /const banked = consumeLoadout\(accountStore\.getSnapshot\(\)\.wallet, game\.payloadCapacity\);/);
-  // The server owns the LIFO ledger in a network match, so a seeded payload is
-  // reported as an ordinary collect. A local-only seed would let the pilot fire
-  // payloads the server has no record of.
-  assert.match(game, /for \(const payload of banked\.stock\) netRef\.current\?\.reportInventory\("collect", payload\);/);
+  // Gated on the mode, and that gate is the whole of the wallet's security
+  // model. The wallet is a localStorage record the pilot's own browser writes
+  // and there is no server-side account to check it against, so in a solo run
+  // an edited save is a pilot cheating their own game. In a match it was two
+  // lines of devtools for a full bin of the heaviest payloads, because the
+  // seed announced each one to the server as an ordinary `collect` -- the one
+  // thing `updateInventory` in server/rooms.mjs promises cannot be faked.
+  const seed = game.slice(game.indexOf("if (isOfflineMode(launchMode)) {"));
+  assert.match(
+    seed.slice(0, 400),
+    /const banked = consumeLoadout/,
+    "the loadout may only be seeded in an offline run"
+  );
+  // A match starts empty, so every `collect` the server sees is a real arena
+  // event again.
+  assert.doesNotMatch(
+    game,
+    /banked\.stock\) netRef\.current\?\.reportInventory\("collect"/,
+    "a purchased payload must never be announced as collected"
+  );
+  const collects = game.match(/reportInventory\("collect", [a-z]+\)/g) ?? [];
+  assert.deepEqual(
+    collects,
+    ['reportInventory("collect", type)'],
+    "the only reported collect is the arena pickup that actually happened"
+  );
 });

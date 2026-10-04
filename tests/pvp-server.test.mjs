@@ -6,7 +6,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DIFFICULTIES } from "../app/difficulty.ts";
+import { PVP_RULES } from "../app/difficulty.ts";
 import { SHIPS, SENDABLE_POWERUPS } from "../app/game-data.ts";
 import {
   CODE_ALPHABET,
@@ -36,15 +36,22 @@ import { MatchServer, PUP_INVENTORY_CAPACITY, PVP_QUICK_MATCH_QUEUE, SHIP_HULL, 
 // ------------------------------------------------------------------- drift --
 
 test("server rule copy matches the app difficulty rules exactly", () => {
-  const easy = DIFFICULTIES.easy;
-  assert.equal(easy.collisionShield.enabled, true);
-  assert.equal(COLLISION_SHIELD_CAPACITY, easy.collisionShield.capacity);
+  // `PVP_RULES`, not `DIFFICULTIES.easy`. A match flies the former, and the two
+  // are not the same object: PvP takes Easy's safety rules and gives the rift an
+  // orbit. Reading Easy here asserted a rule PvP does not have -- and it passed,
+  // because Easy's rift really is locked, so the guarantee it claimed to pin
+  // ("pvp wormholes must be centred") was simply untrue and unguarded.
+  assert.equal(PVP_RULES.collisionShield.enabled, true);
+  assert.equal(COLLISION_SHIELD_CAPACITY, PVP_RULES.collisionShield.capacity);
   // The app counts the delay in whole ticks; the server derives its
   // millisecond budget from the same tick count so the two cannot diverge.
-  assert.equal(COLLISION_SHIELD_RECHARGE_TICKS, easy.collisionShield.rechargeDelayTicks);
-  assert.equal(COLLISION_SHIELD_RECHARGE_MS, easy.collisionShield.rechargeDelayTicks * TICK_MS);
-  assert.equal(easy.wormhole.kind, "locked", "pvp wormholes must be centred");
-  assert.equal(easy.contactHazard.enabled, false, "pvp must not run the contact hazard");
+  assert.equal(COLLISION_SHIELD_RECHARGE_TICKS, PVP_RULES.collisionShield.rechargeDelayTicks);
+  assert.equal(COLLISION_SHIELD_RECHARGE_MS, PVP_RULES.collisionShield.rechargeDelayTicks * TICK_MS);
+  // The rift moves, and that is the point of PvP having rules of its own: a
+  // locked rift is a stationary objective both pilots shoot at, which reduces a
+  // duel to whoever holds one angle longest.
+  assert.equal(PVP_RULES.wormhole.kind, "orbit", "a pvp rift must move");
+  assert.equal(PVP_RULES.contactHazard.enabled, false, "pvp must not run the contact hazard");
 });
 
 test("server ship hulls match the shipped ship data", () => {

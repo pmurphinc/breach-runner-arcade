@@ -2219,12 +2219,14 @@ function DifficultyBadge({
   // recharge is already the second fill on the hull bar, so the whole line
   // said nothing that was not said better elsewhere. It survives only in the
   // spoken label, where a reader has no bar to look at.
-  // Only the part `status` does not already say. Repeating CONTACT here is how
-  // the visible rail ended up printing it twice in the first place.
-  const spokenContext = recharge > 0 ? ` | SHIELD RECHARGING ${recharge.toFixed(1)}s` : "";
+  // No trailing context clause. It used to append the shield's recharge, which
+  // `shieldText` already spells out word for word a few segments earlier -- so
+  // a recharging shield was spoken twice in one label, the same fault the note
+  // above describes CONTACT having had. Every state the clause could report is
+  // in `status` already.
   const status = activeMode === "classic"
     ? `CLASSIC | KILLS ${live ? hud.kills : 0} | RIFT ${wormhole}${upgrades ? ` | ${upgrades}` : ""}`
-    : `${gameMode} · ${difficulty}${riftLevel > 0 ? ` | RIFT LEVEL ${riftLevel} · ${riftStage}` : ""} | RIFT ${wormhole} | ${shieldText} | CONTACT ${contact}${hud.riftPressure > 2 ? ` | RIFT PRESSURE ${hud.riftPressure}%` : ""}${live && hud.enrageActive ? " | ENRAGED" : ""}${spokenContext}`;
+    : `${gameMode} · ${difficulty}${riftLevel > 0 ? ` | RIFT LEVEL ${riftLevel} · ${riftStage}` : ""} | RIFT ${wormhole} | ${shieldText} | CONTACT ${contact}${hud.riftPressure > 2 ? ` | RIFT PRESSURE ${hud.riftPressure}%` : ""}${live && hud.enrageActive ? " | ENRAGED" : ""}`;
 
   if (riftRun?.status === "active") {
     const active = activeHardpointCount(riftRun);
@@ -3102,12 +3104,34 @@ export default function WormholeGame() {
       // of drift as `--system-controls-width` above, and the same answer:
       // reserve exactly what is there.
       //
-      // Safe to measure because the deck is `position: fixed` and outside the
-      // wrap -- its height cannot depend on the canvas, so sizing the canvas
-      // from it cannot feed back.
-      const deck = document.querySelector<HTMLElement>(".touch-controls")?.getBoundingClientRect();
-      if (deck && deck.height > 0) {
-        wrap.style.setProperty("--measured-control-deck", `${Math.max(0, Math.round(wrapRect.bottom - deck.top))}px`);
+      // "What is there" means the controls, not the box they are positioned
+      // in. `.touch-controls` was the obvious thing to measure and it is the
+      // wrong rectangle: it is a fixed strip `--stick` tall that the sticks
+      // hang out of the bottom of -- each stick is anchored `bottom: 0` inside
+      // it and is taller than it is -- so its top edge sits a long way above
+      // anything the player can touch. Measured on a 390x844 phone: the strip
+      // starts at y 685 and the highest control, the orbiting Pause button,
+      // starts at 786. A hundred and one pixels of arena, given up to reserve
+      // room for nothing, which is the same dead strip the 62px left in a new
+      // disguise.
+      //
+      // So take the union of the real controls: both thumbsticks and every
+      // utility button orbiting them, skipping the mirrored copies while they
+      // are hidden. Still safe to measure -- all of it is fixed-positioned
+      // outside the wrap and sized from the control-size preference, so none
+      // of it can depend on the canvas this feeds.
+      let deckTop = Infinity;
+      const parts = document.querySelectorAll<HTMLElement>(
+        ".touch-controls .virtual-stick, .touch-controls .touch-utility button"
+      );
+      for (const part of parts) {
+        if (getComputedStyle(part).visibility === "hidden") continue;
+        const rect = part.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) continue;
+        deckTop = Math.min(deckTop, rect.top);
+      }
+      if (Number.isFinite(deckTop)) {
+        wrap.style.setProperty("--measured-control-deck", `${Math.max(0, Math.round(wrapRect.bottom - deckTop))}px`);
       } else {
         // No deck on screen: the CSS fallback formula takes over rather than
         // a stale value reserving room for controls that are not there.
@@ -3473,15 +3497,6 @@ export default function WormholeGame() {
     };
     (window as unknown as { __breachRunnerPilot?: typeof probe }).__breachRunnerPilot = probe;
     return () => { delete (window as unknown as { __breachRunnerPilot?: typeof probe }).__breachRunnerPilot; };
-  }, []);
-
-  /* The two-browser lifecycle test ends a real server-owned PvP round without
-     depending on random arena collisions. Production builds omit this hook. */
-  useEffect(() => {
-    if (process.env.NODE_ENV === "production") return;
-    const damage = () => netRef.current?.reportDamage("impact", 50, "hostile_projectile");
-    window.addEventListener("breach-runner:test-pvp-damage", damage);
-    return () => window.removeEventListener("breach-runner:test-pvp-damage", damage);
   }, []);
 
   /* Spawn notices are wave-timed, so tests ask for one rather than waiting out
@@ -3863,24 +3878,50 @@ export default function WormholeGame() {
       setRiftRun(null);
     }
     /*
-      What the pilot paid for, loaded before the first shot.
+      What the pilot paid for, loaded before the first shot — in a solo run,
+      and only in a solo run.
 
       Taken only up to the run's own payload ceiling — Rift Run opens with a
       single slot — and whatever does not fit stays bought, in the wallet, for
       a run that has room for it. Nothing is destroyed by launching the wrong
-      mode.
+      mode, and nothing is spent by launching a match.
 
-      In a network match the server owns the inventory ledger, so each seeded
-      payload is reported as an ordinary `collect` rather than pushed into the
-      local array alone. A local-only seed would let the pilot fire payloads
-      the server has no record of, and the server would rightly reject every
-      one of them.
+      ## Why a match starts with an empty bin
+
+      The wallet is client state. It is a localStorage record the pilot's own
+      browser writes, there is no server-side account to check it against — the
+      D1 schema is empty and a match player is a guest with a four-digit
+      callsign — and `app/account.ts` can only re-derive the developer flag
+      from the email, not the balance from anything.
+
+      That is tolerable for a solo run: a pilot who edits their own save has
+      cheated their own game, which is theirs to do. It is not tolerable in a
+      duel, and the way it reached one was this seed. Payloads were pushed into
+      the bin and then announced to the server as ordinary `collect` events,
+      which is precisely what `updateInventory` in server/rooms.mjs says cannot
+      be faked: "the arena still reports the concrete collision event, but it
+      never supplies the resulting count... this server-owned typed LIFO ledger
+      makes count jumps, replay, overflow, fabricated removal, and transmission
+      without a launch impossible." Every one of those holds. The hole was that
+      a `collect` no longer had to correspond to anything in the arena, so two
+      lines of devtools bought a full bin of the heaviest payloads in every
+      ranked 1v1.
+
+      So the loadout does not travel. A networked match starts empty and
+      everything in the bin is won off the floor of a shared arena both pilots
+      can see and race for, which is the contest the mode is for; the ledger's
+      guarantee is true again as written. Money is still earned in a match —
+      the awards are mode-agnostic — and spent on the runs the pilot flies
+      alone.
+
+      When accounts become server-side this can come back as an allowance the
+      *server* issues at ready-up, from a balance it holds, rather than an
+      inventory the client announces. Until then, equal and empty.
     */
-    const banked = consumeLoadout(accountStore.getSnapshot().wallet, game.payloadCapacity);
-    if (banked.stock.length > 0 && accountStore.updateWallet(() => banked.wallet)) {
-      game.stock = [...banked.stock];
-      if (!isOfflineMode(launchMode)) {
-        for (const payload of banked.stock) netRef.current?.reportInventory("collect", payload);
+    if (isOfflineMode(launchMode)) {
+      const banked = consumeLoadout(accountStore.getSnapshot().wallet, game.payloadCapacity);
+      if (banked.stock.length > 0 && accountStore.updateWallet(() => banked.wallet)) {
+        game.stock = [...banked.stock];
       }
     }
     game.roundId = launchMode === "coop" || launchMode === "team" ? (netRef.current?.state.roundId ?? 0) : 0;
@@ -9344,13 +9385,20 @@ export default function WormholeGame() {
 
         <section
           className="play-column"
+          // Which round the live arena is running, published on the play
+          // surface itself. It used to ride on the match bar, which the modern
+          // HUD hides on every device: an attribute still reads correctly off a
+          // hidden element, so the only consumer kept working and kept a dead
+          // selector alive. The play column is drawn in every mode and on every
+          // device, so this is where a round id can be trusted.
+          data-round-id={net?.roundId ?? 0}
           // The whole live play surface owns the secondary mouse button, not
           // just the canvas. Keeping this on the gameplay column covers its
           // HUD and controls while leaving menus and the rest of the page with
           // the browser's normal context menu.
           onContextMenu={(event) => event.preventDefault()}
         >
-          <div className="match-bar" data-round-id={net?.roundId ?? 0}>
+          <div className="match-bar">
             {/* Money rides inside the score cell rather than beside it. The
                 match bar is a three-column grid with three children, and every
                 rule that thins it for a small screen or an immersive layout

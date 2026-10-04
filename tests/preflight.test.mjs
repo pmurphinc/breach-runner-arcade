@@ -938,12 +938,31 @@ test("touch HUD mirrors action geometry, renders the full queue, and keeps canva
           probe.remove();
           return measured;
         })();
+        // The top of the controls themselves, which is a different number from
+        // the top of `.touch-controls`. That element is a positioning strip
+        // `--stick` tall and each stick is anchored `bottom: 0` inside it while
+        // being taller than it is, so the strip's top edge sits a hundred
+        // pixels above anything touchable on a 390x844 phone. The shell
+        // measures this union to size the arena; so does this.
+        const deckTop = (() => {
+          let top = Infinity;
+          for (const part of document.querySelectorAll(
+            ".touch-controls .virtual-stick, .touch-controls .touch-utility button"
+          )) {
+            if (getComputedStyle(part).visibility === "hidden") continue;
+            const box = part.getBoundingClientRect();
+            if (box.width <= 0 || box.height <= 0) continue;
+            top = Math.min(top, box.top);
+          }
+          return Number.isFinite(top) ? top : null;
+        })();
         return {
           pairs,
           inset,
           canvasBottom: canvas.bottom,
           wrapBottom: wrap.bottom,
           controlsTop: controls.top,
+          deckTop,
           reservesPortraitDeck: shell?.dataset.form === "phone" && shell?.dataset.orientation === "portrait",
         };
       });
@@ -954,9 +973,19 @@ test("touch HUD mirrors action geometry, renders the full queue, and keeps canva
       }
       // Phone portrait runs the arena right down to the deck; everywhere else
       // it stops at the inside of the frame the arena is drawn within.
+      //
+      // "The deck" is the highest control, not the top of the box they are
+      // positioned in. This used to compare against `.touch-controls`, which
+      // begins 101px above the first thing a thumb can reach on a 390x844
+      // phone -- so the assertion held while the arena gave up a hundred
+      // pixels to reserve room for nothing, and broke when that was fixed.
       const intendedArenaBottom = geometry.reservesPortraitDeck
-        ? geometry.controlsTop
+        ? geometry.deckTop
         : geometry.wrapBottom - geometry.inset;
+      assert.ok(
+        !geometry.reservesPortraitDeck || geometry.deckTop !== null,
+        `${viewport.name} has no reachable control to measure the deck from`
+      );
       assert.ok(
         Math.abs(geometry.canvasBottom - intendedArenaBottom) <= 2,
         `${viewport.name} canvas misses its intended arena bottom: ${JSON.stringify(geometry)}`

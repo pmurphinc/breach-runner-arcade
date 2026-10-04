@@ -114,8 +114,26 @@ test("the spoken label still carries everything the rail dropped", () => {
 });
 
 test("the spoken label does not repeat itself either", () => {
-  // The first attempt at keeping the dropped readouts appended CONTACT a
-  // second time, reproducing the original bug in the label.
-  assert.match(rail, /const spokenContext = recharge > 0 \? ` \| SHIELD RECHARGING/);
-  assert.match(rail, /: "";/);
+  // The rail used to end with a catch-all context clause that restated
+  // whichever reading was truest. It printed CONTACT a second time at first;
+  // that was fixed by making the clause report the shield's recharge
+  // instead -- which `shieldText` already spells out word for word a few
+  // segments earlier, so a recharging shield was spoken twice in one label and
+  // this test pinned the duplicate in place while claiming to forbid it.
+  //
+  // There is no clause now, and these assert the guarantee rather than any one
+  // way of keeping it: every reading is spoken exactly once.
+  assert.doesNotMatch(rail, /spokenContext/, "no trailing catch-all clause");
+  assert.equal(
+    (rail.match(/\$\{shieldText\}/g) ?? []).length, 1,
+    "the shield is spoken once"
+  );
+  assert.equal(
+    (rail.match(/CONTACT \$\{contact\}/g) ?? []).length, 1,
+    "contact is spoken once"
+  );
+  assert.equal(
+    (rail.match(/SHIELD RECHARGING/g) ?? []).length, 0,
+    "the recharge is left to shieldText rather than restated"
+  );
 });

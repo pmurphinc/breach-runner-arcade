@@ -1,14 +1,16 @@
 /**
  * The server's copy of the rules it has to enforce.
  *
- * PvP runs Easy rules, and the server — not the browser — owns the collision
- * shield and hull maths. It therefore needs these numbers at runtime.
+ * PvP runs Easy's safety rules — the collision shield on, no contact hazard —
+ * and the server, not the browser, owns the shield and hull maths. It therefore
+ * needs those numbers at runtime. The rift is not among them: each client
+ * simulates its own arena, so where the rift sits has never been a server fact.
  *
  * This is a deliberate duplicate of `app/difficulty.ts` rather than an import:
  * the app module is TypeScript, and depending on Node's experimental type
  * stripping inside the production entry point is not a risk worth taking for a
- * handful of constants. `tests/pvp-protocol.test.mjs` asserts the two copies
- * agree numerically, so they cannot drift apart silently.
+ * handful of constants. `tests/pvp-server.test.mjs` asserts the two copies
+ * agree numerically against `PVP_RULES`, so they cannot drift apart silently.
  */
 
 /** Absorption before hull is exposed. Mirrors DIFFICULTIES.easy. */
@@ -27,9 +29,6 @@ export const COLLISION_SHIELD_RECHARGE_TICKS = 267;
 /** Uninterrupted milliseconds without collision damage before a full restore. */
 export const COLLISION_SHIELD_RECHARGE_MS =
   COLLISION_SHIELD_RECHARGE_TICKS * TICK_MS;
-
-/** PvP wormholes are locked in the centre of each arena. */
-export const WORMHOLE_MOTION = "locked";
 
 /** PvP never applies the Hard Mode contact hazard. */
 export const CONTACT_HAZARD_ENABLED = false;
