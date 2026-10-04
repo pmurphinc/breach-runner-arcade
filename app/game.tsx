@@ -3057,6 +3057,35 @@ export default function WormholeGame() {
         ? Math.max(0, wrapRect.right - systemRect.left)
         : 0;
       wrap.style.setProperty("--system-controls-width", `${Math.ceil(systemOverlap)}px`);
+
+      /*
+        The same reservation, for the menu panel's own header.
+       
+        The rules rail was given this treatment and the menu header was not, so
+        on any viewport where the panel runs full-bleed the fixed Menu and
+        Fullscreen bar landed squarely on the header's Settings gear. Measured
+        on a 900px tablet: the bar spans x 645–893 and the gear sits at 736–784,
+        entirely underneath it — `elementFromPoint` at the gear's own centre
+        returns the system button, and Settings cannot be opened from the menu
+        at all.
+       
+        Reserved from the *panel's* right edge and the *header's* vertical band,
+        never from the gear's own position, so pushing the gear left cannot
+        change the number that pushed it and the measurement settles in one
+        pass. Nothing is reserved when the two do not overlap, which is why a
+        phone — where the bar collapses to icons and the header sits below it —
+        keeps its gear flush in the corner.
+      */
+      const panelRect = document.querySelector<HTMLElement>(".menu-panel")?.getBoundingClientRect();
+      const headerRect = document.querySelector<HTMLElement>(".menu-header")?.getBoundingClientRect();
+      const headerUnderSystem = Boolean(
+        panelRect && headerRect && systemRect && systemRect.width > 0
+        && systemRect.bottom > headerRect.top && systemRect.top < headerRect.bottom,
+      );
+      const headerOverlap = headerUnderSystem && panelRect && systemRect
+        ? Math.max(0, panelRect.right - systemRect.left)
+        : 0;
+      document.documentElement.style.setProperty("--menu-system-overlap", `${Math.ceil(headerOverlap)}px`);
       wrap.style.setProperty("--rules-bottom", `${Math.max(0, bottomOf(".difficulty-badge"))}px`);
       wrap.style.setProperty("--health-bottom", `${Math.max(0, healthBottom)}px`);
       wrap.style.setProperty("--health-bars-bottom", `${Math.max(0, healthBarsBottom)}px`);

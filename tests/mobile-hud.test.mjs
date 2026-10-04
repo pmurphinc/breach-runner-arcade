@@ -29,7 +29,7 @@ async function loadPlaywright() {
   return null;
 }
 
-import { LAUNCH_CONTROL, launchSeededRun, seedRun } from "./browser-launch.mjs";
+import { LAUNCH_CONTROL, launchSeededRun, railLabel, seedRun } from "./browser-launch.mjs";
 
 const playwright = await loadPlaywright();
 const skip = playwright ? false : "playwright is not installed";
@@ -370,7 +370,11 @@ test("phone landscape keeps its HUD shallow without dropping a readout", { skip,
     for (const { name, width, height, insets } of cases) {
       const { context, page } = await openArena(browser, { width, height, insets });
       const layout = await readLayout(page);
-      const badge = (await page.locator(".difficulty-badge").innerText()).replace(/\s+/g, " ");
+      // Read from the rail's accessible label. The visible rail carries the
+      // score as six padded digits without the word -- "SCORE" costs as much
+      // room as two of them -- and the label is where the redesign kept every
+      // fact it took off the rail in words.
+      const badge = await railLabel(page);
       await context.close();
 
       assert.equal(layout.orientation, "landscape", `${name}: expected a landscape layout`);
@@ -387,9 +391,13 @@ test("phone landscape keeps its HUD shallow without dropping a readout", { skip,
         `${name}: HUD takes ${Math.round((layout.hudBottom / usable) * 100)}% of the usable height`
       );
 
-      // Shallower by compression, not by deletion.
+      // Shallower by compression, not by deletion -- with one deletion that
+      // was the point of the exercise. The clock came off the rail everywhere
+      // except Rift Survival, where time survived *is* the score; in an
+      // ordinary run it was a number nobody was playing for. Everything else
+      // the rail carried is still carried.
       assert.match(badge, /SCORE/, `${name}: score left the HUD`);
-      assert.match(badge, /TIME/, `${name}: time left the HUD`);
+      assert.doesNotMatch(badge, /\bTIME\b/, `${name}: the clock is only for runs ranked on it`);
       assert.match(badge, /PVE|CO-OP|VERSUS|SURVIVAL/i, `${name}: mode left the HUD`);
       assert.ok(layout.bands.health, `${name}: hull/rival rails left the HUD`);
       assert.ok(layout.bands.inventory, `${name}: the power-up inventory left the HUD`);
