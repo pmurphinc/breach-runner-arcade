@@ -2219,12 +2219,14 @@ function DifficultyBadge({
   // recharge is already the second fill on the hull bar, so the whole line
   // said nothing that was not said better elsewhere. It survives only in the
   // spoken label, where a reader has no bar to look at.
-  // Only the part `status` does not already say. Repeating CONTACT here is how
-  // the visible rail ended up printing it twice in the first place.
-  const spokenContext = recharge > 0 ? ` | SHIELD RECHARGING ${recharge.toFixed(1)}s` : "";
+  // No trailing context clause. It used to append the shield's recharge, which
+  // `shieldText` already spells out word for word a few segments earlier -- so
+  // a recharging shield was spoken twice in one label, the same fault the note
+  // above describes CONTACT having had. Every state the clause could report is
+  // in `status` already.
   const status = activeMode === "classic"
     ? `CLASSIC | KILLS ${live ? hud.kills : 0} | RIFT ${wormhole}${upgrades ? ` | ${upgrades}` : ""}`
-    : `${gameMode} · ${difficulty}${riftLevel > 0 ? ` | RIFT LEVEL ${riftLevel} · ${riftStage}` : ""} | RIFT ${wormhole} | ${shieldText} | CONTACT ${contact}${hud.riftPressure > 2 ? ` | RIFT PRESSURE ${hud.riftPressure}%` : ""}${live && hud.enrageActive ? " | ENRAGED" : ""}${spokenContext}`;
+    : `${gameMode} · ${difficulty}${riftLevel > 0 ? ` | RIFT LEVEL ${riftLevel} · ${riftStage}` : ""} | RIFT ${wormhole} | ${shieldText} | CONTACT ${contact}${hud.riftPressure > 2 ? ` | RIFT PRESSURE ${hud.riftPressure}%` : ""}${live && hud.enrageActive ? " | ENRAGED" : ""}`;
 
   if (riftRun?.status === "active") {
     const active = activeHardpointCount(riftRun);
@@ -3473,15 +3475,6 @@ export default function WormholeGame() {
     };
     (window as unknown as { __breachRunnerPilot?: typeof probe }).__breachRunnerPilot = probe;
     return () => { delete (window as unknown as { __breachRunnerPilot?: typeof probe }).__breachRunnerPilot; };
-  }, []);
-
-  /* The two-browser lifecycle test ends a real server-owned PvP round without
-     depending on random arena collisions. Production builds omit this hook. */
-  useEffect(() => {
-    if (process.env.NODE_ENV === "production") return;
-    const damage = () => netRef.current?.reportDamage("impact", 50, "hostile_projectile");
-    window.addEventListener("breach-runner:test-pvp-damage", damage);
-    return () => window.removeEventListener("breach-runner:test-pvp-damage", damage);
   }, []);
 
   /* Spawn notices are wave-timed, so tests ask for one rather than waiting out
@@ -9344,13 +9337,20 @@ export default function WormholeGame() {
 
         <section
           className="play-column"
+          // Which round the live arena is running, published on the play
+          // surface itself. It used to ride on the match bar, which the modern
+          // HUD hides on every device: an attribute still reads correctly off a
+          // hidden element, so the only consumer kept working and kept a dead
+          // selector alive. The play column is drawn in every mode and on every
+          // device, so this is where a round id can be trusted.
+          data-round-id={net?.roundId ?? 0}
           // The whole live play surface owns the secondary mouse button, not
           // just the canvas. Keeping this on the gameplay column covers its
           // HUD and controls while leaving menus and the rest of the page with
           // the browser's normal context menu.
           onContextMenu={(event) => event.preventDefault()}
         >
-          <div className="match-bar" data-round-id={net?.roundId ?? 0}>
+          <div className="match-bar">
             {/* Money rides inside the score cell rather than beside it. The
                 match bar is a three-column grid with three children, and every
                 rule that thins it for a small screen or an immersive layout

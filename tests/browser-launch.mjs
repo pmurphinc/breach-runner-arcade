@@ -126,6 +126,113 @@ export async function railScore(page) {
 }
 
 /**
+ * The live vitals, read from the rails the pilot can actually see.
+ *
+ * The wide match bar above the arena and the `.status-dock` beside it are both
+ * `display: none` under the modern HUD -- every mode profile sets `modernHud`,
+ * so that is every device. The markup is still rendered, which is the trap:
+ * `innerText` on an element that is not being rendered falls back to
+ * `textContent` per spec, so a test reading the old selectors gets text back
+ * and only *looks* like it is reading the HUD. What it gets is the concatenation
+ * with no separators between the spans, so `HULL 280/280 SHIELD 100%` arrives as
+ * `HULL 280/280SHIELD 100%` and the assertion fails on a space.
+ *
+ * What is drawn now is two vertical rails flanking the ship: hull and shield on
+ * the left, the opponent or the rival on the right. These read them.
+ */
+export const HEALTH_RAILS = ".health-rails";
+export const PILOT_RAIL = ".health-rail.pilot-rail";
+export const RIVAL_RAIL = ".health-rail.rival-rail";
+
+/**
+ * The opponent rail, in PvP specifically.
+ *
+ * Both modes draw a right-hand rail; only PvP labels it OPPONENT, because
+ * rival integrity is the PvE objective and decides nothing in a match. Matching
+ * on the word is therefore how a test waits for *a PvP arena* to go live rather
+ * than for any arena at all -- which is what the old `.match-bar .rival.pvp`
+ * meant before the bar was hidden.
+ */
+export const PVP_RIVAL_RAIL = `${RIVAL_RAIL}:has-text("OPPONENT")`;
+
+const collapse = (text) => (text ?? "").replace(/\s+/g, " ").trim().toUpperCase();
+
+/** `HULL 280/280 SHIELD 100% READY` -- the pilot rail's two labels. */
+export async function vitals(page) {
+  return collapse(await page.locator(PILOT_RAIL).first().innerText());
+}
+
+/** `HULL 280/280` on its own, for comparing one sample against another. */
+export async function hullReadout(page) {
+  return collapse(await page.locator(`${PILOT_RAIL} span`).first().innerText());
+}
+
+/** `SHIELD 100% READY` / `SHIELD 62% RECHARGING` / `SHIELD DISABLED`. */
+export async function shieldReadout(page) {
+  return collapse(await page.locator(`${PILOT_RAIL} small`).first().innerText());
+}
+
+/** `OPPONENT 170` in PvP, `RIVAL 120/120` elsewhere. */
+export async function rivalReadout(page) {
+  return collapse(await page.locator(RIVAL_RAIL).first().innerText());
+}
+
+/**
+ * The collision shield, which is the shield a match's server actually owns.
+ *
+ * There are two shields and they are easy to confuse. `hud.shield` is the
+ * *power-up* shield -- a timer a pilot picks up off the floor, zero at the
+ * start of every run -- and it is what the pilot rail's second line reports.
+ * The collision shield is the ruleset's own damage absorber, it starts full,
+ * and in a match the server holds it. Only the second one is a server fact, so
+ * only the second one belongs in a test about server authority.
+ *
+ * It has no visible readout: the rail was cut back and the shield became the
+ * second fill on the hull bar, which is a bar rather than a number. The spoken
+ * label is where it is still stated in words.
+ */
+export async function collisionShield(page) {
+  const match = /\| (SHIELD [^|]*)/.exec(await railLabel(page));
+  return (match ? match[1] : "").trim();
+}
+
+/**
+ * The round id the live arena is running.
+ *
+ * Published on the play surface rather than on the match bar: the bar is hidden
+ * markup, and an attribute is the one thing that still reads correctly off a
+ * hidden element, which is exactly the kind of accident that keeps a dead
+ * selector alive for another year.
+ */
+export async function roundId(page) {
+  return Number(await page.locator(".play-column").first().getAttribute("data-round-id"));
+}
+
+/**
+ * Wait until a match is genuinely live.
+ *
+ * Not something a selector can express. The lobby is a screen drawn *over* the
+ * play surface rather than instead of it, so the arena, the rails and the rules
+ * badge all exist and are visible from the moment PvP is chosen -- showing the
+ * pilot's menu ship at full hull, the opponent as a dash, and the pending rules
+ * rather than the match's. A test that waits for a rail therefore does not wait
+ * at all, and then reads the lobby's placeholder numbers as though the server
+ * had sent them. That is how this suite came to assert a hull the match never
+ * had.
+ *
+ * The round id is the server's own answer: zero until it starts one.
+ */
+export async function waitForLiveRound(page, { timeout = 30_000 } = {}) {
+  await page.waitForFunction(
+    () =>
+      !document.querySelector(".lobby")
+      && Number(document.querySelector(".play-column")?.dataset.roundId ?? 0) > 0,
+    null,
+    { timeout },
+  );
+}
+
+/**
  * Where the ship actually is, in world units.
  *
  * Read from the development-only probe the shell installs rather than from the

@@ -27,7 +27,18 @@ async function loadPlaywright() {
   return null;
 }
 
-import { openModeScreen, seedRun } from "./browser-launch.mjs";
+import {
+  openModeScreen,
+  seedRun,
+  railLabel,
+  collisionShield,
+  HEALTH_RAILS,
+  vitals,
+  hullReadout,
+  rivalReadout,
+  roundId,
+  waitForLiveRound,
+} from "./browser-launch.mjs";
 
 const playwright = await loadPlaywright();
 const skip = playwright ? false : "playwright is not installed";
@@ -136,38 +147,45 @@ test("two guests play a PvP match end to end", { skip, timeout: 240_000 }, async
       "ships must lock once the countdown starts"
     );
 
-    // Both arenas go live on the server's timing.
-    await Promise.all([
-      alpha.waitForSelector(".match-bar .rival.pvp", { timeout: 30_000 }),
-      bravo.waitForSelector(".match-bar .rival.pvp", { timeout: 30_000 }),
-    ]);
-    const firstRoundId = Number(await alpha.locator(".match-bar").getAttribute("data-round-id"));
-    const alphaOpponent = (await alpha.locator(".match-bar .rival.pvp").innerText()).split("\n")[0];
-    const bravoOpponent = (await bravo.locator(".match-bar .rival.pvp").innerText()).split("\n")[0];
+    // Both arenas go live on the server's timing, and nothing on screen says so
+    // -- see `waitForLiveRound`.
+    await Promise.all([waitForLiveRound(alpha), waitForLiveRound(bravo)]);
+    const firstRoundId = await roundId(alpha);
+    // Each pilot's view of the *other* ship, captured at full hull. The second
+    // round asserts against these: the ships are locked for the session, so a
+    // relaunch has to show the same two hulls restored.
+    const alphaOpponent = await rivalReadout(alpha);
+    const bravoOpponent = await rivalReadout(bravo);
+
+    // Each pilot flies the hull their own lobby confirmed, at the full health
+    // the server issued it -- not the ship the menu last remembered, which is
+    // what the placeholder arena behind the lobby was showing a moment ago.
+    assert.match(await vitals(alpha), /HULL 280\/280/, "tank hull comes from the server");
+    assert.match(await vitals(bravo), /HULL 170\/170/, "squid hull comes from the server");
+    assert.equal(alphaOpponent, "OPPONENT 170", "alpha is shown the squid's hull");
+    assert.equal(bravoOpponent, "OPPONENT 280", "bravo is shown the tank's hull");
+    // The shield the server holds, full at the start of a round.
+    assert.equal(await collisionShield(alpha), "SHIELD FULL");
 
     assert.match(
-      (await alpha.locator(".vitals").innerText()).replace(/\s+/g, " "),
-      /HULL 280\/280 SHIELD 100%/,
-      "tank hull and shield come from the server"
-    );
-    assert.match(
-      (await alpha.locator(".match-bar .rival.pvp").innerText()).replace(/\s+/g, " "),
-      /OPPONENT HULL 170/,
-      "squid hull comes from the server"
-    );
-
-    assert.match(
-      (await alpha.locator(".difficulty-badge").innerText()).replace(/\s+/g, " "),
-      // Same guarantee, current vocabulary: the badge says RIFT rather than
-      // WORMHOLE and reports contact as SAFE rather than OFF.
-      /PVP · STABLE RIFT LOCKED SHIELD FULL CONTACT SAFE/,
-      "PvP runs internally easy / player-facing Stable rules with a centred rift and no contact hazard"
+      await railLabel(alpha),
+      // Same guarantee, current vocabulary and current rules. The badge says
+      // RIFT rather than WORMHOLE and reports contact as SAFE rather than OFF;
+      // the rift MOVES, because `PVP_RULES` deliberately gives Easy's safety
+      // rules an orbiting rift -- a locked one is a stationary objective, which
+      // reduces a duel to who can hold one angle longest.
+      //
+      // Read from the rail's spoken label: the visible rail was cut back to the
+      // score and the money, and every rule it used to print lives in the label
+      // now.
+      /PVP · STABLE \| RIFT MOVING \| SHIELD FULL \| CONTACT SAFE/,
+      "PvP flies Stable's collision shield and no contact hazard, with an orbiting rift"
     );
 
     // The PvE rival objective must not appear as a second victory condition.
-    const matchBar = await alpha.locator(".match-bar").innerText();
-    assert.doesNotMatch(matchBar, /RIVAL INTEGRITY/, "rival integrity has no place in PvP");
-    assert.match(matchBar, /OPPONENT HULL/, "PvP is decided by opponent hull");
+    const rails = await alpha.locator(HEALTH_RAILS).innerText();
+    assert.doesNotMatch(rails, /RIVAL/, "rival integrity has no place in PvP");
+    assert.match(rails, /OPPONENT/, "PvP is decided by opponent hull");
 
     // P must not pause a live match. It opens the same pause screen every mode
     // uses, which says so rather than pretending the world stopped.
@@ -200,9 +218,16 @@ test("two guests play a PvP match end to end", { skip, timeout: 240_000 }, async
     // Leaving is named for a match rather than a solo run, and the actions a
     // live match can legitimately offer are still present.
     assert.ok(livePause.includes("LEAVE MATCH"), "a live match leaves rather than quits a run");
-    for (const action of ["RESUME", "SETTINGS", "GAME INFO", "LEADERBOARD"]) {
+    for (const action of ["RESUME", "GAME INFO", "LEADERBOARD"]) {
       assert.ok(livePause.includes(action), `live pause is missing ${action}`);
     }
+    // Settings is the gear in every screen's header rather than a row in the
+    // list, so it is reached by its accessible name and not by the word.
+    assert.equal(
+      await alpha.getByRole("button", { name: "Open settings" }).count(),
+      1,
+      "live pause must still reach Settings"
+    );
 
     // Resume before flying again: an open menu owns the keyboard, so movement
     // keys must not reach the ship behind it.
@@ -211,31 +236,44 @@ test("two guests play a PvP match end to end", { skip, timeout: 240_000 }, async
     await alpha.waitForTimeout(300);
 
     // Collisions spend the server-held shield before any hull is lost.
-    const hullOf = () => alpha.locator(".vitals span").filter({ hasText: "HULL" }).innerText();
-    const startHull = await hullOf();
+    const startHull = await hullReadout(alpha);
     await alpha.keyboard.down("ArrowUp");
-    await alpha.waitForFunction(
-      () => !/SHIELD\s+100%/.test(document.querySelector(".vitals")?.textContent ?? "SHIELD 100%"),
-      null, { timeout: 20_000 }
-    );
-    const shieldLine = await alpha.locator(".vitals span").filter({ hasText: "SHIELD" }).innerText();
-    const hullAfter = await hullOf();
+    // Polled rather than waited on: the shield has no readout of its own to
+    // watch, only the words in the rail's spoken label.
+    let shieldLine = "SHIELD FULL";
+    const deadline = Date.now() + 20_000;
+    while (Date.now() < deadline) {
+      shieldLine = await collisionShield(alpha);
+      if (shieldLine !== "SHIELD FULL") break;
+      await alpha.waitForTimeout(200);
+    }
+    const hullAfter = await hullReadout(alpha);
     await alpha.keyboard.up("ArrowUp");
 
     assert.equal(hullAfter, startHull, "hull must be untouched while the shield absorbs");
-    assert.doesNotMatch(shieldLine, /SHIELD 100%/, "the shield should have taken the hit");
+    assert.notEqual(shieldLine, "SHIELD FULL", "the shield should have taken the hit");
 
-    // Deterministically destroy BRAVO through the same client report and
-    // authoritative server damage path used by arena impacts.
-    for (let hit = 0; hit < 5; hit += 1) {
-      await bravo.evaluate(() => window.dispatchEvent(new Event("breach-runner:test-pvp-damage")));
-      await bravo.waitForTimeout(300);
+    // Destroy BRAVO with the arena itself: hold thrust into a wall and let the
+    // ship grind against it. Every impact is reported by bravo's own client and
+    // resolved by the server, which spends the shield, then the hull, then ends
+    // the round -- the whole path a real match ends through.
+    //
+    // This used to fire a development-only `breach-runner:test-pvp-damage`
+    // event instead, and that could never have worked here: the hook is guarded
+    // by `process.env.NODE_ENV === "production"`, which is baked into the client
+    // bundle at build time, and this is the one suite that boots the *built*
+    // server. The event was dispatched into a page that had no listener for it,
+    // five times, and the round simply carried on. Steady 6 hull a second
+    // against a 170-hull squid, so a little over thirty seconds.
+    await bravo.keyboard.down("ArrowUp");
+    try {
+      await Promise.all([
+        alpha.waitForSelector(".lobby .last-round", { timeout: 90_000 }),
+        bravo.waitForSelector(".lobby .last-round", { timeout: 90_000 }),
+      ]);
+    } finally {
+      await bravo.keyboard.up("ArrowUp");
     }
-
-    await Promise.all([
-      alpha.waitForSelector(".lobby .last-round", { timeout: 20_000 }),
-      bravo.waitForSelector(".lobby .last-round", { timeout: 20_000 }),
-    ]);
     assert.match(await alpha.locator(".last-round strong").innerText(), /VICTORY/);
     assert.match(await bravo.locator(".last-round strong").innerText(), /DEFEAT/);
     assert.doesNotMatch(await alpha.locator(".last-round").innerText(), /TEAM SCORE/);
@@ -257,14 +295,12 @@ test("two guests play a PvP match end to end", { skip, timeout: 240_000 }, async
       alpha.waitForSelector(".launch-countdown", { timeout: 15_000 }),
       bravo.waitForSelector(".launch-countdown", { timeout: 15_000 }),
     ]);
-    await Promise.all([
-      alpha.waitForSelector(".match-bar .rival.pvp", { timeout: 30_000 }),
-      bravo.waitForSelector(".match-bar .rival.pvp", { timeout: 30_000 }),
-    ]);
-    const secondRoundId = Number(await alpha.locator(".match-bar").getAttribute("data-round-id"));
+    await Promise.all([waitForLiveRound(alpha), waitForLiveRound(bravo)]);
+    const secondRoundId = await roundId(alpha);
     assert.ok(secondRoundId > firstRoundId, "the next launch has a new round id");
-    assert.equal((await alpha.locator(".match-bar .rival.pvp").innerText()).split("\n")[0], alphaOpponent);
-    assert.equal((await bravo.locator(".match-bar .rival.pvp").innerText()).split("\n")[0], bravoOpponent);
+    // Same two ships, hulls restored by the server for the new round.
+    assert.equal(await rivalReadout(alpha), alphaOpponent);
+    assert.equal(await rivalReadout(bravo), bravoOpponent);
 
     assert.deepEqual(errors, [], "no console errors in either browser");
   } finally {
